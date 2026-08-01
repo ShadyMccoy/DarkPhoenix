@@ -64,48 +64,56 @@ describe("LossMeter (residual line items)", () => {
   // leaving a tombstone that is still standing - so if recovery is ever built
   // out, this number self-corrects instead of needing a rewrite.
   // -----------------------------------------------------------------------
-  it("books a tombstone's energy as LOST the moment it is first seen", () => {
+  it("books a tombstone's energy as LOST the moment it APPEARS", () => {
+    sampleRoomLosses(census(), 90); // baseline: the room, with no tombstones
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 500 }] }), 100);
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 490 }] }), 110);
     const r = lossReport(110);
-    // Counted once, at first sight - not again on every sample it survives.
-    expect(r.tombstoneLost).to.be.closeTo(40, 1e-9);
+    // Counted once, on appearance - not again on every sample it survives.
+    expect(r.tombstoneLost * 20).to.be.closeTo(400, 1e-9);
     expect(r.tombstoneRecovered).to.equal(0);
   });
 
   it("counts it as lost even when it vanishes with life to spare", () => {
     // The old rule guessed "gone early => somebody looted it". With no reliable
     // recovery that guess understates, which is the failure mode that matters.
+    sampleRoomLosses(census(), 90);
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 500 }] }), 100);
     sampleRoomLosses(census({ tombstones: [] }), 110);
-    expect(lossReport(110).tombstoneLost).to.be.closeTo(40, 1e-9);
+    expect(lossReport(110).tombstoneLost * 20).to.be.closeTo(400, 1e-9);
   });
 
   it("CREDITS back only witnessed recovery - energy leaving a standing tombstone", () => {
+    sampleRoomLosses(census(), 90);
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 300 }] }), 100);
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 100, ticksToDecay: 290 }] }), 110);
     const r = lossReport(110);
-    expect(r.tombstoneRecovered).to.be.closeTo(300 / 10, 1e-9);
+    expect(r.tombstoneRecovered * 20).to.be.closeTo(300, 1e-9);
     // Net loss is the 100 that never came back.
-    expect(r.tombstoneLost).to.be.closeTo(100 / 10, 1e-9);
+    expect(r.tombstoneLost * 20).to.be.closeTo(100, 1e-9);
   });
 
   it("nets to ZERO when a tombstone is fully recovered", () => {
+    sampleRoomLosses(census(), 90);
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 300 }] }), 100);
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 0, ticksToDecay: 290 }] }), 110);
     expect(lossReport(110).tombstoneLost).to.be.closeTo(0, 1e-9);
   });
 
   it("never books the same tombstone twice, however long it stands", () => {
+    sampleRoomLosses(census(), 90);
     for (const t of [100, 110, 120, 130]) {
       sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 500 }] }), t);
     }
-    expect(lossReport(130).tombstoneLost * 30).to.be.closeTo(400, 1e-9);
+    expect(lossReport(130).tombstoneLost * 40).to.be.closeTo(400, 1e-9);
   });
 
-  it("carries the CURRENT tombstone stock as its own figure (energy still at risk)", () => {
+  it("carries the CURRENT tombstone stock as its own figure, backlog included", () => {
+    // Stock is a LEVEL - it shows the standing backlog even though the backlog
+    // is never charged as a rate. Both facts matter and they are separate.
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 50 }] }), 100);
     expect(lossReport(100).tombstoneStock).to.equal(400);
+    expect(lossReport(100).tombstoneLost).to.equal(0);
   });
 
   /**
@@ -115,12 +123,13 @@ describe("LossMeter (residual line items)", () => {
    * loss spike every time a scout died.
    */
   it("does NOT count losses in a room it simply stopped seeing", () => {
+    sampleRoomLosses(census(), 90);
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 2 }] }), 100);
     sampleRoomLosses(census({ room: "W2N2", tombstones: [] }), 110); // a DIFFERENT room
     const r = lossReport(110);
-    // W1N1's tombstone was booked at first sight (400e over the window); what
-    // must NOT happen is a second charge because the room went dark.
-    expect(r.tombstoneLost * 10).to.be.closeTo(400, 1e-9);
+    // W1N1's tombstone was booked when it appeared (400e); what must NOT happen
+    // is a second charge because the room went dark.
+    expect(r.tombstoneLost * 20).to.be.closeTo(400, 1e-9);
     expect(r.tombstoneRecovered).to.equal(0);
   });
 
@@ -146,5 +155,41 @@ describe("LossMeter (residual line items)", () => {
     const r = lossReport(5000);
     expect(r.windowTicks).to.equal(0);
     expect(r.pileDecay).to.equal(0);
+  });
+
+  /**
+   * THE RESET SPIKE I SHIPPED (found in the t72721419 account, 2026-08-01).
+   *
+   * "Book at first sight" is right for a tombstone that APPEARS during the
+   * window, and wrong for the standing stock at window start: those creeps died
+   * before the meter existed, so charging them makes a rate out of a backlog.
+   * Live, 1596e of standing tombstones re-booked on the deploy's global reset -
+   * 2.85 e/t of the 12.21 e/t reported, ~23% phantom. Every deploy did it
+   * again.
+   *
+   * The prior reset test only checked the COUNTERS re-based; it never sampled a
+   * room afterwards, so it could not see this.
+   */
+  it("does NOT charge the tombstones already standing when the window opens", () => {
+    // First sighting of a room establishes the baseline; the 900e standing
+    // there predates the meter and is somebody else's window.
+    sampleRoomLosses(census({ tombstones: [{ id: "old", energy: 900, ticksToDecay: 400 }] }), 100);
+    sampleRoomLosses(census({ tombstones: [{ id: "old", energy: 900, ticksToDecay: 390 }] }), 110);
+    expect(lossReport(110).tombstoneLost).to.equal(0);
+  });
+
+  it("DOES charge a tombstone that appears after the baseline", () => {
+    sampleRoomLosses(census({ tombstones: [{ id: "old", energy: 900, ticksToDecay: 400 }] }), 100);
+    sampleRoomLosses(
+      census({
+        tombstones: [
+          { id: "old", energy: 900, ticksToDecay: 390 },
+          { id: "new", energy: 300, ticksToDecay: 400 }
+        ]
+      }),
+      110
+    );
+    // Only the newcomer is a loss inside this window.
+    expect(lossReport(110).tombstoneLost).to.be.closeTo(30, 1e-9);
   });
 });

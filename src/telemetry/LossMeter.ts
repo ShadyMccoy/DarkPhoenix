@@ -27,7 +27,9 @@
  * the stock - but every one of them needs a creep already standing beside the
  * tombstone, so a hauler that dies mid-route in a remote room is simply gone.
  *
- * The energy is therefore booked as LOST at FIRST SIGHT, not at disappearance.
+ * The energy is therefore booked as LOST at FIRST SIGHT (of a tombstone that
+ * APPEARS during the window - a room's first sample is a baseline, never a
+ * charge, or the standing backlog becomes a phantom rate), not at disappearance.
  * That needs no theory about why a tombstone vanished (the earlier rule guessed
  * "gone early => somebody looted it", which understates exactly when it matters)
  * and it survives the sample stride - a short-lived tombstone seen once is still
@@ -156,13 +158,20 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
   }
 
   // --- tombstones: book at FIRST SIGHT, credit only witnessed recovery ---
+  //
+  // A room's FIRST sample is a baseline, never a charge. The tombstones already
+  // standing when the window opens are a BACKLOG - those creeps died before the
+  // meter existed - and booking them makes a rate out of a stock. Measured
+  // live t72721419: 1596e of standing tombstones re-booked on the deploy's
+  // global reset, 2.85 of the 12.21 e/t reported (~23% phantom), and every
+  // deploy did it again.
   const now = new Map<string, number>();
   for (const t of census.tombstones) {
     now.set(t.id, t.energy);
-    if (!bookedTombs.has(t.id)) {
-      bookedTombs.add(t.id);
-      if (t.energy > 0) totals.tombstoneGross += t.energy;
-    }
+    if (bookedTombs.has(t.id)) continue;
+    bookedTombs.add(t.id);
+    // `prev` absent = this room's baseline sample; adopt without charging.
+    if (prev && t.energy > 0) totals.tombstoneGross += t.energy;
   }
 
   if (prev) {

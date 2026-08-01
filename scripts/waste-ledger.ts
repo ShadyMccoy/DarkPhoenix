@@ -52,6 +52,12 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  * 1: energy account (revenue / direct / overhead / appropriations / residual),
  *    budget-vs-actual-vs-variance, source P&L, controller variance bridge,
  *    ground rot split, capital vs operating, reserving as COGS.
+ * 3: revenue is MINED, not capacity - the miners' own heldFrac stamps price the
+ *    capacity a buffer-full gate forgoes (30.28 e/t of 100 at t72721419), which
+ *    #2 booked as income. Plus a WINDOW COHERENCE guard: the residual is a
+ *    difference of rates drawn from three different windows (capture pair,
+ *    blackbox ring, loss meter) and is flagged untrustworthy when they diverge
+ *    more than 2x. A #2 residual sits on inflated revenue; a #3 one does not.
  * 2: the residual is SPLIT into line items (core v20 loss meter): ground pile
  *    decay by the engine's own ceil rule (superseding #1's summed-pile
  *    estimate, which missed the per-pile ceiling and saw only source-adjacent
@@ -61,7 +67,7 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
  *    the newly-attributed losses.
  */
-export const METHODOLOGY = 2;
+export const METHODOLOGY = 3;
 
 export interface LedgerRow {
   id: string;
@@ -1892,7 +1898,24 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const bank = (c: any): number =>
     (c.data.core.rooms ?? []).reduce((s: number, r: any) => s + (r.storageEnergy ?? 0), 0);
 
-  const grossPlan = ((cap.data.flow?.sources ?? []) as any[]).reduce((n, s) => n + (+s.harvestRate || 0), 0);
+  const grossCapacity = ((cap.data.flow?.sources ?? []) as any[]).reduce((n, s) => n + (+s.harvestRate || 0), 0);
+  // FORGONE MINING (methodology #3). Revenue was booked at the plan's RESERVED
+  // CAPACITY - what the sources COULD yield - and that is falsified by the
+  // miners' own decision stamps. A miner whose buffer is full stops harvesting:
+  // `heldFrac` is the share of the window its E6 gate held it, stamped at the
+  // decision site, so `rate * heldFrac` is capacity that was never mined at all.
+  //
+  // Measured t72721419: four ops CHRONICALLY buffer-full (heldFrac 0.97, 0.94,
+  // 0.55, 0.28), summing to 3.03 source-equivalents = 30.28 e/t of the nominal
+  // 100 never harvested. Booking that as revenue inflated every line below it
+  // and was a large part of why the residual went NEGATIVE (over-attributed) as
+  // soon as the loss meter gave the account real costs to subtract.
+  const harvestCorps = ((cap.data.corps?.corps ?? []) as any[]).filter(c => c.kind === "harvest");
+  const heldFracSum = harvestCorps.reduce((n, c) => n + Math.min(1, Math.max(0, +c.sizing?.heldFrac || 0)), 0);
+  const sourceRate = harvestCorps.length > 0 ? grossCapacity / harvestCorps.length : 0;
+  const forgone = heldFracSum * sourceRate;
+  const forgoneKnown = harvestCorps.some(c => c.sizing?.heldFrac !== undefined);
+  const grossPlan = Math.max(0, grossCapacity - (forgoneKnown ? forgone : 0));
   // GROUND ROT (v19): dropped energy loses ceil(amount/1000) per tick; container
   // energy keeps. Averaged across the window's two endpoints - the piles move
   // slowly relative to the window, and the endpoints are all we sample.
@@ -2012,12 +2035,43 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     return `${" ".repeat(indent)}${label.padEnd(38 - indent)}${b.padStart(9)}${actual.toFixed(2).padStart(10)}${v.padStart(11)}`;
   };
   return [
-    `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ring ${ring}t)  [methodology #${METHODOLOGY}]`,
+    `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ring ${ring}t${
+      meter ? `; loss meter ${meter.windowTicks}t` : ""
+    })  [methodology #${METHODOLOGY}]`,
+    // WINDOW COHERENCE (methodology #3). The residual is a DIFFERENCE of rates,
+    // so it is only meaningful when the rates describe the same stretch of time.
+    // Revenue/bank/controller come from the capture window; every "measured at
+    // the spawn" line comes from the blackbox ring; the loss lines come from the
+    // meter's own window. A deploy restarts the ring and the meter but not the
+    // capture pair, so an hour of deploys leaves the short windows sampling a
+    // post-reset rebuild while the long one averages steady state - and their
+    // difference is then an artifact, not a finding.
+    //
+    // Measured t72721419: window 2417t against a 565t ring and a 559t meter -
+    // 4.3x - and the residual came out at -25.10, i.e. 25% of gross mining
+    // OVER-attributed. That is what prompted this check.
+    ...(() => {
+      const shortest = Math.min(ring || dt, meter ? meter.windowTicks : dt);
+      const spread = shortest > 0 ? dt / shortest : Infinity;
+      if (spread <= 2) return [];
+      return [
+        `  !! WINDOW INCOHERENCE ${spread.toFixed(1)}x - the residual below is NOT trustworthy.`,
+        `     Revenue/bank/controller span ${dt}t; measured costs and losses span as little as ${shortest}t.`,
+        "     The residual is their DIFFERENCE, so it inherits the mismatch. Recapture once the",
+        "     short windows have caught up (they restart on every deploy) before reading it as a leak."
+      ];
+    })(),
     `${" ".repeat(38)}${"BUDGET".padStart(9)}${"ACTUAL".padStart(10)}${"VARIANCE".padStart(11)}`,
     "  REVENUE",
-    L("gross mining (reserved rate)", grossPlan, 4, grossPlan),
+    L("mining capacity (reserved rate)", grossCapacity, 4, grossCapacity),
+    ...(forgoneKnown
+      ? [
+          L("- forgone (miners held, buffer full)", -forgone, 4, 0, "cost"),
+          L("= gross mining", grossPlan, 4, grossCapacity)
+        ]
+      : []),
     L("+ pile drawdown / (build-up)", -pileDelta, 4),
-    L("= delivered into the economy", delivered, 4, grossPlan),
+    L("= delivered into the economy", delivered, 4, grossCapacity),
     "  DIRECT COST OF MINING (measured at the spawn)",
     L("extraction  (miner)", -perTick(cost.extraction), 4, -bExtract, "cost"),
     L("evacuation  (hauler)", -perTick(cost.evacuation), 4, -bEvac, "cost"),

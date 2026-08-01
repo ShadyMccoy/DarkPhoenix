@@ -555,3 +555,58 @@ Two things the memo makes visible for the first time:
 
 **A #1 residual and a #2 residual are not comparable** — #2 is smaller by
 exactly the newly-attributed losses. That is what the methodology stamp is for.
+
+## Methodology #3 (2026-08-01, cycle t72721419) — the meter falsified the account
+
+Splitting the residual worked, and the first thing it did was break the account.
+The residual went **+31.69 (under-attributed) → −25.10 (OVER-attributed)**: 25%
+of gross mining more loss than the identity had room for. A residual can be
+large and still honest; it cannot be *negative*, so an input was wrong.
+
+Three causes, all now named, two fixed here.
+
+### 1. Revenue was CAPACITY, and the miners' own stamps say otherwise
+
+`gross mining` was the plan's reserved capacity — what the sources *could*
+yield. But a miner whose buffer is full **stops harvesting**, and that decision
+is already stamped: `heldFrac` is the share of the window E6's gate held it.
+
+```
+t72721419   cd8e heldFrac 0.972   cd8d 0.555   cee0 0.282   d01f 0.936
+            Σ heldFrac 3.03 source-equivalents = 30.28 e/t of 100 never mined
+```
+
+Revenue now reads `mining capacity − forgone = gross mining`. This was the
+largest single error in the account, and it had been there since methodology #1
+— invisible until the loss meter gave the identity real costs to subtract. The
+line is omitted entirely on captures whose stamps carry no `heldFrac`, rather
+than printing a fabricated zero.
+
+### 2. The residual is a difference of rates from THREE different windows
+
+Revenue, bank and controller come from the capture pair. Every "measured at the
+spawn" line comes from the blackbox ring. The loss lines come from the meter's
+own window. **A deploy restarts the ring and the meter but not the capture
+pair**, so an hour of deploys leaves the short windows sampling a post-reset
+rebuild while the long one averages steady state — and their difference is an
+artifact.
+
+Measured: window 2417t against a 565t ring and a 559t meter, a **4.3× spread**.
+The account now prints all three windows and refuses to vouch for the residual
+past 2×.
+
+### 3. A reset spike in the meter I had just shipped
+
+"Book at first sight" is right for a tombstone that APPEARS during the window
+and wrong for the standing stock at window start: those creeps died before the
+meter existed, so charging them makes a rate out of a backlog. Live, 1596e of
+standing tombstones re-booked on the deploy's global reset — **2.85 of the
+12.21 e/t reported, ~23% phantom** — and every deploy did it again.
+
+Fixed: a room's first sample is a baseline, never a charge. The previous reset
+test only checked that the counters re-based; it never sampled a room
+afterwards, so it could not see this. `tombstoneStock` still shows the standing
+backlog, because the level and the flow are different facts.
+
+**A #2 residual sits on inflated revenue; a #3 one does not. They are not
+comparable.**

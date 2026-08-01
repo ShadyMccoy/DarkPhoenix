@@ -1296,3 +1296,81 @@ describe("energy account: the residual's line items (core v20 loss meter)", () =
     expect(text).to.not.match(/NaN/);
   });
 });
+
+/**
+ * METHODOLOGY #3 (audit cycle t72721419). Two defects the loss meter exposed
+ * the moment it gave the account real costs to subtract: the residual came out
+ * at -25.10 e/t, i.e. 25% of gross mining OVER-attributed, which is impossible
+ * if every input is sound.
+ */
+describe("energy account: revenue is MINED, and windows must cohere (#3)", () => {
+  const rig = (over: any = {}): any => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.core.losses = {
+      windowTicks: 5000,
+      pileDecay: 0,
+      structureDecay: 0,
+      repairSpend: 0,
+      tombstoneLost: 0,
+      tombstoneRecovered: 0,
+      tombstoneStock: 0,
+      ...(over.losses ?? {})
+    };
+    if (over.heldFracs) {
+      const harvest = c.data.corps.corps.filter((x: any) => x.kind === "harvest");
+      harvest.forEach((h: any, i: number) => {
+        h.sizing = { ...(h.sizing ?? {}), heldFrac: over.heldFracs[i] ?? 0 };
+      });
+    }
+    return c;
+  };
+  const textOf = (cap: any): string => formatAccounts(cap, cap72404213, computeLedger(cap, cap72404213));
+
+  /**
+   * A miner whose buffer is full STOPS HARVESTING - `heldFrac` is stamped at
+   * that decision site. Booking the unmined capacity as revenue inflates every
+   * line below it. Live: 3.03 source-equivalents held, 30.28 e/t of a nominal
+   * 100 never mined.
+   */
+  it("subtracts capacity the miners' own stamps say was never harvested", () => {
+    const idle = textOf(rig({ heldFracs: [] }));
+    expect(idle).to.include("mining capacity");
+
+    const held = textOf(rig({ heldFracs: [1, 1] })); // two sources fully held
+    expect(held).to.include("- forgone (miners held, buffer full)");
+    // Gross mining must fall BELOW capacity by the forgone amount.
+    // Columns are BUDGET then ACTUAL - take the second, or both lines read
+    // back the same capacity figure and the assertion proves nothing.
+    const actual = (label: string): number => {
+      const line = held.split("\n").find(l => l.includes(label))!;
+      return Number(line.match(/-?\d+\.\d\d/g)![1]);
+    };
+    expect(actual("= gross mining")).to.be.lessThan(actual("mining capacity"));
+    expect(actual("mining capacity") - actual("= gross mining")).to.be.closeTo(20, 0.01);
+  });
+
+  it("omits the forgone line entirely when no stamp carries heldFrac", () => {
+    // An older capture must not have a fabricated zero passed off as a reading.
+    const old = JSON.parse(JSON.stringify(cap72411542));
+    old.data.corps.corps.forEach((c: any) => {
+      if (c.sizing) delete c.sizing.heldFrac;
+    });
+    expect(textOf(old)).to.not.include("forgone");
+  });
+
+  /**
+   * The residual is a DIFFERENCE of rates. Revenue/bank/controller come from the
+   * capture pair; measured costs from the blackbox ring; losses from the meter's
+   * own window. A deploy restarts the last two but not the first, so an hour of
+   * deploys makes their difference an artifact.
+   */
+  it("flags the residual as untrustworthy when the windows diverge", () => {
+    const skewed = rig({ losses: { windowTicks: 100 } }); // vs a multi-thousand-tick capture window
+    expect(textOf(skewed)).to.include("WINDOW INCOHERENCE");
+  });
+
+  it("stays quiet when the windows agree", () => {
+    const coherent = rig({ losses: { windowTicks: 1e9 } }); // never the shortest
+    expect(textOf(coherent)).to.not.include("WINDOW INCOHERENCE");
+  });
+});
