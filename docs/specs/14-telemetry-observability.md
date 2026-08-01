@@ -7219,3 +7219,53 @@ deployed into a reset, then read the result at 2,889 ticks with a 118-tick
 spawn ring. **Predictions about spawn-side quantities are not checkable until
 the ring is longer than the plan's re-solve interval.** Post-deploy checks on
 plan/spawn terms need ~2–3 hours of wall clock at 4 s/tick, not one.
+
+### VERIFY 2026-08-01 (t72717089) — the stamp worked; the two-pass OVER-CHARGES because my fixed-point argument was wrong
+
+**The decomposition the previous entry could not make is now a direct read:**
+
+```
+spawnMaintenance = 25.78 / spawn
+  spawn f516a5   demand 25.77 = maintenance 25.77 + funding 0.00
+  spawn aa8f33   demand 31.77 = maintenance 25.77 + funding 6.00
+  controller     allocated 85.65   (was 108.87)
+```
+
+The instrument did its job on first contact — both spawn demands resolve
+exactly, and the agenda term is separable.
+
+**The plan updated in the intended direction but over-corrected:**
+
+| | predicted | actual |
+|---|---|---|
+| maintenance/spawn | 14.78 | **25.78** |
+| spawn sinks total | ~29.57 | **51.55** |
+| controller | ~99.30 | **85.65** |
+
+**THE DESIGN ERROR (mine, not a measurement artifact).** I argued pass 2 was a
+fixed point because production and infra are "sized by sources and rooms,
+independent of the controller allocation". **Infra is. HAULING IS NOT.**
+
+Backing the numbers out: maintenance 51.55 total less infra ~11.5 leaves pass
+1's `totalOverhead` at **~40.05**, against the **17.75** the published pass-2
+plan reports. Pass 1 solves with NO spawn charge, so far more energy reaches
+the fill and far more hauler routes are funded; pass 2 then charges the spawn
+for that larger fleet — **a fleet the plan does not end up fielding**. A third
+pass would return a different, smaller figure.
+
+The circularity I claimed to have avoided by excluding consumers is present in
+the HAULER term, which I did not consider.
+
+**Assessment.** Directionally an improvement — the correct target derived from
+the measured account is ~70 (sustainable 41.86 + drawdown 28.10), so 85.65 is
+closer than 108.87. But the charge is over-stated ~1.7× and the mechanism is
+not self-consistent. Not reverted: delivery stayed healthy throughout and the
+direction is right, but this is a real design error to correct, not to leave.
+
+**Two options, both real:**
+1. **Iterate to convergence** — pass until the figure stabilises. Faithful to
+   the concept; more CPU; needs a convergence guard.
+2. **Price maintenance from pass 2's OWN fleet** — self-consistent by
+   construction: the plan charges for the fleet it actually commits to. One
+   extra evaluation instead of an open loop. **Preferred** — it converges to
+   the same place with less machinery.
