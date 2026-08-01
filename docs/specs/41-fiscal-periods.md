@@ -109,3 +109,35 @@ stamp when it does.
 - **Historical backfill is patchy.** Captures were taken at audit cadence, not
   at period boundaries, so many past months are skipped by the coverage guard.
   Going forward the audit's own cadence fills them.
+
+## A close must be MEASURABLE, not merely complete (2026-08-01)
+
+The eligibility check required `core` + `flow` — the PLAN side. It did not
+require the blackbox ring, which is where every measured line in the account
+comes from: extraction, evacuation, reservation, infra, defense, consumers —
+the entire operating-cost half of the income statement.
+
+Without the ring those lines do not go absent. They read **0.00**, and the
+account states that the colony spends nothing to run itself. FY4847-M09 was
+generated exactly that way during this cycle: the captures bracketing it had
+been taken `--segments 0,6` while chasing a deploy, and the close was filed
+with thirteen zeros and a NET MINING MARGIN of +12.53 F. It looked like a good
+month. It was a blind one.
+
+Two changes:
+
+- `closeIsMeasurable` requires a NON-EMPTY ring as well as core + flow. A
+  present-but-empty ring is the more dangerous shape — it looks like data.
+- `nearest` takes a usability filter, so a period is bracketed by the nearest
+  MEASURABLE captures. Otherwise one ring-less capture sitting closest to a
+  boundary sinks the whole period even when a complete capture is a few hundred
+  ticks further out — which is what happened to FY4839-M08, now closeable.
+
+**The principle this adds to the spec: a missing close is a gap, a close full
+of confident zeros is a lie in a permanent record.** Closes are append-only, so
+the eligibility check is the only place a bad one can be stopped. When in doubt,
+refuse the period.
+
+Operational consequence for the audit loop: capture `--segments 0,3,4,5,6`.
+A `0,6` capture is fine for reading the plan mid-deploy, but it cannot close a
+month, and mixing the two in one cycle is how M09 happened.

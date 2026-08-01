@@ -47,12 +47,12 @@ function loadCaptures(): Capture[] {
  *  "the colony at that instant". Nearest beats before-only: with captures every
  *  ~1-5k ticks against a 1500-tick month, an always-before rule drags the open
  *  end far back and produces a "month" several months wide. */
-function nearest(caps: Capture[], tick: number): Capture | undefined {
+function nearest(caps: Capture[], tick: number, usable: (c: Capture) => boolean = () => true): Capture | undefined {
   let best: Capture | undefined;
   let bestD = Infinity;
   for (const c of caps) {
     const d = Math.abs(c.tick - tick);
-    if (d < bestD) {
+    if (d < bestD && usable(c)) {
       bestD = d;
       best = c;
     }
@@ -69,6 +69,31 @@ function nearest(caps: Capture[], tick: number): Capture | undefined {
 const COVERAGE_MIN = 0.5;
 const COVERAGE_MAX = 1.75;
 
+/**
+ * Can this capture support a close AT ALL?
+ *
+ * Not every historical capture carries every segment (early ones predate the
+ * flow segment entirely). A close needs core + flow for the plan side - without
+ * them it is skipped rather than half-written, because a partial period in the
+ * record is worse than a missing one: it looks comparable.
+ *
+ * The blackbox ring is the same requirement for the ACTUAL side, and it was
+ * missed. Every "measured at the spawn" line in the account - extraction,
+ * evacuation, reservation, infra, defense, consumers, the whole operating-cost
+ * half of the income statement - is computed from that ring. Without it they do
+ * not go absent, they read **0.00**, and the account states that the colony
+ * spends nothing to run itself. FY4847-M09 was filed that way on 2026-08-01
+ * (from captures taken with `--segments 0,6` during a deploy cycle) and, the
+ * record being append-only, it stays wrong forever.
+ *
+ * So a capture is measurable only with a NON-EMPTY ring. A missing close is a
+ * gap; a close full of confident zeros is a lie in a permanent record.
+ */
+export function closeIsMeasurable(data: any): boolean {
+  if (!data?.core || !data?.flow) return false;
+  return (data.blackbox?.rows?.length ?? 0) > 0;
+}
+
 function read(c: Capture): any {
   if (!c.data) c.data = JSON.parse(fs.readFileSync(path.join(FIXTURES, c.file), "utf8"));
   return c.data;
@@ -81,20 +106,22 @@ function closeOne(caps: Capture[], boundary: number, dry: boolean): string | nul
   if (fs.existsSync(outFile)) return null; // append-only: never rewrite history
 
   // Bracket the period: the capture nearest its start and the one nearest its end.
-  const openCap = nearest(caps, period.startTick);
-  const closeCap = nearest(caps, period.endTick);
+  // Only MEASURABLE captures are candidates. Skipping straight past a nearer
+  // but unusable one is the point: a deploy cycle taken with `--segments 0,6`
+  // would otherwise be picked, fail the check, and sink the whole period even
+  // though a complete capture sits a few hundred ticks further out.
+  const measurable = (c: Capture): boolean => closeIsMeasurable(read(c)?.data);
+  const openCap = nearest(caps, period.startTick, measurable);
+  const closeCap = nearest(caps, period.endTick, measurable);
   if (!openCap || !closeCap || openCap.tick >= closeCap.tick) return null;
   const cov = (closeCap.tick - openCap.tick) / (period.endTick - period.startTick);
   if (cov < COVERAGE_MIN || cov > COVERAGE_MAX) return null; // too far off to call a month
 
   const cap = read(closeCap);
   const base = read(openCap);
-  // Not every historical capture carries every segment (early ones predate the
-  // flow segment entirely). A close needs core + flow on BOTH ends; without
-  // them it is skipped rather than half-written - a partial period in the
-  // record is worse than a missing one, because it looks comparable.
-  const complete = (c: any): boolean => !!c?.data?.core && !!c?.data?.flow;
-  if (!complete(cap) || !complete(base)) return null;
+  // Belt and braces: `measurable` already filtered the candidates, but the
+  // check is cheap and this is an append-only record.
+  if (!closeIsMeasurable(cap?.data) || !closeIsMeasurable(base?.data)) return null;
   const rows = computeLedger(cap, base);
   const coverage = cov * 100;
 
