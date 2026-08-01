@@ -7426,3 +7426,38 @@ prices feeders, tenders and reservers off nominal constants (TENDER_FLEET_PARTS
 behavioral constant spec 15's P5 exists to check against measured behaviour. If
 that term is wrong, the spawn sink is mispriced by more than everything the last
 three cycles have chased. **That is the next cycle's top line.**
+
+### VERIFY 2026-08-01 (t72718982) — seeding CONFIRMED; the charge is self-consistent and cheaper
+
+| | before seeding (t72718367) | after (t72718982) |
+|---|---|---|
+| `passes` | 4 (the cap) | **0** |
+| charge × spawnCount − `fleetEnergy` | −3.23 (6.4%) | **+0.16 (0.3%)** |
+| solve-tick CPU | 27.9 | **17.7** |
+
+The warm seed converges on arrival and re-solves nothing, so the fleet charge is
+now both self-consistent and cheaper than the two-pass solve it replaced. This
+is the first prediction in this thread that landed, and it landed because the
+stamp made the quantity checkable rather than inferable.
+
+**What the settled reading exposes next.** The spawn sinks route 98.00 e/t
+allocated (113.66 demanded), of which the fleet charge is only 50.66. The rest —
+**~63 e/t — is `agendaFundingRate`**, the NOW-plan queue's funding term. It is
+now the largest single thing the spawn sink asks for, and it is what the waste
+ledger's account has been calling "the plan OVER-routes its own fleet by 65.04
+e/t". That sentence was written when the fleet charge was the suspect; it is
+actually a statement about the agenda term, and nothing has audited it.
+
+So the two open items, in order of size:
+
+1. **`agendaFundingRate` ~63 e/t** — larger than the entire fleet it sits beside,
+   unaudited, and currently misattributed by the account's own wording.
+2. **`infraSpawnEnergy` 32.98 e/t** — 65% of the fleet charge, nearly 2× the
+   production term (17.51), priced entirely off nominal constants
+   (TENDER_FLEET_PARTS 48, RESERVER_PARTS_PER_ROOM 4, FEEDER_NOMINAL_DISTANCE).
+   Exactly the class spec 15's P5 exists to check against measured behaviour.
+
+Ledger top line this cycle remains **F1 at 1.93×** (48% of what the spawn builds
+is not in the plan; haulers 0.526 p/t measured vs 0.204 priced) — and both items
+above are plausible contributors to it, which is why they are the next cycle's
+work rather than a footnote.
