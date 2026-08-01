@@ -84,6 +84,13 @@ export interface FlowTelemetry {
     efficiency: number;
     /** Distance from spawn */
     spawnDistance: number;
+    /**
+     * This source's transport IS the link network (v14): its creep haul leg is
+     * ~1 tile, and it pays LINK_TRANSFER_LOSS per hop instead. The account
+     * budgets the link tax off this flag rather than inferring link service
+     * from a short haul distance.
+     */
+    linkServed?: boolean;
   }[];
   /**
    * PLANNED haulers (goal-plan side). Each solver hauler assignment with the
@@ -288,7 +295,10 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
         // harvest corp in segments 0/4.
         workParts: workPartsForEnergyRate(miner.harvestRate, HARVEST_ENERGY_PER_WORK),
         efficiency: miner.efficiency,
-        spawnDistance: miner.spawnDistance
+        spawnDistance: miner.spawnDistance,
+        // v14: this source's transport is the LINK network, so its haul leg is
+        // ~1 tile and it pays the engine's 3%-per-hop transfer tax instead.
+        ...(miner.linkServed ? { linkServed: true } : {})
       });
     }
 
@@ -349,7 +359,7 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
     // echo (spec 34 P4: the ledger charges construction THROUGH the plan).
     // v12 adds partsLedger.plannable - the 90% planning margin
     // (SPAWN_PLAN_FRACTION, owner 2026-07-30) the fill spends from.
-    version: 13, // v13: fleetCharge decomposition (charge inputs, spec 14) 2026-08-01
+    version: 14, // v13 fleetCharge decomposition; v14 sources[].linkServed (budgets the link tax) 2026-08-01
     tick: Game.time,
     sources,
     haulers,

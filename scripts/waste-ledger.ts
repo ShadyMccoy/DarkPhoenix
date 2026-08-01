@@ -22,6 +22,7 @@ import {
   CARRY_MOVE_PAIR_COST,
   CLAIM_LIFETIME,
   CREEP_LIFETIME,
+  LINK_TRANSFER_LOSS,
   MINER_COST,
   MINER_PARTS,
   RESERVER_DUTY,
@@ -1959,6 +1960,13 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   // measured figure runs above 3% of any single leg.
   const linkTax = ((core.links ?? []) as any[]).reduce((n, l) => n + (+l.taxRate || 0), 0);
   const linkTaxKnown = core.links !== undefined;
+  // BUDGET for the line: the planner charges each LINK-SERVED source one hop
+  // (CorpPlanner's per-source tax term). Read off the flow segment's
+  // `linkServed` flag rather than inferring link service from a short haul
+  // distance - inference is exactly how link haulage came to read as free.
+  const linkSources = ((cap.data.flow?.sources ?? []) as any[]).filter(s => s.linkServed);
+  const bLinkTax = linkSources.reduce((n, s) => n + (+s.harvestRate || 0) * LINK_TRANSFER_LOSS, 0);
+  const linkBudgetKnown = ((cap.data.flow?.sources ?? []) as any[]).some(s => s.linkServed !== undefined);
   const meteredLosses = rot + tombLoss + repairSpend + linkTax;
 
   // ---- BUDGET (what the PLAN says each line should be) ----
@@ -2124,7 +2132,17 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
             ? [
                 L("tombstone losses (creeps died carrying)", -tombLoss, 4),
                 L("repair (energy spent holding hits)", -repairSpend, 4),
-                ...(linkTaxKnown ? [L("link transfer tax (3% per hop)", -linkTax, 4)] : []),
+                ...(linkTaxKnown
+                  ? [
+                      L(
+                        "link transfer tax (3% per hop)",
+                        -linkTax,
+                        4,
+                        linkBudgetKnown ? -bLinkTax : undefined,
+                        "cost"
+                      )
+                    ]
+                  : []),
                 L("= measured losses", -meteredLosses, 4)
               ]
             : [])

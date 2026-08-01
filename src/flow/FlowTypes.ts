@@ -147,6 +147,16 @@ export interface MinerAssignment {
   spawnCostPerTick: number;
 
   /**
+   * This source's transport IS the link network (its `haulPos` is the core
+   * link), so its creep haul leg is ~1 tile. Published because the cost of that
+   * transport is NOT zero - the engine destroys LINK_TRANSFER_LOSS of every hop
+   * - and the account cannot budget the link tax without knowing which sources
+   * pay it. Inferring it from a short haul distance was the alternative, and
+   * inference is what let link haulage read as free in the first place.
+   */
+  linkServed?: boolean;
+
+  /**
    * Maximum number of miners that can work this source simultaneously.
    * Determined by counting walkable tiles adjacent to the source.
    * Allows spawning multiple smaller miners in early game when energy capacity is limited.

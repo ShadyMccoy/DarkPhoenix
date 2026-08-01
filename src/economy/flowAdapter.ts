@@ -1312,6 +1312,10 @@ export function solveColony(
     harvestRate: m.rate,
     spawnCostPerTick: minerOverhead(m.distance),
     maxMiners: m.maxMiners,
+    // Published so the account can BUDGET the link transfer tax against the
+    // sources that actually pay it, instead of inferring link service from a
+    // short haul distance (inference is how link haulage read as free).
+    ...(linkServedIds.has(m.sourceId) ? { linkServed: true } : {}),
     efficiency: m.efficiency
   }));
 

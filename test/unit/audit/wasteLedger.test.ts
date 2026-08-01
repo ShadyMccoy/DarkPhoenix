@@ -1374,3 +1374,53 @@ describe("energy account: revenue is MINED, and windows must cohere (#3)", () =>
     expect(textOf(coherent)).to.not.include("WINDOW INCOHERENCE");
   });
 });
+
+/**
+ * THE LINK TAX HAS A BUDGET (methodology #4, owner 2026-08-01: "we still have
+ * the 'free' hauling from links in the plan as well?").
+ *
+ * Spec 42's first invariant: a line with an actual but no budget is a line the
+ * plan cannot control. The planner now charges each link-served source one hop,
+ * so the line can be compared instead of merely reported - and the comparison
+ * is the point, because the network loses TWO hops (source->hub->controller)
+ * while the plan bills one.
+ */
+describe("energy account: the link transfer tax is budgeted, not just measured", () => {
+  const withLinks = (opts: { linkServed?: boolean; taxRate?: number }): any => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.core.links = [{ room: "W1N1", windowTicks: 500, taxRate: opts.taxRate ?? 2.59 }];
+    c.data.core.losses = {
+      windowTicks: 1e9, // never the shortest - keeps the coherence guard quiet
+      pileDecay: 0,
+      structureDecay: 0,
+      repairSpend: 0,
+      tombstoneLost: 0,
+      tombstoneRecovered: 0,
+      tombstoneStock: 0
+    };
+    if (opts.linkServed !== undefined) {
+      c.data.flow.sources.forEach((s: any, i: number) => {
+        s.linkServed = opts.linkServed && i < 2; // two link-served sources
+      });
+    }
+    return c;
+  };
+  const textOf = (cap: any): string => formatAccounts(cap, cap72404213, computeLedger(cap, cap72404213));
+
+  it("budgets one hop per LINK-SERVED source, read from the flag not inferred", () => {
+    const t = textOf(withLinks({ linkServed: true }));
+    const line = t.split("\n").find(l => l.includes("link transfer tax"))!;
+    const nums = line.match(/-?\d+\.\d\d/g)!;
+    // two sources x 10 e/t x 3% = 0.60 budgeted, against 2.59 measured
+    expect(Number(nums[0])).to.be.closeTo(-0.6, 0.01);
+    expect(Number(nums[1])).to.be.closeTo(-2.59, 0.01);
+  });
+
+  it("leaves the budget BLANK on a capture predating the linkServed flag", () => {
+    // Omit rather than fabricate a zero - a zero would read as "the plan says
+    // link transport is free", which is the very claim being corrected.
+    const t = textOf(withLinks({}));
+    const line = t.split("\n").find(l => l.includes("link transfer tax"))!;
+    expect(line.match(/-?\d+\.\d\d/g)!).to.have.length(1); // actual only
+  });
+});
