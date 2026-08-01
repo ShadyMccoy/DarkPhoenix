@@ -244,6 +244,42 @@ extensionTender (infra) and construction (crew haulage), so the infra line
 slightly over-states during a build campaign. A corp→kind join would separate
 them but cannot resolve a corp that died inside the window.
 
+**BUDGET vs ACTUAL vs VARIANCE** (owner 2026-08-01). Every line the plan
+states in ENERGY carries a budget and a signed variance; lines it does not
+state print `-` rather than a fabricated parts→energy conversion (biased across
+classes — a CLAIM part is 600e against 50e for CARRY, the exact error F1
+documents).
+
+Budgets are computed with the **planner's own primitives**, never a second
+formula: `minerOverhead(spawnDistance)` per source and
+`haulerOverhead(carryParts, distance)` per route — the same functions
+`flowAdapter` sums into `totalOverhead`. The footer prints that reconciliation
+as a check rather than assuming it (**first run: 18.11 vs 18.11, reconciles**).
+Appropriation budgets come straight from the sink allocations; the bank budget
+is the plan's own net position (storage inflow less bank-sourced outflow).
+
+Variance convention: **U/F is nature-dependent**, which the first draft got
+backwards — costs print NEGATIVE, so overspending makes the variance *more*
+negative and that is Unfavourable. The bank line is **neutral** (no marker):
+retained energy is neither earned nor spent, and it is read together with the
+controller line, not on its own.
+
+First live reading — the plan is faithful on production and badly unmet on
+consumption:
+
+| line | budget | actual | variance |
+|---|---|---|---|
+| gross mining | 100.00 | 100.00 | +0.00 |
+| extraction | −4.47 | −5.11 | −0.64 **U** |
+| evacuation | −13.64 | −19.58 | −5.94 **U** |
+| **net mining margin** | 81.89 | 65.29 | −16.60 **U** |
+| controller (score) | 108.87 | 47.59 | **−61.29 U** |
+| to/(from) bank | −28.87 | −5.74 | +23.14 |
+
+The controller variance IS the P7 gap, now shown against its own budget line
+rather than inferred, and the bank line shows the other half of it: the plan
+intended to draw 28.87 e/t out of storage and drew 5.74.
+
 **Expected to evolve.** Split the residual as decay/rot/raid meters land; add a
 balance-sheet section (reserved / committed / free) once the commitment
 accounting exists. **The invariants are the balancing identity and the named

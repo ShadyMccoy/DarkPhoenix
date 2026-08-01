@@ -27,7 +27,8 @@ import {
   SPAWN_PARTS_PER_TICK,
   carryPartsFor,
   effectiveLife,
-  haulerOverhead
+  haulerOverhead,
+  minerOverhead
 } from "../src/economy/primitives";
 import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } from "../src/economy/bank";
 
@@ -1767,6 +1768,28 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const droppedAvg = (droppedOf(cap) + droppedOf(base)) / 2;
   const rot = droppedAvg / 1000;
   const rotKnown = cap.data.core.sourceDropped !== undefined;
+
+  // ---- BUDGET (what the PLAN says each line should be) ----
+  // Computed with the planner's own primitives, never a second formula:
+  // minerOverhead/haulerOverhead are the same functions flowAdapter sums into
+  // `totalOverhead`, so extraction+evacuation must reconcile to it - and the
+  // footer prints that check rather than assuming it.
+  const planSources = (cap.data.flow?.sources ?? []) as any[];
+  const planHaulers = (cap.data.flow?.haulers ?? []) as any[];
+  const bExtract = planSources.reduce((n, src) => n + minerOverhead(+src.spawnDistance || 0), 0);
+  const bEvac = planHaulers.reduce((n, h) => n + haulerOverhead(+h.carryParts || 0, +h.distance || 0), 0);
+  const planOverhead = cap.data.flow?.summary?.totalOverhead;
+  const sinks = (cap.data.flow?.sinks ?? []) as any[];
+  const sinkAlloc = (type: string): number =>
+    sinks.filter(x => x.type === type).reduce((n, x) => n + (+x.allocated || 0), 0);
+  const bController = sinkAlloc("controller");
+  const bConstruction = sinkAlloc("construction");
+  // The plan's own net position on the bank: what it routes INTO storage less
+  // what it routes back OUT of it.
+  const bankOut = planHaulers
+    .filter(h => String(h.sourceId ?? "").startsWith("bank-"))
+    .reduce((n, h) => n + (+h.flowRate || 0), 0);
+  const bBank = sinkAlloc("storage") - bankOut;
   const pileDelta = (piles(cap) - piles(base)) / dt;
   const delivered = grossPlan - pileDelta;
   const opex = perTick(spawnTotal);
@@ -1785,19 +1808,45 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const approp = score + build + bankDelta;
   const residual = delivered - opex - approp - (rotKnown ? rot : 0);
 
-  const L = (label: string, v: number, indent = 2): string =>
-    `${" ".repeat(indent)}${label.padEnd(40 - indent)}${v >= 0 ? " " : ""}${v.toFixed(2)}`;
+  // label | BUDGET | ACTUAL | VARIANCE.  `budget === null` means the plan does
+  // not state this line in energy - printed as "-" rather than a fabricated
+  // conversion (the P10 lesson: never build a number on an unexamined one).
+  // `costLine` flips the variance sign convention: on a COST, spending more
+  // than budget is Unfavourable; on revenue/output, delivering LESS is.
+  // `nature`: "output" (more is better - revenue, margin, score), "cost"
+  // (printed NEGATIVE, so spending more makes the variance more negative and
+  // THAT is Unfavourable), or "neutral" (the bank line - retained energy is
+  // neither earned nor spent, so an F/U verdict on it is meaningless; it is
+  // read together with the controller line, not on its own).
+  const L = (
+    label: string,
+    actual: number,
+    indent = 2,
+    budget: number | null = null,
+    nature: "output" | "cost" | "neutral" = "output"
+  ): string => {
+    const b = budget === null ? "-" : budget.toFixed(2);
+    let v = "-";
+    if (budget !== null) {
+      const raw = actual - budget;
+      const flat = Math.abs(raw) < 0.005;
+      const mark = nature === "neutral" || flat ? "" : raw < 0 ? " U" : " F";
+      v = `${raw >= 0 ? "+" : ""}${raw.toFixed(2)}${mark}`;
+    }
+    return `${" ".repeat(indent)}${label.padEnd(38 - indent)}${b.padStart(9)}${actual.toFixed(2).padStart(10)}${v.padStart(11)}`;
+  };
   return [
     `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ring ${ring}t)`,
+    `${" ".repeat(38)}${"BUDGET".padStart(9)}${"ACTUAL".padStart(10)}${"VARIANCE".padStart(11)}`,
     "  REVENUE",
-    L("gross mining (plan capacity, RESERVED rate)", grossPlan, 4),
+    L("gross mining (reserved rate)", grossPlan, 4, grossPlan),
     L("+ pile drawdown / (build-up)", -pileDelta, 4),
-    L("= delivered into the economy", delivered, 4),
+    L("= delivered into the economy", delivered, 4, grossPlan),
     "  DIRECT COST OF MINING (measured at the spawn)",
-    L("extraction  (miner)", -perTick(cost.extraction), 4),
-    L("evacuation  (hauler)", -perTick(cost.evacuation), 4),
+    L("extraction  (miner)", -perTick(cost.extraction), 4, -bExtract, "cost"),
+    L("evacuation  (hauler)", -perTick(cost.evacuation), 4, -bEvac, "cost"),
     L("reservation (reserver)", -perTick(cost.reservation), 4),
-    L("= NET MINING MARGIN", delivered - perTick(direct), 4),
+    L("= NET MINING MARGIN", delivered - perTick(direct), 4, grossPlan - bExtract - bEvac),
     "  OVERHEAD (measured at the spawn)",
     L("infra      (tanker, feeder, scout)", -perTick(cost.infra), 4),
     L("defense    (guard)", -perTick(cost.defense), 4),
@@ -1821,12 +1870,17 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
         ]
       : []),
     "  APPROPRIATIONS",
-    L("controller (score)", score, 4),
-    L("construction (site progress)", build, 4),
-    L("to/(from) bank", bankDelta, 4),
-    L("= total", approp, 4),
+    L("controller (score)", score, 4, bController),
+    L("construction (site progress)", build, 4, bConstruction),
+    L("to/(from) bank", bankDelta, 4, bBank, "neutral"),
+    L("= total", approp, 4, bController + bConstruction + bBank),
     "  " + "-".repeat(46),
     L(rotKnown ? "RESIDUAL (repair, tombstones, raids, error)" : "RESIDUAL (decay, rot, raids, error)", residual, 2),
+    `  BUDGET CHECK: extraction+evacuation ${(bExtract + bEvac).toFixed(2)} vs the plan's own totalOverhead ` +
+      `${typeof planOverhead === "number" ? planOverhead.toFixed(2) : "n/a"}` +
+      `${typeof planOverhead === "number" && Math.abs(bExtract + bEvac - planOverhead) > 0.05 ? " <- DOES NOT RECONCILE" : " (reconciles)"}` +
+      `. Lines with a "-" budget are ones the plan does not state in ENERGY (reservation, infra, defense,` +
+      ` consumers) - left blank rather than converted from parts, which is biased across classes.`,
     `  reservation buys ~${reserveUplift.toFixed(0)} e/t of the revenue line (${remoteSources} remote sources x ` +
       `${(SOURCE_RATE / 2).toFixed(0)} e/t uplift, reserved ${SOURCE_RATE} vs unreserved ${(SOURCE_RATE / 2).toFixed(0)})` +
       ` for ${perTick(cost.reservation).toFixed(2)} e/t of bodies.`,
