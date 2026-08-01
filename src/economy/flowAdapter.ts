@@ -692,6 +692,52 @@ export function detectPavedSources(): Map<string, number> {
  *  flow segment so a capture can decompose the spawn sink's demand. */
 export let spawnMaintenanceStamp = 0;
 
+/** Fixed-point iteration bounds for the spawn's fleet charge. Four passes is
+ *  ample for a damped contraction (the measured spread was 49.45 vs 27.65, so
+ *  two damped steps land inside a fraction of an e/t); the tolerance stops
+ *  early on any world where the charge barely moves. */
+const FLEET_CHARGE_MAX_PASSES = 4;
+const FLEET_CHARGE_TOLERANCE = 0.25;
+
+/**
+ * Iterate the spawn's fleet charge to its FIXED POINT, damped.
+ *
+ * The charge and the fleet are mutually dependent - charging the spawn takes
+ * energy away from the fill, which funds fewer hauler routes, which lowers the
+ * fleet the charge is priced from. Pricing the charge off a plan solved under a
+ * DIFFERENT charge (the two-pass solve as first shipped) is not a fixed point:
+ * measured live t72717545, the sequence 0 -> 49.45 -> 27.65 oscillated and the
+ * plan shipped a 1.79x over-charge.
+ *
+ * Damping (average the charge with the fleet it produces) turns that
+ * oscillation into a contraction - it converges for any response slope < 3,
+ * where the undamped recurrence diverges above 1. Bounded by MAX_PASSES so a
+ * discontinuous response can never run the per-tick solve away, and
+ * tolerance-stopped so a world whose charge barely moves pays for no re-solve
+ * at all.
+ *
+ * @param seedFleet fleet charge implied by the UNCHARGED (pass 1) plan
+ * @param fleetChargeOf per-spawn fleet cost of a solved plan
+ * @param solveWith re-solve the plan under a given per-spawn charge
+ * @returns the converged charge and the plan solved AT it (self-consistent)
+ */
+export function convergeFleetCharge<T>(
+  seedFleet: number,
+  fleetChargeOf: (solved: T) => number,
+  solveWith: (charge: number) => T
+): { charge: number; solved: T | undefined } {
+  let charge = 0;
+  let target = seedFleet;
+  let solved: T | undefined;
+  for (let pass = 0; pass < FLEET_CHARGE_MAX_PASSES; pass += 1) {
+    if (Math.abs(target - charge) <= FLEET_CHARGE_TOLERANCE) break; // converged
+    charge = Math.max(0, (charge + target) / 2); // damped step
+    solved = solveWith(charge);
+    target = fleetChargeOf(solved);
+  }
+  return { charge, solved };
+}
+
 export function buildColonyProblem(
   graph: FlowGraph,
   dist: ColonyProblem["dist"] = pathDistance,
@@ -1168,39 +1214,44 @@ export function solveColony(
   // the controller absorbed it (t72714129: controller allocated 108.87 against
   // ~100 e/t of net mining, and the runtime delivered 47.6).
   //
-  // Scope is deliberately PRODUCTION + INFRA, not consumers. Those two are
-  // sized by sources and rooms - independent of what the fill allocates to the
-  // controller - so pass 2 is a fixed point: a third pass would return the same
-  // plan. Charging CONSUMER bodies here would be circular (spawn demand shrinks
-  // the controller allocation, which shrinks the upgrader fleet, which shrinks
-  // the spawn demand) and could oscillate between passes. Consumer bodies are
-  // funded from what remains, which is exactly what the ladder is for.
-  const fleetEnergy = pass1.plan.totalOverhead + (baseProblem.infraEnergyPerTick ?? 0);
-  const perSpawn = baseProblem.spawns.length > 0 ? fleetEnergy / baseProblem.spawns.length : 0;
-  // DECISION STAMP (spec 14). The first live check of the two-pass could not
-  // separate this term from `agendaFundingRate` in the published demand, so a
-  // 4x prediction miss stayed unattributable: spawn demand is
-  // max(base 10, maintenance) + fundingRate, and only the SUM is exported.
-  // Publishing the maintenance makes the split readable from one capture.
-  spawnMaintenanceStamp = perSpawn;
-  const searched =
-    perSpawn > 0
-      ? searchStructure(
-          buildColonyProblem(
-            graph,
-            dist,
-            transientSources,
-            detectLinkHaulPositions(graph),
-            detectPavedSources(),
-            bankSources,
-            INVADER_TAX_PER_ENERGY,
-            compileGoal(goal),
-            prevBankDraw,
-            detectLinkDepositPorts(),
-            perSpawn
-          )
-        )
-      : pass1;
+  // Scope is deliberately PRODUCTION + INFRA, not consumers. Charging CONSUMER
+  // bodies here would be doubly circular - spawn demand shrinks the controller
+  // allocation, which shrinks the upgrader fleet, which shrinks the spawn
+  // demand - and consumers are already funded from what remains, which is
+  // exactly what the ladder is for.
+  //
+  // That scoping does NOT make a single pass 2 a fixed point, which is what
+  // the first implementation assumed and got wrong. It priced the charge off
+  // PASS 1's fleet - a fleet solved with NO spawn charge, so far more energy
+  // reached the fill and far more hauler routes were funded. Measured live
+  // t72717545: the plan charged 49.45 e/t for a fleet that, once charged, cost
+  // 27.65. A 1.79x over-charge, and the sequence 0 -> 49.45 -> 27.65 is
+  // OSCILLATING, not converging. Production is not independent of the charge
+  // after all, because routing haulers is what the fill spends its energy on.
+  //
+  // So iterate to the actual fixed point, DAMPED (average the charge with the
+  // fleet it produces). Damping is what turns an oscillation into a
+  // contraction; undamped, C_{n+1} = F(C_n) ping-pongs between the two ends.
+  // Capped and tolerance-stopped so the solve can never run away.
+  const fleetOf = (p: { plan: { totalOverhead: number } }): number =>
+    p.plan.totalOverhead + (baseProblem.infraEnergyPerTick ?? 0);
+  const spawnCount = Math.max(1, baseProblem.spawns.length);
+  const solveWith = (perSpawn: number): ReturnType<typeof searchStructure> =>
+    searchStructure(
+      buildColonyProblem(
+        graph, dist, transientSources, detectLinkHaulPositions(graph), detectPavedSources(),
+        bankSources, INVADER_TAX_PER_ENERGY, compileGoal(goal), prevBankDraw,
+        detectLinkDepositPorts(), perSpawn
+      )
+    );
+
+  const converged = convergeFleetCharge(
+    fleetOf(pass1) / spawnCount,
+    (s: ReturnType<typeof searchStructure>) => fleetOf(s) / spawnCount,
+    solveWith
+  );
+  spawnMaintenanceStamp = converged.charge;
+  const searched = converged.solved ?? pass1;
   const problem = searched.problem;
   const plan = searched.plan;
   // Link-served sources (haulPos set): their transport is the link network +

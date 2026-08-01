@@ -7269,3 +7269,79 @@ direction is right, but this is a real design error to correct, not to leave.
    construction: the plan charges for the fleet it actually commits to. One
    extra evaluation instead of an open loop. **Preferred** — it converges to
    the same place with less machinery.
+
+### FIX 2026-08-01 — the fleet charge is a FIXED POINT; option 2 was refuted by its own measurement
+
+The previous entry closed by preferring **option 2** ("price maintenance from
+pass 2's OWN fleet — self-consistent by construction"). The next capture
+refutes it, on exactly the grounds that killed option 0.
+
+```
+t72717545   spawnMaintenance stamp   24.72 / spawn  ->  49.45 total
+            plan totalOverhead (pass 2)              16.15
+            pass-2 fleet = 16.15 + ~11.5 infra    =  27.65
+```
+
+So the observed response is `charge 0 -> fleet 49.45` and
+`charge 49.45 -> fleet 27.65`. **1.79× over-charge**, and the sequence
+`0 -> 49.45 -> 27.65` is OSCILLATING.
+
+**Why option 2 fails.** "Price from pass 2's own fleet" would have charged
+27.65 — but 27.65 is the fleet cost of a plan solved at charge **49.45**, not
+at 27.65. It is one more undamped step of the same recurrence, and it inherits
+the same defect: the plan is always charged for a fleet it solved under a
+different charge. "Self-consistent by construction" was wrong; there is no
+construction that gets there in a fixed number of undamped steps, because
+`C_{n+1} = F(C_n)` here has a response slope near 1 and alternates.
+
+Fitting the two measured points linearly (`F(c) = 49.45 − 0.4408c`) puts the
+true fixed point at **c = 34.32** — between the two numbers either option would
+have shipped, and reachable by neither.
+
+**THE FIX (option 1, damped).** `convergeFleetCharge` in `economy/flowAdapter.ts`:
+iterate `C_{n+1} = (C_n + F(C_n))/2` to tolerance. Averaging is what converts
+the oscillation into a contraction — it converges for any response slope < 3,
+where the undamped recurrence already diverges above 1. Bounded at 4 passes
+(a discontinuous response must never run the per-tick solve away) and
+tolerance-stopped at 0.25 e/t, so a colony whose charge barely moves pays for
+no re-solve at all — including the zero-fleet case, which now performs **no**
+extra solve where the naive pass 2 always performed one.
+
+Pinned red-first in `test/unit/economy/fleetCharge.test.ts`, against the
+measured live response: the returned charge must be self-consistent with the
+plan handed back, must be neither 49.45 (the shipped over-charge) nor 27.65
+(option 2's under-charge), and must still converge on a synthetic world with
+slope 2 where the undamped recurrence runs away.
+
+**The lesson worth keeping.** Two entries in a row I asserted a fixed point
+from an *independence* argument about which terms move — first "consumers are
+excluded so it converges", then "pass 2's own fleet is self-consistent". Both
+were structural arguments made without measuring the response. The response was
+one capture away both times. **A fixed-point claim is an empirical claim about
+a slope; measure the slope.**
+
+**Gate (2026-08-01).** unit 1780 pass; `flow-handoff` pass; `storage-depot`
+pass; grid `plan-t4-link-haul-pricing` 1/1, `fid-t4-preramped-steady-state`
+1/1.
+
+`runt-economy` went red on the FIRST draw and green on the next two (upsize at
+t460 and t440, against the pre-change build's t460 — the same trajectory). Not
+attributed to this change: the red draw's signature was a source that never got
+staffed at all across 1200 ticks, and the world is fixed terrain with only
+mongo ids varying between draws. **Recorded as a flake in the regression trio,
+not waved away** — a binary threshold test with a ~1-in-3 red rate is a weak
+gate, and that is its own work item.
+
+**CPU is not a concern at this size, measured.** Live t72717545 reads
+`cpu.used 20.16 / limit 300`, bucket at its 10000 ceiling, and the solve runs
+once per `FULL_SOLVE_INTERVAL` (50 ticks). Going from 2 structural searches per
+replan to at most 4 spends that headroom deliberately, per the owner's call to
+prove the concept before optimising it.
+
+**The optimisation, when it is wanted:** the fixed point is PERSISTENT across
+solves — at steady state the charge barely moves between replans. Seeding the
+iteration from the previous solve's converged charge (through Memory, exactly
+as `prevBankDraw` is threaded) would make the steady-state cost ZERO extra
+searches, because the tolerance check fires on the first pass. Only a genuine
+regime change would pay for the full iteration. Deliberately NOT done here: it
+would have invalidated the gate above, and the concept had to be proven first.

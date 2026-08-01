@@ -2001,8 +2001,15 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
       : []),
     L("= total overhead", -perTick(overhead), 4, -(bInfra + bConsumers), "cost"),
     L("= TOTAL SPAWN (plan fleet, priced)", -perTick(spawnTotal), 2, -bFleetEnergy, "cost"),
-    `    ...but the plan only ROUTES ${bSpawn.toFixed(2)} e/t to the spawn sinks - it under-routes its OWN`,
-    `    fleet by ${(bFleetEnergy - bSpawn).toFixed(2)} e/t, which is why the controller allocation is ~ total net mining.`,
+    ...(bFleetEnergy >= bSpawn
+      ? [
+          `    ...and the plan ROUTES only ${bSpawn.toFixed(2)} e/t to the spawn sinks - UNDER-routing its own`,
+          `    fleet by ${(bFleetEnergy - bSpawn).toFixed(2)} e/t, so that much is handed down the ladder to the controller.`
+        ]
+      : [
+          `    ...and the plan ROUTES ${bSpawn.toFixed(2)} e/t to the spawn sinks - OVER-routing its own fleet`,
+          `    by ${(bSpawn - bFleetEnergy).toFixed(2)} e/t, so the controller is charged for bodies the plan does not field.`
+        ]),
     ...(capital > 0
       ? [
           "  CAPITAL (funded from the expansion reserve, not operating margin)",
