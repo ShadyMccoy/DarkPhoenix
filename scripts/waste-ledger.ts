@@ -22,6 +22,7 @@ import {
   CREEP_LIFETIME,
   MINER_PARTS,
   RESERVER_DUTY,
+  SOURCE_RATE,
   SOURCE_REGEN_TIME,
   SPAWN_PARTS_PER_TICK,
   carryPartsFor,
@@ -1696,9 +1697,20 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
  * through prints as UNCLASSIFIED with its name, never as anonymous "other".
  */
 export const ACCOUNT_CLASS_OF_ROLE: Record<string, string> = {
-  miner: "producers",
-  hauler: "producers",
-  reserver: "infra",
+  // DIRECT COST OF MINING - the three roles whose spend is attributable to the
+  // gross-mining revenue line, so the statement can show a NET MINING MARGIN
+  // (owner 2026-08-01: "reserving is an overhead applied to the gross mining").
+  //
+  // Reservation belongs here on a verifiable dependency, not a vibe: the plan
+  // prices EVERY source at rate 10 = SOURCE_ENERGY_CAPACITY(3000)/
+  // SOURCE_REGEN_TIME(300), which is the RESERVED yield. An unreserved remote
+  // regenerates 1500 per 300t, i.e. 5 e/t. So on 8 remote sources the
+  // reservation fleet is buying ~40 e/t of the 100 e/t revenue line - it is
+  // cost of goods, not general overhead, and burying it in infra hid both the
+  // cost AND the return.
+  miner: "extraction",
+  hauler: "evacuation",
+  reserver: "reservation",
   // `tanker` is bought by TWO kinds - extensionTender (refills the spawn
   // network: infra) and construction (crew haulage: really a build cost). The
   // role alone cannot separate them, so both land in infra and the line
@@ -1726,7 +1738,8 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const spawnRows = rows0.filter(r => r.k === "spawn" && r.d?.cost);
 
   const cost: Record<string, number> = {
-    producers: 0, infra: 0, defense: 0, consumers: 0, expansion: 0, incursion: 0, other: 0
+    extraction: 0, evacuation: 0, reservation: 0,
+    infra: 0, defense: 0, consumers: 0, expansion: 0, incursion: 0, other: 0
   };
   const unknownRoles = new Set<string>();
   for (const r of spawnRows) {
@@ -1735,9 +1748,10 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     cost[cls ?? "other"] += r.d.cost;
   }
   const perTick = (n: number) => (ring > 0 ? n / ring : 0);
-  const operating = cost.producers + cost.infra + cost.defense + cost.consumers + cost.other;
+  const direct = cost.extraction + cost.evacuation + cost.reservation;
+  const overhead = cost.infra + cost.defense + cost.consumers + cost.other;
   const capital = cost.expansion + cost.incursion;
-  const spawnTotal = operating + capital;
+  const spawnTotal = direct + overhead + capital;
 
   const piles = (c: any): number =>
     Object.values((c.data.core.sourceBuffers ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0);
@@ -1748,6 +1762,13 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const pileDelta = (piles(cap) - piles(base)) / dt;
   const delivered = grossPlan - pileDelta;
   const opex = perTick(spawnTotal);
+  // Remote sources only: home sources need no reservation, so the uplift the
+  // reservation fleet buys is (reserved 10 - unreserved 5) per REMOTE source.
+  const ownedRooms = new Set(((core.rooms ?? []) as any[]).map(r => r.name));
+  const remoteSources = ((cap.data.flow?.sources ?? []) as any[]).filter(
+    src => !ownedRooms.has(String(src.nodeId ?? "").split("-")[0])
+  ).length;
+  const reserveUplift = remoteSources * (SOURCE_RATE / 2);
   const score = ((core.gcl?.progress ?? 0) - (bcore.gcl?.progress ?? 0)) / dt;
   const bankDelta = (bank(cap) - bank(base)) / dt;
   // Reuse P8's lens rather than re-deriving build delivery (the codebase rule:
@@ -1761,24 +1782,28 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   return [
     `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ring ${ring}t)`,
     "  REVENUE",
-    L("gross mining (plan capacity)", grossPlan, 4),
+    L("gross mining (plan capacity, RESERVED rate)", grossPlan, 4),
     L("+ pile drawdown / (build-up)", -pileDelta, 4),
     L("= delivered into the economy", delivered, 4),
-    "  OPERATING COST (measured at the spawn)",
-    L("producers  (miner, hauler)", perTick(cost.producers), 4),
-    L("infra      (reserver, tanker, feeder, scout)", perTick(cost.infra), 4),
-    L("defense    (guard)", perTick(cost.defense), 4),
-    L("consumers  (upgrader, builder)", perTick(cost.consumers), 4),
+    "  DIRECT COST OF MINING (measured at the spawn)",
+    L("extraction  (miner)", -perTick(cost.extraction), 4),
+    L("evacuation  (hauler)", -perTick(cost.evacuation), 4),
+    L("reservation (reserver)", -perTick(cost.reservation), 4),
+    L("= NET MINING MARGIN", delivered - perTick(direct), 4),
+    "  OVERHEAD (measured at the spawn)",
+    L("infra      (tanker, feeder, scout)", -perTick(cost.infra), 4),
+    L("defense    (guard)", -perTick(cost.defense), 4),
+    L("consumers  (upgrader, builder)", -perTick(cost.consumers), 4),
     ...(cost.other > 0
-      ? [L(`UNCLASSIFIED [${[...unknownRoles].join(", ")}]`, perTick(cost.other), 4)]
+      ? [L(`UNCLASSIFIED [${[...unknownRoles].join(", ")}]`, -perTick(cost.other), 4)]
       : []),
-    L("= total operating", perTick(operating), 4),
+    L("= total overhead", -perTick(overhead), 4),
     ...(capital > 0
       ? [
           "  CAPITAL (funded from the expansion reserve, not operating margin)",
-          ...(cost.expansion > 0 ? [L("expansion (claimer)", perTick(cost.expansion), 4)] : []),
-          ...(cost.incursion > 0 ? [L("incursion (buster, striker)", perTick(cost.incursion), 4)] : []),
-          L("= total capital", perTick(capital), 4)
+          ...(cost.expansion > 0 ? [L("expansion (claimer)", -perTick(cost.expansion), 4)] : []),
+          ...(cost.incursion > 0 ? [L("incursion (buster, striker)", -perTick(cost.incursion), 4)] : []),
+                L("= total capital", -perTick(capital), 4)
         ]
       : []),
     "  APPROPRIATIONS",
@@ -1788,6 +1813,9 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     L("= total", approp, 4),
     "  " + "-".repeat(46),
     L("RESIDUAL (decay, rot, raids, error)", residual, 2),
+    `  reservation buys ~${reserveUplift.toFixed(0)} e/t of the revenue line (${remoteSources} remote sources x ` +
+      `${(SOURCE_RATE / 2).toFixed(0)} e/t uplift, reserved ${SOURCE_RATE} vs unreserved ${(SOURCE_RATE / 2).toFixed(0)})` +
+      ` for ${perTick(cost.reservation).toFixed(2)} e/t of bodies.`,
     `  ${residual >= 0 ? "unattributed" : "OVER-attributed"} = ${Math.abs(residual / Math.max(grossPlan, 1e-9) * 100).toFixed(0)}% of gross mining` +
       ` - revenue is PLAN CAPACITY less pile change, not a delivery meter, so this bounds`,
     "  ground decay + rot above the container cap + raid losses + tower burn + measurement error.",

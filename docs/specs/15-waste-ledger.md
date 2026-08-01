@@ -203,6 +203,19 @@ green.** First baseline: **14% of gross mining**.
 - The ring and capture windows differ in length; each figure is normalised over
   its own and both appear in the header.
 
+**RESERVING IS COST OF GOODS, not overhead** (owner 2026-08-01: *"reserving is
+an overhead applied to the gross mining"*). The dependency is verifiable, not a
+judgement call: the plan prices EVERY source at rate 10 =
+`SOURCE_ENERGY_CAPACITY(3000) / SOURCE_REGEN_TIME(300)` — the **reserved**
+yield. An unreserved remote regenerates 1500 per 300t, i.e. 5 e/t. So the
+revenue line *assumes* reservation on all 8 remotes, and the reservation fleet
+is buying **~40 e/t of the 100 e/t revenue** for **~10.6 e/t of bodies — a 3.8×
+return**. Burying it in `infra` hid both the cost and the return.
+
+The statement therefore splits DIRECT COST OF MINING (extraction / evacuation /
+reservation) from OVERHEAD (infra / defense / consumers), yielding a **NET
+MINING MARGIN** subtotal — first live reading **65.29 e/t on 100.54 delivered**.
+
 **OPERATING vs CAPITAL** (owner-caught 2026-08-01, *"what about claim corp"* —
 four roles were landing in an unnamed `other` bucket):
 
