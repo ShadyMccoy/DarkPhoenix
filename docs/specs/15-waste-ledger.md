@@ -250,6 +250,24 @@ state print `-` rather than a fabricated parts→energy conversion (biased acros
 classes — a CLAIM part is 600e against 50e for CARRY, the exact error F1
 documents).
 
+**CORRECTION 2026-08-01 (owner): body parts CAN be converted to energy.** The
+first draft left four lines blank, claiming a parts→energy conversion is
+"biased across classes". That over-generalised F1's lesson. F1 warns against
+using COST as a proxy for spawn TIME — a CLAIM part is 600e against 50e for
+CARRY, so cost mis-ranks classes by build pressure. It is **not** an argument
+against converting per BODY: each class's shape is known, so its energy per
+part is exact, and only a FLAT rate across classes would be biased.
+`ENERGY_PER_PART` now carries the per-class factor (miner `MINER_COST/
+MINER_PARTS`, hauler/tender/feeder `CARRY_MOVE_PAIR_COST/2`, reserver
+`(CLAIM+MOVE)/2`), with mixed-shape classes (upgraders, construction) taking
+the measured fleet's own energy-per-part — the same discipline
+`upgraderPartsPerWork` already uses on the parts side.
+
+**Filling those lines changed the diagnosis.** With reservation priced, NET
+MINING MARGIN reads **budget 65.04 vs actual 65.29 (+0.26 F)** — the plan's
+mining economics are essentially exact, which was invisible while the line was
+blank.
+
 Budgets are computed with the **planner's own primitives**, never a second
 formula: `minerOverhead(spawnDistance)` per source and
 `haulerOverhead(carryParts, distance)` per route — the same functions
@@ -292,16 +310,22 @@ and it is directly comparable to energy those structures convert OUT into
 bodies. Same structure, same unit, same direction; at steady state refill must
 equal spend because the network's stock is bounded at its capacity.
 
-**The plan routes 20.00 e/t to the spawns. The spawns burn 44.21.** And the
-decomposition is sharp: the plan prices miners+haulers at 18.11 (its own
-`totalOverhead`), so its 20.00 spawn budget leaves **1.89 e/t** for reservation
-+ infra + defense + consumers — classes that actually cost **19.52 e/t**.
+**The plan's own fleet, fully priced in energy, costs 42.44 e/t. Measured spend
+is 44.21 — the plan's fleet pricing is accurate to ~4%. But the plan only
+ROUTES 20.00 e/t to the spawn sinks.** It under-routes a cost it correctly
+computes, by 22.44 e/t.
+
+That is the mechanism behind the inflated controller allocation (owner: *"it's
+part of the reason the controller budget is 100, equal to total net mining"*).
+The solver never deducts its own fleet's energy from what it hands to sinks, so
+the controller gets ~all of net mining.
 
 That closes the top-line variance **arithmetically**:
 
 ```
 CONTROLLER VARIANCE BRIDGE  (plan 108.87 -> actual 47.59)
-  spawn cost the plan under-budgets         -24.21
+  plan under-ROUTES its own fleet cost      -22.44
+  fleet costs more than the plan prices      -1.78
   losses the plan does not model (residual) -14.47
   bank draw budgeted but not performed      -23.14
   = explains                                -61.82
@@ -309,11 +333,12 @@ CONTROLLER VARIANCE BRIDGE  (plan 108.87 -> actual 47.59)
     unexplained (window mismatch)            +0.54
 ```
 
-**The shortfall is not one thing.** Two of the three terms are the PLAN's
-accounting — it under-budgets the spawn and models no losses at all — and only
-the third is runtime behaviour (a bank draw the valve did not perform). Roughly
-**63% accounting, 37% behaviour**, which reverses the working assumption that
-P7 was primarily an execution failure.
+**The shortfall is not one thing, and fleet execution is the smallest part of
+it.** Terms 1 and 3 are the plan's own accounting (36.91 e/t — it under-routes
+a cost it correctly prices, and models no losses); term 4 is runtime (23.14);
+term 2 is the only fleet-EXECUTION term at **1.78**. Roughly **60% accounting,
+40% behaviour**, and the fleet itself is priced to ~4% — which reverses the
+working assumption that P7 was primarily an execution failure.
 
 The 0.54 unexplained is the window mismatch: spawn spend is measured over the
 blackbox ring (2,710t) and everything else over the capture window (6,686t).

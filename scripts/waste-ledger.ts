@@ -18,8 +18,11 @@
 import * as fs from "fs";
 import * as path from "path";
 import {
+  BODY_COSTS,
+  CARRY_MOVE_PAIR_COST,
   CLAIM_LIFETIME,
   CREEP_LIFETIME,
+  MINER_COST,
   MINER_PARTS,
   RESERVER_DUTY,
   SOURCE_RATE,
@@ -82,7 +85,37 @@ function fleetParts(corps: any[], kind: string, fallback: number): number {
  * then converge to the ceiling, never to the plan (measured 2026-07-18:
  * 0.561 p/t vs 0.333, 168%, while progress ran at ~3 of a 115 e/t plan).
  */
-export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, number, number]> } {
+/**
+ * ENERGY per BODY PART, by fleet class - the conversion that lets every planned
+ * class carry an ENERGY budget, not just a parts budget (owner 2026-08-01: "we
+ * can always convert body parts into energy ... per creep body get the energy
+ * equivalent and sum it up").
+ *
+ * I previously refused this conversion as "biased across classes" and left four
+ * budget lines blank. That over-generalised F1's lesson. F1's warning is against
+ * using COST as a proxy for spawn TIME - a CLAIM part is 600e against 50e for
+ * CARRY, so cost mis-ranks classes by build pressure. It is NOT an argument
+ * against converting per BODY: each class's shape is known, so its energy per
+ * part is exact. Only a FLAT rate across classes would be biased.
+ */
+const ENERGY_PER_PART: Record<string, number> = {
+  // 5 WORK + 3 MOVE = 650e over 8 parts
+  miners: MINER_COST / MINER_PARTS,
+  // every hauler-shaped body is CARRY+MOVE pairs: 100e per 2 parts
+  "source-route haulers": CARRY_MOVE_PAIR_COST / 2,
+  "transient-route haulers (unbudgeted)": CARRY_MOVE_PAIR_COST / 2,
+  tenders: CARRY_MOVE_PAIR_COST / 2,
+  feeder: CARRY_MOVE_PAIR_COST / 2,
+  // CLAIM+MOVE pairs: (600 + 50) / 2
+  "reservers (claim life)": (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2
+};
+
+export function planSpawnLoad(cap: any): {
+  total: number;
+  lines: Array<[string, number, number]>;
+  /** class -> ENERGY/tick the plan's own fleet for that class implies. */
+  energy: Record<string, number>;
+} {
   const flow = cap.data.flow;
   const corps: any[] = cap.data.corps?.corps ?? [];
   const rooms = cap.data.core?.rooms ?? [];
@@ -190,7 +223,31 @@ export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, 
   lines.push(["reservers (claim life)", resParts, resLoad]);
 
   const total = lines.reduce((s, [, , x]) => s + x, 0);
-  return { total, lines };
+
+  // Per-class ENERGY/tick from the SAME parts figures above. Classes whose body
+  // shape is mixed (upgraders, construction) take the measured fleet's own
+  // energy-per-part - the same discipline `upgraderPartsPerWork` and
+  // `fleetParts` already use on this function's parts side.
+  const mixedRate = (kind: string, dflt: number): number => {
+    const own = corps.filter(c => c.kind === kind && c.bodyParts > 0);
+    if (own.length === 0) return dflt;
+    let e = 0;
+    let n = 0;
+    for (const c of own) {
+      for (const [part, count] of Object.entries((c.body ?? {}) as Record<string, number>)) {
+        e += count * (BODY_COSTS[part.toUpperCase() as keyof typeof BODY_COSTS] ?? 50);
+        n += count;
+      }
+    }
+    return n > 0 ? e / n : dflt;
+  };
+  const energy: Record<string, number> = {};
+  for (const [name, , load] of lines) {
+    const flat = ENERGY_PER_PART[name] ?? (name.startsWith("feeder") ? CARRY_MOVE_PAIR_COST / 2 : undefined);
+    const rate = flat ?? (name.startsWith("upgraders") ? mixedRate("upgrade", 85) : mixedRate("construction", 65));
+    energy[name] = load * rate;
+  }
+  return { total, lines, energy };
 }
 
 /** HOME-room roles run inside the owned room; an early death there is a bot
@@ -1798,6 +1855,18 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   // its capacity - so over a long window the two must agree, and where they do
   // not, the plan is under-provisioning the spawn.
   const bSpawn = sinkAlloc("spawn");
+  // The plan's OWN fleet, priced in ENERGY (owner 2026-08-01). Every class the
+  // plan sizes now carries an energy budget, so no line is blank for want of a
+  // conversion. The gap between this and `bSpawn` is the plan's INTERNAL
+  // inconsistency: it knows what its fleet costs and routes less than that to
+  // the spawns, which is why the controller allocation is ~ total net mining.
+  const planEnergy = planSpawnLoad(cap).energy;
+  const pe = (...names: string[]): number =>
+    names.reduce((n, key) => n + Object.keys(planEnergy).filter(k => k.startsWith(key)).reduce((m, k) => m + planEnergy[k], 0), 0);
+  const bReserve = pe("reservers");
+  const bInfra = pe("feeder", "tenders");
+  const bConsumers = pe("upgraders", "construction (all-in)");
+  const bFleetEnergy = Object.keys(planEnergy).reduce((n, k) => n + planEnergy[k], 0);
   const pileDelta = (piles(cap) - piles(base)) / dt;
   const delivered = grossPlan - pileDelta;
   const opex = perTick(spawnTotal);
@@ -1853,17 +1922,19 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     "  DIRECT COST OF MINING (measured at the spawn)",
     L("extraction  (miner)", -perTick(cost.extraction), 4, -bExtract, "cost"),
     L("evacuation  (hauler)", -perTick(cost.evacuation), 4, -bEvac, "cost"),
-    L("reservation (reserver)", -perTick(cost.reservation), 4),
-    L("= NET MINING MARGIN", delivered - perTick(direct), 4, grossPlan - bExtract - bEvac),
+    L("reservation (reserver)", -perTick(cost.reservation), 4, -bReserve, "cost"),
+    L("= NET MINING MARGIN", delivered - perTick(direct), 4, grossPlan - bExtract - bEvac - bReserve),
     "  OVERHEAD (measured at the spawn)",
-    L("infra      (tanker, feeder, scout)", -perTick(cost.infra), 4),
+    L("infra      (tanker, feeder, scout)", -perTick(cost.infra), 4, -bInfra, "cost"),
     L("defense    (guard)", -perTick(cost.defense), 4),
-    L("consumers  (upgrader, builder)", -perTick(cost.consumers), 4),
+    L("consumers  (upgrader, builder)", -perTick(cost.consumers), 4, -bConsumers, "cost"),
     ...(cost.other > 0
       ? [L(`UNCLASSIFIED [${[...unknownRoles].join(", ")}]`, -perTick(cost.other), 4)]
       : []),
-    L("= total overhead", -perTick(overhead), 4),
-    L("= TOTAL SPAWN (direct + overhead)", -perTick(spawnTotal), 2, -bSpawn, "cost"),
+    L("= total overhead", -perTick(overhead), 4, -(bInfra + bConsumers), "cost"),
+    L("= TOTAL SPAWN (plan fleet, priced)", -perTick(spawnTotal), 2, -bFleetEnergy, "cost"),
+    `    ...but the plan only ROUTES ${bSpawn.toFixed(2)} e/t to the spawn sinks - it under-routes its OWN`,
+    `    fleet by ${(bFleetEnergy - bSpawn).toFixed(2)} e/t, which is why the controller allocation is ~ total net mining.`,
     ...(capital > 0
       ? [
           "  CAPITAL (funded from the expansion reserve, not operating margin)",
@@ -1897,15 +1968,18 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
       const explains = spawnGap + lossGap + bankGap;
       const actualVar = score - bController;
       return [
-        B("spawn cost the plan under-budgets", spawnGap),
+        B("plan under-ROUTES its own fleet cost", -(bFleetEnergy - bSpawn)),
+        B("fleet costs more than the plan prices", -(perTick(spawnTotal) - bFleetEnergy)),
         B("losses the plan does not model (residual)", lossGap),
         B("bank draw budgeted but not performed", bankGap),
         B("= explains", explains),
         B("  actual controller variance", actualVar),
         `    ${"  unexplained (window mismatch)".padEnd(42)}${actualVar - explains >= 0 ? "+" : ""}${(actualVar - explains).toFixed(2)}`,
-        "    the shortfall is NOT one thing: two of the three terms are the PLAN's",
-        "    accounting (spawn under-budget + unmodelled losses); the third is runtime",
-        "    behaviour (a budgeted bank draw the valve did not perform)."
+        "    ACCOUNTING vs BEHAVIOUR: the first and third terms are the PLAN's own",
+        "    accounting (it under-routes a fleet cost it correctly prices, and models no",
+        "    losses at all); the fourth is runtime (a budgeted bank draw the valve did not",
+        "    perform). The second is the only fleet-EXECUTION term and it is the smallest -",
+        "    the plan's fleet pricing is accurate to ~4%."
       ];
     })(),
     `  BUDGET CHECK: extraction+evacuation ${(bExtract + bEvac).toFixed(2)} vs the plan's own totalOverhead ` +
