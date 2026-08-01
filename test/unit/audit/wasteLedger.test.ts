@@ -1,8 +1,15 @@
 import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
-import { F1_CLASS_OF_KIND, F1_PLAN_PREFIX, computeChurn, computeLedger, planSpawnLoad } from "../../../scripts/waste-ledger";
-import { ALL_CORP_KINDS } from "../../../src/execution/CommissionHost";
+import {
+  ACCOUNT_CLASS_OF_ROLE,
+  F1_CLASS_OF_KIND,
+  F1_PLAN_PREFIX,
+  computeChurn,
+  computeLedger,
+  planSpawnLoad
+} from "../../../scripts/waste-ledger";
+import { ALL_CORP_KINDS, ALL_SPAWN_ROLES } from "../../../src/execution/CommissionHost";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -1175,5 +1182,30 @@ describe("F1 class map covers every registered corp kind", () => {
     const classes = new Set(Object.values(F1_CLASS_OF_KIND).concat("haulers"));
     const missing = [...classes].filter(c => !F1_PLAN_PREFIX[c]);
     expect(missing, `classes with no plan prefix: ${missing.join(", ")}`).to.deep.equal([]);
+  });
+});
+
+/**
+ * The ENERGY ACCOUNT's role map, ratcheted the same way F1's kind map is.
+ * Owner-caught 2026-08-01 ("what about claim corp"): four roles - claimer,
+ * scout, buster, striker - were landing in an unnamed "other" bucket, and one
+ * of them (claimer) is CAPEX that must never be charged to operating margin.
+ * A chart of accounts with an anonymous bucket is not a chart of accounts.
+ */
+describe("energy account: every spawnable role has an account", () => {
+  it("classifies every role any registered kind can buy", () => {
+    const unclassified = ALL_SPAWN_ROLES.filter(r => !ACCOUNT_CLASS_OF_ROLE[r]);
+    expect(unclassified, `roles with no account: ${unclassified.join(", ")}`).to.deep.equal([]);
+  });
+
+  it("maps no role that no kind declares (the ghost-key check)", () => {
+    const ghosts = Object.keys(ACCOUNT_CLASS_OF_ROLE).filter(r => !ALL_SPAWN_ROLES.includes(r));
+    expect(ghosts, `mapped roles no kind buys: ${ghosts.join(", ")}`).to.deep.equal([]);
+  });
+
+  it("keeps expansion OUT of operating cost (capex, funded from the reserve)", () => {
+    expect(ACCOUNT_CLASS_OF_ROLE.claimer).to.equal("expansion");
+    expect(ACCOUNT_CLASS_OF_ROLE.buster).to.equal("incursion");
+    expect(ACCOUNT_CLASS_OF_ROLE.striker).to.equal("incursion");
   });
 });

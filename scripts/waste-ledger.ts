@@ -1672,6 +1672,50 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
  * The ring and the capture window differ in length; each figure is normalised
  * over its OWN window, which is exact for rates and is stated in the header.
  */
+/**
+ * ACCOUNT each spawn ROLE is charged to in the energy account.
+ *
+ * The OPERATING/CAPITAL split is the accounting judgement here, and it matters
+ * (owner asked "what about claim corp" 2026-08-01, when four roles - claimer,
+ * scout, buster, striker - were silently landing in an unnamed "other"):
+ *
+ *  - `claimer` is EXPANSION CAPEX, not operating cost. `BASE_RESERVE =
+ *    EXPANSION_CAPEX + EXPANSION_SAFETY_RESERVE` exists specifically to fund
+ *    it, and a 600e/CLAIM-part body buys a permanent new room. Charging it to
+ *    opex would make the operating margin look worst in exactly the cycle
+ *    where expanding is the right call - the classic reason capex is a
+ *    separate account.
+ *  - `buster`/`striker` are the same shape: coreBusterKind's own comment says
+ *    "off-budget: the mission restores a zeroed income stream". Capital repair
+ *    of an income asset, not running cost.
+ *  - `scout` IS operating cost - intel is continuous, and the bodies are ~50e.
+ *
+ * Ratcheted by test against ALL_SPAWN_ROLES (the kinds' own `roles`
+ * declarations), so a new kind's role fails the audit until someone decides
+ * its account, rather than vanishing into a bucket. Any role that still slips
+ * through prints as UNCLASSIFIED with its name, never as anonymous "other".
+ */
+export const ACCOUNT_CLASS_OF_ROLE: Record<string, string> = {
+  miner: "producers",
+  hauler: "producers",
+  reserver: "infra",
+  // `tanker` is bought by TWO kinds - extensionTender (refills the spawn
+  // network: infra) and construction (crew haulage: really a build cost). The
+  // role alone cannot separate them, so both land in infra and the line
+  // slightly OVER-states infra during a build campaign. Stated rather than
+  // inferred from a corp-id prefix; a corp->kind join would fix it but cannot
+  // resolve a corp that died inside the window.
+  tanker: "infra",
+  feeder: "infra",
+  scout: "infra",
+  guard: "defense",
+  upgrader: "consumers",
+  builder: "consumers",
+  claimer: "expansion",
+  buster: "incursion",
+  striker: "incursion"
+};
+
 export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const core = cap.data.core;
   const bcore = base.data.core;
@@ -1681,16 +1725,19 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const ring = rows0.length > 1 ? rows0[rows0.length - 1].t - rows0[0].t : 0;
   const spawnRows = rows0.filter(r => r.k === "spawn" && r.d?.cost);
 
-  const CLASS: Record<string, string> = {
-    miner: "producers", hauler: "producers",
-    reserver: "infra", tender: "infra", tanker: "infra", feeder: "infra",
-    guard: "defense",
-    upgrader: "consumers", builder: "consumers"
+  const cost: Record<string, number> = {
+    producers: 0, infra: 0, defense: 0, consumers: 0, expansion: 0, incursion: 0, other: 0
   };
-  const cost: Record<string, number> = { producers: 0, infra: 0, defense: 0, consumers: 0, other: 0 };
-  for (const r of spawnRows) cost[CLASS[r.d.role] ?? "other"] += r.d.cost;
+  const unknownRoles = new Set<string>();
+  for (const r of spawnRows) {
+    const cls = ACCOUNT_CLASS_OF_ROLE[r.d.role];
+    if (!cls) unknownRoles.add(r.d.role);
+    cost[cls ?? "other"] += r.d.cost;
+  }
   const perTick = (n: number) => (ring > 0 ? n / ring : 0);
-  const spawnTotal = Object.values(cost).reduce((a, b) => a + b, 0);
+  const operating = cost.producers + cost.infra + cost.defense + cost.consumers + cost.other;
+  const capital = cost.expansion + cost.incursion;
+  const spawnTotal = operating + capital;
 
   const piles = (c: any): number =>
     Object.values((c.data.core.sourceBuffers ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0);
@@ -1719,11 +1766,21 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     L("= delivered into the economy", delivered, 4),
     "  OPERATING COST (measured at the spawn)",
     L("producers  (miner, hauler)", perTick(cost.producers), 4),
-    L("infra      (reserver, tender, feeder)", perTick(cost.infra), 4),
+    L("infra      (reserver, tanker, feeder, scout)", perTick(cost.infra), 4),
     L("defense    (guard)", perTick(cost.defense), 4),
     L("consumers  (upgrader, builder)", perTick(cost.consumers), 4),
-    ...(cost.other > 0 ? [L("other/unclassified", perTick(cost.other), 4)] : []),
-    L("= total spawn", opex, 4),
+    ...(cost.other > 0
+      ? [L(`UNCLASSIFIED [${[...unknownRoles].join(", ")}]`, perTick(cost.other), 4)]
+      : []),
+    L("= total operating", perTick(operating), 4),
+    ...(capital > 0
+      ? [
+          "  CAPITAL (funded from the expansion reserve, not operating margin)",
+          ...(cost.expansion > 0 ? [L("expansion (claimer)", perTick(cost.expansion), 4)] : []),
+          ...(cost.incursion > 0 ? [L("incursion (buster, striker)", perTick(cost.incursion), 4)] : []),
+          L("= total capital", perTick(capital), 4)
+        ]
+      : []),
     "  APPROPRIATIONS",
     L("controller (score)", score, 4),
     L("construction (site progress)", build, 4),

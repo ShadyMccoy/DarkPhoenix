@@ -203,6 +203,34 @@ green.** First baseline: **14% of gross mining**.
 - The ring and capture windows differ in length; each figure is normalised over
   its own and both appear in the header.
 
+**OPERATING vs CAPITAL** (owner-caught 2026-08-01, *"what about claim corp"* —
+four roles were landing in an unnamed `other` bucket):
+
+- `claimer` is **EXPANSION CAPEX**, not operating cost. `BASE_RESERVE =
+  EXPANSION_CAPEX + EXPANSION_SAFETY_RESERVE` exists to fund it, and a
+  600e/CLAIM-part body buys a permanent new room. Charging it to opex would
+  make the operating margin look worst in exactly the cycle where expanding is
+  right — the classic reason capex is its own account.
+- `buster`/`striker` are the same shape; coreBusterKind's own comment says
+  *"off-budget: the mission restores a zeroed income stream"*. Capital repair of
+  an income asset.
+- `scout` IS operating cost — intel is continuous and the bodies are ~50e.
+
+The CAPITAL section prints only when such spend exists, so a quiet colony's
+statement stays short.
+
+**RATCHETED**, same discipline as F1's kind map: `ALL_SPAWN_ROLES` is derived
+from the kinds' own `roles` declarations and a test asserts every role has an
+account and that no account maps a role no kind buys. **It earned its keep on
+its first run** — it caught `tender` as a ghost key (the real role is `tanker`).
+Any role that still slips through prints as `UNCLASSIFIED [names]`, never as
+anonymous "other".
+
+Known limitation, stated rather than inferred: `tanker` is bought by BOTH
+extensionTender (infra) and construction (crew haulage), so the infra line
+slightly over-states during a build campaign. A corp→kind join would separate
+them but cannot resolve a corp that died inside the window.
+
 **Expected to evolve.** Split the residual as decay/rot/raid meters land; add a
 balance-sheet section (reserved / committed / free) once the commitment
 accounting exists. **The invariants are the balancing identity and the named
