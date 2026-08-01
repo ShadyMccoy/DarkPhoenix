@@ -108,3 +108,48 @@ protocol.
 - No optimization without a ledger line first (no "this feels wasteful").
 - No CPU micro-tuning while C1 is unmeasured.
 - The ledger reports; it never throttles or decides in-bot.
+
+### G1 — sustained progress (score net of bank drawdown)
+
+**Added 2026-08-01 (owner: "add rate-at-bank-slope as a ledger row").** THE
+GOAL METRIC. Raw pts/t is not it: the same colony scored **68.29 while burning
+the bank at −45.52 e/t** and **47.59 while burning it at −5.74**. The first is a
+stockpile liquidation that ends; the second is income.
+
+**What the sum means** (derived, not asserted — the P10 lesson):
+
+```
+bankSlope = income − controller − spawn − construction
+⇒ score + bankSlope = income − spawn − construction
+```
+
+i.e. the RESIDUAL the economy can sustainably route to the controller at its
+current spawn and construction burn. Both terms are energy/tick (one GCL point
+IS one energy delivered), so the addition is meaningful.
+
+**Three regimes, not one axis** — the shape validation forced this:
+
+| regime | reading | verdict |
+|---|---|---|
+| `score >> funded` | LIQUIDATION — the saw-tooth down-stroke | **FAIL** below 50% |
+| `score ≈ funded` | matched — the healthy state | ok (measured 76–88%) |
+| `score << funded` | UNDER-SPENDING — capacity banked, not delivered | WARN |
+
+The third arm exists because validation caught the first draft calling the
+t72703512 trough **"232% income-funded, ok"** — a compliment on the wasteful
+quadrant (delivered 19.63 while banking +25.88). A share above 1 is not more
+health; it is unconverted capacity, and it now reports as
+`delivering X of Y sustainable`. Under-spending never outranks a liquidation:
+it is real waste (OSC names the same quadrant from the fleet side) but it burns
+no capital.
+
+**Validated against every phase in the fixture set:** t72714129 88% ok,
+t72701842 33% **FAIL**, t72703512 arc 76% ok, t72706408 trough **WARN
+under-spending**.
+
+**Stated limitation, carried in the detail line:** the bank slope also absorbs
+construction spend and decay, so `funded` is "not drawn from storage", NOT
+"converted to progress". It is a sustainability FLOOR, not an energy audit.
+Shares an input with E4 but asks a different question — E4 asks whether capital
+is idle, G1 asks what is paying for the score. Windows below 6,000 ticks are
+labelled SHORT: they sample a phase of the ~9,000-tick limit cycle (see OSC).
