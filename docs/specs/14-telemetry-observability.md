@@ -7345,3 +7345,26 @@ as `prevBankDraw` is threaded) would make the steady-state cost ZERO extra
 searches, because the tolerance check fires on the first pass. Only a genuine
 regime change would pay for the full iteration. Deliberately NOT done here: it
 would have invalidated the gate above, and the concept had to be proven first.
+
+### DEPLOY 2026-08-01 (00edc35) — damped fixed point. PREDICTIONS
+
+Registered before recapture. The linear fit is in TOTAL e/t across both spawns
+(`F(c) = 49.45 − 0.4408c`, fixed point **34.32 total = 17.16/spawn**); the
+stamp publishes the PER-SPAWN figure.
+
+| | last (49.45 total) | predicted | why |
+|---|---|---|---|
+| `spawnMaintenance` /spawn | 24.72 | **16–19** | the fitted fixed point, 17.16 |
+| spawn sinks total | 49.45 | **33–38** | 2× the above + agenda funding |
+| controller allocated | 79.11 | **92–97** | the ~15 e/t no longer over-charged is handed back down the ladder |
+| plan `totalOverhead` | 16.15 | **17–21** | a smaller charge funds slightly MORE hauling — this is the term whose motion made the naive pass wrong, so it must move UP, not stay put |
+
+**The sharpest one is the last.** If `totalOverhead` comes back unchanged at
+~16.15 while the charge falls, the response slope I fitted is wrong and the
+whole mutual-dependence story needs re-deriving — that would be the finding,
+not a miss. If maintenance lands at neither ~24.7 nor ~13.8, the iteration is
+demonstrably reaching a point neither undamped scheme could.
+
+Falsifier for the mechanism as a whole: `spawnMaintenance` differing by more
+than ~2 e/t between two consecutive captures in the same bank phase would mean
+4 passes is not enough to converge on the live world.

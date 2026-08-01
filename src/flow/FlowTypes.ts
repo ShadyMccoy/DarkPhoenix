@@ -308,6 +308,32 @@ export interface FlowSolution {
    */
   spawnMaintenance?: number;
 
+  /**
+   * The INPUTS the per-spawn charge above was computed from, stamped at the
+   * decision site (spec 14). Added after `spawnMaintenance` alone proved
+   * insufficient TWICE: the charge is `fleetEnergy / spawnCount`, and a
+   * capture could not tell an unconverged iteration from a wrong divisor
+   * from a mis-estimated infra term - all three predict "the charge is not
+   * the fleet cost". Each of my two diagnoses from the sum alone was wrong.
+   *
+   * `fleetEnergy` is the CONVERGED plan's total (production overhead + infra),
+   * so `charge * spawnCount == fleetEnergy` is the self-consistency identity a
+   * reader can check directly, and `passes` says whether the iteration ran out
+   * of budget before getting there.
+   */
+  fleetCharge?: {
+    /** Total fleet cost of the plan handed back (totalOverhead + infra). */
+    fleetEnergy: number;
+    /** Production term only (plan.totalOverhead). */
+    production: number;
+    /** Infrastructure term only (problem.infraEnergyPerTick). */
+    infra: number;
+    /** Divisor: spawn sinks the charge is split across. */
+    spawnCount: number;
+    /** Damped iterations actually run (0 = converged on the seed). */
+    passes: number;
+  };
+
   /** Net energy available for sinks */
   netEnergy: number;
 

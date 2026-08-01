@@ -692,6 +692,10 @@ export function detectPavedSources(): Map<string, number> {
  *  flow segment so a capture can decompose the spawn sink's demand. */
 export let spawnMaintenanceStamp = 0;
 
+/** Inputs the last charge was computed from (spec 14 decision stamp) - exported
+ *  for the flow segment so `charge * spawnCount == fleetEnergy` is a direct read. */
+export let fleetChargeStamp: NonNullable<FlowSolution["fleetCharge"]> | undefined;
+
 /** Fixed-point iteration bounds for the spawn's fleet charge. Four passes is
  *  ample for a damped contraction (the measured spread was 49.45 vs 27.65, so
  *  two damped steps land inside a fraction of an e/t); the tolerance stops
@@ -725,17 +729,19 @@ export function convergeFleetCharge<T>(
   seedFleet: number,
   fleetChargeOf: (solved: T) => number,
   solveWith: (charge: number) => T
-): { charge: number; solved: T | undefined } {
+): { charge: number; solved: T | undefined; passes: number } {
   let charge = 0;
   let target = seedFleet;
   let solved: T | undefined;
+  let passes = 0;
   for (let pass = 0; pass < FLEET_CHARGE_MAX_PASSES; pass += 1) {
     if (Math.abs(target - charge) <= FLEET_CHARGE_TOLERANCE) break; // converged
     charge = Math.max(0, (charge + target) / 2); // damped step
     solved = solveWith(charge);
     target = fleetChargeOf(solved);
+    passes += 1;
   }
-  return { charge, solved };
+  return { charge, solved, passes };
 }
 
 export function buildColonyProblem(
@@ -1252,6 +1258,18 @@ export function solveColony(
   );
   spawnMaintenanceStamp = converged.charge;
   const searched = converged.solved ?? pass1;
+  // DECISION STAMP (spec 14): every input of the charge, not just the result.
+  // `spawnMaintenance` alone could not distinguish an unconverged iteration
+  // from a wrong divisor from a mis-estimated infra term - two diagnoses off
+  // the sum alone were both wrong. `charge * spawnCount == fleetEnergy` is now
+  // checkable straight from a capture.
+  fleetChargeStamp = {
+    fleetEnergy: fleetOf(searched),
+    production: searched.plan.totalOverhead,
+    infra: baseProblem.infraEnergyPerTick ?? 0,
+    spawnCount,
+    passes: converged.passes
+  };
   const problem = searched.problem;
   const plan = searched.plan;
   // Link-served sources (haulPos set): their transport is the link network +
@@ -1318,6 +1336,7 @@ export function solveColony(
     haulingOverhead,
     totalOverhead,
     spawnMaintenance: spawnMaintenanceStamp,
+    ...(fleetChargeStamp ? { fleetCharge: fleetChargeStamp } : {}),
     netEnergy: netEnergyTotal,
     efficiency: totalHarvest > 0 ? (netEnergyTotal / totalHarvest) * 100 : 0,
     unmetDemand,

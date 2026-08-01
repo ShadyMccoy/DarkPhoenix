@@ -161,9 +161,19 @@ export interface FlowTelemetry {
   summary: {
     totalHarvest: number;
     totalOverhead: number;
-    /** Per-spawn fleet maintenance charged by the two-pass solve (v13) - lets a
+    /** Per-spawn fleet maintenance charged by the fleet-charge solve - lets a
      *  capture split the spawn sink demand into base/maintenance/agenda terms. */
     spawnMaintenance?: number;
+    /** Inputs the charge was computed from (v13): `spawnMaintenance *
+     *  spawnCount == fleetEnergy` is the self-consistency identity, and
+     *  `passes` says whether the damped iteration converged or ran out. */
+    fleetCharge?: {
+      fleetEnergy: number;
+      production: number;
+      infra: number;
+      spawnCount: number;
+      passes: number;
+    };
     netEnergy: number;
     efficiency: number;
     isSustainable: boolean;
@@ -339,7 +349,7 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
     // echo (spec 34 P4: the ledger charges construction THROUGH the plan).
     // v12 adds partsLedger.plannable - the 90% planning margin
     // (SPAWN_PLAN_FRACTION, owner 2026-07-30) the fill spends from.
-    version: 12,
+    version: 13, // v13: fleetCharge decomposition (charge inputs, spec 14) 2026-08-01
     tick: Game.time,
     sources,
     haulers,
@@ -358,6 +368,7 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
           ...(flowSolution.spawnMaintenance !== undefined
             ? { spawnMaintenance: flowSolution.spawnMaintenance }
             : {}),
+          ...(flowSolution.fleetCharge ? { fleetCharge: flowSolution.fleetCharge } : {}),
           netEnergy: flowSolution.netEnergy,
           efficiency: flowSolution.efficiency,
           isSustainable: flowSolution.isSustainable,
