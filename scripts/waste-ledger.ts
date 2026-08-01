@@ -1910,8 +1910,8 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
         pileDecay: number;
         structureDecay: number;
         repairSpend: number;
-        tombstoneDecayed: number;
-        tombstoneLooted: number;
+        tombstoneLost: number;
+        tombstoneRecovered: number;
         tombstoneStock: number;
       }
     | undefined;
@@ -1921,7 +1921,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   // bank. Structure decay is deliberately absent: it is DEPRECIATION, an
   // accrued liability, and its cash cost IS the repair line - booking both
   // would double-count the same wear.
-  const tombLoss = meter?.tombstoneDecayed ?? 0;
+  const tombLoss = meter?.tombstoneLost ?? 0;
   const repairSpend = meter?.repairSpend ?? 0;
   const meteredLosses = rot + tombLoss + repairSpend;
 
@@ -2055,7 +2055,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
           L(meter ? "ground pile decay (engine ceil rule)" : "ground rot (dropped energy, 0.1%/t)", -rot, 4),
           ...(meter
             ? [
-                L("tombstone decay (energy destroyed)", -tombLoss, 4),
+                L("tombstone losses (creeps died carrying)", -tombLoss, 4),
                 L("repair (energy spent holding hits)", -repairSpend, 4),
                 L("= measured losses", -meteredLosses, 4)
               ]
@@ -2129,8 +2129,8 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
           "    full rebuild price when a structure expires (a container is 5000 energy).",
           `    Road decay here EXCLUDES creep traffic, so it is a LOWER bound. Remote containers are`,
           `    priced at 5x owned (0.50 vs 0.10 e/t) - the engine decays them five times as fast.`,
-          `    Tombstones now hold ${meter.tombstoneStock.toFixed(0)}e; ${meter.tombstoneLooted.toFixed(2)} e/t was recovered by haulers`,
-          "    (recovered energy is NOT a loss and is deliberately excluded from the lines above)."
+          `    Tombstones now hold ${meter.tombstoneStock.toFixed(0)}e; ${meter.tombstoneRecovered.toFixed(2)} e/t was witnessed recovered`,
+          "    Tombstone energy is LOST BY DEFAULT: booked when first seen, credited back only where a\n    withdrawal was actually witnessed. Every recovery path needs a creep already beside it."
         ]
       : []),
     ""

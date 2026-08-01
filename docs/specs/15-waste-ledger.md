@@ -486,7 +486,7 @@ in one bucket. `telemetry/LossMeter` prices the knowable parts.
 | line | nature | how |
 |---|---|---|
 | ground pile decay | **EXACT** | the engine's own `ceil(amount/1000)` applied to every observed pile |
-| tombstone decay | **MEASURED** | energy destroyed with an expiring tombstone (see the discriminator) |
+| tombstone loss | **MEASURED** | energy booked at first sight of a tombstone, net of witnessed recovery (LOST by default) |
 | repair | **MEASURED** | recorded at the repair site — per WORK part for a creep, per shot for a tower |
 | structure decay | **MODELLED** | what holding hits costs, from the engine's decay cadences. A LOWER bound: road traffic decay is excluded |
 
@@ -495,16 +495,31 @@ per-pile ceiling — the rule is convex, and a pile one energy over a boundary
 pays a whole extra energy per tick — and it only ever saw source-adjacent
 piles. #2 supersedes it.
 
-### The tombstone discriminator
+### Tombstones are LOST BY DEFAULT
 
-Energy leaving a tombstone was either **looted** (a hauler emptied it — it came
-home, no loss) or **destroyed** (the tombstone expired and the engine deleted
-its contents). Counting every disappearance as loss overstates; counting none
-hides it. They are told apart by the life REMAINING at the last sighting:
-`ticksToDecay <= dt` means it expired.
+Owner 2026-08-01: *"we don't have any to recover tombstones so we can assume
+that it's lost for now."*
 
-Looted energy is reported alongside as CONTEXT and is deliberately excluded
-from the loss lines.
+Three recovery paths do exist in the tree — `scavengeSpot`'s range-1 withdraw,
+the builder's `PICKUP_RANGE` withdraw, and the scavenge corp when the planner
+funds the stock — but **every one requires a creep already standing beside the
+tombstone**. A hauler that dies mid-route in a remote room is simply gone. So
+the default is loss, and recovery must be earned.
+
+The mechanism that makes that default safe is booking at **FIRST SIGHT**, not
+at disappearance:
+
+- it needs no theory about *why* a tombstone vanished. The earlier rule guessed
+  "gone with life to spare ⇒ somebody looted it", which understates precisely
+  when it matters;
+- it survives the sample stride — a short-lived tombstone seen once is still
+  counted, where a disappearance-based rule can miss it entirely;
+- each tombstone is booked ONCE, colony-wide, however long it stands.
+
+Recovery is then a **credit**, granted only on direct evidence: energy leaving a
+tombstone that is **still standing**. If recovery is ever built out properly,
+the number self-corrects instead of needing a rewrite. Today it should read ~0,
+and a non-zero value is itself a finding.
 
 ### Decay is depreciation, not cash
 
@@ -526,8 +541,10 @@ Two things the memo makes visible for the first time:
 
 - The meter samples on a **10-tick stride** (three FINDs per visible room). The
   stride costs resolution, never correctness — each room integrates against its
-  OWN previous sample — but it bounds the tombstone discriminator to
-  `ticksToDecay <= 10`.
+  OWN previous sample. Booking tombstones at first sight rather than at
+  disappearance is what keeps the stride from mattering to them.
+- A tombstone in a room we NEVER see is never counted. That is the one
+  systematic under-count left, and it biases exactly toward remote deaths.
 - **Vision is not a measurement.** A room merely lost from view is never scored
   as a loss; rooms are diffed only against their own next sample. This is the
   "room state from intel, never creep positions" trap in a different costume,

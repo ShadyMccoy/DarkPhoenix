@@ -1229,8 +1229,8 @@ describe("energy account: the residual's line items (core v20 loss meter)", () =
       pileDecay: 0,
       structureDecay: 0,
       repairSpend: 0,
-      tombstoneDecayed: 0,
-      tombstoneLooted: 0,
+      tombstoneLost: 0,
+      tombstoneRecovered: 0,
       tombstoneStock: 0,
       ...losses
     };
@@ -1247,16 +1247,16 @@ describe("energy account: the residual's line items (core v20 loss meter)", () =
   };
 
   it("prints the three CASH loss lines and their total", () => {
-    const text = accountOf(withMeter({ pileDecay: 3, tombstoneDecayed: 2, repairSpend: 1 }));
+    const text = accountOf(withMeter({ pileDecay: 3, tombstoneLost: 2, repairSpend: 1 }));
     expect(lineValue(text, "ground pile decay")).to.equal(-3);
-    expect(lineValue(text, "tombstone decay")).to.equal(-2);
+    expect(lineValue(text, "tombstone losses")).to.equal(-2);
     expect(lineValue(text, "repair (energy spent")).to.equal(-1);
     expect(lineValue(text, "= measured losses")).to.equal(-6);
   });
 
   it("takes every metered loss OUT of the residual, one for one", () => {
     const bare = accountOf(withMeter({ pileDecay: 3 }));
-    const more = accountOf(withMeter({ pileDecay: 3, tombstoneDecayed: 2, repairSpend: 1 }));
+    const more = accountOf(withMeter({ pileDecay: 3, tombstoneLost: 2, repairSpend: 1 }));
     const shrink = lineValue(bare, "RESIDUAL") - lineValue(more, "RESIDUAL");
     expect(shrink, "3 e/t of newly-attributed loss leaves the residual").to.be.closeTo(3, 0.011);
   });
@@ -1275,10 +1275,14 @@ describe("energy account: the residual's line items (core v20 loss meter)", () =
     expect(holding).to.include("KEEPING UP");
   });
 
-  it("excludes LOOTED tombstone energy from the loss lines - it came home", () => {
-    const looted = accountOf(withMeter({ tombstoneDecayed: 2, tombstoneLooted: 50 }));
-    expect(lineValue(looted, "tombstone decay")).to.equal(-2);
-    expect(lineValue(looted, "= measured losses")).to.equal(-2);
+  it("books tombstone energy as LOST, witnessed recovery being only a memo", () => {
+    // Owner 2026-08-01: with no reliable recovery, lost is the default. The
+    // meter has already netted any witnessed withdrawal out of tombstoneLost,
+    // so the account books that figure and reports recovery as context only.
+    const t = accountOf(withMeter({ tombstoneLost: 2, tombstoneRecovered: 50 }));
+    expect(lineValue(t, "tombstone losses")).to.equal(-2);
+    expect(lineValue(t, "= measured losses")).to.equal(-2);
+    expect(t).to.include("LOST BY DEFAULT");
   });
 
   it("degrades cleanly on a capture older than the meter", () => {

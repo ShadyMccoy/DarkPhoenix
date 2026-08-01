@@ -20,11 +20,20 @@
  *                               site
  *   tombstone        MEASURED   but only after a discriminator, below
  *
- * THE TOMBSTONE DISCRIMINATOR. A tombstone that vanishes was either emptied by
- * a hauler (recovered - no loss) or expired (the engine destroys the contents -
- * a real loss). Counting all disappearances as loss overstates; counting none
- * hides it. They are told apart by the life REMAINING when the tombstone was
- * last seen: gone with its timer nearly run out means it expired.
+ * TOMBSTONES ARE LOST BY DEFAULT (owner 2026-08-01: "we don't have any to
+ * recover tombstones so we can assume that it's lost for now"). Three
+ * opportunistic recovery paths do exist - scavengeSpot's range-1 withdraw, the
+ * builder's PICKUP_RANGE withdraw, and the scavenge corp when the planner funds
+ * the stock - but every one of them needs a creep already standing beside the
+ * tombstone, so a hauler that dies mid-route in a remote room is simply gone.
+ *
+ * The energy is therefore booked as LOST at FIRST SIGHT, not at disappearance.
+ * That needs no theory about why a tombstone vanished (the earlier rule guessed
+ * "gone early => somebody looted it", which understates exactly when it matters)
+ * and it survives the sample stride - a short-lived tombstone seen once is still
+ * counted. Recovery is then a CREDIT, granted only on direct evidence: energy
+ * leaving a tombstone that is still standing. If recovery is ever built out, the
+ * number self-corrects instead of needing a rewrite.
  *
  * Vision is not a measurement: a room we merely stopped seeing must never be
  * scored as a loss, or every dead scout prints a spike. Rooms are diffed only
@@ -64,20 +73,26 @@ export interface RoomLossCensus {
 
 interface RoomState {
   lastTick: number;
-  /** Tombstone energy and remaining life at the previous sample, by id. */
-  tombs: Map<string, { energy: number; ticksToDecay: number }>;
+  /** Energy last seen in each standing tombstone, by id - the drawdown base. */
+  tombs: Map<string, number>;
 }
 
 interface Totals {
   pileDecay: number;
   structureDecay: number;
-  tombstoneDecayed: number;
-  tombstoneLooted: number;
+  /** Energy booked at first sight of each tombstone (the GROSS loss). */
+  tombstoneGross: number;
+  /** Energy witnessed leaving a STANDING tombstone (the credit). */
+  tombstoneRecovered: number;
   tombstoneStock: number;
   repairSpend: number;
   sinceTick: number;
   started: boolean;
 }
+
+/** Tombstone ids already booked - a tombstone is charged ONCE, however long it
+ *  stands. Colony-wide, so a tombstone seen from two rooms cannot double-book. */
+const bookedTombs = new Set<string>();
 
 const rooms = new Map<string, RoomState>();
 let totals: Totals = blank();
@@ -86,8 +101,8 @@ function blank(): Totals {
   return {
     pileDecay: 0,
     structureDecay: 0,
-    tombstoneDecayed: 0,
-    tombstoneLooted: 0,
+    tombstoneGross: 0,
+    tombstoneRecovered: 0,
     tombstoneStock: 0,
     repairSpend: 0,
     sinceTick: 0,
@@ -98,6 +113,7 @@ function blank(): Totals {
 /** Drop all state - a global reset, or a test. Never reports a spike after. */
 export function resetLossMeter(): void {
   rooms.clear();
+  bookedTombs.clear();
   totals = blank();
 }
 
@@ -139,24 +155,26 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
     totals.structureDecay += structure * dt;
   }
 
-  // --- the tombstone diff, against this room's own previous sample only ---
-  const now = new Map<string, { energy: number; ticksToDecay: number }>();
-  for (const t of census.tombstones) now.set(t.id, { energy: t.energy, ticksToDecay: t.ticksToDecay });
+  // --- tombstones: book at FIRST SIGHT, credit only witnessed recovery ---
+  const now = new Map<string, number>();
+  for (const t of census.tombstones) {
+    now.set(t.id, t.energy);
+    if (!bookedTombs.has(t.id)) {
+      bookedTombs.add(t.id);
+      if (t.energy > 0) totals.tombstoneGross += t.energy;
+    }
+  }
 
   if (prev) {
-    for (const [id, was] of prev.tombs) {
-      const still = now.get(id);
-      if (still) {
-        // Still standing: any energy that LEFT it was withdrawn by a creep.
-        const drawn = was.energy - still.energy;
-        if (drawn > 0) totals.tombstoneLooted += drawn;
-        continue;
-      }
-      // Gone. Expired if its timer had all but run out when last seen;
-      // otherwise a hauler emptied it and the engine cleared the husk.
-      if (was.energy <= 0) continue;
-      if (was.ticksToDecay <= dt) totals.tombstoneDecayed += was.energy;
-      else totals.tombstoneLooted += was.energy;
+    for (const [id, wasEnergy] of prev.tombs) {
+      const stillEnergy = now.get(id);
+      // A tombstone that DISAPPEARED tells us nothing: with no reliable
+      // recovery the default is loss, and the loss was already booked at first
+      // sight. Only a drawdown while the tombstone still STANDS is evidence
+      // that a creep took the energy.
+      if (stillEnergy === undefined) continue;
+      const drawn = wasEnergy - stillEnergy;
+      if (drawn > 0) totals.tombstoneRecovered += drawn;
     }
   }
 
@@ -164,7 +182,7 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
 
   // Stock is a level, not a flow: recomputed across all known rooms each time.
   let stock = 0;
-  for (const st of rooms.values()) for (const t of st.tombs.values()) stock += t.energy;
+  for (const st of rooms.values()) for (const e of st.tombs.values()) stock += e;
   totals.tombstoneStock = stock;
 }
 
@@ -177,10 +195,13 @@ export interface LossReport {
   structureDecay: number;
   /** MEASURED: energy/tick actually spent repairing. */
   repairSpend: number;
-  /** MEASURED: energy/tick destroyed with expiring tombstones. */
-  tombstoneDecayed: number;
-  /** MEASURED: energy/tick recovered from tombstones (NOT a loss - context). */
-  tombstoneLooted: number;
+  /**
+   * NET energy/tick lost to tombstones: booked at first sight, less any
+   * recovery actually witnessed. Lost is the DEFAULT - see the header.
+   */
+  tombstoneLost: number;
+  /** Energy/tick witnessed leaving a standing tombstone (credited, not a loss). */
+  tombstoneRecovered: number;
   /** Energy sitting in live tombstones right now (at risk, not yet lost). */
   tombstoneStock: number;
 }
@@ -193,8 +214,8 @@ export function lossReport(tick: number): LossReport {
     pileDecay: rate(totals.pileDecay),
     structureDecay: rate(totals.structureDecay),
     repairSpend: rate(totals.repairSpend),
-    tombstoneDecayed: rate(totals.tombstoneDecayed),
-    tombstoneLooted: rate(totals.tombstoneLooted),
+    tombstoneLost: rate(Math.max(0, totals.tombstoneGross - totals.tombstoneRecovered)),
+    tombstoneRecovered: rate(totals.tombstoneRecovered),
     tombstoneStock: totals.tombstoneStock
   };
 }

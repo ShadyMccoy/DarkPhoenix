@@ -48,35 +48,59 @@ describe("LossMeter (residual line items)", () => {
   });
 
   // -----------------------------------------------------------------------
-  // THE DISCRIMINATOR. A tombstone that vanishes has either been emptied by a
-  // hauler or has expired. The engine destroys an expired tombstone's contents,
-  // so only the second is a LOSS - and the two are told apart by the life
-  // remaining when it was last seen.
+  // TOMBSTONES ARE LOST BY DEFAULT (owner 2026-08-01: "we don't have any to
+  // recover tombstones so we can assume that it's lost for now").
+  //
+  // Three opportunistic recovery paths DO exist (scavengeSpot's range-1
+  // withdraw, the builder's PICKUP_RANGE withdraw, and the scavenge corp when
+  // the planner funds the stock) - but all three require a creep to already be
+  // beside the tombstone, so a hauler that dies mid-route in a remote room is
+  // simply gone. The default must therefore be LOSS.
+  //
+  // Booking at FIRST SIGHT, not at disappearance, is what makes that default
+  // safe: it needs no theory about why a tombstone vanished, and it survives
+  // the sample stride (a short-lived tombstone seen once is still counted).
+  // Recovery is then a CREDIT, granted only on the direct evidence of energy
+  // leaving a tombstone that is still standing - so if recovery is ever built
+  // out, this number self-corrects instead of needing a rewrite.
   // -----------------------------------------------------------------------
-  it("counts a tombstone that EXPIRED as a loss", () => {
-    sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 3 }] }), 100);
-    sampleRoomLosses(census({ tombstones: [] }), 110); // gone, and it was due
-    const r = lossReport(110);
-    // Reported as a RATE, like every other account line: 400e over a 10t window.
-    expect(r.tombstoneDecayed).to.be.closeTo(40, 1e-9);
-    expect(r.tombstoneLooted).to.equal(0);
-  });
-
-  it("does NOT count a tombstone that was LOOTED - that energy came home", () => {
+  it("books a tombstone's energy as LOST the moment it is first seen", () => {
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 500 }] }), 100);
-    sampleRoomLosses(census({ tombstones: [] }), 110); // gone with life to spare
+    sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 490 }] }), 110);
     const r = lossReport(110);
-    expect(r.tombstoneDecayed).to.equal(0);
-    expect(r.tombstoneLooted).to.be.closeTo(40, 1e-9);
+    // Counted once, at first sight - not again on every sample it survives.
+    expect(r.tombstoneLost).to.be.closeTo(40, 1e-9);
+    expect(r.tombstoneRecovered).to.equal(0);
   });
 
-  it("counts a PARTIAL loot as recovered, and only the remainder as decayed", () => {
+  it("counts it as lost even when it vanishes with life to spare", () => {
+    // The old rule guessed "gone early => somebody looted it". With no reliable
+    // recovery that guess understates, which is the failure mode that matters.
+    sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 500 }] }), 100);
+    sampleRoomLosses(census({ tombstones: [] }), 110);
+    expect(lossReport(110).tombstoneLost).to.be.closeTo(40, 1e-9);
+  });
+
+  it("CREDITS back only witnessed recovery - energy leaving a standing tombstone", () => {
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 300 }] }), 100);
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 100, ticksToDecay: 290 }] }), 110);
-    sampleRoomLosses(census({ tombstones: [] }), 120); // the husk cleared, life to spare
-    const r = lossReport(120);
-    expect(r.tombstoneLooted).to.be.closeTo(400 / 20, 1e-9); // 300 drawn down, then 100 taken
-    expect(r.tombstoneDecayed).to.equal(0);
+    const r = lossReport(110);
+    expect(r.tombstoneRecovered).to.be.closeTo(300 / 10, 1e-9);
+    // Net loss is the 100 that never came back.
+    expect(r.tombstoneLost).to.be.closeTo(100 / 10, 1e-9);
+  });
+
+  it("nets to ZERO when a tombstone is fully recovered", () => {
+    sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 300 }] }), 100);
+    sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 0, ticksToDecay: 290 }] }), 110);
+    expect(lossReport(110).tombstoneLost).to.be.closeTo(0, 1e-9);
+  });
+
+  it("never books the same tombstone twice, however long it stands", () => {
+    for (const t of [100, 110, 120, 130]) {
+      sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 500 }] }), t);
+    }
+    expect(lossReport(130).tombstoneLost * 30).to.be.closeTo(400, 1e-9);
   });
 
   it("carries the CURRENT tombstone stock as its own figure (energy still at risk)", () => {
@@ -94,8 +118,10 @@ describe("LossMeter (residual line items)", () => {
     sampleRoomLosses(census({ tombstones: [{ id: "t1", energy: 400, ticksToDecay: 2 }] }), 100);
     sampleRoomLosses(census({ room: "W2N2", tombstones: [] }), 110); // a DIFFERENT room
     const r = lossReport(110);
-    expect(r.tombstoneDecayed).to.equal(0);
-    expect(r.tombstoneLooted).to.equal(0);
+    // W1N1's tombstone was booked at first sight (400e over the window); what
+    // must NOT happen is a second charge because the room went dark.
+    expect(r.tombstoneLost * 10).to.be.closeTo(400, 1e-9);
+    expect(r.tombstoneRecovered).to.equal(0);
   });
 
   it("accumulates measured repair spend", () => {

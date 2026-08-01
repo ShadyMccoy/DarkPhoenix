@@ -228,15 +228,19 @@ export interface CoreTelemetry {
    * (the engine's ceil rule on an observed stock), `structureDecay` is a
    * MODELLED liability (what holding hits costs, and a LOWER bound - traffic
    * decay on roads is excluded), `repairSpend` and the tombstone figures are
-   * MEASURED. `tombstoneStock` is a level, everything else a rate.
+   * MEASURED. `tombstoneLost` is LOST-BY-DEFAULT: booked at first sight of a
+   * tombstone and credited back only where recovery was actually witnessed
+   * (owner 2026-08-01 - the three recovery paths all need a creep already
+   * beside the tombstone, so a hauler dying mid-route is simply gone).
+   * `tombstoneStock` is a level, everything else a rate.
    */
   losses?: {
     windowTicks: number;
     pileDecay: number;
     structureDecay: number;
     repairSpend: number;
-    tombstoneDecayed: number;
-    tombstoneLooted: number;
+    tombstoneLost: number;
+    tombstoneRecovered: number;
     tombstoneStock: number;
   };
   /** Owned rooms summary */
@@ -463,7 +467,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 20, // v19 sourceDropped; v20 losses (residual line items: pile decay, tombstone, structure decay, repair) 2026-08-01
+    version: 21, // v20 losses block; v21 tombstones LOST-by-default (tombstoneLost/Recovered) 2026-08-01
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
