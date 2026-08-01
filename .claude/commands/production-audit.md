@@ -2,9 +2,31 @@
 
 ## The goal (what a cycle is FOR)
 
-**Maximize sustained controller/GCL progress — the game's score.** One point
-of RCL/GCL = one energy delivered to a controller; everything else here is
-instrumental. Concretely, each cycle drives toward:
+**THE DELIVERABLE IS THE CODEBASE, NOT THE SCORE** (owner 2026-08-01: *"we
+don't care so much about the actual progress so much as the progress of our
+codebase, so it's fine to have some regressions in live"*).
+
+The live colony is the **measurement instrument**, not the product. Its score
+is how we find out whether the code is right — a number to reason FROM, not a
+number to protect. A cycle succeeds when the codebase ends it more correct,
+better instrumented, or better understood than it started, and a live
+regression that buys a real finding is a good trade.
+
+Two consequences a future session must not re-derive:
+
+- **A failed prediction is a SUCCESSFUL cycle if it is attributable.** The
+  two-pass solve missed its predictions by 4× on 2026-08-01 and the cycle was
+  worth more than a clean confirmation would have been: it exposed a wrong
+  fixed-point argument in the design. Chase the attribution, not the green.
+- **Do not revert to protect the score.** Revert when a change is simply wrong
+  and has stopped teaching, or when it threatens the INSTRUMENT itself — a dead
+  colony, lost rooms, a spawn deadlock, a CPU bucket collapse. Those cost the
+  feedback loop, which is the one thing that is actually expensive. Ordinary
+  regressions ride.
+
+Controller/GCL progress remains the metric the reports are built around,
+because it is the sharpest available signal of whether the economy works.
+Concretely, each cycle still drives toward:
 
 1. **Actual progress ≈ planned progress**: `rooms[].rclProgress` /
    `gcl.progress` delta per tick between captures, within tolerance of the
@@ -210,8 +232,14 @@ overwrite an existing close.
 - **Post-deploy verification is mandatory**: wait ~200+ ticks, recapture,
   re-run the triage checklist. Predict the expected deltas BEFORE deploying
   (e.g. "reserver cadence →1/150t, feeder gate →staffed") and check each.
-- Regression (a checklist line got worse than pre-deploy) ⇒ redeploy
-  `origin/master`, record the failed hypothesis in the spec, stop.
+- **Regression handling (revised 2026-08-01, see "The goal").** A checklist
+  line getting worse is NOT by itself a revert. Record it, attribute it, and
+  keep going — the codebase is the deliverable and a live regression that buys
+  understanding is a good trade. Redeploy `origin/master` only when the change
+  is wrong AND has stopped teaching, or when it threatens the instrument
+  itself: colony death, lost rooms, spawn deadlock, CPU bucket collapse.
+  **Always record the failed hypothesis in the spec either way** — that is the
+  part with lasting value, not the rollback.
 - Record the cycle verdict (fixed / instrumented / falsified) in
   docs/specs/14-telemetry-observability.md.
 
