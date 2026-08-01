@@ -674,6 +674,58 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- OSC bank/consumer limit cycle: WHICH PHASE is this capture in? ----
+  //
+  // Confirmed 2026-08-01 across four captures (t72696770→t72703512, 6,742t):
+  // the bank and the upgrade fleet oscillate in ANTIPHASE, and the swing is a
+  // LIMIT CYCLE, not a transient.
+  //
+  //   tick        bank    valve  upgAlloc  WORK   score
+  //   72696770  149,803   68.20      2.00     2      -
+  //   72700221  128,992   54.33     54.71    53   41.51
+  //   72701842   55,201   15.00      2.00    68   68.29   <- fleet PEAKS as valve BOTTOMS
+  //   72703512   84,511   24.67     25.16    18   13.96
+  //
+  // Positive feedback drives it: a wide valve builds a big fleet, the big
+  // fleet drains the bank past the reserve, `bankSurplusRate` hits 0, the
+  // valve slams to STORAGE_UPGRADE_TARGET, and the fleet - which cannot shed
+  // faster than a 1,500-tick creep life - keeps burning the bank on the way
+  // down. Cycle-average score 41.12 pts/t against an in-arc peak of 68.29:
+  // PEAK IS 1.66x THE MEAN.
+  //
+  // Hence this row. Every score claim in this log is taken over a window
+  // SHORTER than the ~9,000-tick period, so it samples a phase - the ledger
+  // must say which one, or a trough read looks like a regression and a peak
+  // read looks like a win. `standingWork / relayRate` is the single-capture
+  // phase indicator: ~1 in phase, >2 the destructive quadrant (a fleet
+  // stranded above a shut valve, eating reserve), <0.5 the wasteful quadrant
+  // (valve open, fleet not built - the score the colony is not collecting).
+  {
+    const feeder = corps.find((c: any) => c.kind === "controllerFeeder");
+    const relay = feeder?.sizing?.relayRate;
+    const work = feeder?.sizing?.standingWork;
+    if (typeof relay === "number" && typeof work === "number" && relay > 0) {
+      const ratio = work / relay;
+      const phase =
+        ratio > 2
+          ? "STRANDED FLEET above a shut valve (down-stroke: burning reserve, score peaking and about to fall)"
+          : ratio < 0.5
+          ? "VALVE OPEN, fleet not built (up-stroke: score suppressed, capacity idle)"
+          : "in phase (fleet matched to valve)";
+      rows.push({
+        id: "OSC",
+        name: "bank/consumer phase (limit-cycle position)",
+        value: +ratio.toFixed(2),
+        unit: "standing WORK per e/t of valve",
+        // Neither extreme is a defect on its own - it is the SWING that costs.
+        // FAIL the destructive quadrant only; WARN the idle one.
+        verdict: ratio > 2 ? "FAIL" : ratio < 0.5 ? "WARN" : "ok",
+        detail: `${work} WORK standing vs relay valve ${relay.toFixed(2)} e/t - ${phase}; ` +
+          `read any score over a <9,000t window as a PHASE SAMPLE, not a rate (peak/mean measured 1.66x)`
+      });
+    }
+  }
+
   // ---- P1/S2 plan flap: candidate verdict flips between captures ----
   const verdicts = new Map<string, string>((flow.candidates ?? []).map((c: any) => [c.sourceId, c.verdict]));
   const bverdicts = new Map<string, string>(

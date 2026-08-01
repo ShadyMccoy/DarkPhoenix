@@ -6824,3 +6824,66 @@ the fixtures' `capturedAt`), not the ~1 tick/s the playbook assumes. A
 3,000-tick steady-state window is **3.3 hours**, and today's 40-minute
 post-deploy check-in bought only ~580 ticks — which is why three verification
 windows in a row came back thin.
+
+### AUDIT 2026-08-01 (t72701842→t72703512, dt 1670) — the saw-tooth HYPOTHESIS CONFIRMED: it is a LIMIT CYCLE, and every score read in this log is a phase sample
+
+**CYCLE VERDICT: hypothesis CONFIRMED + instrument added (OSC). NO economic
+delta — no ledger line reached target and the progress rate was not raised.**
+Stating that plainly per the command's own success criteria: this cycle earns
+its keep on "a blocker was named with data", nothing more.
+
+**The registered prediction held exactly.** Last cycle: *"those 68 WORK are now
+allocated 2 e/t and will burn out unreplaced."* Measured: **68 → 18 WORK**,
+score 68.29 → 13.96 pts/t, bank slope −45.52 → **+17.55** (refilling).
+
+**Four captures now describe the full cycle:**
+
+| tick | bank | valve | upgAlloc | WORK | score |
+|---|---|---|---|---|---|
+| 72696770 | 149,803 | 68.20 | 2.00 | **2** | — |
+| 72700221 | 128,992 | 54.33 | 54.71 | 53 | 41.51 |
+| 72701842 | 55,201 | **15.00** | 2.00 | **68** | **68.29** |
+| 72703512 | 84,511 | 24.67 | 25.16 | 18 | 13.96 |
+
+**The fleet PEAKS exactly as the valve BOTTOMS — ~180° antiphase.** The
+positive feedback is explicit: a wide valve builds a big fleet → the big fleet
+drains the bank past the reserve → `bankSurplusRate` → 0 → the valve slams to
+`STORAGE_UPGRADE_TARGET` → and the fleet, which cannot shed faster than a
+1,500-tick creep life, keeps burning the bank all the way down. Period ~9,000
+ticks (~10 h at 4.0 s/tick). **This is a limit cycle, not the damped
+equilibrium E4's frame assumes.**
+
+**Cycle-average score 41.12 pts/t over the 6,742-tick arc, against an in-arc
+peak of 68.29 — peak is 1.66× the mean**, and the arc still ran a −9.68 e/t
+bank slope (income-funded ≈ 31.4).
+
+**Methodological consequence, and a correction to this log.** Every window in
+`test/fixtures/telemetry/` is SHORTER than the period, so **every score claim
+in this log samples a phase**. The 2026-07-31 "highest sustained flow" ranking
+(t72700221's 41.51, and the 67.56/60.81 windows before it) was partly ranking
+positions on this curve rather than rates. A trough read looks like a
+regression; a peak read looks like a win. Neither is.
+
+**New ledger row OSC** makes the phase readable from ONE capture:
+`standingWork / relayRate` off the feeder stamp. ~1 in phase; **>2 = the
+destructive quadrant** (fleet stranded above a shut valve, eating reserve);
+<0.5 = the wasteful quadrant (valve open, fleet not built — score the colony
+is not collecting). Validated against all three phases: t72700221 **0.98 ok**,
+t72701842 **4.53 FAIL** ("score peaking and about to fall" — it then fell to
+13.96), t72703512 **0.73 ok**. Neither extreme is a defect on its own; it is
+the SWING that costs, so only the destructive quadrant FAILs.
+
+**P10 remains the standing root-cause hypothesis, still unproven.** It held
+steady across the arc (27.13 → 33.18 → 27.94 e/t) while the cycle ran, which
+is consistent with a fixed accounting error setting the valve above the
+sustainable residual — but consistency is not causation. The clean falsifier
+is now a FIX, not another observation: correct `totalOverhead` to price all
+fleet classes and the cycle should damp. That is a deep planner change
+(`netEnergy` feeds every sink allocation) and it carries an owner policy
+question, so it stays parked.
+
+**Other lines this window:** F1 1.37× with haulers +0.141 again and E2 back to
+48 stranded parts (W43N24-hauling-3-23, W41N23-hauling-4-38,
+W43N23-hauling-4-37) — the wartime re-route stranding correctly-sized bodies
+on collapsed routes, the same mechanism logged last cycle. X6 clean at 29/29
+after the both-endpoints fix. E6 4 of 10 gated, chronic.
