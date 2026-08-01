@@ -161,6 +161,9 @@ export interface FlowTelemetry {
   summary: {
     totalHarvest: number;
     totalOverhead: number;
+    /** Per-spawn fleet maintenance charged by the two-pass solve (v13) - lets a
+     *  capture split the spawn sink demand into base/maintenance/agenda terms. */
+    spawnMaintenance?: number;
     netEnergy: number;
     efficiency: number;
     isSustainable: boolean;
@@ -352,6 +355,9 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
       ? {
           totalHarvest: flowSolution.totalHarvest,
           totalOverhead: flowSolution.totalOverhead,
+          ...(flowSolution.spawnMaintenance !== undefined
+            ? { spawnMaintenance: flowSolution.spawnMaintenance }
+            : {}),
           netEnergy: flowSolution.netEnergy,
           efficiency: flowSolution.efficiency,
           isSustainable: flowSolution.isSustainable,

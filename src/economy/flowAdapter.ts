@@ -688,6 +688,10 @@ export function detectPavedSources(): Map<string, number> {
   return paved;
 }
 
+/** Last pass-2 per-spawn fleet maintenance (energy/tick) - exported for the
+ *  flow segment so a capture can decompose the spawn sink's demand. */
+export let spawnMaintenanceStamp = 0;
+
 export function buildColonyProblem(
   graph: FlowGraph,
   dist: ColonyProblem["dist"] = pathDistance,
@@ -1173,6 +1177,12 @@ export function solveColony(
   // funded from what remains, which is exactly what the ladder is for.
   const fleetEnergy = pass1.plan.totalOverhead + (baseProblem.infraEnergyPerTick ?? 0);
   const perSpawn = baseProblem.spawns.length > 0 ? fleetEnergy / baseProblem.spawns.length : 0;
+  // DECISION STAMP (spec 14). The first live check of the two-pass could not
+  // separate this term from `agendaFundingRate` in the published demand, so a
+  // 4x prediction miss stayed unattributable: spawn demand is
+  // max(base 10, maintenance) + fundingRate, and only the SUM is exported.
+  // Publishing the maintenance makes the split readable from one capture.
+  spawnMaintenanceStamp = perSpawn;
   const searched =
     perSpawn > 0
       ? searchStructure(
@@ -1256,6 +1266,7 @@ export function solveColony(
     miningOverhead,
     haulingOverhead,
     totalOverhead,
+    spawnMaintenance: spawnMaintenanceStamp,
     netEnergy: netEnergyTotal,
     efficiency: totalHarvest > 0 ? (netEnergyTotal / totalHarvest) * 100 : 0,
     unmetDemand,

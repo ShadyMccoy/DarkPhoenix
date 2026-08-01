@@ -299,6 +299,15 @@ export interface FlowSolution {
   /** Total overhead (mining + hauling) */
   totalOverhead: number;
 
+  /**
+   * PER-SPAWN fleet maintenance the two-pass solve charged the spawn sinks
+   * (energy/tick). Published so a capture can DECOMPOSE the spawn demand,
+   * which is `max(base 10, maintenance) + agendaFundingRate` - only the sum
+   * was exported, and the two-pass solve's first live verification could not
+   * attribute a 4x prediction miss between the two terms because of it.
+   */
+  spawnMaintenance?: number;
+
   /** Net energy available for sinks */
   netEnergy: number;
 

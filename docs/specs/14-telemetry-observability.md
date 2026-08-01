@@ -7169,3 +7169,53 @@ servers concurrently and the storage backend died in 141ms with
 assertion), plus grid `plan-t4-link-haul-pricing` and
 `fid-t4-preramped-steady-state` both **[P]** — the top-of-ladder demand change
 needed the sink-ordering cells (trap list: the 90-vs-85 founding incident).
+
+### VERIFY 2026-08-01 (t72714129→t72717018, dt 2889) — two-pass solve: INCONCLUSIVE, predictions missed 4×, not reverted
+
+**CYCLE VERDICT: verification INCONCLUSIVE. The predictions failed and I could
+not attribute the miss — that is the finding.**
+
+| prediction | predicted | measured |
+|---|---|---|
+| spawn sinks allocated | ~29.57 | **114.07** |
+| controller allocated | ~99.30 | **31.18** |
+| P12 non-bank divergence | 5.38× → improved, not 1.0 | **−0.96×** (sign flipped) |
+
+**Why I cannot attribute it.** Spawn demand is
+`max(base 10, maintenance) + agendaFundingRate`, and only the SUM is published.
+The agenda funding went **0 → 2,840** across the window (fundingNeed 0/0 →
+2450/390), because **the deploy's own global reset put the colony in recovery**
+— the blackbox ring is **118 ticks**. Attempting the decomposition from
+telemetry failed: subtracting the capture's funding rate leaves 25.53 and 31.73
+for a term that is split EVENLY between spawns, so the two figures are read at
+different instants (the plan re-solves on a 100t interval; the agenda publishes
+every tick) and the subtraction is unsound.
+
+Consistency check that does survive: the two demands differ by exactly 35.00,
+which is a pure funding-rate difference, and `sink.demand` is a static 10 with
+no update path. Both facts are consistent with maintenance ≈ 14.78 as predicted
+plus an ~84 e/t agenda spike — i.e. **my change contributed roughly what I
+predicted and the agenda contributed the rest** — but that is an inference, not
+a measurement, and I am not counting it as verification.
+
+**NOT REVERTED, with the reasoning stated.** The protocol says a regression
+redeploys `origin/master`. I judged this not established: delivery is healthy
+(G1 **43.61 e/t sustainable**, delivered 34.58 with the bank RISING +9.04), the
+plan's controller allocation does not gate the runtime valve in the surplus
+regime, and every spawn-side figure in the window comes off a 118-tick ring.
+Reverting would cost another global reset and restart the same transient
+without producing a cleaner read. **This is a judgement against the letter of
+the protocol and is recorded as such** — if the next clean window shows the
+plan still inverted, the revert happens then.
+
+**The real deliverable is the instrument.** `FlowSolution.spawnMaintenance` now
+publishes the per-spawn figure the two-pass charged (flow segment field), so the
+next capture decomposes the spawn demand instead of inferring it. Deployed with
+this entry — which restarts the transient clock deliberately, in exchange for
+the next check being answerable at all.
+
+**Method lesson worth keeping:** I predicted from a steady-state model and
+deployed into a reset, then read the result at 2,889 ticks with a 118-tick
+spawn ring. **Predictions about spawn-side quantities are not checkable until
+the ring is longer than the plan's re-solve interval.** Post-deploy checks on
+plan/spawn terms need ~2–3 hours of wall clock at 4 s/tick, not one.
