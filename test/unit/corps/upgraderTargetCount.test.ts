@@ -1,6 +1,12 @@
 import { expect } from "chai";
 import "../../../src/types/Memory";
-import { bankBehindFeeder, upgraderAllocation, upgraderSizing, upgraderTargetCount } from "../../../src/corps/UpgradingCorp";
+import {
+  bankBehindFeeder,
+  upgraderAllocation,
+  upgraderFleetSatisfied,
+  upgraderSizing,
+  upgraderTargetCount
+} from "../../../src/corps/UpgradingCorp";
 import { CONTROLLER_STARVE_FLOOR } from "../../../src/corps/haulPolicy";
 import { BASE_RESERVE, STORAGE_UPGRADE_TARGET, feederRelayRate } from "../../../src/economy/bank";
 import { sustainableConsumptionRate } from "../../../src/economy/primitives";
@@ -209,5 +215,44 @@ describe("bankBehindFeeder (durable feeder-relay verdict, incident t72571505)", 
       1e-6
     );
     expect(sustained, "and above the bare save-floor - the surplus term held").to.be.greaterThan(STORAGE_UPGRADE_TARGET);
+  });
+});
+
+/**
+ * FLEET SATISFACTION: count is not enough (production audit 2026-08-01,
+ * t72706408).
+ *
+ * Live shape: the upgrade corp stamped `allocated 75.098`, `targetCount 2`,
+ * `staffing 3`, `demand "staffed"` - and stood at **41 WORK**. Three bodies
+ * built in the trough (when the allocation was the anti-downgrade sip of 2)
+ * satisfied the COUNT gate forever, so no full-size body was ever ordered
+ * while the valve sat wide open at 74.64 e/t, the plan asked for 140, the
+ * spawn idled 14% of the window (55% of it "no demand") and the bank climbed
+ * +25.88 e/t to 159,463. P7 read 0.22x.
+ *
+ * CarryCorp has carried the correct invariant since the runt-fleet fix -
+ * `current >= targetHaulers && fieldedCarry >= carryNeeded` - and its comment
+ * states the reason exactly: "The count alone is not enough: under energy
+ * pressure haulers spawn at the runt floor, so the planned count can be
+ * reached while the fielded CARRY still falls short." The upgrader is the same
+ * post with the same failure mode and only half the test. This restores the
+ * symmetry (CLAUDE.md: every consumer of "how many creeps does this post have"
+ * must use the SAME lens).
+ */
+describe("upgraderFleetSatisfied (count AND capacity - the runt-fleet invariant)", () => {
+  it("is NOT satisfied when the count is met but the fielded WORK falls short", () => {
+    // The live t72706408 shape: 3 small bodies, 41 WORK, 75.1 e/t allocated.
+    expect(upgraderFleetSatisfied(3, 2, 41, 75.098)).to.equal(false);
+  });
+
+  it("is satisfied only when BOTH the count and the WORK are covered", () => {
+    expect(upgraderFleetSatisfied(2, 2, 76, 75.098)).to.equal(true);
+    // count short, work covered -> still not satisfied (a lone over-sized body
+    // cannot stand on every parking tile)
+    expect(upgraderFleetSatisfied(1, 2, 80, 75.098)).to.equal(false);
+  });
+
+  it("treats a fleet at or above its allocation as done regardless of rounding", () => {
+    expect(upgraderFleetSatisfied(2, 2, 75, 75)).to.equal(true);
   });
 });

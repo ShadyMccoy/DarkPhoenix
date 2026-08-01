@@ -108,7 +108,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   }
 
   const telemetry: CorpsTelemetry = {
-    version: 12, // Version 12: innerSizing - the miner operation's haul-vector stamps (85% of hauler spend, previously unexported) 2026-07-31
+    version: 13, // Version 13: upgrader sizing stamps fieldedWork (the fleet's real burn capacity vs its headcount) 2026-08-01
     tick: Game.time,
     corps,
     summary: {

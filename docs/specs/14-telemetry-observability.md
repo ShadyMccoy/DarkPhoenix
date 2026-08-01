@@ -6887,3 +6887,78 @@ question, so it stays parked.
 W43N23-hauling-4-37) — the wartime re-route stranding correctly-sized bodies
 on collapsed routes, the same mechanism logged last cycle. X6 clean at 29/29
 after the both-endpoints fix. E6 4 of 10 gated, chronic.
+
+### AUDIT 2026-08-01 (t72703512→t72706408, dt 2896) — the UP-STROKE defect found and FIXED: the upgrader's count-only staffing gate
+
+**CYCLE VERDICT: FIXED (bot change, red-first). A real defect, not another
+instrument.** P7 read **0.22×** — the worst of the session (19.6 e/t actual vs
+89.4 planned) — while the bank climbed **+25.88 e/t to 159,463**, the valve sat
+wide open at **74.64**, and the spawn idled 14% of the window with **55% of that
+idle labelled "no demand"**. Spare capital, spare spawn, unmet plan.
+
+**The decision stamp named it outright:**
+
+```
+planAllocated 139.999   allocated 75.098   targetCount 2
+staffing 3              demand "staffed"   -> 41 WORK standing
+```
+
+Three creeps ≥ target 2, so the corp declared itself staffed and ordered
+nothing — while carrying **41 WORK against a 75 e/t allocation**. The three
+bodies were built in the TROUGH of the bank cycle, when the allocation was the
+anti-downgrade sip of 2; once the valve reopened they held the count gate shut
+for a full creep generation.
+
+**`UpgradingCorp.getSpawnDemand` exited on COUNT alone:**
+```ts
+if (current >= targetCount) { demand = "staffed"; return []; }
+```
+`CarryCorp` has carried the correct invariant since the runt-fleet fix —
+`current >= targetHaulers && fieldedCarry >= carryNeeded` — and its comment
+states the reason exactly: *"The count alone is not enough: under energy
+pressure haulers spawn at the runt floor, so the planned count can be reached
+while the fielded CARRY still falls short."* Same post, same failure mode, half
+the test. This is the CLAUDE.md staffsPost-symmetry trap in its purest form:
+two corps answering "is this post staffed" with different lenses.
+
+**Fix:** pure `upgraderFleetSatisfied(current, targetCount, fieldedWork,
+allocated)` requiring BOTH; `countStaffing` now returns the fleet's real WORK
+alongside its headcount; and `remainingWork` is sized against ACTUAL fielded
+WORK rather than `current × affordableWork` (the ideal per-body share, which
+over-states what small survivors contribute and under-orders the closing body).
+Stamp gains `fieldedWork` — corps segment **v12 → v13**.
+
+Red-first: the new cell failed on the exact live shape
+(`upgraderFleetSatisfied(3, 2, 41, 75.098)` expected false). Gate: unit **1760
+pass**, `flow-handoff` / `runt-economy` / `storage-depot` green on the rebuilt
+bundle. One harness gap fixed en route — a `getSpawnDemand` stub modelled an
+upgrader creep with no `getActiveBodyparts`.
+
+**This also explains the SAW-TOOTH's ASYMMETRY (ledger OSC).** The fleet
+over-shoots freely on the down-stroke — nothing stops it — but could not
+re-grow on the up-stroke, because small survivors held the count gate shut.
+That is why t72696770 sat at 2 WORK with the valve at 68.20, and why this
+window sat at 41 WORK with the valve at 74.64. **The down-stroke overshoot is a
+SEPARATE defect and is NOT fixed here** (it needs the commitment accounting /
+spec 39).
+
+**Predictions registered BEFORE deploy:**
+1. upgrade stamp `demand` flips "staffed" → "demanded"; `fieldedWork` appears;
+2. upgrader spawn load rises from 0.027 p/t toward the plan's 0.128;
+3. standing WORK rises from 41 toward the ~75 allocation;
+4. P7 rises from 0.22× — delivery from 19.6 e/t toward the valve;
+5. bank slope falls from +25.88 e/t; spawn idle falls from 14%.
+
+**FALSIFIER, stated plainly:** OSC should move 0.55 → ~1.0. If it goes **above
+2**, this fix has sharpened the saw-tooth rather than corrected the up-stroke —
+the up-stroke would now work while the down-stroke overshoot remains unfixed,
+and the correct response is to accelerate the commitment accounting rather than
+to revert.
+
+**Note on the spec-39 framing from the previous exchange:** that architectural
+reading stands, but it was too total. This defect is a plain bug inside the
+local sizing law and would exist under any architecture; it did not need the
+plan to own the fleet, only for one corp to check capacity the way its sibling
+already does. Three cycles of instrumentation preceded it — the instruments
+(v12 innerSizing, the stamps) are what made the stamp legible enough to read
+the answer straight off.

@@ -87,6 +87,39 @@ export function upgraderTargetCount(
 }
 
 /**
+ * Is the standing fleet DONE - both enough bodies and enough WORK to burn the
+ * allocation (pure, unit-tested)?
+ *
+ * The count alone is not enough, and CarryCorp has carried the matching
+ * invariant since the runt-fleet fix (`current >= targetHaulers &&
+ * fieldedCarry >= carryNeeded`) with the reason in its comment: under energy
+ * pressure bodies spawn at the floor, so the planned COUNT can be reached
+ * while the fielded CAPACITY still falls short of the post. The upgrader is
+ * the same post with the same failure mode.
+ *
+ * Measured live (t72706408): `allocated 75.098`, `targetCount 2`,
+ * `staffing 3`, `demand "staffed"` - and **41 WORK** standing. The three
+ * bodies were built in the trough of the bank cycle, when the allocation was
+ * the anti-downgrade sip; once the valve reopened to 74.64 e/t they satisfied
+ * the count gate and NO full-size body was ever ordered. The fleet stayed
+ * stuck for a creep generation while the plan asked for 140 e/t, the spawn
+ * idled 14% of the window (55% of that "no demand") and the bank climbed
+ * +25.88 e/t to 159,463. P7 read 0.22x - the worst of the session.
+ *
+ * This is also the asymmetry in the bank saw-tooth (ledger OSC): the fleet
+ * over-shoots freely on the down-stroke but cannot re-grow on the up-stroke,
+ * because small survivors hold the count gate shut.
+ */
+export function upgraderFleetSatisfied(
+  current: number,
+  targetCount: number,
+  fieldedWork: number,
+  allocated: number
+): boolean {
+  return current >= targetCount && fieldedWork >= allocated;
+}
+
+/**
  * The energy/tick the upgrader fleet is sized to consume (pure, unit-tested):
  * STOCK-GROUNDED sizing (owner doctrine 2026-07-10) - the stock at the work
  * site drained over a creep generation, plus what measurably flows in - capped
@@ -441,14 +474,19 @@ export class UpgradingCorp extends Corp {
    * demand purposes: incumbents inside their replacement lead time are
    * excluded (see staffsPost) so successors spawn build + walk ticks early.
    */
-  private countStaffing(walkTicks: number): number {
+  private countStaffing(walkTicks: number): { count: number; work: number } {
     let count = 0;
+    let work = 0;
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
       if (creep.memory.corpId !== this.id || creep.memory.workType !== "upgrade") continue;
-      if (staffsPost(creep.ticksToLive, creep.body?.length ?? 0, walkTicks)) count++;
+      if (!staffsPost(creep.ticksToLive, creep.body?.length ?? 0, walkTicks)) continue;
+      count += 1;
+      // The fleet's real burn capacity, not its headcount - see
+      // upgraderFleetSatisfied for why the two must both be checked.
+      work += creep.getActiveBodyparts(WORK);
     }
-    return count;
+    return { count, work };
   }
 
   /**
@@ -609,9 +647,13 @@ export class UpgradingCorp extends Corp {
     // is a known sharpening once one is cheaply available here.
     const ctrlWalkTicks =
       spawn && controller ? spawn.pos.getRangeTo(controller.pos) * travelTicksPerTile(ctx.energyCapacity) : 0;
-    const current = this.countStaffing(ctrlWalkTicks);
+    const { count: current, work: fieldedWork } = this.countStaffing(ctrlWalkTicks);
     this.lastSizing.staffing = current;
-    if (current >= targetCount) {
+    // The fleet's real burn capacity joins the stamp: "3 creeps but 41 WORK
+    // against a 75 e/t allocation" is the whole diagnosis, and headcount alone
+    // hid it for a full creep generation (t72706408).
+    this.lastSizing.fieldedWork = fieldedWork;
+    if (upgraderFleetSatisfied(current, targetCount, fieldedWork, allocated)) {
       this.lastSizing.demand = "staffed";
       return [];
     }
@@ -622,7 +664,11 @@ export class UpgradingCorp extends Corp {
       return [];
     }
 
-    const remainingWork = allocated - current * affordableWork;
+    // The gap against the fleet's ACTUAL WORK, not `current * affordableWork`
+    // (the ideal per-body share). With small survivors standing, the ideal form
+    // over-states what is fielded and under-orders the body that closes the gap
+    // - the same count-vs-capacity drift the exit above just fixed.
+    const remainingWork = allocated - fieldedWork;
     const desiredWork = Math.max(1, Math.min(affordableWork, Math.ceil(remainingWork)));
     const desired = buildUpgraderBody(ctx.energyCapacity, desiredWork, "containerFed");
     // Runt policy: a runt permanently occupies one of the few parking slots and the

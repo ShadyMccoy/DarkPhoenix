@@ -191,6 +191,11 @@ describe("corp getSpawnDemand()", () => {
                 spawning: false,
                 ticksToLive: 1400,
                 body: new Array(26),
+                // A containerFed 26-part body is 24 WORK + 1 CARRY + 1 MOVE.
+                // The fleet's WORK is read by the count-AND-capacity exit
+                // (upgraderFleetSatisfied), so the stub must carry it like a
+                // real creep does.
+                getActiveBodyparts: (part: string) => (part === (global as any).WORK ? 24 : 1),
                 memory: { corpId: upgraderCorpId, workType: "upgrade" }
               }
             }
