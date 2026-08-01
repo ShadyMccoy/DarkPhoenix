@@ -756,6 +756,27 @@ export function feederRelayStock(controller: StructureController, inputPos: Room
  * null when the read is unmeasurable (partial mock without wired finds) - a
  * different fact from zero; decision callers fail OPEN on null.
  */
+/**
+ * The DROPPED share of a source's buffer - the half that ROTS.
+ *
+ * Container energy keeps indefinitely; dropped energy loses ceil(amount/1000)
+ * every tick. Splitting them makes ground rot a measurable line in the audit's
+ * energy account instead of a lump inside the unattributed residual (owner
+ * 2026-08-01). `sourceBufferStock` keeps returning the TOTAL - E6 and the haul
+ * drain term are sized on the whole pile and must not change.
+ */
+export function sourceDroppedStock(source: Source): number | null {
+  try {
+    let dropped = 0;
+    for (const r of source.pos.findInRange(FIND_DROPPED_RESOURCES, 1)) {
+      if (r.resourceType === RESOURCE_ENERGY) dropped += r.amount ?? 0;
+    }
+    return dropped;
+  } catch {
+    return null;
+  }
+}
+
 export function sourceBufferStock(source: Source): number | null {
   try {
     let stock = 0;

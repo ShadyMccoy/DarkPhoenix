@@ -17,7 +17,7 @@
  */
 
 import { Colony } from "../colony/Colony";
-import { controllerSideStock, sourceBufferStock } from "../corps/nodeEnergy";
+import { controllerSideStock, sourceBufferStock, sourceDroppedStock } from "../corps/nodeEnergy";
 import { linkLedger } from "./LinkMeter";
 import { getCompletedLedger } from "./cpuLedgerCache";
 import { SPAWN_PARTS_PER_TICK } from "../economy/primitives";
@@ -161,6 +161,14 @@ export interface CoreTelemetry {
    * rooms with vision contribute.
    */
   sourceBuffers?: { [idTail: string]: number };
+  /**
+   * The DROPPED (rotting) share of each source buffer, same keys as
+   * `sourceBuffers` (v19). Container energy keeps; dropped energy loses
+   * ceil(amount/1000) per tick, so this is the only part that rots. Exported
+   * so the audit's energy account can price ground rot as its own line instead
+   * of leaving it inside the unattributed residual.
+   */
+  sourceDropped?: { [idTail: string]: number };
   /**
    * Our construction sites in visible UNOWNED rooms (v9): the owned-room
    * ledger's siteCount misses cross-room trunk paving entirely - the P8
@@ -341,6 +349,7 @@ export function updateCoreTelemetry(
   // Source buffers (owner 2026-07-20): container + pile at each visible
   // source's mouth - the over/under-haul read.
   const sourceBuffers: NonNullable<CoreTelemetry["sourceBuffers"]> = {};
+  const sourceDropped: NonNullable<CoreTelemetry["sourceDropped"]> = {};
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     let sources: Source[] = [];
@@ -355,6 +364,8 @@ export function updateCoreTelemetry(
       const stock = sourceBufferStock(source);
       if (stock === null) continue; // partial mocks without wired finds
       sourceBuffers[source.id.slice(-6)] = stock;
+      const dropped = sourceDroppedStock(source);
+      if (dropped !== null && dropped > 0) sourceDropped[source.id.slice(-6)] = dropped;
     }
   }
 
@@ -429,7 +440,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 18, // v17 warchestTarget (dynamic reserve for E4); v18 spawns[].idle cause tally (empty/bank/buy/hold)
+    version: 19, // v18 spawns[].idle cause tally; v19 sourceDropped (the rotting share of each source buffer)
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {

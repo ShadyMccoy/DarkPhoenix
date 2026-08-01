@@ -1759,6 +1759,14 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     (c.data.core.rooms ?? []).reduce((s: number, r: any) => s + (r.storageEnergy ?? 0), 0);
 
   const grossPlan = ((cap.data.flow?.sources ?? []) as any[]).reduce((n, s) => n + (+s.harvestRate || 0), 0);
+  // GROUND ROT (v19): dropped energy loses ceil(amount/1000) per tick; container
+  // energy keeps. Averaged across the window's two endpoints - the piles move
+  // slowly relative to the window, and the endpoints are all we sample.
+  const droppedOf = (c: any): number =>
+    Object.values((c.data.core.sourceDropped ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0);
+  const droppedAvg = (droppedOf(cap) + droppedOf(base)) / 2;
+  const rot = droppedAvg / 1000;
+  const rotKnown = cap.data.core.sourceDropped !== undefined;
   const pileDelta = (piles(cap) - piles(base)) / dt;
   const delivered = grossPlan - pileDelta;
   const opex = perTick(spawnTotal);
@@ -1775,7 +1783,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   // no second implementation of a measure that already has one).
   const build = rows.find(r => r.id === "P8")?.value ?? 0;
   const approp = score + build + bankDelta;
-  const residual = delivered - opex - approp;
+  const residual = delivered - opex - approp - (rotKnown ? rot : 0);
 
   const L = (label: string, v: number, indent = 2): string =>
     `${" ".repeat(indent)}${label.padEnd(40 - indent)}${v >= 0 ? " " : ""}${v.toFixed(2)}`;
@@ -1806,19 +1814,28 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
                 L("= total capital", -perTick(capital), 4)
         ]
       : []),
+    ...(rotKnown
+      ? [
+          "  MEASURED LOSSES",
+          L("ground rot (dropped energy, 0.1%/t)", -rot, 4)
+        ]
+      : []),
     "  APPROPRIATIONS",
     L("controller (score)", score, 4),
     L("construction (site progress)", build, 4),
     L("to/(from) bank", bankDelta, 4),
     L("= total", approp, 4),
     "  " + "-".repeat(46),
-    L("RESIDUAL (decay, rot, raids, error)", residual, 2),
+    L(rotKnown ? "RESIDUAL (repair, tombstones, raids, error)" : "RESIDUAL (decay, rot, raids, error)", residual, 2),
     `  reservation buys ~${reserveUplift.toFixed(0)} e/t of the revenue line (${remoteSources} remote sources x ` +
       `${(SOURCE_RATE / 2).toFixed(0)} e/t uplift, reserved ${SOURCE_RATE} vs unreserved ${(SOURCE_RATE / 2).toFixed(0)})` +
       ` for ${perTick(cost.reservation).toFixed(2)} e/t of bodies.`,
     `  ${residual >= 0 ? "unattributed" : "OVER-attributed"} = ${Math.abs(residual / Math.max(grossPlan, 1e-9) * 100).toFixed(0)}% of gross mining` +
       ` - revenue is PLAN CAPACITY less pile change, not a delivery meter, so this bounds`,
-    "  ground decay + rot above the container cap + raid losses + tower burn + measurement error.",
+    rotKnown
+      ? "  still unattributed: REPAIR spend (tower + builder), TOMBSTONE losses (creeps that died carrying),"
+      : "  ground decay + rot above the container cap + raid losses + tower burn + measurement error.",
+    ...(rotKnown ? ["  and measurement error. Structure DECAY is not here: it is depreciation, and its cash cost IS repair."] : []),
     ""
   ].join("\n");
 }
