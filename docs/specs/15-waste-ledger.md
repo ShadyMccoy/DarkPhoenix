@@ -418,3 +418,55 @@ wrong but the plan is more wrong. Correct sequence:
 
 P12 goes green when they agree — and it must go green at the correct value,
 not by making one chase the other.
+
+### The hardcoded `10` — root of the controller over-allocation
+
+**Found 2026-08-01** tracing P12/the variance bridge to its source. The plan's
+entire model of what running the spawn costs is a magic constant:
+
+```ts
+// flowAdapter.ts discoverSinks()
+const sink = createFlowSink(
+  "spawn", resource.id, node.id, resource.position,
+  10,   // <- "Base spawn overhead demand"
+  50
+);
+```
+
+Two spawns × 10 = the **20.00 e/t** the plan routes. The fleet costs **42.44
+e/t by the plan's own pricing** and **44.21 measured**. The only other term is
+`agendaFundingRate` (`fundingNeed / 50`), which counts *must-fund* queue heads
+only — a transient top-up signal, not the fleet's standing replacement cost.
+
+The spawn sink sits at the TOP of the value ladder (100), so under-stating its
+demand does not merely mis-report: it frees ~22 e/t that the fill then hands
+down the ladder, and the controller — the next real claimant — absorbs it. That
+is mechanically why the controller allocation lands at roughly total net
+mining.
+
+**Why this is NOT a one-constant fix.** The replacement value is the plan's own
+fleet maintenance energy, which is only known AFTER the solve
+(`commissionsFromPlan`), while sink capacities are needed BEFORE it. Options,
+none of them a drop-in:
+
+1. **Previous-plan feedback** — read the last solve's fleet energy from
+   `Memory.economyPlan`. Converges in one re-solve interval (100t) and matches
+   existing practice in this exact expression (`agendaFundingRate` already
+   reads Memory here). Cheapest; introduces a one-cycle lag.
+2. **Two-pass solve** — solve, price the fleet, re-solve with the spawn demand
+   set. Exact, no lag, roughly doubles solve CPU.
+3. **Pre-solve partial** — the production fleet (miners + haulers) IS derivable
+   from the graph before the solve via `minerOverhead`/`haulerOverhead`, but it
+   is only **18.11** of the 42.44. Routing 18.11 instead of 20.00 changes
+   nothing measurable; **rejected as not worth a deploy**.
+
+Recommendation: option 1, red-first, with the spawn-sink demand asserted
+against a staged previous plan, then the full regression gate plus the
+`plan-*` and `fid-*` grid cells (a top-of-ladder demand change can invert the
+sink ordering — the trap list's 90-vs-85 founding incident is the precedent).
+
+**Expected effects to predict before deploying:** controller allocation
+108.87 → ~86; P12's non-bank divergence 5.38× → ~4.3× (better, not fixed — the
+runtime's hardcoded 15 is the other half); the F1/P4 parts side unchanged; and
+**P7 improves mechanically because its denominator shrinks** — that must not be
+read as a delivery win.
