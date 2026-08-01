@@ -6962,3 +6962,51 @@ plan to own the fleet, only for one corp to check capacity the way its sibling
 already does. Three cycles of instrumentation preceded it — the instruments
 (v12 innerSizing, the stamps) are what made the stamp legible enough to read
 the answer straight off.
+
+### VERIFY 2026-08-01 (t72706408→t72706967, dt 559) — upgrader fleet gate CONFIRMED: score 19.6 → 47.4 e/t, falsifier clean
+
+**CYCLE VERDICT: FIXED and VERIFIED.** All five registered predictions held and
+the falsifier did not trip.
+
+| # | prediction | pre-deploy | post | |
+|---|---|---|---|---|
+| 1 | `demand` flips, `fieldedWork` appears | "staffed", no field | v13, **`fieldedWork: 76`** | ✓ |
+| 2 | upgrader load 0.027 → toward 0.128 p/t | 0.027 | **0.147** | ✓ |
+| 3 | standing WORK 41 → ~75 | 41 | **76** | ✓ |
+| 4 | P7 up from 0.22× | 0.22× (19.6 e/t) | **0.43× (47.4 e/t)** | ✓ |
+| 5 | bank slope down from +25.88 | +25.88 | **−4.26** | ✓ |
+| — | spawn idle down from 14% (55% "no demand") | idle 14% | **idle ~0**, queueDepth 4/8 | ✓ |
+| **falsifier** | OSC must stay below 2 | 0.55 | **1.04** | **clean** |
+
+**Score 19.63 → 47.39 pts/t — a 2.4× step, and P7 moved FAIL → WARN.** The
+spawn went from idling with nothing to buy to fully committed (util 0.99/0.975)
+because the demand that should always have existed now exists.
+
+**The word "staffed" now means the opposite of what it meant.** Pre-fix:
+`staffing 3 ≥ targetCount 2` with **41 WORK against a 75 e/t allocation**.
+Post-fix: `staffing 4`, **`fieldedWork 76` against `allocated 73.19`** — the
+gate closes because the fleet genuinely covers its allocation. Same verdict
+string, opposite meaning; the `fieldedWork` stamp is what makes the difference
+readable from a capture.
+
+**Caveats, stated:**
+- 559-tick window and a **307-tick blackbox ring** (the deploy reset it), so
+  F1 (1.43×) and the per-class spawn splits are not readable at this length.
+  The upgrader's +0.048 over plan is the re-growth ramp, not a steady state.
+- Per this log's own OSC row, a 559-tick score is a **phase sample** of a
+  ~9,000-tick cycle. 47.39 is not a new plateau claim.
+- E4 slipped ok → WARN purely because the bank now FALLS (−4.26) at a large
+  surplus, which is the intended consequence of the fix. That wording is E4's
+  known frame limitation (spec 40 Part C), not a regression.
+
+**The real test is still ahead.** The bank stands at 157,080 near the TOP of
+the cycle with the fleet now correctly sized at 76 WORK. **The down-stroke
+overshoot remains unfixed by design** — this cycle repaired the up-stroke only.
+Registered watch for the next cycles: as the bank falls toward the 70,000
+reserve, OSC must stay near 1. If it climbs past 2 again, the saw-tooth is
+still live with a working up-stroke, and the commitment accounting (owner's
+"upgrade rate × creep ttl against the bank allocation", spec 39 territory) is
+the next work item rather than any further local patch.
+
+**P10 unchanged at 27.65 e/t** — still the standing root-cause hypothesis, and
+now the largest FAIL on the board.
