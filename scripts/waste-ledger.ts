@@ -1790,6 +1790,14 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     .filter(h => String(h.sourceId ?? "").startsWith("bank-"))
     .reduce((n, h) => n + (+h.flowRate || 0), 0);
   const bBank = sinkAlloc("storage") - bankOut;
+  // THE PLAN'S SPAWN BUDGET. This is the like-for-like comparator P10 lacked
+  // and was retracted for missing: energy the plan routes INTO the spawn
+  // structures (a rate) against energy those structures convert OUT into
+  // bodies (measured at the spawn). Same structure, same unit, same direction.
+  // At steady state refill == spend, because the network's stock is bounded at
+  // its capacity - so over a long window the two must agree, and where they do
+  // not, the plan is under-provisioning the spawn.
+  const bSpawn = sinkAlloc("spawn");
   const pileDelta = (piles(cap) - piles(base)) / dt;
   const delivered = grossPlan - pileDelta;
   const opex = perTick(spawnTotal);
@@ -1855,6 +1863,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
       ? [L(`UNCLASSIFIED [${[...unknownRoles].join(", ")}]`, -perTick(cost.other), 4)]
       : []),
     L("= total overhead", -perTick(overhead), 4),
+    L("= TOTAL SPAWN (direct + overhead)", -perTick(spawnTotal), 2, -bSpawn, "cost"),
     ...(capital > 0
       ? [
           "  CAPITAL (funded from the expansion reserve, not operating margin)",
@@ -1876,6 +1885,29 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     L("= total", approp, 4, bController + bConstruction + bBank),
     "  " + "-".repeat(46),
     L(rotKnown ? "RESIDUAL (repair, tombstones, raids, error)" : "RESIDUAL (decay, rot, raids, error)", residual, 2),
+    "",
+    `  CONTROLLER VARIANCE BRIDGE  (plan ${bController.toFixed(2)} -> actual ${score.toFixed(2)})`,
+    ...(() => {
+      // Single-column lines - the three-column renderer above would print two
+      // empty budget/variance cells for each.
+      const B = (label: string, v: number): string => `    ${label.padEnd(42)}${v >= 0 ? "+" : ""}${v.toFixed(2)}`;
+      const spawnGap = -(perTick(spawnTotal) - bSpawn);
+      const lossGap = -(residual + (rotKnown ? rot : 0));
+      const bankGap = -(bankDelta - bBank);
+      const explains = spawnGap + lossGap + bankGap;
+      const actualVar = score - bController;
+      return [
+        B("spawn cost the plan under-budgets", spawnGap),
+        B("losses the plan does not model (residual)", lossGap),
+        B("bank draw budgeted but not performed", bankGap),
+        B("= explains", explains),
+        B("  actual controller variance", actualVar),
+        `    ${"  unexplained (window mismatch)".padEnd(42)}${actualVar - explains >= 0 ? "+" : ""}${(actualVar - explains).toFixed(2)}`,
+        "    the shortfall is NOT one thing: two of the three terms are the PLAN's",
+        "    accounting (spawn under-budget + unmodelled losses); the third is runtime",
+        "    behaviour (a budgeted bank draw the valve did not perform)."
+      ];
+    })(),
     `  BUDGET CHECK: extraction+evacuation ${(bExtract + bEvac).toFixed(2)} vs the plan's own totalOverhead ` +
       `${typeof planOverhead === "number" ? planOverhead.toFixed(2) : "n/a"}` +
       `${typeof planOverhead === "number" && Math.abs(bExtract + bEvac - planOverhead) > 0.05 ? " <- DOES NOT RECONCILE" : " (reconciles)"}` +

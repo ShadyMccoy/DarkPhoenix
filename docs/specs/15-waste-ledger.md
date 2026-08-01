@@ -280,6 +280,51 @@ The controller variance IS the P7 gap, now shown against its own budget line
 rather than inferred, and the bank line shows the other half of it: the plan
 intended to draw 28.87 e/t out of storage and drew 5.74.
 
+### The CONTROLLER VARIANCE BRIDGE — and the spawn budget P10 was missing
+
+Digging the variances (owner 2026-08-01: *"in some cases it could be an
+accounting or instrumentation error or gap that we can improve"*) produced the
+comparator P10 was **retracted for lacking**. At retraction I wrote: *"A VALID
+successor would ask 'does the spawn sink allocation cover actual spawn spend',
+but the sink's demand is a REFILL-CAPACITY figure, not a rate."* The **allocated**
+figure IS a rate — energy the plan routes INTO the spawn structures per tick —
+and it is directly comparable to energy those structures convert OUT into
+bodies. Same structure, same unit, same direction; at steady state refill must
+equal spend because the network's stock is bounded at its capacity.
+
+**The plan routes 20.00 e/t to the spawns. The spawns burn 44.21.** And the
+decomposition is sharp: the plan prices miners+haulers at 18.11 (its own
+`totalOverhead`), so its 20.00 spawn budget leaves **1.89 e/t** for reservation
++ infra + defense + consumers — classes that actually cost **19.52 e/t**.
+
+That closes the top-line variance **arithmetically**:
+
+```
+CONTROLLER VARIANCE BRIDGE  (plan 108.87 -> actual 47.59)
+  spawn cost the plan under-budgets         -24.21
+  losses the plan does not model (residual) -14.47
+  bank draw budgeted but not performed      -23.14
+  = explains                                -61.82
+    actual controller variance              -61.29
+    unexplained (window mismatch)            +0.54
+```
+
+**The shortfall is not one thing.** Two of the three terms are the PLAN's
+accounting — it under-budgets the spawn and models no losses at all — and only
+the third is runtime behaviour (a bank draw the valve did not perform). Roughly
+**63% accounting, 37% behaviour**, which reverses the working assumption that
+P7 was primarily an execution failure.
+
+The 0.54 unexplained is the window mismatch: spawn spend is measured over the
+blackbox ring (2,710t) and everything else over the capture window (6,686t).
+Closing that needs a ring as long as the window, not a code change.
+
+**Known instrument gap, named not hidden:** the `gross mining` variance is
+**structurally +0.00** — budget and actual both derive from the plan's capacity
+figure, because there is no independent meter of energy actually delivered into
+storage. That row cannot detect an income shortfall today; the pile-delta term
+is the only real measurement in it.
+
 **Expected to evolve.** Split the residual as decay/rot/raid meters land; add a
 balance-sheet section (reserved / committed / free) once the commitment
 accounting exists. **The invariants are the balancing identity and the named
