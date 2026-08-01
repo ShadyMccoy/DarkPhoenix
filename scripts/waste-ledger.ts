@@ -415,73 +415,6 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   const flow = cap.data.flow;
   const corps: any[] = cap.data.corps?.corps ?? [];
 
-  // ---- G1 sustained progress: score NET OF BANK DRAWDOWN (owner 2026-08-01) ----
-  //
-  // THE GOAL METRIC. Raw pts/t is not it, because the same colony scored 68.29
-  // while burning the bank at -45.52 e/t and 47.59 while burning it at -5.74 -
-  // and the first is a stockpile liquidation that ends, the second is income.
-  //
-  // What the sum MEANS (derived, not asserted - the P10 lesson):
-  //   bankSlope = income - controller - spawn - construction
-  //   => score + bankSlope = income - spawn - construction
-  // i.e. the RESIDUAL the economy can sustainably route to the controller at
-  // its current spawn and construction burn. Score above it is drawdown; score
-  // below it is banking. Both sides are measured in the same unit (energy/tick;
-  // one GCL point IS one energy delivered), so the addition is meaningful.
-  //
-  // Caveat carried in the detail line, not hidden: bankSlope also absorbs
-  // construction spend and decay, so `funded` is "not drawn from storage",
-  // NOT "converted to progress". It is a floor on sustainability, not an
-  // energy audit. Shares an input with E4 but asks a different question - E4
-  // asks whether capital is idle, this asks what is paying for the score.
-  {
-    const bankOf = (c: any): number =>
-      (c.data.core.rooms ?? []).reduce((s: number, r: any) => s + (r.storageEnergy ?? 0), 0);
-    const g = core.gcl?.progress;
-    const bg = bcore.gcl?.progress;
-    if (typeof g === "number" && typeof bg === "number" && dt > 0) {
-      const score = (g - bg) / dt;
-      const slope = (bankOf(cap) - bankOf(base)) / dt;
-      const funded = score + slope;
-      const share = score > 0 ? funded / score : 1;
-      // A window shorter than the measured limit-cycle period samples a PHASE
-      // (OSC carries the same warning); say so rather than pretending to a rate.
-      const shortWindow = dt < 6000;
-      // THREE regimes, not one axis. `funded` is the sustainable capacity;
-      // `score` is what was actually delivered against it.
-      //  - score >> funded  => LIQUIDATION (the saw-tooth down-stroke)
-      //  - score ~= funded  => matched, the healthy state
-      //  - score << funded  => UNDER-SPENDING: capacity banked instead of
-      //    delivered. Caught in validation: the t72703512 trough scored 19.63
-      //    while banking +25.88 and the share form read "232% income-funded,
-      //    ok" - a compliment on the wasteful quadrant. A share above 1 is not
-      //    more health, it is unconverted capacity, so it gets its own arm.
-      const banking = share > 1.05;
-      const shortfall = funded - score;
-      rows.push({
-        id: "G1",
-        name: "sustained progress (score net of bank drawdown)",
-        value: +funded.toFixed(2),
-        unit: `pts/t sustainable (delivered ${score.toFixed(2)}, bank ${slope >= 0 ? "+" : ""}${slope.toFixed(2)})`,
-        // FAIL only on LIQUIDATION - the down-stroke shape (measured t72701842:
-        // delivered 68.29 against 22.77 sustainable, 33%). Healthy arcs measured
-        // 76-88%, so 0.5 separates them with room. Under-spending WARNs: it is
-        // real waste (OSC names the same quadrant from the fleet side) but it
-        // burns no capital, so it never outranks a liquidation.
-        verdict: banking ? "WARN" : score > 0 && share < 0.5 ? "FAIL" : share < 0.75 ? "WARN" : "ok",
-        detail:
-          (banking
-            ? `UNDER-SPENDING: delivering ${score.toFixed(2)} of ${funded.toFixed(2)} sustainable - ` +
-              `${shortfall.toFixed(2)} pts/t of capacity BANKED instead of delivered`
-            : `${(share * 100).toFixed(0)}% of the score is income-funded`) +
-          ` over ${dt}t` +
-          (shortWindow ? " [SHORT WINDOW - phase sample, not a rate]" : "") +
-          `; sustainable = income - spawn - construction (bank slope also absorbs construction + decay,` +
-          ` so this is a sustainability floor, not an energy audit)`
-      });
-    }
-  }
-
   // ---- P4 plan spawn-feasibility (the audit gap of 2026-07-18) ----
   const { total, lines } = planSpawnLoad(cap);
   const ceiling = (core.spawns?.length ?? 1) * SPAWN_PARTS_PER_TICK;
@@ -1582,6 +1515,80 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     verdict: core.creeps.untracked > 2 ? "FAIL" : "ok",
     detail: `${core.creeps.tracked}/${core.creeps.total} tracked`
   });
+
+  // ---- G1 sustained progress: score NET OF BANK DRAWDOWN (owner 2026-08-01) ----
+  //
+  // Pushed LAST on purpose. The sort below is stable, so within a verdict the
+  // insertion order stands, and formatLedger names fails[0] as the cycle's
+  // work item. G1 is an OUTCOME metric, not a leak class - the action on a G1
+  // FAIL is always "find which leak caused it", one of the rows above. The
+  // first draft pushed it first and it hijacked the work item from P9's
+  // rotting production; the suite caught it (P9 must lead on that fixture).
+  //
+  // THE GOAL METRIC. Raw pts/t is not it, because the same colony scored 68.29
+  // while burning the bank at -45.52 e/t and 47.59 while burning it at -5.74 -
+  // and the first is a stockpile liquidation that ends, the second is income.
+  //
+  // What the sum MEANS (derived, not asserted - the P10 lesson):
+  //   bankSlope = income - controller - spawn - construction
+  //   => score + bankSlope = income - spawn - construction
+  // i.e. the RESIDUAL the economy can sustainably route to the controller at
+  // its current spawn and construction burn. Score above it is drawdown; score
+  // below it is banking. Both sides are measured in the same unit (energy/tick;
+  // one GCL point IS one energy delivered), so the addition is meaningful.
+  //
+  // Caveat carried in the detail line, not hidden: bankSlope also absorbs
+  // construction spend and decay, so `funded` is "not drawn from storage",
+  // NOT "converted to progress". It is a floor on sustainability, not an
+  // energy audit. Shares an input with E4 but asks a different question - E4
+  // asks whether capital is idle, this asks what is paying for the score.
+  {
+    const bankOf = (c: any): number =>
+      (c.data.core.rooms ?? []).reduce((s: number, r: any) => s + (r.storageEnergy ?? 0), 0);
+    const g = core.gcl?.progress;
+    const bg = bcore.gcl?.progress;
+    if (typeof g === "number" && typeof bg === "number" && dt > 0) {
+      const score = (g - bg) / dt;
+      const slope = (bankOf(cap) - bankOf(base)) / dt;
+      const funded = score + slope;
+      const share = score > 0 ? funded / score : 1;
+      // A window shorter than the measured limit-cycle period samples a PHASE
+      // (OSC carries the same warning); say so rather than pretending to a rate.
+      const shortWindow = dt < 6000;
+      // THREE regimes, not one axis. `funded` is the sustainable capacity;
+      // `score` is what was actually delivered against it.
+      //  - score >> funded  => LIQUIDATION (the saw-tooth down-stroke)
+      //  - score ~= funded  => matched, the healthy state
+      //  - score << funded  => UNDER-SPENDING: capacity banked instead of
+      //    delivered. Caught in validation: the t72703512 trough scored 19.63
+      //    while banking +25.88 and the share form read "232% income-funded,
+      //    ok" - a compliment on the wasteful quadrant. A share above 1 is not
+      //    more health, it is unconverted capacity, so it gets its own arm.
+      const banking = share > 1.05;
+      const shortfall = funded - score;
+      rows.push({
+        id: "G1",
+        name: "sustained progress (score net of bank drawdown)",
+        value: +funded.toFixed(2),
+        unit: `pts/t sustainable (delivered ${score.toFixed(2)}, bank ${slope >= 0 ? "+" : ""}${slope.toFixed(2)})`,
+        // FAIL only on LIQUIDATION - the down-stroke shape (measured t72701842:
+        // delivered 68.29 against 22.77 sustainable, 33%). Healthy arcs measured
+        // 76-88%, so 0.5 separates them with room. Under-spending WARNs: it is
+        // real waste (OSC names the same quadrant from the fleet side) but it
+        // burns no capital, so it never outranks a liquidation.
+        verdict: banking ? "WARN" : score > 0 && share < 0.5 ? "FAIL" : share < 0.75 ? "WARN" : "ok",
+        detail:
+          (banking
+            ? `UNDER-SPENDING: delivering ${score.toFixed(2)} of ${funded.toFixed(2)} sustainable - ` +
+              `${shortfall.toFixed(2)} pts/t of capacity BANKED instead of delivered`
+            : `${(share * 100).toFixed(0)}% of the score is income-funded`) +
+          ` over ${dt}t` +
+          (shortWindow ? " [SHORT WINDOW - phase sample, not a rate]" : "") +
+          `; sustainable = income - spawn - construction (bank slope also absorbs construction + decay,` +
+          ` so this is a sustainability floor, not an energy audit)`
+      });
+    }
+  }
 
   const rank = { FAIL: 0, WARN: 1, ok: 2 };
   return rows.sort((a, b) => rank[a.verdict] - rank[b.verdict]);
