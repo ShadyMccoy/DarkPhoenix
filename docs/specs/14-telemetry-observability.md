@@ -7461,3 +7461,49 @@ Ledger top line this cycle remains **F1 at 1.93×** (48% of what the spawn build
 is not in the plan; haulers 0.526 p/t measured vs 0.204 priced) — and both items
 above are plausible contributors to it, which is why they are the next cycle's
 work rather than a footnote.
+
+### CYCLE 2026-08-01 (t72721419) — INSTRUMENTED. The meter falsified the account within one window
+
+Verdict: **instrumented + falsified.** No bot behaviour changed; three reporting
+defects were found and two of them had been wrong since methodology #1.
+
+The loss meter came back on its first real window (559t):
+
+```
+pileDecay 15.67   tombstoneLost 12.21   repairSpend 3.99   structureDecay 4.26
+tombstoneRecovered 0.07   tombstoneStock 1596e
+```
+
+and the residual went **+31.69 → −25.10**, i.e. 25% of gross mining
+OVER-attributed. A residual can be large and honest; it cannot be negative. See
+spec 15 methodology #3 for the three causes and their fixes.
+
+**The owner's tombstone assumption is now measured, not assumed.** Recovery ran
+at **0.07 e/t against 12.21 e/t lost — 0.6%.** The three recovery paths exist
+but all need a creep already beside the tombstone, and the data says they
+essentially never fire. Booking tombstones as lost by default was correct.
+
+**THE TOP LINE, and it is not F1.** E6 has been a WARN for cycles while
+describing the largest leak in the colony, because it reported a COUNT and had
+no price. It now has one, from two independent instruments that agree:
+
+| | |
+|---|---|
+| forgone mining (Σ heldFrac × rate) | **30.28 e/t** |
+| ground rot on the resulting piles | **15.67 e/t** |
+| combined | **~46 e/t against 100 e/t of capacity** |
+
+Four ops are CHRONICALLY buffer-full — cd8e held 97% of the window, d01f 94%,
+cd8d 55%, cee0 28% — with buffers of 2136–3264. The engine's ceil rule on those
+four piles alone is 4+4+3+3 = **14 e/t**, which is essentially the whole
+measured 15.67. Two instruments built for different purposes, agreeing to
+within a rounding error, on a leak nothing had priced.
+
+E6's own diagnosis has been right all along and is worth quoting: *"the leak is
+HAULING (drain term / route sizing / churn), not the miner."* The evacuation
+line agrees — 21.06 e/t measured against a 13.38 budget, +57%.
+
+**Next cycle: promote E6 to FAIL with its price attached, and attack the haul
+deficit.** It is worth ~46 e/t. Every other open item — agendaFundingRate ~63
+e/t of spawn routing, infraSpawnEnergy at 33 e/t — is a pricing question about
+energy the colony still has. This one is energy it never gets.
