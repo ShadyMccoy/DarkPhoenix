@@ -7010,3 +7010,60 @@ the next work item rather than any further local patch.
 
 **P10 unchanged at 27.65 e/t** — still the standing root-cause hypothesis, and
 now the largest FAIL on the board.
+
+### AUDIT 2026-08-01 (t72706967→t72707443, dt 476) — P10 WITHDRAWN as double accounting (owner-called); upgrader fix holding
+
+**CYCLE VERDICT: instrument RETRACTED. No economic delta this cycle** — saying
+that plainly. What it produced is the removal of a false FAIL that had been
+steering the loop for four cycles.
+
+**First, the standing watch: the upgrader fix is holding and improving.**
+
+| | t72706967 | t72707443 |
+|---|---|---|
+| OSC (falsifier, must stay <2) | 1.04 | **1.00** (69 WORK vs valve 68.67) |
+| P7 | 0.43× WARN | **1.33× ok** — actual 56.5 vs plan 42.4 |
+| score | 47.39 | **56.50 pts/t** |
+| bank slope | −4.26 | −13.82 e/t |
+
+P7 is **above** its plan for the first time this session, and income-funded
+score (56.50 − 13.82 = **42.7 e/t**) is the highest measured — previous best
+35.48. The bank is drawing down as intended with the fleet in phase.
+
+**P10 is WITHDRAWN. The owner called it as double accounting and was right.**
+
+The row asserted that `netEnergy = totalHarvest − totalOverhead` is *"what the
+solver hands to sinks"*, and priced the ~28 e/t of spawn spend it does not
+subtract. Two reads kill it:
+
+1. **`netEnergyTotal` never gates the fill.** Computed at `flowAdapter.ts:1189`
+   and consumed ONLY by the reported `netEnergy` / `efficiency` /
+   `isSustainable` fields (lines 1204–1207). It is a source-ranking and
+   reporting statistic, not a budget — so nothing is handed to sinks against it.
+2. **The plan already funds the spawn as a first-class SINK.** Measured
+   t72707443: spawn sinks allocated **100.0 + 10.0 = 110 e/t** against ~48 e/t
+   of measured spawn spend. Netting producer bodies out of source yield AND
+   routing energy to the spawn sink would BE the double count; the solver
+   correctly does only the latter.
+
+The row compared a per-source amortized efficiency statistic (producer bodies
+only) against total measured spend across all classes, and called the
+difference a leak. Those quantities are not comparable and the difference is
+not a leak.
+
+**Consequently the hypothesis P10 supported is WITHDRAWN too.** Four entries in
+this log (t72700221, t72701842, t72703512, t72706408) named P10 as the standing
+root cause of the bank saw-tooth — *"the plan over-promises by ~28 e/t, so the
+valve is set above the sustainable residual"*. That reasoning rested on a false
+premise and should not be carried forward. The saw-tooth itself remains
+measured and real (OSC); its cause is again **open**, and the leading candidate
+is now the one the owner articulated directly: no term books the standing
+fleet's forward burn against the bank.
+
+**No successor row built.** The valid question — does the spawn sink allocation
+cover actual spawn spend — needs a rate-shaped plan term; the sink's `demand`
+is a refill-CAPACITY figure (spawn + extensions), not a rate. Shipping a second
+questionable formulation on top of a retracted one would repeat the mistake.
+X6 already taught this session that a line which cries wolf is worse than no
+line; P10 is the same lesson at a larger scale, and the tell was the same —
+**I never checked what consumed the number before building a FAIL on it.**
