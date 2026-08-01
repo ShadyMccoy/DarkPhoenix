@@ -466,6 +466,11 @@ export function f1Decompose(
   return { rows, estimated, windowTicks };
 }
 
+/** The reserve target a capture was measured against (plan-persisted, else the floor). */
+function resolveReserve(cap: any): number {
+  return cap.data.core?.warchestTarget ?? BASE_RESERVE;
+}
+
 export function computeLedger(cap: any, base: any): LedgerRow[] {
   const rows: LedgerRow[] = [];
   const core = cap.data.core;
@@ -1621,6 +1626,51 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
               `source-route carry alone is ${(totalCarry - notional).toFixed(1)} - compare fielded CARRY against THAT`
             : "no bank->controller edges in link-served rooms") +
           `; no energy is wasted (the link is the cheaper carrier) - this biases the plan-vs-actual READING only`
+      });
+    }
+  }
+
+  // ---- P12 valve coherence: plan vs runtime controller rate (owner 2026-08-01) ----
+  //
+  // "The plan and actual controller should use the same valve formula logic so
+  // they are more consistent. Maybe they are but using mismatched inputs."
+  // Measured t72714129 - HALF right, and the half that diverges is total:
+  //
+  //   RUNTIME valve = STORAGE_UPGRADE_TARGET(15) + bankSurplusRate(28.10) = 43.10
+  //   PLAN controller = mined(100) - spawnSinks(20) + bankSurplusRate(28.10) = 108.10
+  //
+  // The BANK term is genuinely shared - both call `bankSurplusRate` with the
+  // same inputs and agree to the decimal. The NON-BANK term is not shared at
+  // all: the plan computes it from the economy (mined less what it routes to
+  // the spawns) while the runtime substitutes a hardcoded constant. 80.00 vs
+  // 15.00, a 5.3x divergence, and it is the whole of the disagreement.
+  //
+  // This row is the pin for unifying them. It must go green by making the two
+  // agree at the CORRECT value, not by pointing the runtime at planFlow - the
+  // plan's own figure is inflated (it under-routes its fleet by 22.44 e/t and
+  // models no losses), so unifying naively would have the feeder draw ~39 e/t
+  // from the bank and reproduce the saw-tooth's down-stroke on purpose.
+  {
+    const banked = ((core.rooms ?? []) as any[]).reduce((n, r) => n + (r.storageEnergy ?? 0), 0);
+    const feeder = corps.find((c: any) => c.kind === "controllerFeeder");
+    const relay = feeder?.sizing?.relayRate;
+    const ctrlSink = ((flow?.sinks ?? []) as any[]).find(x => x.type === "controller");
+    if (typeof relay === "number" && ctrlSink && banked > 0) {
+      const drain = Math.min(MAX_SURPLUS_DRAW, Math.max(0, banked - resolveReserve(cap)) / SURPLUS_DRAIN_TICKS);
+      const runtimeNonBank = relay - drain;
+      const planNonBank = (+ctrlSink.allocated || 0) - drain;
+      const ratio = runtimeNonBank > 0 ? planNonBank / runtimeNonBank : Infinity;
+      rows.push({
+        id: "P12",
+        name: "valve coherence (plan vs runtime controller rate)",
+        value: +ratio.toFixed(2),
+        unit: `x divergence on the NON-BANK term (plan ${planNonBank.toFixed(2)} vs runtime ${runtimeNonBank.toFixed(2)})`,
+        verdict: ratio > 2 || ratio < 0.5 ? "FAIL" : ratio > 1.25 || ratio < 0.8 ? "WARN" : "ok",
+        detail:
+          `bank term SHARED and agreeing (${drain.toFixed(2)} both sides, same bankSurplusRate call); ` +
+          `non-bank term is NOT - the plan derives it from the economy, the runtime uses a constant. ` +
+          `Unify at the CORRECT rate (mined - ALL spawn cost - losses), not at planFlow: the plan's own ` +
+          `figure is inflated by the fleet energy it does not route.`
       });
     }
   }

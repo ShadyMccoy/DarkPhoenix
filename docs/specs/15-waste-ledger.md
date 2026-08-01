@@ -371,3 +371,50 @@ parts are link work. Against source routes alone (172.0) the same fleet is
 REPRESENTATION mismatch that biases a reading, so it WARNs rather than FAILs,
 and only fires when a controller link is actually live; without one those haul
 edges are real work and the plan is right.
+
+### P12 — valve coherence (plan vs runtime controller rate)
+
+**Added 2026-08-01** (owner: *"the plan and actual controller should use the
+same valve formula logic so they are more consistent. Maybe they are but using
+mismatched inputs."*). Measured — **half right, and the half that diverges is
+total**:
+
+```
+RUNTIME valve   = STORAGE_UPGRADE_TARGET(15) + bankSurplusRate(28.10) =  43.10
+PLAN controller = mined(100) − spawnSinks(20) + bankSurplusRate(28.10) = 108.10
+```
+
+- **The bank term is genuinely shared.** Both call `bankSurplusRate` with the
+  same inputs and agree to the decimal (28.10 / 28.10).
+- **The non-bank term is not shared at all.** The plan derives it from the
+  economy (mined less what it routes to the spawns); the runtime substitutes
+  the hardcoded `STORAGE_UPGRADE_TARGET`. **80.77 vs 15.00 — 5.38×**, and that
+  is the entire disagreement.
+
+**ORDERING CONSTRAINT — this must not be fixed by pointing the runtime at
+`planFlow`.** `feederRelayTarget` already receives `planFlow` and discards it
+in the surplus regime, so "just use it" is a one-line change and it would be
+actively harmful: the plan's own figure is inflated (it under-routes its fleet
+by 22.44 e/t and models no losses), so the feeder would draw ~39 e/t from the
+bank and reproduce the saw-tooth's down-stroke deliberately.
+
+The correct sustainable rate today, from the measured account:
+
+```
+mined 100.54 − spawn 44.21 − losses 14.47      = 41.86  (zero bank slope)
++ deliberate drawdown bankSurplusRate 28.10    = 69.96
+```
+
+Truth is between the two and closer to the RUNTIME's number — the constant is
+wrong but the plan is more wrong. Correct sequence:
+
+1. plan deducts its own fleet energy (42.44, which it already computes) →
+   controller allocation 108.87 → ~86
+2. plan models losses (the residual) → ~72
+3. **then** unify: either the runtime reads `planFlow`, or
+   `STORAGE_UPGRADE_TARGET` becomes the computed `mined − spawn − losses`.
+   Both routes converge on the same number, which is the sign the unification
+   is right.
+
+P12 goes green when they agree — and it must go green at the correct value,
+not by making one chase the other.
