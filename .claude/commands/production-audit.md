@@ -39,7 +39,8 @@ One hypothesis at a time; design the next capture to falsify it.
 
 ```
 SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,4,5,6
-npm run audit:ledger        # ENERGY ACCOUNT + spec 15 leak ledger, every leak a number
+npm run audit:ledger        # ENERGY ACCOUNT + SOURCE P&L + spec 15 leak ledger
+npm run fiscal:close        # spec 41: write any newly-crossed fiscal period to docs/fiscal/
 ```
 
 - Segment 0 (core): `bodyParts` (actual, colony), `rooms[]` ledger
@@ -59,6 +60,28 @@ npm run audit:ledger        # ENERGY ACCOUNT + spec 15 leak ledger, every leak a
 - Prior captures: `test/fixtures/telemetry/` (committed baselines).
   Segment 5 (blackbox) and 3 (intel raid fields) via `--segments 3,5` when
   churn/raid history is needed.
+
+## 0b. The STANDING REPORT SET (spec 41 — a contract, not a suggestion)
+
+Every cycle produces these, in this order. A future session changes the set
+only deliberately, and **bumps `METHODOLOGY` in scripts/waste-ledger.ts when it
+does** — two reports are comparable only at the same stamp.
+
+1. **ENERGY ACCOUNT** — income statement, budget vs actual vs variance,
+   balancing to a named RESIDUAL.
+2. **SOURCE P&L** — the same accounts per source, vs the planner's own net.
+3. **CONTROLLER VARIANCE BRIDGE** — top-line variance split into accounting
+   terms vs behaviour terms.
+4. **WASTE LEDGER** — leak rows ranked, TOP LINE named.
+5. **FISCAL CLOSE** — `npm run fiscal:close`, append-only, into `docs/fiscal/`.
+
+**Fiscal calendar:** month = **1500 ticks** (`CREEP_LIFETIME`, the horizon every
+body cost amortizes over — so a month is exactly the period a spawn purchase is
+expensed across); year = **15000** (ten months). A YEAR averages over the
+~9000-tick bank limit cycle; a MONTH is a phase sample of it and must be read
+as one. Closes are approximate by nature — they print the ticks actually
+measured and the coverage %, refuse anything outside 50–175%, and never
+overwrite an existing close.
 
 ## 1. Triage checklist (fail ⇒ investigate; numbers from measured incidents)
 

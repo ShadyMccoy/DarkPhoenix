@@ -72,3 +72,4 @@ Recently completed (for context): economy consolidation onto
 at RCL4 with the `storage-depot` integration test; the free-economy mod fix
 (CONSTRUCTION_COST 0 made building impossible, now 1); the
 reserve-source-only-with-a-fielded-builder gate.
+| [41](41-fiscal-periods.md) | Fiscal periods, the fiscal close, and the standing report set | LANDED 2026-08-01 |

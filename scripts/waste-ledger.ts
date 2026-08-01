@@ -37,6 +37,24 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+/**
+ * METHODOLOGY STAMP (owner 2026-08-01). Every report prints it, and two
+ * reports are only directly comparable at the SAME stamp.
+ *
+ * Bump it whenever HOW a figure is computed changes - a new account, a
+ * reclassified line, a changed budget derivation, a corrected sign. Do NOT
+ * bump for a new capture, a threshold tweak that changes only a verdict, or a
+ * wording change. The point is that a historical fiscal close carries the
+ * methodology it was produced under, so a year-over-year comparison can say
+ * "these are not comparable" instead of silently mixing two definitions - the
+ * failure mode that made P10 look like a real 28 e/t leak for four cycles.
+ *
+ * 1: energy account (revenue / direct / overhead / appropriations / residual),
+ *    budget-vs-actual-vs-variance, source P&L, controller variance bridge,
+ *    ground rot split, capital vs operating, reserving as COGS.
+ */
+export const METHODOLOGY = 1;
+
 export interface LedgerRow {
   id: string;
   name: string;
@@ -1963,7 +1981,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     return `${" ".repeat(indent)}${label.padEnd(38 - indent)}${b.padStart(9)}${actual.toFixed(2).padStart(10)}${v.padStart(11)}`;
   };
   return [
-    `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ring ${ring}t)`,
+    `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ring ${ring}t)  [methodology #${METHODOLOGY}]`,
     `${" ".repeat(38)}${"BUDGET".padStart(9)}${"ACTUAL".padStart(10)}${"VARIANCE".padStart(11)}`,
     "  REVENUE",
     L("gross mining (reserved rate)", grossPlan, 4, grossPlan),
