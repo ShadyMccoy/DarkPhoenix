@@ -2050,6 +2050,119 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   ].join("\n");
 }
 
+/**
+ * SOURCE P&L - the chart of accounts one level down (owner 2026-08-01: keep
+ * iterating on reporting and instrumentation).
+ *
+ * The colony account answers "did the economy pay for itself"; this answers
+ * "WHICH sources paid". Attribution is exact rather than apportioned, because
+ * spec 34 D5 made the miner operation own its evacuation haulers: every
+ * `mining-{room}-harvest-{suffix}` corp's spawn spend IS that source's
+ * extraction + evacuation cost, read straight off the blackbox ring. Only
+ * reservation needs sharing - it is bought per ROOM, so it splits evenly
+ * across the funded sources in that room.
+ *
+ * HONESTY LIMIT, printed with the table: `gross` is the plan's per-source
+ * CAPACITY, because there is no per-source delivery meter - the same gap the
+ * colony REVENUE line carries. Costs are MEASURED. So `net` is a hybrid:
+ * plan-gross less measured cost. It is directly comparable to the planner's
+ * own `candidates[].net`, which is built the same way, and that comparison is
+ * the point - it shows where the planner's per-source pricing is optimistic.
+ */
+export function formatSourcePnL(cap: any): string {
+  const rows0 = (cap.data.blackbox?.rows ?? []) as any[];
+  const ring = rows0.length > 1 ? rows0[rows0.length - 1].t - rows0[0].t : 0;
+  const sources = (cap.data.flow?.sources ?? []) as any[];
+  if (ring <= 0 || sources.length === 0) return "";
+
+  // corp -> measured spawn energy over the ring
+  const spend = new Map<string, number>();
+  for (const r of rows0) {
+    if (r.k !== "spawn" || !r.d?.cost) continue;
+    const key = `${r.d.corp}|${r.d.role}`;
+    spend.set(key, (spend.get(key) ?? 0) + r.d.cost);
+  }
+  const per = (corp: string, role: string): number => (spend.get(`${corp}|${role}`) ?? 0) / ring;
+
+  const roomOf = (nodeId: string): string => String(nodeId).split("-")[0];
+  const byRoom = new Map<string, number>();
+  for (const src of sources) byRoom.set(roomOf(src.nodeId), (byRoom.get(roomOf(src.nodeId)) ?? 0) + 1);
+
+  const verdicts = new Map<string, any>(
+    ((cap.data.flow?.candidates ?? []) as any[]).map(c => [String(c.sourceId).slice(-4), c])
+  );
+
+  const out: string[] = [
+    "",
+    "SOURCE P&L  e/tick  (gross = PLAN capacity, no per-source delivery meter; costs MEASURED)",
+    `  ${"src".padEnd(6)}${"room".padEnd(9)}${"d".padStart(4)}${"gross".padStart(8)}${"miner".padStart(8)}${"hauler".padStart(8)}${"reserve".padStart(9)}${"= net".padStart(8)}${"plan net".padStart(10)}${"var".padStart(9)}`
+  ];
+  let tG = 0;
+  let tM = 0;
+  let tH = 0;
+  let tR = 0;
+  for (const src of sources.slice().sort((a, b) => (a.spawnDistance ?? 0) - (b.spawnDistance ?? 0))) {
+    const suffix = String(src.id).slice(-4);
+    const room = roomOf(src.nodeId);
+    const corp = `mining-${room}-harvest-${suffix}`;
+    const gross = +src.harvestRate || 0;
+    const miner = per(corp, "miner");
+    const hauler = per(corp, "hauler");
+    // reservation is bought per ROOM; split across that room's funded sources
+    const resRoom = per(`reservation-${room}-reservation`, "reserver");
+    const reserve = resRoom / Math.max(1, byRoom.get(room) ?? 1);
+    const net = gross - miner - hauler - reserve;
+    const planNet = verdicts.get(suffix)?.net;
+    tG += gross;
+    tM += miner;
+    tH += hauler;
+    tR += reserve;
+    const varStr =
+      typeof planNet === "number" ? `${net - planNet >= 0 ? "+" : ""}${(net - planNet).toFixed(2)}` : "-";
+    out.push(
+      `  ${suffix.padEnd(6)}${room.padEnd(9)}${String(src.spawnDistance ?? "").padStart(4)}` +
+        `${gross.toFixed(2).padStart(8)}${(-miner).toFixed(2).padStart(8)}${(-hauler).toFixed(2).padStart(8)}` +
+        `${(-reserve).toFixed(2).padStart(9)}${net.toFixed(2).padStart(8)}` +
+        `${typeof planNet === "number" ? planNet.toFixed(2).padStart(10) : "-".padStart(10)}${varStr.padStart(9)}`
+    );
+  }
+  out.push(
+    `  ${"TOTAL".padEnd(19)}${tG.toFixed(2).padStart(8)}${(-tM).toFixed(2).padStart(8)}${(-tH).toFixed(2).padStart(8)}` +
+      `${(-tR).toFixed(2).padStart(9)}${(tG - tM - tH - tR).toFixed(2).padStart(8)}`
+  );
+  // Remote-only summary: the home sources need no reservation and pay no
+  // invader tax, so mixing them in would flatter the remote picture.
+  const remoteVars = sources
+    .map(src => {
+      const c = verdicts.get(String(src.id).slice(-4));
+      return c && (+c.tax || 0) > 0 ? c : null;
+    })
+    .filter(Boolean) as any[];
+  const meanTax = remoteVars.length
+    ? remoteVars.reduce((n, c) => n + (+c.tax || 0), 0) / remoteVars.length
+    : 0;
+  out.push(
+    "  a NEGATIVE var means the source costs MORE than the planner priced it - the planner's",
+    "  per-source net is what ADMITS OR REJECTS a source, so a chronic negative is a funding bug.",
+    `  RECONCILES to the colony account: miner ${tM.toFixed(2)} = extraction line; reserve ${tR.toFixed(2)} =` +
+      " reservation line. Hauler is LOWER than the evacuation line by the standalone scavenge",
+    "  corps, which serve no source and so appear in no row here.",
+    `  The planner's INVADER TAX is ${meanTax.toFixed(3)} e/t per remote - against a mean remote variance of` +
+      ` ${(remoteVars.length ? remoteVars.reduce((n, c) => {
+        const suffix = String(c.sourceId).slice(-4);
+        const src = sources.find(x => String(x.id).slice(-4) === suffix);
+        if (!src) return n;
+        const room = roomOf(src.nodeId);
+        const corp = `mining-${room}-harvest-${suffix}`;
+        const net = (+src.harvestRate || 0) - per(corp, "miner") - per(corp, "hauler") -
+          per(`reservation-${room}-reservation`, "reserver") / Math.max(1, byRoom.get(room) ?? 1);
+        return n + (net - (+c.net || 0));
+      }, 0) / remoteVars.length : 0).toFixed(2)} e/t it covers only a small fraction of the`,
+    "  remote cost the plan is missing."
+  );
+  return out.join("\n");
+}
+
 export function formatLedger(rows: LedgerRow[], capTick: number, baseTick: number): string {
   const out: string[] = [`waste ledger  capture t${capTick}  baseline t${baseTick}  (dt ${capTick - baseTick})`];
   for (const r of rows) {
@@ -2081,5 +2194,6 @@ if (require.main === module) {
   // The chart of accounts frames the leak ledger: what the colony earned and
   // where it went, before the list of what leaked.
   console.log(formatAccounts(cap, base, rows));
+  console.log(formatSourcePnL(cap));
   console.log(formatLedger(rows, cap.tick, base.tick));
 }

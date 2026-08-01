@@ -97,6 +97,16 @@ npm run audit:ledger        # ENERGY ACCOUNT + spec 15 leak ledger, every leak a
   accounting exists. Keep the balancing identity and the named residual; those
   are the invariants, not the specific line items.
 
+- **THEN the SOURCE P&L**, the account one level down: per-source gross, its
+  measured miner/hauler/reservation cost, and the resulting net against the
+  planner's own `candidates[].net`. Attribution is exact (spec 34 D5 gave each
+  miner operation its haulers, so a `mining-*` corp's spawn spend IS that
+  source's cost); only reservation is shared, split across its room's sources.
+  It reconciles to the colony account — miner and reserve totals match those
+  lines exactly, hauler is lower by the standalone scavenge corps. A chronic
+  NEGATIVE variance is a funding bug, not a curiosity: the planner's
+  per-source net is what admits or rejects a source.
+
 - **LEDGER FIRST among leaks**: `npm run audit:ledger` output outranks everything below.
   Any FAIL line is the cycle's work item unless a live incident preempts; the
   symptomatic checks below localize causes, the ledger finds the leak classes
