@@ -31,7 +31,7 @@ describe("Spawn fleet charge fixed point (production audit t72717545)", () => {
   const measuredFleet = (charge: number): number => Math.max(0, 49.45 - SLOPE * charge);
 
   it("returns a SELF-CONSISTENT charge on the measured live response", () => {
-    const { charge, solved } = convergeFleetCharge(measuredFleet(0), measuredFleet, f => f);
+    const { charge, solved } = convergeFleetCharge(0, measuredFleet(0), measuredFleet, f => f);
 
     // The true fixed point: c = 49.45 - 0.4408c  =>  c = 34.32.
     expect(charge).to.be.closeTo(34.32, 0.5);
@@ -40,7 +40,7 @@ describe("Spawn fleet charge fixed point (production audit t72717545)", () => {
   });
 
   it("does NOT return the pass-1 fleet cost (the shipped bug)", () => {
-    const { charge } = convergeFleetCharge(measuredFleet(0), measuredFleet, f => f);
+    const { charge } = convergeFleetCharge(0, measuredFleet(0), measuredFleet, f => f);
     // 49.45 was the number the live plan charged. It is a 1.44x over-charge
     // against the fleet it produces, and must not survive the iteration.
     expect(charge).to.be.lessThan(49.45 - 5);
@@ -52,7 +52,7 @@ describe("Spawn fleet charge fixed point (production audit t72717545)", () => {
     // C_{n+1} = 60 - 2*C_n runs away (0, 60, -60, 180, ...). Damping is what
     // turns the oscillation into a contraction.
     const steep = (charge: number): number => Math.max(0, 60 - 2 * charge);
-    const { charge } = convergeFleetCharge(steep(0), steep, f => f);
+    const { charge } = convergeFleetCharge(0, steep(0), steep, f => f);
     expect(charge).to.be.closeTo(20, 3); // fixed point c = 60 - 2c => 20
     expect(charge).to.be.greaterThan(0); // no runaway, no negative charge
   });
@@ -60,6 +60,7 @@ describe("Spawn fleet charge fixed point (production audit t72717545)", () => {
   it("stops early - and re-solves NOTHING - when the fleet already matches the charge", () => {
     let solves = 0;
     const { charge } = convergeFleetCharge(
+      0,
       0,
       () => {
         solves += 1;
@@ -72,13 +73,50 @@ describe("Spawn fleet charge fixed point (production audit t72717545)", () => {
     expect(solves).to.equal(0);
   });
 
+  /**
+   * SEEDING, measured live t72718367. Starting from 0 on every replan spent the
+   * whole pass budget re-deriving a number that barely moves between solves:
+   * the capture came back `passes: 4` (the cap) with charge 23.49/spawn against
+   * fleetEnergy 50.21 across 2 spawns - 6.4% short, and out of budget. The
+   * charge persists in Memory precisely so the next solve starts there.
+   */
+  it("converges from a SEED where a cold start runs out of passes", () => {
+    const cold = convergeFleetCharge(0, measuredFleet(0), measuredFleet, (f: number) => f);
+    const warm = convergeFleetCharge(34.32, measuredFleet(34.32), measuredFleet, (f: number) => f);
+
+    // Warm start is already at the fixed point: nothing to do, nothing spent.
+    expect(warm.passes).to.equal(0);
+    expect(warm.charge).to.be.closeTo(34.32, 0.01);
+    // And it never had to iterate at all, unlike the cold start.
+    expect(cold.passes).to.be.greaterThan(warm.passes);
+  });
+
+  it("hands back the SEED plan untouched when the seed already converged", () => {
+    // `solved` undefined is the signal that no pass ran - the caller's own
+    // pass-1 plan was solved AT this charge and is already self-consistent.
+    // Returning a stale re-solve here would hand back a plan priced at a
+    // different charge, which is the original bug in miniature.
+    const { solved, passes } = convergeFleetCharge(34.32, measuredFleet(34.32), measuredFleet, (f: number) => f);
+    expect(passes).to.equal(0);
+    expect(solved).to.equal(undefined);
+  });
+
+  it("still moves when the world genuinely changes under a warm seed", () => {
+    // A regime change (say the colony gains rooms): the old charge is stale and
+    // the iteration must not sit on it just because it was seeded.
+    const shifted = (charge: number): number => Math.max(0, 90 - 0.4408 * charge);
+    const { charge, passes } = convergeFleetCharge(34.32, shifted(34.32), shifted, (f: number) => f);
+    expect(passes).to.be.greaterThan(0);
+    expect(charge).to.be.closeTo(90 / 1.4408, 1.5); // the NEW fixed point, 62.5
+  });
+
   it("is bounded - a pathological response can never run the solver away", () => {
     let solves = 0;
     const flapping = (charge: number): number => {
       solves += 1;
       return charge > 25 ? 0 : 100; // discontinuous: no fixed point at all
     };
-    convergeFleetCharge(flapping(0), flapping, f => f);
+    convergeFleetCharge(0, flapping(0), flapping, f => f);
     // seed call + at most MAX_PASSES solves. The solve is per-tick CPU; an
     // unbounded loop here is a colony-wide stall, not a mispriced sink.
     expect(solves).to.be.at.most(1 + 4);

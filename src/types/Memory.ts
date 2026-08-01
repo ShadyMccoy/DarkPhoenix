@@ -342,6 +342,16 @@ declare global {
     lastBankDraw?: number;
 
     /**
+     * The last solve's converged PER-SPAWN fleet charge (the spawn sink's
+     * maintenance term). Seeds the next solve's fixed-point iteration, which is
+     * what lets a steady-state replan converge without spending extra searches
+     * re-deriving a number that barely moved. In Memory for the same reason as
+     * `lastBankDraw`: the FlowEconomy instance is replaced on every graph
+     * rebuild, so instance-held history never reaches a second solve.
+     */
+    lastFleetCharge?: number;
+
+    /**
      * The current liquidity reserve target (economy/bank.warchestTarget of the
      * last solve's measured income). Persisted so every consumer - the plan's
      * bank-surplus emission and the execution corps that size off it - reads

@@ -720,17 +720,31 @@ const FLEET_CHARGE_TOLERANCE = 0.25;
  * tolerance-stopped so a world whose charge barely moves pays for no re-solve
  * at all.
  *
- * @param seedFleet fleet charge implied by the UNCHARGED (pass 1) plan
+ * SEEDED from the PREVIOUS solve's charge, which is what makes this cheap and
+ * what makes it converge. The fixed point persists across solves - between two
+ * replans 50 ticks apart the colony's fleet barely moves - so starting from
+ * last time's answer means the tolerance check usually fires immediately and
+ * the whole iteration costs ZERO extra searches. Starting from 0 every time
+ * instead (as first shipped) both threw away the answer and spent its entire
+ * pass budget re-deriving it: measured live t72718367, `passes: 4` hit the cap
+ * with the charge still 6.4% short of `fleetEnergy`. Only a genuine regime
+ * change now pays for the full iteration.
+ *
+ * @param initialCharge previous solve's converged charge (0 on a cold start)
+ * @param seedFleet per-spawn fleet cost of the plan solved AT initialCharge
  * @param fleetChargeOf per-spawn fleet cost of a solved plan
  * @param solveWith re-solve the plan under a given per-spawn charge
- * @returns the converged charge and the plan solved AT it (self-consistent)
+ * @returns the converged charge, and the plan solved AT it when a pass ran
+ *          (`solved` undefined means the seed already converged - the caller's
+ *          own pass-1 plan was solved at that charge and IS the answer)
  */
 export function convergeFleetCharge<T>(
+  initialCharge: number,
   seedFleet: number,
   fleetChargeOf: (solved: T) => number,
   solveWith: (charge: number) => T
 ): { charge: number; solved: T | undefined; passes: number } {
-  let charge = 0;
+  let charge = Math.max(0, initialCharge);
   let target = seedFleet;
   let solved: T | undefined;
   let passes = 0;
@@ -1192,8 +1206,16 @@ export function solveColony(
   transientSources: PlannerSource[] = detectTransientSources(),
   bankSources: PlannerSource[] = detectBankSources(),
   goal?: Goal,
-  prevBankDraw?: number
+  prevBankDraw?: number,
+  /**
+   * The PREVIOUS solve's converged fleet charge (per spawn). Threaded from
+   * Memory by the execution layer exactly as `prevBankDraw` is - the pure
+   * layer never reads it itself. Seeds the fixed-point iteration below, which
+   * is what lets a steady-state replan converge without an extra search.
+   */
+  prevFleetCharge?: number
 ): { solution: FlowSolution; commissions: Commission[]; adopted: { sourceId: string; spawnId: string; gain: number }[] } {
+  const seedCharge = Math.max(0, prevFleetCharge ?? 0);
   const baseProblem = buildColonyProblem(
     graph,
     dist,
@@ -1203,7 +1225,9 @@ export function solveColony(
     bankSources,
     INVADER_TAX_PER_ENERGY,
     compileGoal(goal),
-    prevBankDraw
+    prevBankDraw,
+    detectLinkDepositPorts(),
+    seedCharge
   );
   // THE STRATEGIC SEARCH (spec 18 P1, live from day one): planColony is the
   // evaluator; the searcher may pin budget-dropped sources to spawns with
@@ -1211,10 +1235,10 @@ export function solveColony(
   // nothing and the plan is bit-identical to the plain solve (the pin).
   const pass1 = searchStructure(baseProblem);
 
-  // ---- PASS 2: charge the spawn what the plan's own fleet costs ----
+  // ---- THE FLEET CHARGE: the spawn sink pays for the plan's own fleet ----
   //
-  // Pass 1 tells us what fleet the colony needs; only then can the spawn sink
-  // demand what maintaining it costs. Before this, `discoverSinks` priced the
+  // The spawn sink must demand what maintaining the plan's fleet costs. Before
+  // this, `discoverSinks` priced the
   // spawn at a hardcoded 10 e/t while the fleet cost ~42 - and because the
   // spawn tops the value ladder, the shortfall was handed DOWN the ladder and
   // the controller absorbed it (t72714129: controller allocated 108.87 against
@@ -1252,6 +1276,7 @@ export function solveColony(
     );
 
   const converged = convergeFleetCharge(
+    seedCharge,
     fleetOf(pass1) / spawnCount,
     (s: ReturnType<typeof searchStructure>) => fleetOf(s) / spawnCount,
     solveWith
@@ -1403,8 +1428,13 @@ export class FlowEconomy {
     // infra pinned at 0.1874 across every post-deploy solve - the fix was
     // deployed and dormant). Memory survives rebuilds and global resets.
     const prevBankDraw = typeof Memory !== "undefined" ? Memory.lastBankDraw : undefined;
-    const result = solveColony(this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw);
+    // Same rationale, same lifetime: the converged fleet charge seeds the next
+    // solve's fixed-point iteration so a steady-state replan spends no extra
+    // searches re-deriving it.
+    const prevFleetCharge = typeof Memory !== "undefined" ? Memory.lastFleetCharge : undefined;
+    const result = solveColony(this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw, prevFleetCharge);
     if (typeof Memory !== "undefined") {
+      Memory.lastFleetCharge = result.solution.spawnMaintenance;
       Memory.lastBankDraw = result.solution.sinkAllocations
         .filter(a => a.sinkType === "controller" || a.sinkType === "construction")
         .reduce((sum, a) => sum + a.allocated, 0);

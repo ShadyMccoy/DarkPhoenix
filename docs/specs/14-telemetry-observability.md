@@ -7368,3 +7368,61 @@ demonstrably reaching a point neither undamped scheme could.
 Falsifier for the mechanism as a whole: `spawnMaintenance` differing by more
 than ~2 e/t between two consecutive captures in the same bank phase would mean
 4 passes is not enough to converge on the live world.
+
+### VERIFY 2026-08-01 (t72718367) — the stamp settled it in one capture; infra is 66% of the fleet
+
+The decomposition, read directly:
+
+```
+spawnMaintenance 23.49 / spawn      spawn sinks: 31.29  31.29
+fleetCharge { fleetEnergy 50.21, production 17.23, infra 32.98,
+              spawnCount 2, passes 4 }
+```
+
+**Predictions: all four wrong, and the stamp says exactly why.** I predicted
+16–19/spawn from a linear fit anchored on an assumed infra term of ~11.5 e/t.
+The real term is **32.98** — infra is 66% of the whole fleet cost, nearly twice
+production's 17.23. Every number downstream of that estimate was wrong, and the
+"1.79× over-charge" the previous entry computed was arithmetic on a bad
+constant. The two things I could not distinguish from the sum:
+
+- **The divisor is correct.** `spawnCount 2`, and 23.49 × 2 = 46.98 against
+  `fleetEnergy` 50.21. The charge IS split across the spawn sinks; the 2× I
+  suspected does not exist.
+- **The iteration did not converge.** `passes: 4` is the cap, and the residual
+  gap is 3.23 e/t total (6.4%) — above the 0.25 tolerance. It ran out of budget,
+  it did not settle.
+
+Third hypothesis right, first two wrong, and the capture cost one deploy. This
+is the case for stamping inputs rather than results: `spawnMaintenance` alone
+supported three incompatible stories for two cycles running.
+
+**THE FIX — seed the iteration from the previous solve's charge.** The fixed
+point persists across replans: 50 ticks apart, the colony's fleet barely moves.
+Starting from 0 every time both discards the answer and spends the entire pass
+budget re-deriving it. `Memory.lastFleetCharge` now carries the converged charge
+between solves (threaded through `solveColony` exactly as `prevBankDraw` is —
+the pure layer never reads Memory itself), pass 1 solves AT that charge, and the
+tolerance check usually fires immediately.
+
+Steady state therefore costs **one** search — fewer than the two-pass solve it
+replaces — while being strictly more converged. Only a real regime change pays
+for the full iteration, which is the only time it is worth paying for.
+
+Pinned: a warm seed at the fixed point runs `passes: 0` and re-solves nothing;
+it hands back `solved: undefined` so the caller keeps its own pass-1 plan (a
+stale re-solve here would hand back a plan priced at a different charge — the
+original bug in miniature); and a shifted response still moves off a warm seed
+rather than sitting on a stale number.
+
+**Gate:** unit 1783 pass; `flow-handoff`, `runt-economy` (upsize t440),
+`storage-depot` pass; grid `plan-t4-link-haul-pricing` 1/1,
+`fid-t4-preramped-steady-state` 1/1.
+
+**Open, and now measurable:** infra at 32.98 e/t against production's 17.23 is
+the single largest line in the fleet and nothing has audited it. `infraSpawnEnergy`
+prices feeders, tenders and reservers off nominal constants (TENDER_FLEET_PARTS
+48, RESERVER_PARTS_PER_ROOM 4, FEEDER_NOMINAL_DISTANCE) — exactly the class of
+behavioral constant spec 15's P5 exists to check against measured behaviour. If
+that term is wrong, the spawn sink is mispriced by more than everything the last
+three cycles have chased. **That is the next cycle's top line.**
