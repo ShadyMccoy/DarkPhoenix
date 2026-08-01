@@ -7067,3 +7067,52 @@ questionable formulation on top of a retracted one would repeat the mistake.
 X6 already taught this session that a line which cries wolf is worse than no
 line; P10 is the same lesson at a larger scale, and the tell was the same —
 **I never checked what consumed the number before building a FAIL on it.**
+
+### AUDIT 2026-08-01 (t72707443→t72714129, dt 6686) — CLEAN BOARD; the upgrader fix verified on a full-period window: income-funded score +33%
+
+**CYCLE VERDICT: SUCCESS — the progress rate was raised, measured.** **Zero
+FAIL lines** — the first clean board of the session. CPU 25.3/300, bucket full,
+census 43/43 tracked (X3 = 0, also a first).
+
+**The headline is a LIKE-FOR-LIKE arc comparison**, not a phase sample. Both
+windows span most of the ~9,000-tick cycle period and are within 1% of each
+other in length:
+
+| | pre-fix arc (6,742t) | post-fix arc (6,686t) |
+|---|---|---|
+| score | 41.12 pts/t | **47.59 pts/t** (+16%) |
+| bank slope | −9.68 e/t | **−5.74 e/t** |
+| **income-funded score** | 31.44 e/t | **41.85 e/t** (**+33%**) |
+
+The drawdown nearly halved while the score rose, so the gain is real income
+converted to progress, not a deeper raid on the bank. This is the first
+defensible rate claim in the log — every earlier "record" in these entries was
+a phase sample of the limit cycle.
+
+**Every leak line is at or near target:** F1 **1.03×**, P7 **1.12× ok**
+(47.6 actual vs 42.4 lower-endpoint plan), OSC **1.16** (in phase; the
+falsifier registered at the upgrader deploy has now held across three
+captures), E2 0, E5 0, X6 0/28, X5 0.05, E6 **1 of 10** gated (best of the
+session, from 4), X1 workUtil 1.00.
+
+**The one WARN is E4, and it is the instrument, not the colony.** Bank 112,152
+falling −5.74/t toward a projected 103,549 against a 70,000 reserve; E4 reads
+*"flat/falling at a big surplus — not convergence evidence; check the spend
+path"*. The spend path is demonstrably live (P7 above plan, score 47.59). This
+is the same frame limitation logged on 2026-07-31 — E4 cannot distinguish
+"drained into progress" from "drained into waste" because capital formation has
+no instrument. **Deliberately not patched**: spec 40 Part C owns it, and
+patching E4's heuristic in isolation would be the second patch on a mechanism
+whose real gap is a missing term. (Having just retracted P10 for exactly the
+sin of building a verdict on an unexamined number, the bar for touching another
+row is higher, not lower.)
+
+**The remaining gap is architectural, and it is unchanged.** The plan wants
+**153 WORK** (0.102 p/t) at the controller; **50 WORK** stand. The fleet is not
+under-built by any local defect — OSC 1.16 says it matches its VALVE (43.10
+e/t) exactly. The valve binds, the plan does not. S4 shows the consequence:
+idle 26% of the window, **80% of that labelled "no demand"**, while the plan
+asks for three times the fielded WORK. That is spec 39 territory (the plan owns
+the fleet / actuals into `ColonyProblem`), not a corp-local bug — this cycle
+found nothing further to fix at the local layer, and inventing work there would
+be the failed-cycle pattern the command warns about.
