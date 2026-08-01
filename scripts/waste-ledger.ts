@@ -1516,6 +1516,56 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     detail: `${core.creeps.tracked}/${core.creeps.total} tracked`
   });
 
+  // ---- P11 link/haul representation mismatch (owner 2026-08-01) ----
+  //
+  // The plan models bank->controller flow as HAULER edges carrying `carryParts`,
+  // but in a link-served room the LINK network performs that work (hub link ->
+  // controller link -> the feeder relays the last tile). No hauler is ever built
+  // for those parts, so they inflate every plan-vs-actual hauler comparison.
+  //
+  // Found while reading plan-vs-actual bodies at t72714129: planned hauler CARRY
+  // 198.1 vs 210 fielded read as a comfortable 1.06x, but 26.1 of those planned
+  // parts are bank->controller edges the link serves. Against source routes only
+  // (168.8 planned) the same fleet is 1.24x - still in tolerance, but a quarter
+  // over rather than a rounding error.
+  //
+  // NOT a leak: nothing is wasted, the link is the cheaper carrier. It is a
+  // REPRESENTATION mismatch that biases a reading, so it warns rather than
+  // fails, and only when a controller link is actually live - without one those
+  // haul edges are real work and the plan is right.
+  {
+    const linkRooms = new Set(
+      ((core.links ?? []) as any[]).filter(l => (l.toControllerRate ?? 0) > 0).map(l => l.room)
+    );
+    const haulers = (flow?.haulers ?? []) as any[];
+    const totalCarry = haulers.reduce((n, h) => n + (+h.carryParts || 0), 0);
+    // bank-sourced edges into a controller, in a room the link already serves
+    const linkServed = haulers.filter(h => {
+      if (!String(h.sourceId ?? "").startsWith("bank-")) return false;
+      if (!String(h.sinkId ?? "").startsWith("controller-")) return false;
+      return linkRooms.has(String(h.sourceId).replace(/^bank-/, ""));
+    });
+    const notional = linkServed.reduce((n, h) => n + (+h.carryParts || 0), 0);
+    if (linkRooms.size > 0 && totalCarry > 0) {
+      const share = notional / totalCarry;
+      rows.push({
+        id: "P11",
+        name: "link/haul representation (notional hauler parts)",
+        value: +notional.toFixed(1),
+        unit: `CARRY parts the plan bills to haulage that the LINK performs (${(share * 100).toFixed(0)}% of planned carry)`,
+        // Not waste - a reading bias. Warn once it is big enough to matter to a
+        // plan-vs-actual hauler comparison.
+        verdict: share > 0.1 ? "WARN" : "ok",
+        detail:
+          (linkServed.length > 0
+            ? `${linkServed.length} bank->controller edge(s) in link-served room(s) [${[...linkRooms].join(", ")}]; ` +
+              `source-route carry alone is ${(totalCarry - notional).toFixed(1)} - compare fielded CARRY against THAT`
+            : "no bank->controller edges in link-served rooms") +
+          `; no energy is wasted (the link is the cheaper carrier) - this biases the plan-vs-actual READING only`
+      });
+    }
+  }
+
   // ---- G1 sustained progress: score NET OF BANK DRAWDOWN (owner 2026-08-01) ----
   //
   // Pushed LAST on purpose. The sort below is stable, so within a verdict the
@@ -1594,6 +1644,100 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   return rows.sort((a, b) => rank[a.verdict] - rank[b.verdict]);
 }
 
+
+/**
+ * THE ENERGY ACCOUNT - a standing chart of accounts for the colony, printed
+ * above the leak ledger every cycle (owner 2026-08-01: "we at one point had a
+ * sort of standardized chart of accounts like an income statement ... the exact
+ * chart or report will evolve over time").
+ *
+ * Every term is energy/tick over the window, and the statement BALANCES BY
+ * CONSTRUCTION: revenue - operating cost - appropriations = RESIDUAL. The
+ * residual is the whole point. It is not a rounding bucket - it is the
+ * unattributed energy (ground decay, rot above the container cap, raid losses,
+ * tower burn, measurement error), and it inherits spec 20's discipline: a
+ * named residual that cannot silently grow because both sides are published.
+ *
+ * Sources, and their honesty limits:
+ *  - REVENUE is the PLAN's gross mining capacity, less the measured change in
+ *    source piles (`core.sourceBuffers`). It is a capacity figure, not a
+ *    measured delivery - we have no independent meter of energy actually
+ *    landed in storage, so income is NOT derived as the balancing figure
+ *    (that would make the residual circular and meaningless).
+ *  - OPERATING COST is measured at the spawn (the blackbox ring, by role), so
+ *    it is real spend, not a plan price.
+ *  - APPROPRIATIONS are measured: controller = gcl delta (1 point IS 1
+ *    energy), construction = the P8 lens, bank = storage delta.
+ *
+ * The ring and the capture window differ in length; each figure is normalised
+ * over its OWN window, which is exact for rates and is stated in the header.
+ */
+export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
+  const core = cap.data.core;
+  const bcore = base.data.core;
+  const dt = cap.tick - base.tick;
+  if (dt <= 0) return "";
+  const rows0 = (cap.data.blackbox?.rows ?? []) as any[];
+  const ring = rows0.length > 1 ? rows0[rows0.length - 1].t - rows0[0].t : 0;
+  const spawnRows = rows0.filter(r => r.k === "spawn" && r.d?.cost);
+
+  const CLASS: Record<string, string> = {
+    miner: "producers", hauler: "producers",
+    reserver: "infra", tender: "infra", tanker: "infra", feeder: "infra",
+    guard: "defense",
+    upgrader: "consumers", builder: "consumers"
+  };
+  const cost: Record<string, number> = { producers: 0, infra: 0, defense: 0, consumers: 0, other: 0 };
+  for (const r of spawnRows) cost[CLASS[r.d.role] ?? "other"] += r.d.cost;
+  const perTick = (n: number) => (ring > 0 ? n / ring : 0);
+  const spawnTotal = Object.values(cost).reduce((a, b) => a + b, 0);
+
+  const piles = (c: any): number =>
+    Object.values((c.data.core.sourceBuffers ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0);
+  const bank = (c: any): number =>
+    (c.data.core.rooms ?? []).reduce((s: number, r: any) => s + (r.storageEnergy ?? 0), 0);
+
+  const grossPlan = ((cap.data.flow?.sources ?? []) as any[]).reduce((n, s) => n + (+s.harvestRate || 0), 0);
+  const pileDelta = (piles(cap) - piles(base)) / dt;
+  const delivered = grossPlan - pileDelta;
+  const opex = perTick(spawnTotal);
+  const score = ((core.gcl?.progress ?? 0) - (bcore.gcl?.progress ?? 0)) / dt;
+  const bankDelta = (bank(cap) - bank(base)) / dt;
+  // Reuse P8's lens rather than re-deriving build delivery (the codebase rule:
+  // no second implementation of a measure that already has one).
+  const build = rows.find(r => r.id === "P8")?.value ?? 0;
+  const approp = score + build + bankDelta;
+  const residual = delivered - opex - approp;
+
+  const L = (label: string, v: number, indent = 2): string =>
+    `${" ".repeat(indent)}${label.padEnd(40 - indent)}${v >= 0 ? " " : ""}${v.toFixed(2)}`;
+  return [
+    `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ring ${ring}t)`,
+    "  REVENUE",
+    L("gross mining (plan capacity)", grossPlan, 4),
+    L("+ pile drawdown / (build-up)", -pileDelta, 4),
+    L("= delivered into the economy", delivered, 4),
+    "  OPERATING COST (measured at the spawn)",
+    L("producers  (miner, hauler)", perTick(cost.producers), 4),
+    L("infra      (reserver, tender, feeder)", perTick(cost.infra), 4),
+    L("defense    (guard)", perTick(cost.defense), 4),
+    L("consumers  (upgrader, builder)", perTick(cost.consumers), 4),
+    ...(cost.other > 0 ? [L("other/unclassified", perTick(cost.other), 4)] : []),
+    L("= total spawn", opex, 4),
+    "  APPROPRIATIONS",
+    L("controller (score)", score, 4),
+    L("construction (site progress)", build, 4),
+    L("to/(from) bank", bankDelta, 4),
+    L("= total", approp, 4),
+    "  " + "-".repeat(46),
+    L("RESIDUAL (decay, rot, raids, error)", residual, 2),
+    `  ${residual >= 0 ? "unattributed" : "OVER-attributed"} = ${Math.abs(residual / Math.max(grossPlan, 1e-9) * 100).toFixed(0)}% of gross mining` +
+      ` - revenue is PLAN CAPACITY less pile change, not a delivery meter, so this bounds`,
+    "  ground decay + rot above the container cap + raid losses + tower burn + measurement error.",
+    ""
+  ].join("\n");
+}
+
 export function formatLedger(rows: LedgerRow[], capTick: number, baseTick: number): string {
   const out: string[] = [`waste ledger  capture t${capTick}  baseline t${baseTick}  (dt ${capTick - baseTick})`];
   for (const r of rows) {
@@ -1621,5 +1765,9 @@ if (require.main === module) {
   };
   const cap = loadCapture(get("--capture", "latest"), 0);
   const base = loadCapture(get("--baseline", "prev"), 1);
-  console.log(formatLedger(computeLedger(cap, base), cap.tick, base.tick));
+  const rows = computeLedger(cap, base);
+  // The chart of accounts frames the leak ledger: what the colony earned and
+  // where it went, before the list of what leaked.
+  console.log(formatAccounts(cap, base, rows));
+  console.log(formatLedger(rows, cap.tick, base.tick));
 }

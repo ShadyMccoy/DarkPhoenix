@@ -153,3 +153,74 @@ construction spend and decay, so `funded` is "not drawn from storage", NOT
 Shares an input with E4 but asks a different question — E4 asks whether capital
 is idle, G1 asks what is paying for the score. Windows below 6,000 ticks are
 labelled SHORT: they sample a phase of the ~9,000-tick limit cycle (see OSC).
+
+### The ENERGY ACCOUNT (chart of accounts) — printed above the ledger
+
+**Added 2026-08-01** (owner: *"we at one point had a sort of standardized chart
+of accounts like an income statement on the audits ... the exact chart or
+report will evolve over time"*). The precedent is the grid's `[overhead]` line
+(`test/grid/cells/fidelity.ts`: mined / sinks / Δstock / decay / Δtransit /
+**residual**) — a balanced energy account with a named residual. This is its
+live counterpart.
+
+```
+ENERGY ACCOUNT  e/tick  (window 6686t; spawn ring 2710t)
+  REVENUE
+    gross mining (plan capacity)         100.00
+    + pile drawdown / (build-up)           0.54
+    = delivered into the economy         100.54
+  OPERATING COST (measured at the spawn)
+    producers  (miner, hauler)            24.69
+    infra      (reserver, tender, feeder) 12.55
+    defense    (guard)                     1.44
+    consumers  (upgrader, builder)         5.54
+    = total spawn                         44.21
+  APPROPRIATIONS
+    controller (score)                    47.59
+    construction (site progress)           0.00
+    to/(from) bank                        -5.74
+    = total                               41.85
+  ----------------------------------------------
+  RESIDUAL (decay, rot, raids, error)     14.47   (14% of gross)
+```
+
+**It balances by construction, and the residual is the point.** It bounds
+ground decay, rot above the container cap, raid losses, tower burn and
+measurement error. It inherits spec 20's reconciliation discipline: a named
+residual that cannot silently grow, because both sides are published. **A
+residual that grows between cycles is a work item even when every leak row is
+green.** First baseline: **14% of gross mining**.
+
+**Honesty limits, carried in the printed footer:**
+- REVENUE is the plan's mining CAPACITY less the measured pile change
+  (`core.sourceBuffers`) — *not* a delivery meter. Income is deliberately NOT
+  derived as the balancing figure; that would make the residual circular and
+  meaningless.
+- OPERATING COST *is* measured — the blackbox spawn ring, bucketed by role.
+- APPROPRIATIONS are measured: controller from the GCL delta (one point IS one
+  energy), construction reuses **P8's lens** (not a second implementation),
+  bank from the storage delta.
+- The ring and capture windows differ in length; each figure is normalised over
+  its own and both appear in the header.
+
+**Expected to evolve.** Split the residual as decay/rot/raid meters land; add a
+balance-sheet section (reserved / committed / free) once the commitment
+accounting exists. **The invariants are the balancing identity and the named
+residual — not the specific line items.**
+
+### P11 — link/haul representation (notional hauler parts)
+
+**Added 2026-08-01.** The plan models bank→controller flow as HAULER edges with
+`carryParts`, but in a link-served room the LINK performs that work (hub link →
+controller link → feeder relays the last tile). No hauler is ever built for
+those parts, so they inflate every plan-vs-actual hauler comparison.
+
+Found while reading plan-vs-actual bodies at t72714129: planned hauler CARRY
+198.1 vs 210 fielded read as a comfortable **1.06×** — but 26.1 of those planned
+parts are link work. Against source routes alone (172.0) the same fleet is
+**1.24×**: still in tolerance, but a quarter over rather than a rounding error.
+
+**Not a leak** — nothing is wasted, the link is the cheaper carrier. It is a
+REPRESENTATION mismatch that biases a reading, so it WARNs rather than FAILs,
+and only fires when a controller link is actually live; without one those haul
+edges are real work and the plan is right.

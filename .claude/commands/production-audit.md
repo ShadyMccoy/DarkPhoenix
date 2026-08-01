@@ -39,7 +39,7 @@ One hypothesis at a time; design the next capture to falsify it.
 
 ```
 SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,4,5,6
-npm run audit:ledger        # spec 15: latest capture vs previous, every leak a number
+npm run audit:ledger        # ENERGY ACCOUNT + spec 15 leak ledger, every leak a number
 ```
 
 - Segment 0 (core): `bodyParts` (actual, colony), `rooms[]` ledger
@@ -62,7 +62,42 @@ npm run audit:ledger        # spec 15: latest capture vs previous, every leak a 
 
 ## 1. Triage checklist (fail ⇒ investigate; numbers from measured incidents)
 
-- **LEDGER FIRST**: `npm run audit:ledger` output outranks everything below.
+- **READ THE ENERGY ACCOUNT FIRST**, then the ledger. `audit:ledger` prints a
+  standing chart of accounts above the leak rows — the colony's income
+  statement in energy/tick over the window:
+
+  ```
+  REVENUE          gross mining (plan capacity) + pile drawdown/(build-up)
+                   = delivered into the economy
+  OPERATING COST   producers / infra / defense / consumers   (MEASURED at the spawn)
+  APPROPRIATIONS   controller (score) + construction + to/(from) bank
+  ------------------------------------------------------------------
+  RESIDUAL         delivered − opex − appropriations
+  ```
+
+  It **balances by construction**, so the RESIDUAL is the point, not a rounding
+  bucket: it bounds ground decay, rot above the container cap, raid losses,
+  tower burn and measurement error, and it inherits spec 20's discipline — a
+  named residual that cannot silently grow because both sides are published.
+  Read it as the frame for everything else: a leak row tells you WHAT is
+  leaking, the account tells you whether the colony's energy is accounted for
+  at all. **A residual that grows between cycles is a work item even when every
+  leak row is green** (first baseline 2026-08-01: 14% of gross mining).
+
+  Honesty limits to carry when quoting it: revenue is the PLAN's mining
+  CAPACITY less the measured pile change — not a delivery meter — so income is
+  deliberately NOT derived as the balancing figure (that would make the
+  residual circular). Operating cost IS measured (the blackbox ring, by role),
+  and the ring and capture windows differ in length; each figure is normalised
+  over its own and both are stated in the header.
+
+  **The chart is expected to evolve** (owner 2026-08-01). Add accounts as
+  measurement improves — split the residual as decay/rot/raid meters land, add
+  a balance-sheet section (reserved / committed / free) when the commitment
+  accounting exists. Keep the balancing identity and the named residual; those
+  are the invariants, not the specific line items.
+
+- **LEDGER FIRST among leaks**: `npm run audit:ledger` output outranks everything below.
   Any FAIL line is the cycle's work item unless a live incident preempts; the
   symptomatic checks below localize causes, the ledger finds the leak classes
   (2026-07-18 lesson: plan spawn-infeasibility 1.68×, reserver duty 2× drift,
