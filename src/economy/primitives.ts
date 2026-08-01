@@ -1061,3 +1061,27 @@ export function rampartDecayEnergy(): number {
 export function creepRepairEnergy(workParts: number): number {
   return workParts > 0 ? workParts : 0;
 }
+
+/**
+ * Fraction of a link transfer the engine DESTROYS (Screeps LINK_LOSS_RATIO).
+ *
+ * This lived only in telemetry/LinkMeter, which meant the colony measured the
+ * loss and the planner priced none of it (owner 2026-08-01: "we still have the
+ * 'free' hauling from links in the plan as well?"). A link-served source has
+ * its haul leg priced at ~1 tile - correct, the link really does carry it - but
+ * with no transfer cost it looked strictly cheaper than a walked source rather
+ * than cheaper-by-the-right-amount.
+ */
+export const LINK_TRANSFER_LOSS = 0.03;
+
+/**
+ * Energy/tick destroyed moving `rate` through ONE link hop.
+ *
+ * Charged per SOURCE for the hop that puts its output on the network. The
+ * onward hop (hub -> controller link) is a colony distribution cost, not
+ * attributable to any one source, and is deliberately not billed here - the
+ * live meter sees both (t72721419: 1.45 e/t at the hub + 1.14 onward = 2.59).
+ */
+export function linkTransferTax(rate: number): number {
+  return rate > 0 ? rate * LINK_TRANSFER_LOSS : 0;
+}

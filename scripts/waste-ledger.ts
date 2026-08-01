@@ -52,6 +52,11 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  * 1: energy account (revenue / direct / overhead / appropriations / residual),
  *    budget-vs-actual-vs-variance, source P&L, controller variance bridge,
  *    ground rot split, capital vs operating, reserving as COGS.
+ * 4: the LINK TRANSFER TAX joins measured losses - the engine destroys 3% of
+ *    every link hop (2.59 e/t measured at t72721419) and it had been inside the
+ *    residual because LINK_LOSS_RATIO existed only in the telemetry meter. The
+ *    planner now prices one hop per link-served source too, so plan and actual
+ *    stop disagreeing about whether link haulage is free.
  * 3: revenue is MINED, not capacity - the miners' own heldFrac stamps price the
  *    capacity a buffer-full gate forgoes (30.28 e/t of 100 at t72721419), which
  *    #2 booked as income. Plus a WINDOW COHERENCE guard: the residual is a
@@ -67,7 +72,7 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
  *    the newly-attributed losses.
  */
-export const METHODOLOGY = 3;
+export const METHODOLOGY = 4;
 
 export interface LedgerRow {
   id: string;
@@ -1946,7 +1951,15 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   // would double-count the same wear.
   const tombLoss = meter?.tombstoneLost ?? 0;
   const repairSpend = meter?.repairSpend ?? 0;
-  const meteredLosses = rot + tombLoss + repairSpend;
+  // LINK TRANSFER TAX: the engine destroys 3% of every link hop, and the
+  // LinkMeter already measures it per room. It is a genuine destruction of
+  // delivered energy - exactly like pile rot - so it belongs in MEASURED
+  // LOSSES rather than inside the residual. Energy that crosses the network
+  // twice (source link -> hub -> controller link) pays twice, which is why the
+  // measured figure runs above 3% of any single leg.
+  const linkTax = ((core.links ?? []) as any[]).reduce((n, l) => n + (+l.taxRate || 0), 0);
+  const linkTaxKnown = core.links !== undefined;
+  const meteredLosses = rot + tombLoss + repairSpend + linkTax;
 
   // ---- BUDGET (what the PLAN says each line should be) ----
   // Computed with the planner's own primitives, never a second formula:
@@ -2111,6 +2124,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
             ? [
                 L("tombstone losses (creeps died carrying)", -tombLoss, 4),
                 L("repair (energy spent holding hits)", -repairSpend, 4),
+                ...(linkTaxKnown ? [L("link transfer tax (3% per hop)", -linkTax, 4)] : []),
                 L("= measured losses", -meteredLosses, 4)
               ]
             : [])

@@ -32,6 +32,7 @@
 import { Position } from "../types/Position";
 import {
   netEnergy,
+  linkTransferTax,
   spawnPartsFor,
   carryPartsFor,
   constructionWorkSpawnLoad,
@@ -382,7 +383,15 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
     // Net of the invader tax (spec 13): a remote's expected raid-defense
     // cost scales with what we harvest there, so it lands here - where both
     // the mine/don't-mine gate and the ranking read it.
-    const tax = (source.invaderTax ?? 0) * source.rate;
+    // Same shape as the invader tax, and for the same reason: a cost that
+    // scales with what we harvest belongs where the gate and the ranking both
+    // read it. A LINK-SERVED source (haulPos set) has its haul leg priced at
+    // ~1 tile because the link truly does the carrying - but the engine
+    // destroys LINK_TRANSFER_LOSS of every transfer, and pricing none of it
+    // made link service look strictly cheaper than a walked route instead of
+    // cheaper by the right amount (owner 2026-08-01).
+    const tax =
+      (source.invaderTax ?? 0) * source.rate + (source.haulPos ? linkTransferTax(source.rate) : 0);
     const net = netEnergy(source.rate, near.distance) - tax;
     const parts = spawnPartsFor(source.rate, near.distance);
     if (net <= 0) {

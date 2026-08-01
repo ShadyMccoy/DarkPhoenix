@@ -610,3 +610,45 @@ backlog, because the level and the flow are different facts.
 
 **A #2 residual sits on inflated revenue; a #3 one does not. They are not
 comparable.**
+
+## Methodology #4 — link haulage was priced as free (2026-08-01)
+
+Owner: *"And we still have the 'free' hauling from links in the plan as well?"*
+
+Yes, and it is now measured and priced.
+
+A link-served source has `haulPos` set to the core link, so the planner prices
+its haul leg at ~1 tile. **That part is correct** — the link genuinely does the
+carrying, and the creep leg really is one tile. What was missing is the link's
+OWN cost: the engine destroys 3% of every transfer.
+
+```
+t72721419 W43N23   toHub 48.19 e/t   toController 37.99 e/t
+                   3% of each = 1.45 + 1.14 = 2.59 e/t
+                   meter's taxRate                2.59 e/t   (exact)
+```
+
+Energy that crosses the network twice — source link → hub → controller link —
+**pays twice**, which is why the measured figure exceeds 3% of any single leg.
+
+`LINK_LOSS_RATIO` had existed **only in `telemetry/LinkMeter`**. The colony
+measured the loss and the planner priced none of it, so a link-served source
+looked *strictly* cheaper than a walked one rather than cheaper by the right
+amount. Two changes:
+
+- `LINK_TRANSFER_LOSS` / `linkTransferTax` move to `economy/primitives` (the one
+  place economic formulas may live), and LinkMeter re-exports rather than
+  redefining, so meter and planner cannot drift.
+- The planner charges each link-served source **one hop** of tax, in the same
+  per-source `tax` term as the invader tax — where the mine/don't-mine gate and
+  the ranking both read it. The onward hop is a colony distribution cost, not
+  attributable to any single source, and is deliberately not billed to one.
+- The measured tax joins **MEASURED LOSSES** in the account. It is a genuine
+  destruction of delivered energy, exactly like pile rot, and had been sitting
+  in the residual.
+
+**A second, larger link finding, not yet acted on:** `hubClampShare 0.576` —
+**58% of hub fires were clamped** because the core could not hold the full
+volley, with `coreCongestedShare 0.099`. The plan assumes the link carries the
+routed flow. More than half the time it cannot. That is a throughput ceiling the
+plan does not model at all, and it is the next link question.
