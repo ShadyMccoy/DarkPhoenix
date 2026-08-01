@@ -470,3 +470,71 @@ sink ordering — the trap list's 90-vs-85 founding incident is the precedent).
 runtime's hardcoded 15 is the other half); the F1/P4 parts side unchanged; and
 **P7 improves mechanically because its denominator shrinks** — that must not be
 read as a delivery win.
+
+## Splitting the RESIDUAL — methodology #2 (2026-08-01)
+
+Owner: *"I'd like to see pile decay, tombstone and decay (structures) and repair
+show up in the report."*
+
+The account balances by construction, so the residual absorbed everything the
+report could not name: 31.69 e/t, **32% of gross mining**, covering ground
+decay, rot, tombstones, raid losses, tower burn, repair and measurement error
+in one bucket. `telemetry/LossMeter` prices the knowable parts.
+
+### Four measurement natures, deliberately not blurred
+
+| line | nature | how |
+|---|---|---|
+| ground pile decay | **EXACT** | the engine's own `ceil(amount/1000)` applied to every observed pile |
+| tombstone decay | **MEASURED** | energy destroyed with an expiring tombstone (see the discriminator) |
+| repair | **MEASURED** | recorded at the repair site — per WORK part for a creep, per shot for a tower |
+| structure decay | **MODELLED** | what holding hits costs, from the engine's decay cadences. A LOWER bound: road traffic decay is excluded |
+
+Methodology #1's rot line divided the SUMMED pile by 1000. That misses the
+per-pile ceiling — the rule is convex, and a pile one energy over a boundary
+pays a whole extra energy per tick — and it only ever saw source-adjacent
+piles. #2 supersedes it.
+
+### The tombstone discriminator
+
+Energy leaving a tombstone was either **looted** (a hauler emptied it — it came
+home, no loss) or **destroyed** (the tombstone expired and the engine deleted
+its contents). Counting every disappearance as loss overstates; counting none
+hides it. They are told apart by the life REMAINING at the last sighting:
+`ticksToDecay <= dt` means it expired.
+
+Looted energy is reported alongside as CONTEXT and is deliberately excluded
+from the loss lines.
+
+### Decay is depreciation, not cash
+
+**Structure decay never nets against the residual.** It is an accrued
+liability whose cash cost IS the repair line — booking both would double-count
+the same wear. It appears as a DEPRECIATION MEMO pairing accrual against repair
+actually paid, which answers the question the residual could not: *are we
+keeping up?* A shortfall is not free, it is deferred, and it is paid at full
+rebuild price when a structure expires (a container is 5000 energy).
+
+Two things the memo makes visible for the first time:
+
+- a **REMOTE container costs 5× an owned one** (0.50 vs 0.10 e/t) purely because
+  the engine decays it five times as fast — a standing cost of remote mining
+  that no plan term prices;
+- road decay excludes creep traffic, so the accrual is a floor, not a ceiling.
+
+### Honesty limits
+
+- The meter samples on a **10-tick stride** (three FINDs per visible room). The
+  stride costs resolution, never correctness — each room integrates against its
+  OWN previous sample — but it bounds the tombstone discriminator to
+  `ticksToDecay <= 10`.
+- **Vision is not a measurement.** A room merely lost from view is never scored
+  as a loss; rooms are diffed only against their own next sample. This is the
+  "room state from intel, never creep positions" trap in a different costume,
+  and without the guard every dead scout would print a loss spike.
+- The meter re-bases on a global reset rather than reporting a spike.
+- Piles dropped away from a source ARE now counted (v19's estimate could not see
+  them), but only in **visible** rooms.
+
+**A #1 residual and a #2 residual are not comparable** — #2 is smaller by
+exactly the newly-attributed losses. That is what the methodology stamp is for.

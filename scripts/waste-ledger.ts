@@ -52,8 +52,16 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  * 1: energy account (revenue / direct / overhead / appropriations / residual),
  *    budget-vs-actual-vs-variance, source P&L, controller variance bridge,
  *    ground rot split, capital vs operating, reserving as COGS.
+ * 2: the residual is SPLIT into line items (core v20 loss meter): ground pile
+ *    decay by the engine's own ceil rule (superseding #1's summed-pile
+ *    estimate, which missed the per-pile ceiling and saw only source-adjacent
+ *    piles), tombstone energy destroyed, and measured repair spend. Structure
+ *    decay enters as a DEPRECIATION MEMO, never as cash - its cash cost IS the
+ *    repair line, and booking both would double-count the same wear. A #1
+ *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
+ *    the newly-attributed losses.
  */
-export const METHODOLOGY = 1;
+export const METHODOLOGY = 2;
 
 export interface LedgerRow {
   id: string;
@@ -1891,8 +1899,31 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const droppedOf = (c: any): number =>
     Object.values((c.data.core.sourceDropped ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0);
   const droppedAvg = (droppedOf(cap) + droppedOf(base)) / 2;
-  const rot = droppedAvg / 1000;
-  const rotKnown = cap.data.core.sourceDropped !== undefined;
+  // METERED LOSSES (core v20, telemetry/LossMeter): supersedes the estimate
+  // above wherever present. The estimate divided the SUMMED pile by 1000, which
+  // misses the per-pile ceiling and only ever saw source-adjacent piles; the
+  // meter applies the engine's own ceil rule to every pile in every visible
+  // room, and adds the three quantities the estimate could not see at all.
+  const meter = cap.data.core.losses as
+    | {
+        windowTicks: number;
+        pileDecay: number;
+        structureDecay: number;
+        repairSpend: number;
+        tombstoneDecayed: number;
+        tombstoneLooted: number;
+        tombstoneStock: number;
+      }
+    | undefined;
+  const rot = meter ? meter.pileDecay : droppedAvg / 1000;
+  const rotKnown = meter !== undefined || cap.data.core.sourceDropped !== undefined;
+  // Cash uses of delivered energy that are NOT spawn/controller/construction/
+  // bank. Structure decay is deliberately absent: it is DEPRECIATION, an
+  // accrued liability, and its cash cost IS the repair line - booking both
+  // would double-count the same wear.
+  const tombLoss = meter?.tombstoneDecayed ?? 0;
+  const repairSpend = meter?.repairSpend ?? 0;
+  const meteredLosses = rot + tombLoss + repairSpend;
 
   // ---- BUDGET (what the PLAN says each line should be) ----
   // Computed with the planner's own primitives, never a second formula:
@@ -1951,7 +1982,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   // no second implementation of a measure that already has one).
   const build = rows.find(r => r.id === "P8")?.value ?? 0;
   const approp = score + build + bankDelta;
-  const residual = delivered - opex - approp - (rotKnown ? rot : 0);
+  const residual = delivered - opex - approp - (rotKnown ? meteredLosses : 0);
 
   // label | BUDGET | ACTUAL | VARIANCE.  `budget === null` means the plan does
   // not state this line in energy - printed as "-" rather than a fabricated
@@ -2020,8 +2051,15 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
       : []),
     ...(rotKnown
       ? [
-          "  MEASURED LOSSES",
-          L("ground rot (dropped energy, 0.1%/t)", -rot, 4)
+          `  MEASURED LOSSES${meter ? `  (meter window ${meter.windowTicks}t)` : ""}`,
+          L(meter ? "ground pile decay (engine ceil rule)" : "ground rot (dropped energy, 0.1%/t)", -rot, 4),
+          ...(meter
+            ? [
+                L("tombstone decay (energy destroyed)", -tombLoss, 4),
+                L("repair (energy spent holding hits)", -repairSpend, 4),
+                L("= measured losses", -meteredLosses, 4)
+              ]
+            : [])
         ]
       : []),
     "  APPROPRIATIONS",
@@ -2038,7 +2076,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
       // empty budget/variance cells for each.
       const B = (label: string, v: number): string => `    ${label.padEnd(42)}${v >= 0 ? "+" : ""}${v.toFixed(2)}`;
       const spawnGap = -(perTick(spawnTotal) - bSpawn);
-      const lossGap = -(residual + (rotKnown ? rot : 0));
+      const lossGap = -(residual + (rotKnown ? meteredLosses : 0));
       const bankGap = -(bankDelta - bBank);
       const explains = spawnGap + lossGap + bankGap;
       const actualVar = score - bController;
@@ -2067,10 +2105,34 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
       ` for ${perTick(cost.reservation).toFixed(2)} e/t of bodies.`,
     `  ${residual >= 0 ? "unattributed" : "OVER-attributed"} = ${Math.abs(residual / Math.max(grossPlan, 1e-9) * 100).toFixed(0)}% of gross mining` +
       ` - revenue is PLAN CAPACITY less pile change, not a delivery meter, so this bounds`,
-    rotKnown
-      ? "  still unattributed: REPAIR spend (tower + builder), TOMBSTONE losses (creeps that died carrying),"
-      : "  ground decay + rot above the container cap + raid losses + tower burn + measurement error.",
-    ...(rotKnown ? ["  and measurement error. Structure DECAY is not here: it is depreciation, and its cash cost IS repair."] : []),
+    meter
+      ? "  raid losses, tower burn, energy dropped away from a source, and measurement error."
+      : rotKnown
+        ? "  still unattributed: REPAIR spend (tower + builder), TOMBSTONE losses (creeps that died carrying),"
+        : "  ground decay + rot above the container cap + raid losses + tower burn + measurement error.",
+    ...(rotKnown && !meter
+      ? ["  and measurement error. Structure DECAY is not here: it is depreciation, and its cash cost IS repair."]
+      : []),
+    ...(meter
+      ? [
+          "",
+          "  DEPRECIATION MEMO (not a cash line - the account must not book wear twice)",
+          `    structure decay accruing        ${meter.structureDecay.toFixed(2)} e/t   (containers + ramparts + roads, base cadence)`,
+          `    repair actually paid            ${repairSpend.toFixed(2)} e/t`,
+          `    = ${
+            repairSpend >= meter.structureDecay
+              ? "KEEPING UP - hits are being held"
+              : `SHORTFALL ${(meter.structureDecay - repairSpend).toFixed(2)} e/t - structures are being allowed to decay`
+          }`,
+          "    Decay is an accrued liability; its CASH cost is the repair line above, so only repair",
+          "    nets against the residual. A shortfall is not free - it is deferred, and it is paid at",
+          "    full rebuild price when a structure expires (a container is 5000 energy).",
+          `    Road decay here EXCLUDES creep traffic, so it is a LOWER bound. Remote containers are`,
+          `    priced at 5x owned (0.50 vs 0.10 e/t) - the engine decays them five times as fast.`,
+          `    Tombstones now hold ${meter.tombstoneStock.toFixed(0)}e; ${meter.tombstoneLooted.toFixed(2)} e/t was recovered by haulers`,
+          "    (recovered energy is NOT a loss and is deliberately excluded from the lines above)."
+        ]
+      : []),
     ""
   ].join("\n");
 }

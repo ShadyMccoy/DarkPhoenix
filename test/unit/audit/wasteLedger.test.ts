@@ -7,6 +7,7 @@ import {
   F1_PLAN_PREFIX,
   computeChurn,
   computeLedger,
+  formatAccounts,
   planSpawnLoad
 } from "../../../scripts/waste-ledger";
 import { ALL_CORP_KINDS, ALL_SPAWN_ROLES } from "../../../src/execution/CommissionHost";
@@ -1207,5 +1208,87 @@ describe("energy account: every spawnable role has an account", () => {
     expect(ACCOUNT_CLASS_OF_ROLE.claimer).to.equal("expansion");
     expect(ACCOUNT_CLASS_OF_ROLE.buster).to.equal("incursion");
     expect(ACCOUNT_CLASS_OF_ROLE.striker).to.equal("incursion");
+  });
+});
+
+/**
+ * SPLITTING THE RESIDUAL (owner 2026-08-01: "I'd like to see pile decay,
+ * tombstone and decay (structures) and repair show up in the report").
+ *
+ * The account balances by construction, so every line added to the loss side
+ * comes straight OUT of the residual. That makes double-counting silent and
+ * expensive: book structure decay as cash alongside the repair that services
+ * it, and the residual shrinks by wear the colony never actually paid twice.
+ * These pin the arithmetic, not the prose.
+ */
+describe("energy account: the residual's line items (core v20 loss meter)", () => {
+  const withMeter = (losses: any): any => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.core.losses = {
+      windowTicks: 500,
+      pileDecay: 0,
+      structureDecay: 0,
+      repairSpend: 0,
+      tombstoneDecayed: 0,
+      tombstoneLooted: 0,
+      tombstoneStock: 0,
+      ...losses
+    };
+    return c;
+  };
+  const accountOf = (cap: any): string => {
+    const rows = computeLedger(cap, cap72404213);
+    return formatAccounts(cap, cap72404213, rows);
+  };
+  const lineValue = (text: string, label: string): number => {
+    const line = text.split("\n").find(l => l.includes(label));
+    if (!line) throw new Error(`no line matching "${label}" in:\n${text}`);
+    return Number(/(-?\d+\.\d\d)/.exec(line.slice(line.indexOf(label) + label.length))![1]);
+  };
+
+  it("prints the three CASH loss lines and their total", () => {
+    const text = accountOf(withMeter({ pileDecay: 3, tombstoneDecayed: 2, repairSpend: 1 }));
+    expect(lineValue(text, "ground pile decay")).to.equal(-3);
+    expect(lineValue(text, "tombstone decay")).to.equal(-2);
+    expect(lineValue(text, "repair (energy spent")).to.equal(-1);
+    expect(lineValue(text, "= measured losses")).to.equal(-6);
+  });
+
+  it("takes every metered loss OUT of the residual, one for one", () => {
+    const bare = accountOf(withMeter({ pileDecay: 3 }));
+    const more = accountOf(withMeter({ pileDecay: 3, tombstoneDecayed: 2, repairSpend: 1 }));
+    const shrink = lineValue(bare, "RESIDUAL") - lineValue(more, "RESIDUAL");
+    expect(shrink, "3 e/t of newly-attributed loss leaves the residual").to.be.closeTo(3, 0.011);
+  });
+
+  it("does NOT book structure decay as cash - that would double-count repair", () => {
+    const none = accountOf(withMeter({ repairSpend: 1 }));
+    const heavy = accountOf(withMeter({ repairSpend: 1, structureDecay: 9 }));
+    expect(lineValue(heavy, "RESIDUAL")).to.be.closeTo(lineValue(none, "RESIDUAL"), 1e-9);
+  });
+
+  it("reports decay vs repair as a DEPRECIATION MEMO, and names a shortfall", () => {
+    const short = accountOf(withMeter({ repairSpend: 1, structureDecay: 9 }));
+    expect(short).to.include("DEPRECIATION MEMO");
+    expect(short).to.include("SHORTFALL 8.00");
+    const holding = accountOf(withMeter({ repairSpend: 9, structureDecay: 1 }));
+    expect(holding).to.include("KEEPING UP");
+  });
+
+  it("excludes LOOTED tombstone energy from the loss lines - it came home", () => {
+    const looted = accountOf(withMeter({ tombstoneDecayed: 2, tombstoneLooted: 50 }));
+    expect(lineValue(looted, "tombstone decay")).to.equal(-2);
+    expect(lineValue(looted, "= measured losses")).to.equal(-2);
+  });
+
+  it("degrades cleanly on a capture older than the meter", () => {
+    // The 2026-07-18 fixture predates even v19's sourceDropped, so it must
+    // print the fully-unsplit residual - never blank lines or NaN, and never
+    // meter sections built on absent fields.
+    const text = accountOf(JSON.parse(JSON.stringify(cap72411542)));
+    expect(text).to.include("RESIDUAL (decay, rot, raids, error)");
+    expect(text).to.not.include("DEPRECIATION MEMO");
+    expect(text).to.not.include("= measured losses");
+    expect(text).to.not.match(/NaN/);
   });
 });

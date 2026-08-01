@@ -987,3 +987,77 @@ export const TOWER_REPAIR_BAND = 300;
 export function towerRefillBelow(capacity: number): number {
   return Math.min(capacity, TOWER_DEFENSE_RESERVE + TOWER_REPAIR_BAND);
 }
+
+// ---------------------------------------------------------------------------
+// LOSS PRICING (owner 2026-08-01: "I'd like to see pile decay, tombstone and
+// decay (structures) and repair show up in the report").
+//
+// The energy account balances to a named RESIDUAL that bounds ground decay,
+// rot, raid losses and measurement error - 32% of gross mining at the
+// 2026-08-01 close, and spec 15's rule is that a residual which cannot be
+// split is a work item. These are the conversions that price the DECAY half of
+// it in energy, so the account can carry line items instead of one bucket.
+//
+// Every constant here is a GAME RULE (the engine's own decay arithmetic), not
+// a tuning knob - which is exactly why they belong in primitives rather than
+// in the meter that reads them or the ledger that prints them.
+// ---------------------------------------------------------------------------
+
+/** A dropped pile loses ceil(amount / this) energy per tick (Screeps ENERGY_DECAY). */
+export const ENERGY_DECAY_DIVISOR = 1000;
+
+/**
+ * Energy/tick a ground pile rots at. CONVEX in the pile size because of the
+ * ceiling: a pile one energy over a 1000 boundary pays a whole extra energy per
+ * tick forever. That convexity is why "let it pile up at the source and haul it
+ * later" is not free, and why E6's deferred-miner gate has an energy price.
+ */
+export function pileDecayRate(amount: number): number {
+  return amount > 0 ? Math.ceil(amount / ENERGY_DECAY_DIVISOR) : 0;
+}
+
+/** Hits restored per energy of repair (Screeps REPAIR_POWER / REPAIR_COST). */
+export const REPAIR_HITS_PER_ENERGY_RATE = 100;
+
+/** Energy it costs to restore `hits` - the price of a structure's decay. */
+export function hitsToEnergy(hits: number): number {
+  return hits > 0 ? hits / REPAIR_HITS_PER_ENERGY_RATE : 0;
+}
+
+/** Hits a container loses per decay event (Screeps CONTAINER_DECAY). */
+export const CONTAINER_DECAY_HITS = 5000;
+/** Decay cadence for a container in a room we own. */
+export const CONTAINER_DECAY_INTERVAL_OWNED = 500;
+/** Decay cadence for a container in a room we do NOT own - 5x faster. */
+export const CONTAINER_DECAY_INTERVAL_REMOTE = 100;
+
+/**
+ * Energy/tick to hold one container at full hits. A REMOTE container costs 5x
+ * an owned one (0.50 vs 0.10 e/t) purely because the engine decays it five
+ * times as fast - a standing cost of remote mining that no plan term prices.
+ */
+export function containerDecayEnergy(owned: boolean): number {
+  const interval = owned ? CONTAINER_DECAY_INTERVAL_OWNED : CONTAINER_DECAY_INTERVAL_REMOTE;
+  return hitsToEnergy(CONTAINER_DECAY_HITS / interval);
+}
+
+/** Hits a rampart loses per decay event (Screeps RAMPART_DECAY_AMOUNT). */
+export const RAMPART_DECAY_HITS = 300;
+/** Decay cadence for a rampart. */
+export const RAMPART_DECAY_INTERVAL = 100;
+
+/** Energy/tick to hold one rampart at full hits. */
+export function rampartDecayEnergy(): number {
+  return hitsToEnergy(RAMPART_DECAY_HITS / RAMPART_DECAY_INTERVAL);
+}
+
+/**
+ * Energy a creep spends repairing for one tick with `workParts`.
+ * REPAIR_COST (0.01 energy/hit) x REPAIR_POWER (100 hits/WORK/tick) = exactly
+ * one energy per WORK part, the precise inverse of hitsToEnergy - so a
+ * structure held at constant hits costs exactly its decay rate, and the
+ * account's decay and repair lines net out instead of double-counting.
+ */
+export function creepRepairEnergy(workParts: number): number {
+  return workParts > 0 ? workParts : 0;
+}

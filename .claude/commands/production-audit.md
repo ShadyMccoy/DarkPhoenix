@@ -270,3 +270,19 @@ Single invocation = one cycle. For continuous monitoring run via `/loop`
 (30–60 min intervals; captures are cheap, prod moves ~1 tick/s) or a scheduled
 Routine that fires this command. Between cycles nothing polls — the game runs
 itself; the loop's value is the delta between captures.
+
+## Capture discipline (learned 2026-08-01, the hard way)
+
+**Always capture `--segments 0,3,4,5,6`.** A `0,6` capture reads the plan fine
+mid-deploy, but it carries no blackbox ring — and without the ring every
+"measured at the spawn" line in the ENERGY ACCOUNT reads **0.00** rather than
+going absent. A cycle that mixed the two produced a fiscal close reporting a
+favourable NET MINING MARGIN off thirteen zeros. `fiscal:close` now refuses
+such captures, but the account itself will still print them.
+
+**The methodology stamp is a hard gate on comparability.** `METHODOLOGY` in
+`scripts/waste-ledger.ts` is at **#2** (the residual split into pile decay /
+tombstone / repair, with structure decay as a depreciation memo). A #1 residual
+and a #2 residual differ by exactly the newly-attributed losses — never quote
+one against the other. Bump the stamp in the SAME commit as any change to the
+chart of accounts.

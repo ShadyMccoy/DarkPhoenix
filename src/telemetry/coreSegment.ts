@@ -18,6 +18,7 @@
 
 import { Colony } from "../colony/Colony";
 import { controllerSideStock, sourceBufferStock, sourceDroppedStock } from "../corps/nodeEnergy";
+import { lossReport } from "./LossMeter";
 import { linkLedger } from "./LinkMeter";
 import { getCompletedLedger } from "./cpuLedgerCache";
 import { SPAWN_PARTS_PER_TICK } from "../economy/primitives";
@@ -216,6 +217,28 @@ export interface CoreTelemetry {
     directShare: number;
     taxRate: number;
   }[];
+  /**
+   * RESIDUAL LINE ITEMS (v20, owner 2026-08-01: "I'd like to see pile decay,
+   * tombstone and decay (structures) and repair show up in the report").
+   *
+   * The energy account balances to a named residual bounding decay, rot, raid
+   * losses and measurement error together - 32% of gross mining at the
+   * 2026-08-01 close. These are the parts of it that are knowable, from
+   * telemetry/LossMeter. Read the natures, they differ: `pileDecay` is EXACT
+   * (the engine's ceil rule on an observed stock), `structureDecay` is a
+   * MODELLED liability (what holding hits costs, and a LOWER bound - traffic
+   * decay on roads is excluded), `repairSpend` and the tombstone figures are
+   * MEASURED. `tombstoneStock` is a level, everything else a rate.
+   */
+  losses?: {
+    windowTicks: number;
+    pileDecay: number;
+    structureDecay: number;
+    repairSpend: number;
+    tombstoneDecayed: number;
+    tombstoneLooted: number;
+    tombstoneStock: number;
+  };
   /** Owned rooms summary */
   rooms: {
     name: string;
@@ -440,7 +463,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 19, // v18 spawns[].idle cause tally; v19 sourceDropped (the rotting share of each source buffer)
+    version: 20, // v19 sourceDropped; v20 losses (residual line items: pile decay, tombstone, structure decay, repair) 2026-08-01
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
@@ -505,6 +528,12 @@ export function updateCoreTelemetry(
     ...(() => {
       const links = linkLedger(Game.time);
       return links.length > 0 ? { links } : {};
+    })(),
+    // Omitted until a window exists, so a fresh reset publishes no zeros that
+    // would read as "nothing is decaying".
+    ...(() => {
+      const losses = lossReport(Game.time);
+      return losses.windowTicks > 0 ? { losses } : {};
     })(),
     rooms
   };

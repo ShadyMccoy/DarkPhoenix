@@ -40,6 +40,7 @@
 
 import { REPAIR_TO } from "../corps/repair";
 import { TOWER_DEFENSE_RESERVE } from "../economy/primitives";
+import { recordRepair } from "../telemetry/LossMeter";
 import "../types/Memory"; // Memory.towerTargeting augmentation (focus-fire HP memory)
 
 /** Don't attempt a shot the tower can't pay for (TOWER_ENERGY_COST = 10). */
@@ -205,7 +206,10 @@ export function runTowers(): void {
           repairables.map(s => ({ range: tower.pos.getRangeTo(s.pos), hits: s.hits, hitsMax: s.hitsMax }))
         );
         if (target !== null) {
-          tower.repair(repairables[target]);
+          // MEASURED repair spend (spec 15): a tower shot costs a fixed
+          // TOWER_ENERGY_COST regardless of the hits it lands - which is why
+          // tower repair is priced per SHOT here and creep repair per WORK.
+          if (tower.repair(repairables[target]) === OK) recordRepair(TOWER_MIN_FIRE_ENERGY);
         }
       }
       continue;
