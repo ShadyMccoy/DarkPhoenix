@@ -252,6 +252,21 @@ Three rules, adopted from that experience:
 
 ## 7. Open questions
 
+**RESOLVED 2026-08-02 — is the link tax a mining cost or a loss?** It is
+TRANSPORT (owner: *"link tax is similar to haul body"*). A hauler body and a
+link hop are the same kind of thing: a per-source cost that scales with the flow
+it moves. Only the CURRENCY differs — the body is paid in spawn parts, the hop
+in delivered energy. Booking it as a loss put the transport bill for
+link-served sources in a different section from the transport bill for walked
+ones, which is precisely what let link haulage read as free: `cd90`/`cd92`
+showed `hauler 0.00` and `net 10.00` for months. It now sits in DIRECT COST OF
+MINING beside evacuation, nets against NET MINING MARGIN, and carries a `link`
+column in the source P&L so **no source can show zero transport**. Methodology #6.
+
+The same test should be applied to every remaining "loss": *is this energy
+destroyed by accident, or is it the price of a service the colony is buying?*
+Ground rot and tombstones are accidents. The link tax was a price.
+
 - **Should forgone mining be a REVENUE contra or an operating cost?** It is
   currently a contra (capacity − forgone = gross). If the haul deficit is the
   cause, it is arguably a hauling cost — and putting it there would make the

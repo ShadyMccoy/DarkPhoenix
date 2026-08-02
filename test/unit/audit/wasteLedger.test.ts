@@ -8,6 +8,7 @@ import {
   computeChurn,
   computeLedger,
   formatAccounts,
+  formatSourcePnL,
   planSpawnLoad
 } from "../../../scripts/waste-ledger";
 import { ALL_CORP_KINDS, ALL_SPAWN_ROLES } from "../../../src/execution/CommissionHost";
@@ -1409,18 +1410,62 @@ describe("energy account: the link transfer tax is budgeted, not just measured",
 
   it("budgets one hop per LINK-SERVED source, read from the flag not inferred", () => {
     const t = textOf(withLinks({ linkServed: true }));
-    const line = t.split("\n").find(l => l.includes("link transfer tax"))!;
+    const line = t.split("\n").find(l => l.includes("link transfer"))!;
     const nums = line.match(/-?\d+\.\d\d/g)!;
     // two sources x 10 e/t x 3% = 0.60 budgeted, against 2.59 measured
     expect(Number(nums[0])).to.be.closeTo(-0.6, 0.01);
     expect(Number(nums[1])).to.be.closeTo(-2.59, 0.01);
   });
 
+  /**
+   * Owner 2026-08-02: "link tax is similar to haul body." Both are per-source
+   * transport costs scaling with the flow they move - only the currency differs
+   * (hauler body = spawn parts, link hop = delivered energy). So the tax sits in
+   * DIRECT COST OF MINING beside evacuation, not in LOSSES: a link-served
+   * source must never be able to show zero transport, which is exactly how
+   * "free" link haulage went unnoticed.
+   */
+  it("books the tax as TRANSPORT (direct cost), not as a loss", () => {
+    const t = textOf(withLinks({ linkServed: true }));
+    const lines = t.split("\n");
+    const idx = (needle: string): number => lines.findIndex(l => l.includes(needle));
+    const linkIdx = idx("link transfer");
+    expect(linkIdx).to.be.greaterThan(idx("DIRECT COST OF MINING"));
+    expect(linkIdx).to.be.lessThan(idx("= NET MINING MARGIN"));
+    // and it must be OUT of the loss block
+    const lossIdx = idx("MEASURED LOSSES");
+    if (lossIdx >= 0) expect(linkIdx).to.be.lessThan(lossIdx);
+  });
+
+  it("nets link transport out of NET MINING MARGIN", () => {
+    const free = textOf(withLinks({ linkServed: true, taxRate: 0 }));
+    const taxed = textOf(withLinks({ linkServed: true, taxRate: 4 }));
+    const margin = (t: string): number =>
+      Number(t.split("\n").find(l => l.includes("= NET MINING MARGIN"))!.match(/-?\d+\.\d\d/g)!.slice(-1)[0]);
+    expect(margin(free) - margin(taxed)).to.be.closeTo(4, 0.01);
+  });
+
+  it("charges each LINK-SERVED source in the SOURCE P&L - never zero transport", () => {
+    // Needs a capture with a spawn ring (the P&L's costs are measured); the
+    // 2026-07-18 fixture predates the blackbox, so use the live one.
+    const live = fixture("shard1-t72722670.json");
+    const pnl = formatSourcePnL(live);
+    expect(pnl, "the P&L renders for a capture with a ring").to.not.equal("");
+    expect(pnl).to.include("link"); // the transport column exists
+    // Every link-served source carries a non-zero transport charge.
+    const linkIds = (live.data.flow.sources as any[]).filter(s => s.linkServed).map(s => String(s.id).slice(-4));
+    for (const id of linkIds) {
+      const row = pnl.split("\n").find(l => l.trimStart().startsWith(id))!;
+      expect(row, `row for ${id}`).to.not.equal(undefined);
+      expect(row, `${id} must not show free transport`).to.not.match(/\s-\s+\d+\.\d\d\s+10\.00/);
+    }
+  });
+
   it("leaves the budget BLANK on a capture predating the linkServed flag", () => {
     // Omit rather than fabricate a zero - a zero would read as "the plan says
     // link transport is free", which is the very claim being corrected.
     const t = textOf(withLinks({}));
-    const line = t.split("\n").find(l => l.includes("link transfer tax"))!;
+    const line = t.split("\n").find(l => l.includes("link transfer"))!;
     expect(line.match(/-?\d+\.\d\d/g)!).to.have.length(1); // actual only
   });
 });

@@ -53,6 +53,13 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  * 1: energy account (revenue / direct / overhead / appropriations / residual),
  *    budget-vs-actual-vs-variance, source P&L, controller variance bridge,
  *    ground rot split, capital vs operating, reserving as COGS.
+ * 6: the LINK TRANSFER TAX moves from LOSSES into DIRECT COST OF MINING, beside
+ *    evacuation (owner 2026-08-02: "link tax is similar to haul body"). Both are
+ *    per-source costs scaling with the flow they move; only the currency differs
+ *    (hauler body = spawn parts, link hop = delivered energy). It nets against
+ *    NET MINING MARGIN and against each link-served source in the P&L, so a
+ *    link-served source can no longer show zero transport. Same energy, same
+ *    residual - a #5 margin and a #6 margin differ by the tax.
  * 5: loss lines are differenced from CUMULATIVE totals (core v22) instead of
  *    read as since-reset rates, so the measured window equals the capture
  *    window at any length. Before this the loss window was capped by VM
@@ -79,7 +86,7 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
  *    the newly-attributed losses.
  */
-export const METHODOLOGY = 5;
+export const METHODOLOGY = 6;
 
 export interface LedgerRow {
   id: string;
@@ -1985,7 +1992,14 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const linkSources = ((cap.data.flow?.sources ?? []) as any[]).filter(s => s.linkServed);
   const bLinkTax = linkSources.reduce((n, s) => n + (+s.harvestRate || 0) * LINK_TRANSFER_LOSS, 0);
   const linkBudgetKnown = ((cap.data.flow?.sources ?? []) as any[]).some(s => s.linkServed !== undefined);
-  const meteredLosses = rot + tombLoss + repairSpend + linkTax;
+  // The link tax is TRANSPORT, not a loss (owner 2026-08-02: "link tax is
+  // similar to haul body"). Both are per-source costs that scale with the flow
+  // they move; they differ only in CURRENCY - a hauler body is paid in spawn
+  // parts, a link hop in delivered energy. Booking it as a loss put the
+  // transport bill for link-served sources in a different section from the
+  // transport bill for walked ones, which is exactly what let link haulage
+  // read as free: cd90/cd92 showed hauler 0.00 and net 10.00 in the P&L.
+  const meteredLosses = rot + tombLoss + repairSpend;
 
   // ---- BUDGET (what the PLAN says each line should be) ----
   // Computed with the planner's own primitives, never a second formula:
@@ -2030,7 +2044,9 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const bFleetEnergy = Object.keys(planEnergy).reduce((n, k) => n + planEnergy[k], 0);
   const pileDelta = (piles(cap) - piles(base)) / dt;
   const delivered = grossPlan - pileDelta;
-  const opex = perTick(spawnTotal);
+  // Link transport is a real use of delivered energy, so it sits on the cost
+  // side of the identity even though it is not spawn spend.
+  const opex = perTick(spawnTotal) + linkTax;
   // Remote sources only: home sources need no reservation, so the uplift the
   // reservation fleet buys is (reserved 10 - unreserved 5) per REMOTE source.
   const ownedRooms = new Set(((core.rooms ?? []) as any[]).map(r => r.name));
@@ -2117,7 +2133,18 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     L("extraction  (miner)", -perTick(cost.extraction), 4, -bExtract, "cost"),
     L("evacuation  (hauler)", -perTick(cost.evacuation), 4, -bEvac, "cost"),
     L("reservation (reserver)", -perTick(cost.reservation), 4, -bReserve, "cost"),
-    L("= NET MINING MARGIN", delivered - perTick(direct), 4, grossPlan - bExtract - bEvac - bReserve),
+    ...(linkTaxKnown
+      ? [
+          L(
+            "link transfer  (3% per hop)",
+            -linkTax,
+            4,
+            linkBudgetKnown ? -bLinkTax : undefined,
+            "cost"
+          )
+        ]
+      : []),
+    L("= NET MINING MARGIN", delivered - perTick(direct) - linkTax, 4, grossPlan - bExtract - bEvac - bReserve - bLinkTax),
     "  OVERHEAD (measured at the spawn)",
     L("infra      (tanker, feeder, scout)", -perTick(cost.infra), 4, -bInfra, "cost"),
     L("defense    (guard)", -perTick(cost.defense), 4),
@@ -2152,17 +2179,6 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
             ? [
                 L("tombstone losses (creeps died carrying)", -tombLoss, 4),
                 L("repair (energy spent holding hits)", -repairSpend, 4),
-                ...(linkTaxKnown
-                  ? [
-                      L(
-                        "link transfer tax (3% per hop)",
-                        -linkTax,
-                        4,
-                        linkBudgetKnown ? -bLinkTax : undefined,
-                        "cost"
-                      )
-                    ]
-                  : []),
                 L("= measured losses", -meteredLosses, 4)
               ]
             : [])
@@ -2288,12 +2304,17 @@ export function formatSourcePnL(cap: any): string {
   const out: string[] = [
     "",
     "SOURCE P&L  e/tick  (gross = PLAN capacity, no per-source delivery meter; costs MEASURED)",
-    `  ${"src".padEnd(6)}${"room".padEnd(9)}${"d".padStart(4)}${"gross".padStart(8)}${"miner".padStart(8)}${"hauler".padStart(8)}${"reserve".padStart(9)}${"= net".padStart(8)}${"plan net".padStart(10)}${"var".padStart(9)}`
+    `  ${"src".padEnd(6)}${"room".padEnd(9)}${"d".padStart(4)}${"gross".padStart(8)}${"miner".padStart(8)}${"hauler".padStart(8)}${"link".padStart(7)}${"reserve".padStart(9)}${"= net".padStart(8)}${"plan net".padStart(10)}${"var".padStart(9)}`
   ];
   let tG = 0;
   let tM = 0;
   let tH = 0;
   let tR = 0;
+  let tL = 0;
+  // LINK TRANSPORT is this source's haul bill, not a colony loss (owner
+  // 2026-08-02: "link tax is similar to haul body"). A link-served source pays
+  // it INSTEAD of a walking hauler - so it belongs in the same row, or the row
+  // reads as free transport, which is precisely how it went unnoticed.
   for (const src of sources.slice().sort((a, b) => (a.spawnDistance ?? 0) - (b.spawnDistance ?? 0))) {
     const suffix = String(src.id).slice(-4);
     const room = roomOf(src.nodeId);
@@ -2304,24 +2325,27 @@ export function formatSourcePnL(cap: any): string {
     // reservation is bought per ROOM; split across that room's funded sources
     const resRoom = per(`reservation-${room}-reservation`, "reserver");
     const reserve = resRoom / Math.max(1, byRoom.get(room) ?? 1);
-    const net = gross - miner - hauler - reserve;
+    const link = src.linkServed ? gross * LINK_TRANSFER_LOSS : 0;
+    const net = gross - miner - hauler - link - reserve;
     const planNet = verdicts.get(suffix)?.net;
     tG += gross;
     tM += miner;
     tH += hauler;
+    tL += link;
     tR += reserve;
     const varStr =
       typeof planNet === "number" ? `${net - planNet >= 0 ? "+" : ""}${(net - planNet).toFixed(2)}` : "-";
     out.push(
       `  ${suffix.padEnd(6)}${room.padEnd(9)}${String(src.spawnDistance ?? "").padStart(4)}` +
         `${gross.toFixed(2).padStart(8)}${(-miner).toFixed(2).padStart(8)}${(-hauler).toFixed(2).padStart(8)}` +
+        `${(link > 0 ? (-link).toFixed(2) : "-").padStart(7)}` +
         `${(-reserve).toFixed(2).padStart(9)}${net.toFixed(2).padStart(8)}` +
         `${typeof planNet === "number" ? planNet.toFixed(2).padStart(10) : "-".padStart(10)}${varStr.padStart(9)}`
     );
   }
   out.push(
     `  ${"TOTAL".padEnd(19)}${tG.toFixed(2).padStart(8)}${(-tM).toFixed(2).padStart(8)}${(-tH).toFixed(2).padStart(8)}` +
-      `${(-tR).toFixed(2).padStart(9)}${(tG - tM - tH - tR).toFixed(2).padStart(8)}`
+      `${(-tL).toFixed(2).padStart(7)}${(-tR).toFixed(2).padStart(9)}${(tG - tM - tH - tL - tR).toFixed(2).padStart(8)}`
   );
   // Remote-only summary: the home sources need no reservation and pay no
   // invader tax, so mixing them in would flatter the remote picture.
