@@ -7507,3 +7507,42 @@ line agrees — 21.06 e/t measured against a 13.38 budget, +57%.
 deficit.** It is worth ~46 e/t. Every other open item — agendaFundingRate ~63
 e/t of spawn routing, infraSpawnEnergy at 33 e/t — is a pricing question about
 energy the colony still has. This one is energy it never gets.
+
+### VERIFY 2026-08-02 (t72725767, window 3097t) — the consolidation took, and moved the bottleneck one layer down
+
+The upgrader valve is gone at the decision site:
+
+```
+upgrader sizing  planAllocated 77.56 -> allocated 77.56   (was 81.19 -> 47.70)
+                 fieldedWork 92   staffing 6   workUtil 0.998   dryShare 0.002
+```
+
+Allocation passes through exactly, the fleet is BUILT past the allocation, and
+when it attempts to upgrade it succeeds 99.8% of the time. By every measure the
+consumer is now doing what the plan asks.
+
+**And delivery is still 38.04 against a 77.56 plan (P7 0.49x), with the stock
+standing.** 92 WORK is fielded; 38 e/t arrives. The bottleneck was never only
+the fleet's sizing.
+
+**What it actually is, now readable:** `OSC` reports *"92 WORK standing vs relay
+valve 55.26 e/t"*, and P12 puts the divergence at **2.51x on the non-bank term
+(plan 37.03 vs runtime 14.73)**. The plan allocates 77.56 to the controller; the
+FEEDER RELAY physically delivers 55.26; the colony scores 38.
+
+So the exact defect the owner named in the upgrader exists one layer down in the
+feeder. `feederRelayRate` is an independent valve computed without reference to
+the controller allocation it is supposed to serve - the upgrader was throttled
+by its own valve, and now it is throttled by the feeder's. **The same
+consolidation is owed to the relay**, and it is spec 38's "one bank-drain rate"
+seen from the consumer end.
+
+Other movement over the window: F1 **1.93 -> 1.44**; E6 deferred ops **4 -> 2**
+(though forgone mining rose to 20.01 e/t, so the two miners still held are held
+harder); reservation spend fell 16.11 -> 8.37 against a 16.85 budget.
+
+**Measurement caveat, stated:** the loss lines fell back to the since-reset
+window (2027t) rather than differencing cumulative totals, because the BASELINE
+capture predates core v22. That is the designed fallback, not a fault - the next
+cycle has two v22 captures and the loss lines will span the full window for the
+first time.
