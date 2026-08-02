@@ -59,6 +59,73 @@ Four properties define "done":
 4. **The same numbers survive comparison over time** — fiscal periods, one
    methodology stamp, append-only closes. ✅ spec 41.
 
+## 2b. The finished report, line by line
+
+Owner 2026-08-02: *"even if we don't have the numbers show me what the report
+would look like ie in terms of line items."* This is the target layout.
+`OK` = live today, `~` = measured but unbudgeted, `--` = does not exist yet.
+
+```
+ENERGY ACCOUNT   e/tick   (window 1500t - all sides cumulative)   [methodology #N]
+                                                    BUDGET     ACTUAL   VARIANCE
+  REVENUE
+ OK  mining capacity (reserved rate)                 100.00     100.00     +0.00
+ OK  - forgone: miner held, buffer full                0.00     -17.13    -17.13 U
+ --  - forgone: source unstaffed (no miner alive)      0.00      -X.XX
+ --  - forgone: room unreserved (10->5 e/t)            0.00      -X.XX
+ OK  = gross mining                                  100.00      82.87
+ OK  + pile drawdown / (build-up)                          -      +0.04
+ OK  = DELIVERED INTO THE ECONOMY                    100.00      82.91
+
+  DIRECT COST OF MINING            (measured at the spawn)
+ OK  extraction    miner                              -4.47      -1.46
+ OK  evacuation    hauler                            -13.52     -30.83 U
+ OK  reservation   reserver                          -16.85     -13.54
+ OK  link transfer tax (3% per hop)                   -0.60      -3.04 U
+ OK  = NET MINING MARGIN
+
+  OPERATING OVERHEAD               (measured at the spawn)
+ OK  infrastructure  feeder, tender, scout             -1.55      -0.83
+ ~   defense         guard, tower refill                    -      -4.06
+ OK  consumers       upgrader, builder                 -6.68      -0.63
+ OK  = TOTAL SPAWN (the fleet charge)                 -40.25     -51.35 U
+
+  LOSSES                           (energy destroyed, not spent)
+ ~   ground pile decay                                      -     -11.85
+ ~   tombstone - creeps died carrying                       -      -4.98
+ ~   repair - energy spent holding hits                     -      -3.61
+ --  raid losses (invader theft + kills)                    -      -X.XX
+ --  tower burn (energy fired, not repaired)                -      -X.XX
+ --  overfill / dropped in transit                          -      -X.XX
+ ~   = TOTAL LOSSES                                         -     -20.44
+
+  APPROPRIATIONS
+ OK  controller (score)                               81.19      38.78 U
+ OK  construction (site progress)                      0.00       0.00
+ --  expansion capex (claim + founding)                0.00       0.00
+ OK  to/(from) bank                                  -32.14      +8.81
+ OK  = TOTAL                                          49.05      47.59
+  ------------------------------------------------------------------------
+ OK  RESIDUAL (unattributed)                                -      ~0.00
+
+  DEPRECIATION MEMO                (not cash - never book wear twice)
+ ~   structure decay accruing                                       4.26
+ ~   repair actually paid                                           3.99
+ ~   = shortfall, deferred to rebuild price                         0.27
+
+  BALANCE SHEET                    (energy, at close)
+ --  free        storage + terminal above reserve                   X,XXX
+ OK  reserved    warchest target                                   70,000
+ --  committed   in-flight: creep cargo, tombstones, ground piles   X,XXX
+ --  standing    fleet at replacement body cost                     X,XXX
+ --  fixed       structures at rebuild cost, net of decay           X,XXX
+ --  less: accrued decay (deferred repair)                         -X,XXX
+ --  = NET WORTH
+```
+
+The RESIDUAL line is the whole test: in the end state it reads **~0.00 because
+every joule has a home**, not because measurement stopped.
+
 ## 3. What the budget IS
 
 The **controller budget** is the plan's controller sink allocation: the energy
