@@ -133,6 +133,69 @@ describe("LossMeter (residual line items)", () => {
     expect(r.tombstoneRecovered).to.equal(0);
   });
 
+  /**
+   * TOMBSTONE ATTRIBUTION (owner 2026-08-02: "don't we have info about
+   * tombstones. What type of creep. What kind of death. TTL.").
+   *
+   * We do, and the meter was discarding it. `Tombstone.creep` is a full creep
+   * object: its `body` and our own `Memory.creeps[name].workType` give the
+   * ROLE, and its `ticksToLive` at death gives the CAUSE - a creep that expired
+   * has none left, one that was killed still had time on the clock.
+   *
+   * 10.36 e/t is dying in tombstones and the account cannot say whose or why.
+   * If it is haulers expiring mid-route it folds into the carry deficit; if it
+   * is anything killed, it is a defense question. Those are different work
+   * items and the line could not tell them apart.
+   */
+  describe("attribution - whose energy, and how they died", () => {
+    const tomb = (over: any) => ({ id: "t1", energy: 300, ticksToDecay: 400, ...over });
+
+    it("splits the loss by ROLE", () => {
+      sampleRoomLosses(census(), 90);
+      sampleRoomLosses(
+        census({
+          tombstones: [tomb({ id: "a", role: "haul", energy: 300 }), tomb({ id: "b", role: "harvest", energy: 100 })]
+        }),
+        100
+      );
+      const r = lossReport(100);
+      expect(r.tombstoneByRole.haul).to.equal(300);
+      expect(r.tombstoneByRole.harvest).to.equal(100);
+    });
+
+    it("splits the loss by CAUSE - expired vs killed", () => {
+      sampleRoomLosses(census(), 90);
+      sampleRoomLosses(
+        census({
+          tombstones: [
+            tomb({ id: "a", energy: 300, killed: false }), // ran out of life
+            tomb({ id: "b", energy: 200, killed: true }) // still had time on the clock
+          ]
+        }),
+        100
+      );
+      const r = lossReport(100);
+      expect(r.tombstoneExpired).to.equal(300);
+      expect(r.tombstoneKilled).to.equal(200);
+    });
+
+    it("attributes on FIRST SIGHT only, like the loss itself", () => {
+      sampleRoomLosses(census(), 90);
+      const t = [tomb({ id: "a", role: "haul", energy: 300 })];
+      sampleRoomLosses(census({ tombstones: t }), 100);
+      sampleRoomLosses(census({ tombstones: t }), 110);
+      expect(lossReport(110).tombstoneByRole.haul, "counted once, not per sample").to.equal(300);
+    });
+
+    it("buckets an unknown role rather than dropping the energy", () => {
+      sampleRoomLosses(census(), 90);
+      sampleRoomLosses(census({ tombstones: [tomb({ id: "a", energy: 250 })] }), 100);
+      const r = lossReport(100);
+      const total = Object.values(r.tombstoneByRole).reduce((a: number, b) => a + (b as number), 0);
+      expect(total, "no energy vanishes from the split").to.equal(250);
+    });
+  });
+
   it("accumulates measured repair spend", () => {
     recordRepair(5);
     recordRepair(3);

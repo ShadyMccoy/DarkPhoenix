@@ -1954,6 +1954,9 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
         repairSpend: number;
         tombstoneLost: number;
         tombstoneRecovered: number;
+        tombstoneByRole?: Record<string, number>;
+        tombstoneExpired?: number;
+        tombstoneKilled?: number;
         tombstoneStock: number;
       }
     | undefined;
@@ -2178,6 +2181,25 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
           ...(meter
             ? [
                 L("tombstone losses (creeps died carrying)", -tombLoss, 4),
+                // WHOSE energy, and HOW they died. A tombstone line the account
+                // cannot attribute is not actionable: haulers expiring mid-route
+                // fold into the carry deficit, anything KILLED is a defense
+                // question, and those are different work items.
+                ...(() => {
+                  const byRole = meter?.tombstoneByRole;
+                  if (!byRole || Object.keys(byRole).length === 0) return [];
+                  const gross = Object.values(byRole).reduce((a, b) => a + b, 0) || 1;
+                  const roles = Object.entries(byRole)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([r, e]) => `${r} ${((e / gross) * 100).toFixed(0)}%`)
+                    .join("  ");
+                  const killed = meter?.tombstoneKilled ?? 0;
+                  const expired = meter?.tombstoneExpired ?? 0;
+                  const cause = killed + expired > 0
+                    ? `expired ${((expired / (killed + expired)) * 100).toFixed(0)}%  killed ${((killed / (killed + expired)) * 100).toFixed(0)}%`
+                    : "cause unknown";
+                  return [`      by role: ${roles}`, `      by cause: ${cause}`];
+                })(),
                 L("repair (energy spent holding hits)", -repairSpend, 4),
                 L("= measured losses", -meteredLosses, 4)
               ]

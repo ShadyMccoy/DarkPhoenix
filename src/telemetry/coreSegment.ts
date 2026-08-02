@@ -243,6 +243,17 @@ export interface CoreTelemetry {
     tombstoneRecovered: number;
     tombstoneStock: number;
     /**
+     * ATTRIBUTION for the tombstone loss (v23): gross energy by creep ROLE, and
+     * split by CAUSE of death (ran out of life vs killed with time left). Both
+     * decompose the gross booking, so they sum to the figure the loss line is
+     * built from. Answers whether the tombstone line is haulers expiring
+     * mid-route - which folds it into the carry deficit - or creeps being
+     * killed, which is a defense question instead.
+     */
+    tombstoneByRole?: Record<string, number>;
+    tombstoneExpired?: number;
+    tombstoneKilled?: number;
+    /**
      * CUMULATIVE energy totals (v22), monotonic and surviving global resets.
      * The rates above are since-reset and therefore capped by VM lifetime -
      * 480t against a 1251-tick capture window at t72722670, so a 1500-tick
@@ -482,7 +493,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 22, // v21 tombstones lost-by-default; v22 losses.cumulative (capture-bounded windows) 2026-08-01
+    version: 23, // v22 losses.cumulative; v23 tombstone role + cause attribution 2026-08-02
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {

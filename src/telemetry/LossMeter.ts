@@ -75,8 +75,20 @@ export interface RoomLossCensus {
   owned: boolean;
   /** Every dropped ENERGY pile in the room, by amount. */
   piles: number[];
-  /** Live tombstones with the energy they hold and the life they have left. */
-  tombstones: { id: string; energy: number; ticksToDecay: number }[];
+  /**
+   * Live tombstones with the energy they hold, the life they have left, and the
+   * ATTRIBUTION the account needs to act on the loss (owner 2026-08-02): which
+   * kind of creep died, and whether it expired or was killed.
+   */
+  tombstones: {
+    id: string;
+    energy: number;
+    ticksToDecay: number;
+    /** Our own workType where memory survives, else inferred from the body. */
+    role?: string;
+    /** Had life left when it died => something killed it. */
+    killed?: boolean;
+  }[];
   /** Container count (priced by `owned`). */
   containers: number;
   /** Rampart count. */
@@ -99,6 +111,12 @@ interface Totals {
   /** Energy witnessed leaving a STANDING tombstone (the credit). */
   tombstoneRecovered: number;
   tombstoneStock: number;
+  /** Gross tombstone energy by creep role. */
+  tombstoneByRole: Record<string, number>;
+  /** Gross tombstone energy from creeps that ran out of life. */
+  tombstoneExpired: number;
+  /** Gross tombstone energy from creeps that still had life left. */
+  tombstoneKilled: number;
   repairSpend: number;
   sinceTick: number;
   started: boolean;
@@ -151,6 +169,9 @@ function blank(): Totals {
     tombstoneGross: 0,
     tombstoneRecovered: 0,
     tombstoneStock: 0,
+    tombstoneByRole: {},
+    tombstoneExpired: 0,
+    tombstoneKilled: 0,
     repairSpend: 0,
     sinceTick: 0,
     started: false
@@ -225,7 +246,15 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
     if (bookedTombs.has(t.id)) continue;
     bookedTombs.add(t.id);
     // `prev` absent = this room's baseline sample; adopt without charging.
-    if (prev && t.energy > 0) accrue("tombstoneGross", "tombstoneGross", t.energy);
+    if (prev && t.energy > 0) {
+      accrue("tombstoneGross", "tombstoneGross", t.energy);
+      // Attribution rides with the booking, so it is counted exactly once and
+      // can never disagree with the total it decomposes.
+      const role = t.role && t.role.length > 0 ? t.role : "unknown";
+      totals.tombstoneByRole[role] = (totals.tombstoneByRole[role] ?? 0) + t.energy;
+      if (t.killed) totals.tombstoneKilled += t.energy;
+      else totals.tombstoneExpired += t.energy;
+    }
   }
 
   if (prev) {
@@ -268,6 +297,16 @@ export interface LossReport {
   /** Energy sitting in live tombstones right now (at risk, not yet lost). */
   tombstoneStock: number;
   /**
+   * Gross tombstone energy by creep ROLE, and by CAUSE of death. Both decompose
+   * the gross booking (not the net of recovery), so they sum to the same total
+   * the loss line is built from. Answers whether the tombstone line is haulers
+   * expiring mid-route - which folds it into the carry deficit - or anything
+   * being killed, which is a defense question instead.
+   */
+  tombstoneByRole: Record<string, number>;
+  tombstoneExpired: number;
+  tombstoneKilled: number;
+  /**
    * CUMULATIVE energy totals, monotonic and surviving global resets. The
    * account differences these between two captures, so the measured window
    * equals the capture window for any length - including a full fiscal month,
@@ -287,6 +326,9 @@ export function lossReport(tick: number): LossReport {
     tombstoneLost: rate(Math.max(0, totals.tombstoneGross - totals.tombstoneRecovered)),
     tombstoneRecovered: rate(totals.tombstoneRecovered),
     tombstoneStock: totals.tombstoneStock,
+    tombstoneByRole: { ...totals.tombstoneByRole },
+    tombstoneExpired: totals.tombstoneExpired,
+    tombstoneKilled: totals.tombstoneKilled,
     cumulative: { ...ledger() }
   };
 }
@@ -308,6 +350,36 @@ export function lossReport(tick: number): LossReport {
  * left to be scored as expired, which is exactly the `ticksToDecay <= dt` rule.
  */
 export const LOSS_SAMPLE_STRIDE = 10;
+
+/**
+ * Which kind of creep this tombstone was.
+ *
+ * OUR OWN MEMORY FIRST - `workType` is the exact answer and it is the same
+ * field every other lens keys off, so the attribution cannot disagree with the
+ * census. Memory is cleaned up for dead creeps, so it is present only while the
+ * cleanup has not yet run; the BODY is the durable fallback and is good enough
+ * to separate the classes that matter (a hauler is CARRY, a miner is WORK).
+ */
+function tombRole(t: Tombstone): string {
+  const name = (t.creep as { name?: string } | undefined)?.name;
+  if (name && typeof Memory !== "undefined") {
+    const wt = Memory.creeps?.[name]?.workType;
+    if (wt) return String(wt);
+  }
+  const body = (t.creep as { body?: { type: string }[] } | undefined)?.body ?? [];
+  let work = 0;
+  let carry = 0;
+  let claim = 0;
+  for (const p of body) {
+    if (p.type === WORK) work += 1;
+    else if (p.type === CARRY) carry += 1;
+    else if (p.type === CLAIM) claim += 1;
+  }
+  if (claim > 0) return "reserve";
+  if (work > 0 && work >= carry) return "harvest";
+  if (carry > 0) return "haul";
+  return body.length > 0 ? "other" : "unknown";
+}
 
 /** Terrain-weighted road decay for a room, in energy/tick to hold hits. */
 function roadDecayFor(roads: { hitsMax: number }[]): number {
@@ -344,7 +416,13 @@ export function collectLosses(tick: number): void {
       const tombstones = room.find(FIND_TOMBSTONES).map(t => ({
         id: t.id as string,
         energy: t.store?.[RESOURCE_ENERGY] ?? 0,
-        ticksToDecay: t.ticksToDecay ?? 0
+        ticksToDecay: t.ticksToDecay ?? 0,
+        role: tombRole(t),
+        // A creep that ran its clock out has NO life left; one with time still
+        // on it was killed. The field can be absent on a dead creep, and the
+        // conservative default is "expired" - old age is the common case, and
+        // over-reporting kills would invent a defense problem.
+        killed: ((t.creep as { ticksToLive?: number } | undefined)?.ticksToLive ?? 0) > 0
       }));
 
       let containers = 0;
