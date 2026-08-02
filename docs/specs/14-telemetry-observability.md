@@ -7546,3 +7546,52 @@ window (2027t) rather than differencing cumulative totals, because the BASELINE
 capture predates core v22. That is the designed fallback, not a fault - the next
 cycle has two v22 captures and the loss lines will span the full window for the
 first time.
+
+### ANALYSIS 2026-08-02 — are the haul operations estimated and sized correctly?
+
+Owner's question, answered from t72725767 and the fidelity cells. Three separate
+answers, because "estimated" and "sized" are different things and they fail in
+opposite directions.
+
+**ESTIMATED: yes, self-consistently.** Every one of the 14 planned routes carries
+exactly `carryPartsFor(flowRate, distance)` — the plan and the primitive agree to
+the digit, with no drift. Whatever else is wrong, the plan is not misapplying its
+own formula.
+
+**SIZED: OVER-fielded live, UNDER-fielded in the cells.** Opposite failures, which
+means live and the grid are NOT the same bug and I was wrong to fold them
+together:
+
+```
+  src    dist   planCarry  fielded  ratio        live TOTAL  168.8 -> 232  (1.37x)
+  cd8e     23        9.6       12    1.25
+  cee0     41       16.8       38    2.26   <- outlier
+  cd8d     41       16.8       20    1.19
+  cedc     42       17.2       22    1.28
+  cd94     43       17.6       22    1.25
+  cbd5     52       21.2       24    1.13
+  cbd8     75       30.4       52    1.71   <- outlier
+  d01f     81       32.8       40    1.22
+```
+
+Most sources sit at **1.13–1.28×**, which is what replacement overlap looks like
+(a successor spawned inside the incumbent's lead time — by design, `staffsPost`).
+Two are genuine outliers. The grid cells, by contrast, field **53–74%** of plan.
+
+**THE DECISIVE READ, and it redirects the investigation.** `cd8e` carries **12**
+CARRY on a route the plan sizes at 9.6. Twelve parts over a 23-tile route sustain
+`50*12/48 = 12.5 e/t` against a **10 e/t** source — comfortably sufficient — and
+that source was **buffer-full for 100% of the window with 2860 staged**.
+
+Carry is adequate and the energy still is not moving. For that source the defect
+is not sizing at all; it is execution or routing. Adding carry would not have
+fixed it, and the carry-deficit hypothesis does not survive contact with this
+number.
+
+**A latent modelling gap, not currently biting.** `roundTripTicks(d) = 2d + 2`
+hardcodes one tick per tile, while the runtime's own `travelTicksPerTile` models
+**3 → 1** ticks/tile off an RCL proxy. At this colony (energyCapacity 5600) it
+returns 1.00, so the two agree and the plan is right. At low RCL the plan would
+under-ask by up to 3×, and neither model knows about swamp. It is the same "two
+models of one physical quantity in two places" pattern as the valves — worth
+consolidating before it bites a cold start, not worth chasing now.
