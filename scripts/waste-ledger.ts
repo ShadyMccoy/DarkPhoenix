@@ -1125,6 +1125,34 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- S5 spawn-throughput headroom: the replacement treadmill's ceiling ----
+  // Measured saturation vs the physical build rate, with the PLAN's own need
+  // beside it. The colony ran at 90% of ceiling on the t72734018 pair with a
+  // plan needing only 0.51x - the difference is unplanned replacement (churn),
+  // and it is the colony's surge margin: a second simultaneous raid wave
+  // arrives ON TOP of a saturated pipe (buffers back up -> miners held ->
+  // income falls exactly while replacement demand peaks). A booked ledger row
+  // so the risk is visible BEFORE the cascade, not diagnosed after it.
+  {
+    const spawns = (core.spawns ?? []) as { partsPerTick?: number }[];
+    const measured = spawns.reduce((s, x) => s + (+(x.partsPerTick ?? 0) || 0), 0);
+    const physical = spawns.length * SPAWN_PARTS_PER_TICK;
+    if (spawns.some(s => s.partsPerTick !== undefined) && physical > 0) {
+      const saturation = measured / physical;
+      rows.push({
+        id: "S5",
+        name: "spawn-throughput headroom (surge margin)",
+        value: +saturation.toFixed(2),
+        unit: "x physical ceiling",
+        verdict: saturation > 0.92 ? "FAIL" : saturation > 0.85 ? "WARN" : "ok",
+        detail:
+          `building ${measured.toFixed(3)} p/t of ${physical.toFixed(3)} physical - ` +
+          `${((1 - saturation) * 100).toFixed(0)}% surge margin for raids/recovery; ` +
+          `plan-implied is the P4 row - the gap between them is unplanned replacement (churn)`
+      });
+    }
+  }
+
   // ---- H1 hauler execution duty: are fielded haulers working or waiting? ----
   // The (a) vs (c) disambiguator (owner 2026-07-25). Reads the v?/segment-4
   // CarryCorp duty stamp (active vs idle-empty vs idle-loaded, realized). High

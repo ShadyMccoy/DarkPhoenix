@@ -1911,3 +1911,44 @@ describe("energy account: forgone mining is MEASURED once produced spans both ca
     expect(actualOf(text, "= gross mining (measured mined)")).to.be.closeTo(10, 0.05);
   });
 });
+
+/**
+ * S5 - the spawn-throughput headroom gauge (phase 3's systemic-risk row).
+ *
+ * The replacement treadmill ran the spawns at 90% of the physical build rate
+ * while the PLAN needed 0.51x - the missing margin is what absorbs a raid
+ * wave, and no row watched it: the cascade (buffers back up -> miners held ->
+ * income falls while replacement demand peaks) would have been diagnosed
+ * after the fact. S5 books the saturation with verdicts.
+ */
+describe("S5 spawn-throughput headroom", () => {
+  const withSpawns = (partsPerTick: number[]): any => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    // Extend the fixture's real spawn shape (S3 upstream reads utilization
+    // etc.) rather than replacing it with a minimal object.
+    const template = (c.data.core.spawns ?? [])[0] ?? { utilization: 0.5, windowTicks: 1000 };
+    c.data.core.spawns = partsPerTick.map((p, i) => ({ ...template, id: `s${i}`, partsPerTick: p }));
+    return c;
+  };
+
+  it("books measured saturation against the physical ceiling", () => {
+    const rows = computeLedger(withSpawns([0.3, 0.3]), cap72404213);
+    const s5 = rows.find(r => r.id === "S5")!;
+    expect(s5, "the row exists once the meter reports").to.not.equal(undefined);
+    expect(s5.value).to.be.closeTo(0.9, 0.005); // 0.6 of 0.667
+    expect(s5.verdict).to.equal("WARN");
+  });
+
+  it("FAILS when the margin is effectively gone", () => {
+    const rows = computeLedger(withSpawns([0.32, 0.32]), cap72404213);
+    expect(rows.find(r => r.id === "S5")!.verdict).to.equal("FAIL");
+  });
+
+  it("stays ok with real headroom, and skips silently on pre-meter captures", () => {
+    const rows = computeLedger(withSpawns([0.2, 0.2]), cap72404213);
+    expect(rows.find(r => r.id === "S5")!.verdict).to.equal("ok");
+    const old = JSON.parse(JSON.stringify(cap72411542));
+    (old.data.core.spawns ?? []).forEach((s: any) => delete s.partsPerTick);
+    expect(computeLedger(old, cap72404213).find(r => r.id === "S5")).to.equal(undefined);
+  });
+});
