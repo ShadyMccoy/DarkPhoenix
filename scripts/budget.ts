@@ -58,7 +58,42 @@ function captures(): any[] {
 
 /** 1-D world: a source sits at its captured distance from the spawn. */
 const at = (x: number): Position => ({ x, y: 0, roomName: "W" });
-const dist = (a: Position, b: Position): number => Math.abs(a.x - b.x);
+
+/**
+ * Distances are 1-D EXCEPT source<->spawn, which is an oracle keyed off the
+ * capture's own assignment.
+ *
+ * The admission budget is PER SPAWN (`bySpawn` in selectProducers), so which
+ * spawn owns a source decides whether it fits. Co-locating both spawns at the
+ * origin - which a naive 1-D embedding does - makes `nearestSpawn` tie and dump
+ * every source on one of them, binding the fill at HALF the colony's build
+ * capacity. That is the whole admission gap: live split the sources 5/5 across
+ * aa8f33 and f516a5, and the reconstruction funded 6 of 10 because it put all
+ * ten on one spawn.
+ *
+ * Geometry cannot express that in one dimension, and inventing 2-D positions
+ * would be inventing data. The capture already knows the answer - `haulers[]`
+ * carries each route's `spawnId` - so the assignment is READ, not modelled.
+ */
+const SPAWN_TAG = "spawn:";
+const SRC_TAG = "src:";
+/** Far enough never to be nearest, finite so the spawn is still reachable. */
+const NOT_MY_SPAWN = 1e6;
+
+function makeDist(assignment: Map<string, string>): ColonyProblem["dist"] {
+  return (a: Position, b: Position): number => {
+    const spawn = a.roomName.startsWith(SPAWN_TAG) ? a : b.roomName.startsWith(SPAWN_TAG) ? b : undefined;
+    const src = a.roomName.startsWith(SRC_TAG) ? a : b.roomName.startsWith(SRC_TAG) ? b : undefined;
+    if (spawn && src) {
+      const owner = assignment.get(src.roomName.slice(SRC_TAG.length));
+      // Unassigned (an intel prospect the live plan never routed): every spawn
+      // is equidistant, so nearestSpawn falls back to its own id tie-break.
+      if (owner === undefined) return src.x;
+      return owner === spawn.roomName.slice(SPAWN_TAG.length) ? src.x : NOT_MY_SPAWN;
+    }
+    return Math.abs(a.x - b.x);
+  };
+}
 
 export interface WhatIf {
   /** Every route paved (2:1 fleets: 1.5 parts/CARRY instead of 2). */
@@ -83,6 +118,13 @@ export function reconstruct(cap: any, what: WhatIf = {}): ColonyProblem {
     ((flow.sources ?? []) as any[]).filter(s => s.linkServed).map(s => String(s.id))
   );
 
+  // WHICH SPAWN OWNS WHICH SOURCE, read from the capture's own routes.
+  const assignment = new Map<string, string>();
+  for (const h of (flow.haulers ?? []) as any[]) {
+    if (String(h.sourceId).startsWith("bank-") || !h.spawnId) continue;
+    if (!assignment.has(h.sourceId)) assignment.set(h.sourceId, h.spawnId);
+  }
+
   const sources: PlannerSource[] = (flow.candidates as any[]).map(c => {
     const isLink = linkServed.has(String(c.sourceId));
     // The captured `tax` is the SUM of the invader and link terms. Setting
@@ -95,7 +137,7 @@ export function reconstruct(cap: any, what: WhatIf = {}): ColonyProblem {
     return {
       id: c.sourceId,
       nodeId: c.sourceId,
-      pos: at(c.distance),
+      pos: { x: c.distance, y: 0, roomName: `${SRC_TAG}${c.sourceId}` },
       rate: c.rate,
       maxMiners: 1,
       // A link-served source hauls from the core link, not from itself - the
@@ -128,8 +170,14 @@ export function reconstruct(cap: any, what: WhatIf = {}): ColonyProblem {
   // check caught on first run (6 funded of 10, budget 0.134 vs the captured
   // 0.412) - and it is a defect `what-if-roads` has carried since July, where
   // no such check existed to reveal it.
-  const spawnCount = Math.max(1, ((flow.sinks ?? []) as any[]).filter(s => s.type === "spawn").length);
-  const spawns = Array.from({ length: spawnCount }, (_v, i) => ({ id: `spawn-${i}`, pos: at(0) }));
+  // Spawn ids VERBATIM from the sink rows. The adapter builds the real
+  // problem's spawns the same way (`graph.getSinks("spawn").map(s => s.id)`),
+  // so these already match the `spawnId` the hauler routes carry - stripping
+  // the "spawn-" prefix broke the assignment lookup and sent every source to
+  // NOT_MY_SPAWN, which the fidelity check caught as 10/10 unprofitable.
+  const spawnIds = ((flow.sinks ?? []) as any[]).filter(s => s.type === "spawn").map(s => String(s.id));
+  const ids = spawnIds.length > 0 ? spawnIds : ["only"];
+  const spawns = ids.map(id => ({ id, pos: { x: 0, y: 0, roomName: `${SPAWN_TAG}${id}` } }));
 
   return {
     spawns,
@@ -137,7 +185,7 @@ export function reconstruct(cap: any, what: WhatIf = {}): ColonyProblem {
     sinks,
     infraPartsPerTick: flow.partsLedger?.infra ?? 0,
     infraEnergyPerTick: flow.summary?.fleetCharge?.infra ?? 0,
-    dist
+    dist: makeDist(assignment)
   };
 }
 
@@ -225,21 +273,33 @@ function main(): void {
   console.log(`    ${"funded sources".padEnd(24)}${String(base.funded).padStart(10)}${String(real.funded).padStart(11)}${pct(base.funded, real.funded).padStart(9)}`);
   console.log(`    ${"totalOverhead e/t".padEnd(24)}${base.overhead.toFixed(2).padStart(10)}${real.overhead.toFixed(2).padStart(11)}${pct(base.overhead, real.overhead).padStart(9)}`);
   console.log(`    ${"controller alloc e/t".padEnd(24)}${base.controller.toFixed(2).padStart(10)}${real.controller.toFixed(2).padStart(11)}${pct(base.controller, real.controller).padStart(9)}`);
+  // The two halves of the plan are reconstructed to DIFFERENT fidelity, and one
+  // verdict would hide that. Production (which sources, at what price, within
+  // which build budget) is exact. The consumer fill is not: live, the whole
+  // controller allocation comes out of the BANK source (132.14 in, 50.94 to the
+  // spawn sinks, 81.20 left over) and the mined 100 goes to storage - a routing
+  // geometry a 1-D embedding only approximates.
   const admissionOff = Math.abs(base.funded - real.funded) / Math.max(1, real.funded);
-  if (exact === priced && admissionOff > 0.05) {
-    console.log(
-      "    => PRICING is exact, ADMISSION is not: the budget ceiling funds a different\n" +
-        "       number of sources than the live fill did. What-ifs that move a PRICE are\n" +
-        "       sound; ones that hinge on how many sources get admitted are not yet."
-    );
-  } else if (admissionOff <= 0.05) {
-    console.log("    => the reconstruction TRACKS the live plan; what-ifs below are meaningful.");
-  } else {
-    console.log(
-      "    => RECONSTRUCTION DIVERGES. Treat every what-if below as suspect - the diff\n" +
-        "       would be measuring the approximation, not the change."
-    );
-  }
+  const overheadOff = Math.abs(base.overhead - real.overhead) / Math.max(1e-9, real.overhead);
+  const ctrlOff = Math.abs(base.controller - real.controller) / Math.max(1e-9, real.controller);
+  const productionOk = exact === priced && admissionOff <= 0.05 && overheadOff <= 0.1;
+
+  console.log("");
+  console.log(
+    productionOk
+      ? "    PRODUCTION side: TRUSTWORTHY. Source pricing, the funded set and the parts\n" +
+        "      ledger all reproduce the live plan, so what-ifs on taxes, roads, source\n" +
+        "      admission and fleet cost are meaningful."
+      : "    PRODUCTION side: DIVERGES - treat source-level what-ifs as suspect."
+  );
+  console.log(
+    ctrlOff <= 0.1
+      ? "    CONSUMER side: tracks too - the controller budget is comparable."
+      : `    CONSUMER side: NOT trustworthy (controller off ${(ctrlOff * 100).toFixed(0)}%). The bank\n` +
+        "      supply's routing is 1-D-approximated, so the controller/storage SPLIT is not\n" +
+        "      reproduced. Read the controller figure as a ceiling, not a budget, until the\n" +
+        "      bank source is reconstructed from its captured routes."
+  );
 
   console.log(`\n  THE BUDGET (plan side, solved in ${solveMs.toFixed(1)} ms - no server, no ticks)`);
   console.log(`    funded            ${base.funded} sources / ${base.fundedRate.toFixed(0)} e/t gross`);
