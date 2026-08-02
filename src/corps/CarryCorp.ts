@@ -22,6 +22,7 @@ import { driveRecycle } from "./recycle";
 import {
   CARRY_MOVE_PAIR_COST,
   CREEP_LIFETIME,
+  bufferDrainCarry,
   carryPartsFor,
   haulerBodyCarry,
   haulerBodyCost,
@@ -1450,9 +1451,13 @@ export class CarryCorp extends Corp {
     // Amortize across the routes by their share of the sustained carry (a
     // single-route corp takes it all); distance comes from the route the
     // energy actually travels, so the drain is priced at its real cost.
+    // bufferDrainCarry IS the one drain law (primitives) - the PLANNER now
+    // prices the same term into its routes from the adapter's staged read,
+    // so plan and fleet size from the same two terms (phase 1; X6's
+    // drain-blind judgement dies with it).
     const drain = routes.reduce((sum, a) => {
       const share = sustained > 0 ? a.carryParts / sustained : 1 / routes.length;
-      return sum + carryPartsFor((staged * share) / CREEP_LIFETIME, a.distance ?? 0);
+      return sum + bufferDrainCarry(staged * share, a.distance ?? 0);
     }, 0);
     return Math.ceil(sustained + drain);
   }

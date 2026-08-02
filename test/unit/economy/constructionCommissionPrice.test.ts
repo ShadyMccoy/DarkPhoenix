@@ -1,7 +1,12 @@
 import { expect } from "chai";
 import { ColonyProblem, planColony } from "../../../src/economy/CorpPlanner";
 import { commissionsFromPlan } from "../../../src/economy/commissionPlan";
-import { constructionWorkSpawnLoad, operationSpawnLoad } from "../../../src/economy/primitives";
+import {
+  TANKER_CARRY_PER_MOVE_PLAIN,
+  constructionWorkSpawnLoad,
+  operationSpawnLoad
+} from "../../../src/economy/primitives";
+import { vectorSupplyPartsGait } from "../../../src/economy/roadEconomics";
 
 /**
  * Spec 34 D4: the commission price is ALL-IN. A construction sink's declared
@@ -34,13 +39,22 @@ describe("construction commission price is ALL-IN (spec 34 D4: WORK bodies + sup
     expect(build!.consumes.energyRate).to.be.greaterThan(0);
   });
 
-  it("declares operationSpawnLoad(node, vector) - not the WORK bodies alone", () => {
+  it("declares operationSpawnLoad(node, GAIT vector) - the body the runtime fields", () => {
     const rate = build!.consumes.energyRate!;
     const d = 8; // |33-25| - the sink's distance from the nearest spawn
-    const allIn = operationSpawnLoad(constructionWorkSpawnLoad(rate, d), [{ rate, distance: d }]);
+    // Vector-gait follow-up B (phase 1 of the income-statement program): the
+    // vector is priced at the 3C:1M tanker's real loaded gait, unpaved worst
+    // case - the 1:1-laden-both-ways model under-priced every unpaved
+    // campaign ~2x and F1 booked the fielded fleet as breach.
+    const allIn = operationSpawnLoad(constructionWorkSpawnLoad(rate, d), [
+      { rate, distance: d, parts: vectorSupplyPartsGait(rate, d, 0, TANKER_CARRY_PER_MOVE_PLAIN) }
+    ]);
     expect(build!.consumes.spawnPartsPerTick).to.be.closeTo(allIn, 1e-9);
-    // And the vector share is REAL (the old price was the node load alone).
+    // And the vector share is REAL (the old price was the node load alone),
+    // sitting ABOVE the retired 1:1 model.
     expect(build!.consumes.spawnPartsPerTick).to.be.greaterThan(constructionWorkSpawnLoad(rate, d) + 1e-9);
+    const oneToOne = operationSpawnLoad(constructionWorkSpawnLoad(rate, d), [{ rate, distance: d }]);
+    expect(build!.consumes.spawnPartsPerTick).to.be.greaterThan(oneToOne);
   });
 });
 

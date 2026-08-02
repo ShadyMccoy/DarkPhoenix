@@ -311,6 +311,18 @@ export function planSpawnLoad(cap: any): {
   const resLoad = reserverSpawnLoad(resParts);
   lines.push(["reservers (claim life)", resParts, resLoad]);
 
+  // DEFENSE (phase 1): raidGuard was F1's one standing UNPRICED class (0.027
+  // p/t live, 1.73 e/t of spend with a "-" budget on the account's defense
+  // line). Priced at the STANDING fleet's replacement cadence - per-corp
+  // summed like reservation (the per-room trap), each corp's own measured
+  // body, guards replaced over a creep lifetime. A colony with no standing
+  // guards prices zero - the raid-driven surge is exactly what the invader
+  // tax (phase-1's other defense seam) prices at ADMISSION, not here.
+  const guardParts = corps
+    .filter(c => c.kind === "raidGuard")
+    .reduce((sum, c) => sum + (c.creepCount > 0 ? c.bodyParts : 0), 0);
+  if (guardParts > 0) lines.push(["defense (guards)", guardParts, guardParts / 1500]);
+
   const total = lines.reduce((s, [, , x]) => s + x, 0);
 
   // Per-class ENERGY/tick from the SAME parts figures above. Classes whose body
@@ -333,7 +345,13 @@ export function planSpawnLoad(cap: any): {
   const energy: Record<string, number> = {};
   for (const [name, , load] of lines) {
     const flat = ENERGY_PER_PART[name] ?? (name.startsWith("feeder") ? CARRY_MOVE_PAIR_COST / 2 : undefined);
-    const rate = flat ?? (name.startsWith("upgraders") ? mixedRate("upgrade", 85) : mixedRate("construction", 65));
+    const rate =
+      flat ??
+      (name.startsWith("upgraders")
+        ? mixedRate("upgrade", 85)
+        : name.startsWith("defense")
+          ? mixedRate("raidGuard", 80)
+          : mixedRate("construction", 65));
     energy[name] = load * rate;
   }
   return { total, lines, energy };
@@ -485,7 +503,11 @@ export const F1_CLASS_OF_KIND: Record<string, string> = {
   tender: "tenders",
   controllerFeeder: "feeder",
   reservation: "reservers",
-  upgrade: "upgraders"
+  upgrade: "upgraders",
+  // Priced since phase 1 (standing-fleet replacement cadence in
+  // planSpawnLoad) - raidGuard was the one class F1 flagged UNPRICED on
+  // every live cycle (0.027 p/t / 1.73 e/t of real defense spend).
+  raidGuard: "defense (guards)"
 };
 
 /** Plan-line prefix that each actual class settles against. */
@@ -496,7 +518,8 @@ export const F1_PLAN_PREFIX: Record<string, string[]> = {
   tenders: ["tenders"],
   feeder: ["feeder"],
   reservers: ["reservers"],
-  upgraders: ["upgraders"]
+  upgraders: ["upgraders"],
+  "defense (guards)": ["defense (guards)"]
 };
 
 /**
@@ -1626,7 +1649,7 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         // fix removed. Any excess at all is worth a WARN once it is measurable.
         verdict: worstRatio >= 2.5 ? "FAIL" : pt > 0 ? "WARN" : "ok",
         detail:
-          `${stamped}/${judged} judged against the corp's OWN carryNeeded stamp (rest against the plan route, drain-blind) - ` +
+          `${stamped}/${judged} judged against the corp's OWN carryNeeded stamp (rest against the plan route, drain-priced since #8) - ` +
           (worstRatio > 0
             ? `worst ${worst}; ${overParts.toFixed(0)} parts over ${window}t`
             : `every hauler body within ${OVERBUILD_TOLERANCE}x its route's need`)
@@ -1996,7 +2019,36 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const sourceRate = harvestCorps.length > 0 ? grossCapacity / harvestCorps.length : 0;
   const forgone = heldFracSum * sourceRate;
   const forgoneKnown = harvestCorps.some(c => c.sizing?.heldFrac !== undefined);
-  const grossPlan = Math.max(0, grossCapacity - (forgoneKnown ? forgone : 0));
+  // MEASURED MINED (phase 2, corps segment v14): difference each harvest
+  // corp's cumulative `produced` (harvested energy, reset-surviving via the
+  // commission store) between the two captures. This RE-BOOKS the revenue
+  // contra from measurement: the heldFrac forgone above is an INFERENCE from
+  // a spawn de-pricing stamp - the harvester's own loop harvests
+  // unconditionally, so the stamp can both over-count (harvest continued
+  // while "held") and under-count (unstaffed mouths, unreserved downgrades -
+  // the two contras spec 42 section 2b lists as missing). capacity - mined
+  // measures ALL of them at once; heldFrac demotes to a diagnostic
+  // decoration naming the share the pile gate explains. Requires `produced`
+  // on BOTH sides - differencing a cumulative against a pre-v14 baseline
+  // would book a corp's whole lifetime as one window.
+  const producedOf = (c: any): Map<string, number> =>
+    new Map(
+      ((c.data.corps?.corps ?? []) as any[])
+        .filter((x: any) => x.kind === "harvest" && x.produced !== undefined)
+        .map((x: any) => [x.id, +x.produced])
+    );
+  const prodCap = producedOf(cap);
+  const prodBase = producedOf(base);
+  const minedKnown = prodCap.size > 0 && prodBase.size > 0;
+  // A corp in cap but not base was commissioned mid-window: its counter began
+  // at 0, so `?? 0` is exact. A corp in base but not cap retired mid-window:
+  // its window production is lost - an honest UNDER-count, bounded by one
+  // source-window.
+  let minedRate = 0;
+  if (minedKnown) for (const [id, p] of prodCap) minedRate += Math.max(0, p - (prodBase.get(id) ?? 0)) / dt;
+  const grossPlan = minedKnown
+    ? Math.min(grossCapacity, minedRate)
+    : Math.max(0, grossCapacity - (forgoneKnown ? forgone : 0));
   // GROUND ROT (v19): dropped energy loses ceil(amount/1000) per tick; container
   // energy keeps. Averaged across the window's two endpoints - the piles move
   // slowly relative to the window, and the endpoints are all we sample.
@@ -2125,6 +2177,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     names.reduce((n, key) => n + Object.keys(planEnergy).filter(k => k.startsWith(key)).reduce((m, k) => m + planEnergy[k], 0), 0);
   const bReserve = pe("reservers");
   const bInfra = pe("feeder", "tenders");
+  const bDefense = pe("defense");
   const bConsumers = pe("upgraders", "construction (all-in)");
   const bFleetEnergy = Object.keys(planEnergy).reduce((n, k) => n + planEnergy[k], 0);
   const pileDelta = (piles(cap) - piles(base)) / dt;
@@ -2208,12 +2261,24 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     `${" ".repeat(38)}${"BUDGET".padStart(9)}${"ACTUAL".padStart(10)}${"VARIANCE".padStart(11)}`,
     "  REVENUE",
     L("mining capacity (reserved rate)", grossCapacity, 4, grossCapacity),
-    ...(forgoneKnown
+    ...(minedKnown
       ? [
-          L("- forgone (miners held, buffer full)", -forgone, 4, 0, "cost"),
-          L("= gross mining", grossPlan, 4, grossCapacity)
+          // MEASURED (phase 2): capacity less what the harvest corps' own
+          // cumulative counters say was mined - covers held mouths, unstaffed
+          // sources and unreserved downgrades alike. The heldFrac stamp
+          // becomes the diagnostic naming the share the pile gate explains.
+          L("- forgone (measured: capacity - mined)", -(grossCapacity - grossPlan), 4, 0, "cost"),
+          ...(forgoneKnown
+            ? [`      of which the miners' pile-gate stamps explain ${forgone.toFixed(2)} e/t (heldFrac)`]
+            : []),
+          L("= gross mining (measured mined)", grossPlan, 4, grossCapacity)
         ]
-      : []),
+      : forgoneKnown
+        ? [
+            L("- forgone (miners held, buffer full)", -forgone, 4, 0, "cost"),
+            L("= gross mining", grossPlan, 4, grossCapacity)
+          ]
+        : []),
     L("+ pile drawdown / (build-up)", -pileDelta, 4),
     L("= delivered into the economy", delivered, 4, grossCapacity),
     "  DIRECT COST OF MINING (measured at the spawn)",
@@ -2234,12 +2299,16 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     L("= NET MINING MARGIN", delivered - perTick(direct) - linkTax, 4, grossPlan - bExtract - bEvac - bReserve - bLinkTax),
     "  OVERHEAD (measured at the spawn)",
     L("infra      (tanker, feeder, scout)", -perTick(cost.infra), 4, -bInfra, "cost"),
-    L("defense    (guard)", -perTick(cost.defense), 4),
+    // Budgeted since phase 1: the standing guard fleet's replacement cadence.
+    // A zero budget with real spend is an HONEST unfavorable read (defense is
+    // running above its standing plan - the raid-surge share the invader tax
+    // prices at admission, not here).
+    L("defense    (guard)", -perTick(cost.defense), 4, -bDefense, "cost"),
     L("consumers  (upgrader, builder)", -perTick(cost.consumers), 4, -bConsumers, "cost"),
     ...(cost.other > 0
       ? [L(`UNCLASSIFIED [${[...unknownRoles].join(", ")}]`, -perTick(cost.other), 4)]
       : []),
-    L("= total overhead", -perTick(overhead), 4, -(bInfra + bConsumers), "cost"),
+    L("= total overhead", -perTick(overhead), 4, -(bInfra + bDefense + bConsumers), "cost"),
     L("= TOTAL SPAWN (plan fleet, priced)", -perTick(spawnTotal), 2, -bFleetEnergy, "cost"),
     ...(bFleetEnergy >= bSpawn
       ? [

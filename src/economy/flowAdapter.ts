@@ -35,7 +35,14 @@ import { Node, getResourcesByType } from "../nodes/Node";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
 import { pathDistance, pathSwampFraction } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
-import { controllerLink, coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
+import {
+  controllerLink,
+  coreLink,
+  sourceLink,
+  sourceBufferStock,
+  controllerInputSpot,
+  controllerParkingTiles
+} from "../corps/nodeEnergy";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import {
   BUILD_ENERGY_PER_WORK,
@@ -815,7 +822,21 @@ export function buildColonyProblem(
         return frac > 0 ? { swampFraction: frac } : {};
       })(),
       ...(pave && pave.ratio === "2:1" ? { paved: true, pavedFraction: pave.fraction } : {}),
-      ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax })
+      ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax }),
+      // STAGED MOUTH STOCK (phase 1 of the income-statement program): the
+      // SAME sourceBufferStock lens the corp's drain term and E6's gate read,
+      // so the plan prices the drain fleet the corp will actually field.
+      // Walk-served mouths only - a link-served source's stock is the link
+      // network's business, and pricing haulers for it would re-open the
+      // haul-of-zero contract. No vision => absent, never a fabricated zero.
+      ...(() => {
+        if (linkHaulPos.get(s.id) !== undefined) return {};
+        if (typeof Game === "undefined" || !Game.getObjectById) return {};
+        const live = Game.getObjectById(stripSourcePrefix(s.id) as Id<Source>);
+        if (!live) return {};
+        const staged = sourceBufferStock(live);
+        return staged !== null && staged > 0 ? { staged } : {};
+      })()
     };
   });
   // Sustained income only: what mined sources yield per tick. Transient

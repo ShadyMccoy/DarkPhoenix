@@ -49,7 +49,13 @@ import {
   workPartsForEnergyRate
 } from "../economy/primitives";
 import { feederRelayRate, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
-import { declinedVerdictStands, effectiveOneWayTiles, evaluateRoadRoute, RoadRouteSpec } from "../economy/roadEconomics";
+import {
+  declinedVerdictStands,
+  effectiveOneWayTiles,
+  evaluateRoadRoute,
+  tankerCarryNeededFor,
+  RoadRouteSpec
+} from "../economy/roadEconomics";
 import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { buildPool, buildPoolAbsorbRate, buildPoolBacklog, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
@@ -99,24 +105,15 @@ export interface SerializedConstructionCorp extends SerializedCorp {
 const TANKER_FLOOR = 2;
 
 /**
- * CARRY parts in flight to sustain `consumption` over the REAL refuel round
- * trip (owner 2026-07-28: "the sizing formula should be made to be correct
- * regardless of the carry:move ratio. Also, it should be road-aware."). The
- * gait lens is roadEconomics.effectiveOneWayTiles - empty leg full speed,
- * loaded leg per-tile for the body's ACTUAL ratio over the route's paved
- * fraction - so a 3C:1M fleet on plain is sized to its true 4d+2 trip, not
- * the 1:1 body's 2d+2 the old formula assumed (spec 34 item 3's measured
- * under-delivery). 1.5x margin for the transfer/withdraw ticks, as before.
- * Pure; exported for the unit suite.
+ * The tanker sizing formula MOVED to the economy formula home
+ * (roadEconomics.tankerCarryNeededFor, 2026-08-02 - phase 1 of the
+ * income-statement program): living here, outside economy/, was exactly how
+ * the commission's all-in price kept the 1:1 vector model while this corp
+ * fielded the gait-aware 3:1 fleet - F1 booked the difference as breach on
+ * every build campaign. Re-exported so existing imports (the unit suite)
+ * keep working; the arithmetic is byte-identical.
  */
-export function tankerCarryNeededFor(
-  consumption: number,
-  dist: number,
-  pavedFraction: number,
-  carryPerMove: number
-): number {
-  return Math.ceil(carryPartsFor(consumption, effectiveOneWayTiles(dist, pavedFraction, carryPerMove)) * 1.5);
-}
+export { tankerCarryNeededFor } from "../economy/roadEconomics";
 
 /**
  * ConstructionCorp manages builder creeps that construct extensions.

@@ -95,6 +95,13 @@ export const CARRY_CAPACITY = 50;
  */
 export const CARRY_MOVE_PAIR_COST = BODY_COSTS.CARRY + BODY_COSTS.MOVE; // 100
 
+/** The tanker's CARRY:MOVE ratios - one constant, every reader (the body
+ * builder, the fleet sizing, and since phase 1 the commission's all-in
+ * price). A tanker is mostly PARKED, so it runs CARRY-heavy: 1 MOVE per 3
+ * CARRY on plain, 1 per 5 where roads halve fatigue. */
+export const TANKER_CARRY_PER_MOVE_PLAIN = 3;
+export const TANKER_CARRY_PER_MOVE_ROAD = 5;
+
 /** Source energy capacity in claimed rooms (Screeps constant) */
 export const SOURCE_ENERGY_CAPACITY = 3000;
 
@@ -272,7 +279,11 @@ export function refuelIntervalTicks(distance: number, haulerCount: number): numb
 /**
  * Standing body parts of a dedicated supply vector `(fuel, site, rate)`:
  * carriers at 1:1 CARRY:MOVE (laden both ways is the worst case; the vector
- * IS carryPartsFor - no third formula).
+ * IS carryPartsFor - no third formula). The GAIT-AWARE form - the 3C:1M body
+ * the construction runtime actually fields over its route's real paving -
+ * lives in roadEconomics.vectorSupplyPartsGait (it needs the road gait lens,
+ * which imports this module); operationSpawnLoad accepts its output through
+ * the vector's optional `parts` field.
  */
 export function vectorSupplyParts(rate: number, distance: number): number {
   return 2 * carryPartsFor(rate, distance);
@@ -355,11 +366,18 @@ export function supplyMethod(
  * effective life at ITS distance. This is the `spawnPartsPerTick` a corp's
  * commission must declare - an operation that fields carriers its price
  * omits is lying to the parts ledger (P4's measured "unbudgeted" class).
+ *
+ * A vector may carry precomputed `parts` (the gait-aware body from
+ * roadEconomics.vectorSupplyPartsGait - spec 34's follow-up B); absent, the
+ * 1:1 vectorSupplyParts model prices it as before.
  */
-export function operationSpawnLoad(nodeLoad: number, vectors: { rate: number; distance: number }[]): number {
+export function operationSpawnLoad(
+  nodeLoad: number,
+  vectors: { rate: number; distance: number; parts?: number }[]
+): number {
   let load = nodeLoad;
   for (const v of vectors) {
-    load += vectorSupplyParts(v.rate, v.distance) / effectiveLife(v.distance);
+    load += (v.parts ?? vectorSupplyParts(v.rate, v.distance)) / effectiveLife(v.distance);
   }
   return load;
 }
@@ -618,6 +636,35 @@ export function infraSpawnEnergy(
 export function reserverSpawnLoad(parts: number): number {
   const RESERVER_WALK = 60; // nominal remote-controller walk
   return (RESERVER_DUTY * parts) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK);
+}
+
+/**
+ * The ONE drain law applied to a source-mouth buffer: CARRY parts that clear
+ * `staged` energy over one creep generation at `distance` - the same
+ * stock/CREEP_LIFETIME law the bank surplus and consumer sizing use.
+ * CarryCorp's haulCarryNeeded and the planner's route sizing BOTH read this,
+ * so the fleet the corp fields and the fleet the plan prices size from the
+ * same two terms (sustained + drain) - X6 was previously judged "against the
+ * corp's OWN carryNeeded stamp (rest against the plan route, drain-blind)",
+ * ~1.0 e/t of real fleet standing permanently outside the budget.
+ */
+export function bufferDrainCarry(staged: number, distance: number): number {
+  if (!(staged > 0)) return 0;
+  return carryPartsFor(staged / CREEP_LIFETIME, distance);
+}
+
+/**
+ * Spawn parts/tick of the FLOOR hauler body amortized at `distance` - the
+ * minimum true cost of serving ANY walked route. CarryCorp floors every body
+ * at HAULER_MIN_CARRY 3 (a 1-CARRY runt moves 50 energy a round trip and
+ * squats a fleet slot for 1500t), so a transient route whose computed carry
+ * is a fraction of a part still buys a whole 3C+3M hauler. The plan priced
+ * the fraction (~0.0002 p/t colony-wide) while the fleet spent ~0.040 p/t -
+ * the account's "transient-route haulers (unbudgeted)" 2.0 e/t.
+ */
+export function scavengeFloorParts(distance: number): number {
+  const FLOOR_BODY_PARTS = 6; // 3 CARRY + 3 MOVE, the 1:1 runt floor
+  return FLOOR_BODY_PARTS / effectiveLife(distance);
 }
 
 /** CARRY:MOVE ratio hint (mirrors framework/EdgeVariant's HaulerRatio). */

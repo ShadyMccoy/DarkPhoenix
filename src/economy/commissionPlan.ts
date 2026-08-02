@@ -23,7 +23,14 @@ import {
 import { Commission, corpIdFor } from "./Commission";
 import { listCorpKinds } from "./CorpKind";
 import { isBankSourceId } from "./ids";
-import { constructionWorkSpawnLoad, controllerWorkSpawnLoad, minerSpawnLoad, operationSpawnLoad } from "./primitives";
+import {
+  TANKER_CARRY_PER_MOVE_PLAIN,
+  constructionWorkSpawnLoad,
+  controllerWorkSpawnLoad,
+  minerSpawnLoad,
+  operationSpawnLoad
+} from "./primitives";
+import { vectorSupplyPartsGait } from "./roadEconomics";
 import { Position } from "../types/Position";
 
 /**
@@ -97,7 +104,19 @@ export function consumerSpawnLoad(
   const load =
     k.kind === "controller"
       ? controllerWorkSpawnLoad(k.allocated, dist)
-      : operationSpawnLoad(constructionWorkSpawnLoad(k.allocated, dist), [{ rate: k.allocated, distance: dist }]);
+      : // The supply vector priced at the body the runtime FIELDS (spec 34
+        // vector-gait follow-up B): the 3C:1M tanker's real loaded gait,
+        // unpaved worst case (the commission cannot see paving receipts;
+        // over-pricing a paved fuel route is conservative and stated, while
+        // the old 1:1 model under-priced every unpaved campaign ~2x and F1
+        // booked the fleet as breach).
+        operationSpawnLoad(constructionWorkSpawnLoad(k.allocated, dist), [
+          {
+            rate: k.allocated,
+            distance: dist,
+            parts: vectorSupplyPartsGait(k.allocated, dist, 0, TANKER_CARRY_PER_MOVE_PLAIN)
+          }
+        ]);
   return { load, dist };
 }
 

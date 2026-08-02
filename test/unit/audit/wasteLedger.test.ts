@@ -45,7 +45,14 @@ describe("waste ledger (spec 15 phase 1)", () => {
     // and tripped strict >1.0 - a false red that would persist at every
     // equilibrium. Within 0.5% of the ceiling is arithmetic, not a leak
     // (the smallest real fleet class is ~3% of ceiling).
+    //
+    // The capture ALSO fielded one 10-part raidGuard the audit was blind to
+    // until phase 1 priced the class; counting it, the plan genuinely stood
+    // ~2% OVER ceiling - a real reading, not noise. The pin's subject is the
+    // NOISE BAND, so the clone strips the guard to keep the original
+    // budget-dry boundary shape; the phase-1 pricing has its own coverage.
     const capBoundary = fixture("shard1-t72420007.json");
+    capBoundary.data.corps.corps = capBoundary.data.corps.corps.filter((c: any) => c.kind !== "raidGuard");
     const rows2 = computeLedger(capBoundary, fixture("shard1-t72419708.json"));
     const p4 = rows2.find(r => r.id === "P4")!;
     expect(p4.value).to.be.greaterThan(0.99); // the boundary shape, not a slack plan
@@ -1112,20 +1119,42 @@ describe("F1 plan fidelity (waste ledger)", () => {
     expect(f1.detail).to.match(/breach|worst/i);
   });
 
-  it("surfaces a kind the plan prices at ZERO as UNPRICED (the raidGuard hole)", () => {
-    // raidGuard stood 10 parts and bought 0.020 p/t live while planSpawnLoad
-    // has no line for it at all. An unpriced CLASS is a different defect from
-    // a mispriced one: no amount of tuning an existing line can find it.
+  it("settles guard purchases against the PRICED defense line (the raidGuard hole is closed)", () => {
+    // Phase 1 of the income-statement program: raidGuard stood 10 parts and
+    // bought 0.020 p/t live while planSpawnLoad had no line for it - F1
+    // flagged it UNPRICED on every cycle. The standing fleet now prices at
+    // its replacement cadence, so guard spend settles against a plan line
+    // like every other class.
     const corps = [
       { id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } },
-      { id: "raidGuard-A-raidGuard", kind: "raidGuard", creepCount: 1, bodyParts: 10 }
+      { id: "raidGuard-A-raidGuard", kind: "raidGuard", creepCount: 1, bodyParts: 10, body: { attack: 5, move: 5 } }
     ];
     const probe = mk([], [0], corps);
     const cap = mk([], [planTotal(probe) * 2], corps);
     cap.data.blackbox = { rows: mkRing([{ role: "guard", corp: "raidGuard-A-raidGuard", cost: 3000, parts: 30 }]) };
     const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.detail).to.not.contain("UNPRICED");
+    expect(f1.detail, "guards settle against their own plan line").to.contain("defense (guards)");
+    const { lines } = planSpawnLoad(cap);
+    const guard = lines.find(([n]) => String(n).startsWith("defense"))!;
+    expect(guard, "the standing fleet is priced").to.not.equal(undefined);
+    expect(guard[2]).to.be.closeTo(10 / 1500, 1e-9);
+  });
+
+  it("still surfaces a kind with NO plan line as UNPRICED (the detector outlives the hole)", () => {
+    // An unpriced CLASS is a different defect from a mispriced one: no amount
+    // of tuning an existing line can find it. The detector must survive the
+    // raidGuard fix - pinned with a kind planSpawnLoad genuinely never prices.
+    const corps = [
+      { id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } },
+      { id: "mystery-A-mystery", kind: "mystery", creepCount: 1, bodyParts: 10 }
+    ];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe) * 2], corps);
+    cap.data.blackbox = { rows: mkRing([{ role: "enigma", corp: "mystery-A-mystery", cost: 3000, parts: 30 }]) };
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
     expect(f1.detail).to.contain("UNPRICED");
-    expect(f1.detail).to.contain("raidGuard");
+    expect(f1.detail).to.contain("mystery");
   });
 
   it("prefers the recorded parts count over the cost estimate, and says which it used", () => {
@@ -1794,5 +1823,91 @@ describe("energy account: budgets price the shipped behavior (#8)", () => {
     const line = text.split("\n").find(l => l.includes("evacuation  (hauler)"))!;
     const budget = Number(line.match(/-?\d+\.\d\d/g)![0]);
     expect(budget).to.be.closeTo(-haulerOverhead(10, 20), 0.005);
+  });
+});
+
+/**
+ * FORGONE MINING RE-BOOKED FROM MEASUREMENT (phase 2; the two missing spec-42
+ * contras land free).
+ *
+ * The heldFrac forgone line was an INFERENCE from a spawn de-pricing stamp -
+ * and HarvestCorp harvests unconditionally, so it both over-counted (harvest
+ * continued while "held") and missed unstaffed/unreserved capacity entirely.
+ * With corps segment v14 publishing each harvest corp's cumulative `produced`
+ * (reset-surviving), the account differences two captures and books
+ * capacity - measured mined: every forgone mechanism in one measured number,
+ * heldFrac demoted to the diagnostic naming the pile-gate's share.
+ */
+describe("energy account: forgone mining is MEASURED once produced spans both captures", () => {
+  const rig = (capProduced: number[] | null, baseProduced: number[] | null): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    for (const [c, produced] of [
+      [cap, capProduced],
+      [base, baseProduced]
+    ] as [any, number[] | null][]) {
+      c.data.core.losses = {
+        windowTicks: 1e9, pileDecay: 0, structureDecay: 0, repairSpend: 0,
+        tombstoneLost: 0, tombstoneRecovered: 0, tombstoneStock: 0
+      };
+      const harvest = c.data.corps.corps.filter((x: any) => x.kind === "harvest");
+      harvest.forEach((h: any, i: number) => {
+        if (produced && produced[i] !== undefined) h.produced = produced[i];
+        else delete h.produced;
+      });
+    }
+    return { cap, base };
+  };
+  const textOf = (cap: any, base: any): string => formatAccounts(cap, base, computeLedger(cap, base));
+  const actualOf = (text: string, label: string): number => {
+    const line = text.split("\n").find(l => l.includes(label));
+    if (!line) throw new Error(`no line matching "${label}" in:\n${text}`);
+    return Number(line.match(/-?\d+\.\d\d/g)!.slice(-2)[0]);
+  };
+
+  it("books gross mining as the measured mined rate, not an inference", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    // Two harvest corps mining 6 e/t and 8 e/t of their 10 e/t capacities.
+    const { cap, base } = rig([100000 + 6 * dt, 50000 + 8 * dt], [100000, 50000]);
+    const text = textOf(cap, base);
+    expect(text).to.include("forgone (measured: capacity - mined)");
+    expect(actualOf(text, "= gross mining (measured mined)")).to.be.closeTo(14, 0.05);
+  });
+
+  it("keeps the heldFrac stamp as a DIAGNOSTIC decoration, not the booking", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    const { cap, base } = rig([100000 + 6 * dt, 50000 + 8 * dt], [100000, 50000]);
+    cap.data.corps.corps
+      .filter((x: any) => x.kind === "harvest")
+      .forEach((h: any) => (h.sizing = { ...(h.sizing ?? {}), heldFrac: 0.5 }));
+    const text = textOf(cap, base);
+    expect(text).to.include("pile-gate stamps explain");
+    // The BOOKED forgone is capacity - measured mined (corps without a
+    // counter measured nothing - a fresh corp's omitted 0 is a real 0), never
+    // heldFrac's inference.
+    const capacity = (cap.data.flow.sources as any[]).reduce((n, s) => n + (+s.harvestRate || 0), 0);
+    expect(actualOf(text, "forgone (measured")).to.be.closeTo(-(capacity - 14), 0.05);
+  });
+
+  it("falls back to the heldFrac inference when the BASELINE predates produced", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    const { cap, base } = rig([100000 + 6 * dt, 50000 + 8 * dt], null);
+    cap.data.corps.corps
+      .filter((x: any) => x.kind === "harvest")
+      .forEach((h: any) => (h.sizing = { ...(h.sizing ?? {}), heldFrac: 0.5 }));
+    const text = textOf(cap, base);
+    expect(text).to.include("miners held, buffer full");
+    expect(text).to.not.include("measured: capacity - mined");
+  });
+
+  it("counts a corp commissioned mid-window from zero (its counter began at birth)", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    // Corp 0 spans both captures; corp 1 exists only in cap (newly born).
+    const { cap, base } = rig([100000 + 6 * dt, 4 * dt], [100000]);
+    // base's second harvest corp vanishes entirely (not just its counter).
+    const harvest = base.data.corps.corps.filter((x: any) => x.kind === "harvest");
+    base.data.corps.corps = base.data.corps.corps.filter((x: any) => x !== harvest[1]);
+    const text = textOf(cap, base);
+    expect(actualOf(text, "= gross mining (measured mined)")).to.be.closeTo(10, 0.05);
   });
 });

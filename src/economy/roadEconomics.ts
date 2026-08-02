@@ -376,3 +376,45 @@ export function paveScore(route: RoadRouteSpec, spawnPartValue: number = 0): num
   const v = evaluateRoadRoute(route, undefined, spawnPartValue);
   return v.netSavingsPerTick <= 0 ? -Infinity : v.netSavingsPerTick / Math.max(1, v.buildCost / 1000);
 }
+
+/**
+ * CARRY parts in flight to sustain `consumption` over the REAL refuel round
+ * trip (owner 2026-07-28: "the sizing formula should be made to be correct
+ * regardless of the carry:move ratio. Also, it should be road-aware."). The
+ * gait lens is effectiveOneWayTiles - empty leg full speed, loaded leg
+ * per-tile for the body's ACTUAL ratio over the route's paved fraction - so a
+ * 3C:1M fleet on plain is sized to its true trip, not the 1:1 body's 2d+2 the
+ * old formula assumed. 1.5x margin for the transfer/withdraw ticks. Pure.
+ *
+ * MOVED here from ConstructionCorp (2026-08-02, phase 1 of the
+ * income-statement program): the runtime's sizing formula lived outside the
+ * economy formula home, which is exactly how the PLAN's price for the same
+ * vector kept the 1:1 model - every build campaign fielded a bigger tanker
+ * fleet than its commission declared and F1 booked the difference as breach.
+ */
+export function tankerCarryNeededFor(
+  consumption: number,
+  dist: number,
+  pavedFraction: number,
+  carryPerMove: number
+): number {
+  return Math.ceil(carryPartsFor(consumption, effectiveOneWayTiles(dist, pavedFraction, carryPerMove)) * 1.5);
+}
+
+/**
+ * The GAIT-AWARE supply-vector body (spec 34 vector-gait follow-up B): the
+ * parts the construction runtime actually fields - tankerCarryNeededFor's
+ * carry plus that shape's MOVE share (one MOVE per `carryPerMove` CARRY,
+ * whole parts). Feed the result to operationSpawnLoad via the vector's
+ * `parts` field so the commission's all-in price and the corp's sizing read
+ * the SAME arithmetic.
+ */
+export function vectorSupplyPartsGait(
+  rate: number,
+  distance: number,
+  pavedFraction: number,
+  carryPerMove: number
+): number {
+  const carry = tankerCarryNeededFor(rate, distance, pavedFraction, carryPerMove);
+  return carry + Math.ceil(carry / carryPerMove);
+}
