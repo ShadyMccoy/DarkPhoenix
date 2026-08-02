@@ -91,6 +91,14 @@ export interface FlowTelemetry {
      * from a short haul distance.
      */
     linkServed?: boolean;
+    /**
+     * Swamp SHARE of this source's haul path (v15). Shipped 2026-08-02 as a
+     * pricing term with NO stamp, and the very next capture could not say
+     * whether carry was unchanged because the routes have no swamp or because
+     * the wiring was dead. A pricing term with no stamp is a term you cannot
+     * audit - the same lesson this program keeps re-learning.
+     */
+    swampFraction?: number;
   }[];
   /**
    * PLANNED haulers (goal-plan side). Each solver hauler assignment with the
@@ -298,7 +306,8 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
         spawnDistance: miner.spawnDistance,
         // v14: this source's transport is the LINK network, so its haul leg is
         // ~1 tile and it pays the engine's 3%-per-hop transfer tax instead.
-        ...(miner.linkServed ? { linkServed: true } : {})
+        ...(miner.linkServed ? { linkServed: true } : {}),
+        ...(miner.swampFraction !== undefined ? { swampFraction: miner.swampFraction } : {})
       });
     }
 
@@ -359,7 +368,7 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
     // echo (spec 34 P4: the ledger charges construction THROUGH the plan).
     // v12 adds partsLedger.plannable - the 90% planning margin
     // (SPAWN_PLAN_FRACTION, owner 2026-07-30) the fill spends from.
-    version: 14, // v13 fleetCharge decomposition; v14 sources[].linkServed (budgets the link tax) 2026-08-01
+    version: 15, // v14 sources[].linkServed; v15 sources[].swampFraction (audits the tick-pricing) 2026-08-02
     tick: Game.time,
     sources,
     haulers,

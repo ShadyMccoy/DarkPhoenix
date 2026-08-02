@@ -88,6 +88,8 @@ export interface RoomLossCensus {
     role?: string;
     /** Had life left when it died => something killed it. */
     killed?: boolean;
+    /** TTL the creep still had at death - the raw number behind `killed`. */
+    ttlAtDeath?: number;
   }[];
   /** Container count (priced by `owned`). */
   containers: number;
@@ -117,6 +119,11 @@ interface Totals {
   tombstoneExpired: number;
   /** Gross tombstone energy from creeps that still had life left. */
   tombstoneKilled: number;
+  /** Sum/max/count of ttlAtDeath - the AUDIT on the cause split above. A
+   *  one-sided split over a CONSTANT ttl is a misread field, not a finding. */
+  tombstoneTtlSum: number;
+  tombstoneTtlMax: number;
+  tombstoneCount: number;
   repairSpend: number;
   sinceTick: number;
   started: boolean;
@@ -172,6 +179,9 @@ function blank(): Totals {
     tombstoneByRole: {},
     tombstoneExpired: 0,
     tombstoneKilled: 0,
+    tombstoneTtlSum: 0,
+    tombstoneTtlMax: 0,
+    tombstoneCount: 0,
     repairSpend: 0,
     sinceTick: 0,
     started: false
@@ -254,6 +264,14 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
       totals.tombstoneByRole[role] = (totals.tombstoneByRole[role] ?? 0) + t.energy;
       if (t.killed) totals.tombstoneKilled += t.energy;
       else totals.tombstoneExpired += t.energy;
+      // The RAW TTL behind the boolean. A cause split that reads 0%/100% is the
+      // signature of a field that is not what you think it is, not a finding -
+      // so publish the distribution and let the reader tell a real answer from
+      // a constant.
+      const ttl = Math.max(0, t.ttlAtDeath ?? 0);
+      totals.tombstoneTtlSum += ttl;
+      totals.tombstoneTtlMax = Math.max(totals.tombstoneTtlMax, ttl);
+      totals.tombstoneCount += 1;
     }
   }
 
@@ -306,6 +324,9 @@ export interface LossReport {
   tombstoneByRole: Record<string, number>;
   tombstoneExpired: number;
   tombstoneKilled: number;
+  /** Mean/max TTL remaining at death - the audit on the cause split above. */
+  tombstoneTtlMean: number;
+  tombstoneTtlMax: number;
   /**
    * CUMULATIVE energy totals, monotonic and surviving global resets. The
    * account differences these between two captures, so the measured window
@@ -329,6 +350,8 @@ export function lossReport(tick: number): LossReport {
     tombstoneByRole: { ...totals.tombstoneByRole },
     tombstoneExpired: totals.tombstoneExpired,
     tombstoneKilled: totals.tombstoneKilled,
+    tombstoneTtlMean: totals.tombstoneCount > 0 ? totals.tombstoneTtlSum / totals.tombstoneCount : 0,
+    tombstoneTtlMax: totals.tombstoneTtlMax,
     cumulative: { ...ledger() }
   };
 }
@@ -422,7 +445,8 @@ export function collectLosses(tick: number): void {
         // on it was killed. The field can be absent on a dead creep, and the
         // conservative default is "expired" - old age is the common case, and
         // over-reporting kills would invent a defense problem.
-        killed: ((t.creep as { ticksToLive?: number } | undefined)?.ticksToLive ?? 0) > 0
+        killed: ((t.creep as { ticksToLive?: number } | undefined)?.ticksToLive ?? 0) > 0,
+        ttlAtDeath: (t.creep as { ticksToLive?: number } | undefined)?.ticksToLive ?? 0
       }));
 
       let containers = 0;

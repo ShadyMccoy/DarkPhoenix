@@ -156,6 +156,9 @@ export interface MinerAssignment {
    */
   linkServed?: boolean;
 
+  /** Swamp share of this source's haul path, as the planner priced it. */
+  swampFraction?: number;
+
   /**
    * Maximum number of miners that can work this source simultaneously.
    * Determined by counting walkable tiles adjacent to the source.

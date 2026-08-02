@@ -253,6 +253,10 @@ export interface CoreTelemetry {
     tombstoneByRole?: Record<string, number>;
     tombstoneExpired?: number;
     tombstoneKilled?: number;
+    /** Mean/max TTL remaining at death (v24) - the AUDIT on the cause split.
+     *  A 0%/100% split is the signature of a misread field, not a finding. */
+    tombstoneTtlMean?: number;
+    tombstoneTtlMax?: number;
     /**
      * CUMULATIVE energy totals (v22), monotonic and surviving global resets.
      * The rates above are since-reset and therefore capped by VM lifetime -
@@ -493,7 +497,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 23, // v22 losses.cumulative; v23 tombstone role + cause attribution 2026-08-02
+    version: 24, // v23 tombstone role+cause; v24 ttlAtDeath distribution (audits the cause split) 2026-08-02
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {

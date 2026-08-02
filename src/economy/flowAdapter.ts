@@ -1333,6 +1333,12 @@ export function solveColony(
     // sources that actually pay it, instead of inferring link service from a
     // short haul distance (inference is how link haulage read as free).
     ...(linkServedIds.has(m.sourceId) ? { linkServed: true } : {}),
+    // The swamp share the plan actually priced this route at - so a capture can
+    // tell "no swamp on this map" from "the wiring is dead".
+    ...(() => {
+      const src = problem.sources.find(s => s.id === m.sourceId);
+      return src?.swampFraction !== undefined ? { swampFraction: src.swampFraction } : {};
+    })(),
     efficiency: m.efficiency
   }));
 

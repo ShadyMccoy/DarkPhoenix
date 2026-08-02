@@ -1957,6 +1957,8 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
         tombstoneByRole?: Record<string, number>;
         tombstoneExpired?: number;
         tombstoneKilled?: number;
+        tombstoneTtlMean?: number;
+        tombstoneTtlMax?: number;
         tombstoneStock: number;
       }
     | undefined;
@@ -2198,7 +2200,17 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
                   const cause = killed + expired > 0
                     ? `expired ${((expired / (killed + expired)) * 100).toFixed(0)}%  killed ${((killed / (killed + expired)) * 100).toFixed(0)}%`
                     : "cause unknown";
-                  return [`      by role: ${roles}`, `      by cause: ${cause}`];
+                  // The cause split is only as good as the field behind it, so
+                  // print the raw TTL distribution beside it. 0%/100% with a
+                  // CONSTANT ttl is a misread field; a spread is a real answer.
+                  const mean = meter?.tombstoneTtlMean ?? 0;
+                  const max = meter?.tombstoneTtlMax ?? 0;
+                  const suspect = (killed === 0 || expired === 0) && mean === max;
+                  return [
+                    `      by role: ${roles}`,
+                    `      by cause: ${cause}   (ttl at death mean ${mean.toFixed(0)} max ${max.toFixed(0)})` +
+                      (suspect ? "  <- SUSPECT: one-sided split on a constant ttl, read the field not the %" : "")
+                  ];
                 })(),
                 L("repair (energy spent holding hits)", -repairSpend, 4),
                 L("= measured losses", -meteredLosses, 4)

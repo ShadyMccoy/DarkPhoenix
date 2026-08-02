@@ -7595,3 +7595,53 @@ returns 1.00, so the two agree and the plan is right. At low RCL the plan would
 under-ask by up to 3×, and neither model knows about swamp. It is the same "two
 models of one physical quantity in two places" pattern as the valves — worth
 consolidating before it bites a cold start, not worth chasing now.
+
+### CYCLE 2026-08-02 (t72734018, window 8251t) — the consolidation delivered; two of my own terms shipped blind
+
+**The upgrader consolidation is working, measured over 8251 ticks:**
+
+```
+controller delivered   38.04 -> 50.53 e/t
+P7  (delivery vs plan) FAIL -> off the board
+P12 (valve coherence)  FAIL -> off the board
+```
+
+Both rows that existed to detect two valves disagreeing have gone quiet, which
+is what one valve looks like. `OSC` now reads **3.07 standing WORK per e/t of
+valve — a stranded fleet above a shut valve on the down-stroke**, i.e. the
+fleet built in the high phase is still burning into a trough plan of 15.00.
+That is the limit cycle, not a regression.
+
+**TOMBSTONE ATTRIBUTION, first read — and it is decisive on the half that
+works:**
+
+```
+by role: haul 88%   harvest 7%   other 5%   reserve 0%
+```
+
+88% of tombstone energy is HAULERS dying loaded. That folds the 6.23 e/t line
+straight into the haul story rather than leaving it a separate work item.
+
+**By cause it reads `expired 0% killed 100%`, and I do not believe it.** A
+perfectly one-sided split is the signature of a misread field, not a finding -
+exactly the risk I flagged when building it ("if killed comes back at 0% across
+the board, that's either a real answer or a sign the field isn't populated").
+It came back at the other rail. Rather than argue about `Tombstone.creep
+.ticksToLive`, the meter now publishes the RAW TTL distribution (mean/max) and
+the account flags the line SUSPECT when a one-sided split sits on a constant
+ttl. The next capture settles it without a hypothesis.
+
+**THE SWAMP TERM SHIPPED WITHOUT A STAMP.** Every planned `carryParts` is
+byte-identical to the pre-deploy capture (cd8e 9.6, cee0 16.8, cbd8 30.4,
+d01f 32.8...), and I could not tell whether that means these routes have no
+swamp or the wiring is dead — because I shipped a PRICING TERM with nothing
+published about its input. That is the same lesson this program keeps
+re-learning, committed by me one cycle after writing it down. Flow segment v15
+now carries `sources[].swampFraction`.
+
+**Ledger movement:** F1 1.44 -> **1.76** (worse; haulers 0.337 vs 0.193
+planned), forgone mining 20.01 -> **28.40** (worse), E6 steady at 2 of 10
+deferred, E4 back AT target (67206 vs 70000, drawing down). The controller
+gained what the bank lost.
+
+Verdict: **fixed + instrumented**, with two self-inflicted blind spots closed.
