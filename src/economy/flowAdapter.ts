@@ -33,7 +33,7 @@ import {
 } from "../flow/FlowTypes";
 import { Node, getResourcesByType } from "../nodes/Node";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
-import { pathDistance } from "../nodes/NodeNavigator";
+import { pathDistance, pathSwampFraction } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
 import { controllerLink, coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
@@ -797,6 +797,23 @@ export function buildColonyProblem(
       rate: s.capacity,
       maxMiners: s.maxMiners,
       haulPos: linkHaulPos.get(s.id),
+      // Swamp share of the haul path, off the same cached PathFinder search
+      // that produced the distance - no extra pathfinding, and the planner
+      // finally prices a route in TICKS rather than tiles.
+      ...(() => {
+        // Nearest spawn is the same endpoint the source's distance is measured
+        // to, so the cached search is already warm and the fraction is free.
+        let frac = 0;
+        let best = Infinity;
+        for (const sp of spawns) {
+          const d = dist(s.position, sp.pos);
+          if (d < best) {
+            best = d;
+            frac = pathSwampFraction(s.position, sp.pos);
+          }
+        }
+        return frac > 0 ? { swampFraction: frac } : {};
+      })(),
       ...(pave && pave.ratio === "2:1" ? { paved: true, pavedFraction: pave.fraction } : {}),
       ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax })
     };

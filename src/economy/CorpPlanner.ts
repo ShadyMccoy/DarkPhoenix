@@ -75,6 +75,14 @@ export interface PlannerSource {
    */
   haulPos?: Position;
   /**
+   * Share of this source's haul path that is SWAMP (0..1), measured by the
+   * adapter off the SAME PathFinder search that produced its distance. A loaded
+   * hauler crawls swamp at 5 ticks/tile against 1 on plain, so the same tile
+   * distance is a different round-TRIP TIME - and CARRY is sized from time.
+   * Absent/0 = no swamp known, which prices exactly as the old tile count did.
+   */
+  swampFraction?: number;
+  /**
    * A transient source - a ground energy stock (dropped pile / tombstone / ruin)
    * that is ALREADY harvested. It needs no miner: only a scavenger hauls it home.
    * Its `rate` is a bounded drain rate; it lasts only until the stock is gone, at
@@ -708,7 +716,16 @@ function routeToSinks(
         }
       }
       const paved = src?.paved === true;
-      const dEff = paved ? effectiveOneWayTiles(physD, src?.pavedFraction ?? 1, 2) : physD;
+      // TICKS, NOT TILES - on every route, not only paved ones. The unpaved
+      // branch used to pass the raw tile count, which is right for a 1:1 body
+      // on plain (loadedTicksPerTile(2,1) === 1) and wrong by up to 5x on
+      // swamp. Now both branches price the same way and differ only in their
+      // inputs: a paved route runs a 2:1 body over road, an unpaved one a 1:1
+      // body over its own plain/swamp mix. With swampFraction 0 the unpaved
+      // result is bit-identical to the old raw distance, so nothing moves on a
+      // swamp-free map.
+      const paveFrac = paved ? src?.pavedFraction ?? 1 : 0;
+      const dEff = effectiveOneWayTiles(physD, paveFrac, paved ? 2 : 1, src?.swampFraction ?? 0);
       // Parts/tick per unit of flow on this route: haul bodies + sink work bodies.
       const chargePerUnit = ((paved ? 1.5 : 2) * carryPartsFor(1, dEff)) / effectiveLife(physD) + workPerUnit;
       const maxByParts = chargePerUnit > 1e-12 ? partsRemaining / chargePerUnit : Infinity;
