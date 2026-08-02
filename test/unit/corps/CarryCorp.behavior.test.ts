@@ -17,6 +17,7 @@ import { pickRuntToRecycle } from "../../../src/corps/recycle";
 // reader corp no longer owns the writer kind's regime definition).
 import { tenderOwnsExtensions } from "../../../src/corps/regimes";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";
+import { buildRatioHaulerBody } from "../../../src/spawn/BodyBuilder";
 import { Game as MockGame, setupGlobals } from "../mock";
 
 /**
@@ -325,6 +326,56 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       const corp = carryCorp(nodeId);
       setFleet(nodeId, 0);
       expect(corp.getSpawnDemand(ctx)).to.deep.equal([]);
+    });
+
+    // ------------------------------------------------------------------
+    // THE DEMAND PRICES THE BODY IT ELICITS (methodology #8).
+    //
+    // desiredCost was flat 100e/CARRY whatever the route's ratio. A 2:1 road
+    // body (2C+1M per 2 CARRY) really costs 75e/CARRY, so every paved-route
+    // hauler was granted ~33% over its body - and the blackbox receipt books
+    // the GRANT, so the account's evacuation line carried +3.99 e/t of pure
+    // booking bias on the t72725767->t72734018 pair (49% of the variance).
+    // A 1:2 swamp body (1C+2M = 150e/CARRY) was the same lie with the sign
+    // flipped: under-granted, so the executor built short bodies.
+    //
+    // The scheduler ALSO spends the grant it believes (SpawnDirector debits
+    // st.energyLeft by energyBudget), so an over-grant suppresses same-tick
+    // purchases further down the agenda - the price must be the debit.
+    // ------------------------------------------------------------------
+    describe("demand prices the body it elicits (the grant IS the debit)", () => {
+      const demandFor = (ratio: "2:1" | "1:1" | "1:2"): { d: any; built: { cost: number; body: string[] } } => {
+        const nodeId = `W1N1-hauling-price-${ratio.replace(":", "")}`;
+        const corp = carryCorp(nodeId);
+        corp.setHaulerAssignments([{ ...route("storage-x", 20, 5), haulerRatio: ratio }]);
+        setFleet(nodeId, 0);
+        const d = corp.getSpawnDemand(ctx)[0];
+        const built = buildRatioHaulerBody(d.bodyParam as number, d.desiredCost, ratio);
+        return { d, built };
+      };
+
+      it("prices a 2:1 road route at the 2:1 body's true cost", () => {
+        const { d, built } = demandFor("2:1");
+        expect(d.desiredCost, "grant == cost of the body this demand elicits").to.equal(built.cost);
+      });
+
+      it("prices a 1:2 swamp route at the 1:2 body's true cost (under-grants starve bodies)", () => {
+        const { d, built } = demandFor("1:2");
+        expect(d.desiredCost).to.equal(built.cost);
+      });
+
+      it("keeps the balanced 1:1 price bit-identical (nothing moves on plain routes)", () => {
+        const { d } = demandFor("1:1");
+        expect(d.desiredCost).to.equal((d.bodyParam as number) * 100);
+      });
+
+      it("floors minCost at the runt floor priced in the SAME ratio", () => {
+        const { d } = demandFor("2:1");
+        // 3-CARRY floor at 2:1 = ceil(3/2)=2 units = 4C+2M = 300e; never the
+        // flat 3x100 that repriced the floor body above what it costs.
+        const floor = buildRatioHaulerBody(3, Number.MAX_SAFE_INTEGER, "2:1");
+        expect(d.minCost).to.equal(Math.min(floor.cost, d.desiredCost));
+      });
     });
 
     // ------------------------------------------------------------------

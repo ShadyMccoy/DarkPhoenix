@@ -32,7 +32,8 @@ import {
   carryPartsFor,
   effectiveLife,
   haulerOverhead,
-  minerOverhead
+  minerOverhead,
+  reserverSpawnLoad
 } from "../src/economy/primitives";
 import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } from "../src/economy/bank";
 
@@ -53,6 +54,24 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  * 1: energy account (revenue / direct / overhead / appropriations / residual),
  *    budget-vs-actual-vs-variance, source P&L, controller variance bridge,
  *    ground rot split, capital vs operating, reserving as COGS.
+ * 8: BUDGETS PRICE THE SHIPPED BEHAVIOR, RECEIPTS BOOK THE DEBIT. Three
+ *    second-implementation lies die at once, so #7-vs-#8 variances shift by
+ *    their sum (~12 e/t of the #7 surface was these, not economics):
+ *    (a) the reserver budget prices RESERVER_DUTY 0.5 via the new
+ *    primitives.reserverSpawnLoad (the whole +8.02 F reservation variance was
+ *    this script re-pricing continuous duty 1.0 - measured 8.83 = 0.524x
+ *    budget, the duty ratio); (b) the evacuation budget converts the plan's
+ *    OWN paved-aware parts (spawnParts x 50e exactly) instead of
+ *    haulerOverhead's flat 1:1 100e/CARRY (which carried -2.82 e/t of slack
+ *    that MASKED breach; the plan's energy side keeps the 1:1 price until the
+ *    phase-1 repricing and the footer prints the internal gap); (c) the
+ *    blackbox spawn receipt's `cost` becomes the energy actually DEBITED for
+ *    the body - the demand now prices the body it elicits per route ratio
+ *    (2:1 road = 75e/CARRY, 1:2 swamp = 150e/CARRY) and executeSpawn returns
+ *    {parts, cost} - where #4-#7 receipts booked the GRANT (+3.99 e/t of
+ *    phantom evacuation spend, 63-65 e/part observed against a physical 50).
+ *    A #7 spawn line and an #8 spawn line differ by booking bias; do not
+ *    read the drop as a behavior change.
  * 7: SPAWN COSTS are differenced from CUMULATIVE role totals (core v25,
  *    Memory.spawnLedger) instead of read off the blackbox ring, completing what
  *    #5 did for losses: every account side now spans the capture window and the
@@ -100,7 +119,7 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
  *    the newly-attributed losses.
  */
-export const METHODOLOGY = 7;
+export const METHODOLOGY = 8;
 
 export interface LedgerRow {
   id: string;
@@ -284,7 +303,12 @@ export function planSpawnLoad(cap: any): {
       const body = c.creepCount > 0 ? c.bodyParts / c.creepCount : resFallback;
       return sum + targets * body;
     }, 0);
-  const resLoad = resParts / Math.max(1, CLAIM_LIFETIME - 60);
+  // Amortized by the ONE home (methodology #8): reserverSpawnLoad prices the
+  // SHIPPED duty cycle (RESERVER_DUTY stints over the walk-adjusted claim
+  // life). This script's own continuous-duty recompute was the entire +8.02 F
+  // "favorable" reservation variance - measured spend 8.83 e/t was 0.524x a
+  // 16.85 budget, i.e. exactly the duty ratio the audit refused to price.
+  const resLoad = reserverSpawnLoad(resParts);
   lines.push(["reservers (claim life)", resParts, resLoad]);
 
   const total = lines.reduce((s, [, , x]) => s + x, 0);
@@ -2053,7 +2077,24 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const planSources = (cap.data.flow?.sources ?? []) as any[];
   const planHaulers = (cap.data.flow?.haulers ?? []) as any[];
   const bExtract = planSources.reduce((n, src) => n + minerOverhead(+src.spawnDistance || 0), 0);
-  const bEvac = planHaulers.reduce((n, h) => n + haulerOverhead(+h.carryParts || 0, +h.distance || 0), 0);
+  // EVACUATION BUDGET on the plan's OWN parts basis (methodology #8). Every
+  // CARRY/MOVE part costs exactly 50e, so the planner's paved-aware
+  // `spawnParts` (1.5p/CARRY on roads, 2p/CARRY off them) converts to energy
+  // exactly. haulerOverhead prices every route at the 1:1 body - the plan's
+  // internal parts-vs-energy disagreement, worth -2.82 e/t of slack that
+  // MASKED real breach - and stays only as the fallback for older captures.
+  const bEvacLegacy = planHaulers.reduce((n, h) => n + haulerOverhead(+h.carryParts || 0, +h.distance || 0), 0);
+  const haulersHaveParts = planHaulers.some(h => h.spawnParts !== undefined);
+  const bEvac = haulersHaveParts
+    ? planHaulers.reduce(
+        (n, h) =>
+          n +
+          (h.spawnParts !== undefined
+            ? (+h.spawnParts || 0) * (CARRY_MOVE_PAIR_COST / 2)
+            : haulerOverhead(+h.carryParts || 0, +h.distance || 0)),
+        0
+      )
+    : bEvacLegacy;
   const planOverhead = cap.data.flow?.summary?.totalOverhead;
   const sinks = (cap.data.flow?.sinks ?? []) as any[];
   const sinkAlloc = (type: string): number =>
@@ -2341,11 +2382,17 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
         "    the plan's fleet pricing is accurate to ~4%."
       ];
     })(),
-    `  BUDGET CHECK: extraction+evacuation ${(bExtract + bEvac).toFixed(2)} vs the plan's own totalOverhead ` +
+    `  BUDGET CHECK: extraction+evacuation(1:1 energy basis) ${(bExtract + bEvacLegacy).toFixed(2)} vs the plan's own totalOverhead ` +
       `${typeof planOverhead === "number" ? planOverhead.toFixed(2) : "n/a"}` +
-      `${typeof planOverhead === "number" && Math.abs(bExtract + bEvac - planOverhead) > 0.05 ? " <- DOES NOT RECONCILE" : " (reconciles)"}` +
-      `. Lines with a "-" budget are ones the plan does not state in ENERGY (reservation, infra, defense,` +
-      ` consumers) - left blank rather than converted from parts, which is biased across classes.`,
+      `${typeof planOverhead === "number" && Math.abs(bExtract + bEvacLegacy - planOverhead) > 0.05 ? " <- DOES NOT RECONCILE" : " (reconciles)"}` +
+      `. Lines with a "-" budget are ones the plan does not state in ENERGY.`,
+    ...(Math.abs(bEvac - bEvacLegacy) > 0.05
+      ? [
+          `  NOTE: the evacuation BUDGET above is the plan's PARTS basis (spawnParts x 50e); its energy side` +
+            ` (totalOverhead/netEnergy) still prices every route 1:1 - a ${(bEvacLegacy - bEvac).toFixed(2)} e/t` +
+            ` internal gap the planner's admission pricing carries until the phase-1 ratio-aware repricing.`
+        ]
+      : []),
     `  reservation buys ~${reserveUplift.toFixed(0)} e/t of the revenue line (${remoteSources} remote sources x ` +
       `${(SOURCE_RATE / 2).toFixed(0)} e/t uplift, reserved ${SOURCE_RATE} vs unreserved ${(SOURCE_RATE / 2).toFixed(0)})` +
       ` for ${perTick(cost.reservation).toFixed(2)} e/t of bodies.`,

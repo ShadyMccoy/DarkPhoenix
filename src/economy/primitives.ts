@@ -562,14 +562,12 @@ export function infraSpawnLoad(
   const TENDER_FLEET_PARTS = 48;
   const tender = (depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME;
   const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE (the full-budget live body - see RESERVER_DUTY)
-  const RESERVER_WALK = 60; // nominal remote-controller walk
   // Priced at the SHIPPED duty cycle (P5, verified live 2026-07-18): the
   // corp coasts on the reservation bank, one stint per ~1080t. Holding this
   // at 1.0 after the fix shipped was pure phantom slack (owner: no standing
   // reserves - defense preempts via priority when needed, it does not
-  // reserve capacity).
-  const reservers =
-    (RESERVER_DUTY * (remoteRoomCount * RESERVER_PARTS_PER_ROOM)) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK);
+  // reserve capacity). Composed from reserverSpawnLoad - the ONE home.
+  const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM);
   return feeder + tender + reservers;
 }
 
@@ -604,11 +602,46 @@ export function infraSpawnEnergy(
   const TENDER_FLEET_PARTS = 48;
   const tender = ((depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME) * CARRY_MOVE_PER_PART;
   const RESERVER_PARTS_PER_ROOM = 4;
-  const RESERVER_WALK = 60;
-  const reservers =
-    ((RESERVER_DUTY * (remoteRoomCount * RESERVER_PARTS_PER_ROOM)) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK)) *
-    CLAIM_MOVE_PER_PART;
+  const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
   return feeder + tender + reservers;
+}
+
+/**
+ * Spawn build-time (parts/tick) of a reserver fleet of `parts` body parts,
+ * priced at the SHIPPED duty cycle: RESERVER_DUTY stints over the
+ * walk-adjusted claim life. THE one home for reserver amortization -
+ * infraSpawnLoad composes it, and the audit's planSpawnLoad reads it, so the
+ * two can never drift again (the +8.02 F "favorable" reservation variance of
+ * FY4848-M02 was exactly this drift: the audit re-priced continuous duty 1.0
+ * while primitives and the live gate both ran 0.5).
+ */
+export function reserverSpawnLoad(parts: number): number {
+  const RESERVER_WALK = 60; // nominal remote-controller walk
+  return (RESERVER_DUTY * parts) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK);
+}
+
+/** CARRY:MOVE ratio hint (mirrors framework/EdgeVariant's HaulerRatio). */
+export type HaulerBodyRatio = "2:1" | "1:1" | "1:2";
+
+/** Engine cap on body size (MAX_CREEP_SIZE). */
+const MAX_BODY_PARTS = 50;
+
+/**
+ * TRUE energy cost of the hauler body a demand for `desiredCarry` CARRY at
+ * `ratio` elicits - whole CARRY:MOVE units, at least one, engine size cap -
+ * mirroring BodyBuilder.buildRatioHaulerBody's construction arithmetic
+ * exactly (pinned by the CarryCorp demand-pricing tests). Exists because the
+ * demand's price IS the debit: desiredCost at a flat 100e/CARRY over-granted
+ * 2:1 road bodies ~33% (75e/CARRY built) and under-granted 1:2 swamp bodies
+ * (150e/CARRY built), and the spawn receipt booked the grant - +3.99 e/t of
+ * phantom evacuation spend on the t72725767->t72734018 pair.
+ */
+export function haulerBodyCost(desiredCarry: number, ratio: HaulerBodyRatio = "1:1"): number {
+  const [carryRatio, moveRatio] = ratio === "2:1" ? [2, 1] : ratio === "1:2" ? [1, 2] : [1, 1];
+  const unitCost = carryRatio * BODY_COSTS.CARRY + moveRatio * BODY_COSTS.MOVE;
+  const maxBySize = Math.floor(MAX_BODY_PARTS / (carryRatio + moveRatio));
+  const units = Math.max(1, Math.min(Math.ceil(desiredCarry / carryRatio), maxBySize));
+  return units * unitCost;
 }
 
 /** Miner spawn overhead (energy/tick) for a source `distance` from its spawn. */

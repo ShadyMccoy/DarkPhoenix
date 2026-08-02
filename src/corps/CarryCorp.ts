@@ -24,6 +24,7 @@ import {
   CREEP_LIFETIME,
   carryPartsFor,
   haulerBodyCarry,
+  haulerBodyCost,
   maxCarryPairs,
   roundTripTicks,
   staffsPost
@@ -1335,7 +1336,14 @@ export class CarryCorp extends Corp {
       desiredCarry = haulerBodyCarry(ctx.energyCapacity, carryNeeded);
     }
     desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, desiredCarry));
-    const desiredCost = desiredCarry * CARRY_MOVE_PAIR_COST;
+    // The grant IS the debit (methodology #8): price the body this demand
+    // actually elicits at its route's ratio, not a flat 100e/CARRY. The flat
+    // price over-granted 2:1 road bodies ~33% (75e/CARRY built) - and the
+    // scheduler debits st.energyLeft by the GRANT, so the over-ask also
+    // suppressed same-tick purchases further down the agenda - while 1:2
+    // swamp bodies (150e/CARRY) were under-granted and built short.
+    const ratio = assignments[0].haulerRatio ?? "1:1";
+    const desiredCost = haulerBodyCost(desiredCarry, ratio);
 
     // Don't let the scheduler spawn a 1-CARRY runt under energy pressure: it
     // moves only 50 energy per round trip - useless on a real route - yet it
@@ -1349,7 +1357,9 @@ export class CarryCorp extends Corp {
     // any undersized survivors are recycled and replaced once we are maxed out
     // and the spawn would otherwise idle.
     const HAULER_MIN_CARRY = 3;
-    const minCost = Math.min(desiredCarry, HAULER_MIN_CARRY) * CARRY_MOVE_PAIR_COST;
+    // Same basis as desiredCost: the floor body's TRUE cost at this route's
+    // ratio, never above the full ask.
+    const minCost = Math.min(haulerBodyCost(Math.min(desiredCarry, HAULER_MIN_CARRY), ratio), desiredCost);
 
     return [
       {

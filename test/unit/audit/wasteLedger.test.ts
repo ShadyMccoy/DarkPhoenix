@@ -12,6 +12,7 @@ import {
   planSpawnLoad
 } from "../../../scripts/waste-ledger";
 import { ALL_CORP_KINDS, ALL_SPAWN_ROLES } from "../../../src/execution/CommissionHost";
+import { haulerOverhead, reserverSpawnLoad } from "../../../src/economy/primitives";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -92,7 +93,12 @@ describe("waste ledger (spec 15 phase 1)", () => {
     const one = resLoad(mk([room("W42N22")]));
     const all = resLoad(mk(seven));
     expect(all, "seven rooms cost seven reservers, not one").to.be.closeTo(7 * one, 1e-9);
-    expect(all, "28 parts over the claim life, not 4").to.be.closeTo(28 / (600 - 60), 1e-9);
+    // 28 parts, amortized by the ONE home (duty-bearing since methodology #8 -
+    // the continuous-duty recompute this line used to pin was the +8.02 F lie).
+    expect(all, "28 parts at the shipped duty over the claim life, not 4").to.be.closeTo(
+      reserverSpawnLoad(28),
+      1e-9
+    );
   });
 
   it("P4's reserver line stays zero when no room is reserved", () => {
@@ -1725,5 +1731,68 @@ describe("energy account: tombstone cause is expired/killed/UNKNOWN (#7)", () =>
     const line = text.split("\n").find(l => l.includes("by cause:"))!;
     expect(line).to.include("unknown 100%");
     expect(line).to.not.include("killed 100%");
+  });
+});
+
+/**
+ * METHODOLOGY #8 - the account's budgets price what the colony actually runs.
+ *
+ * Two second-implementation drifts inflated the variance surface (evidence,
+ * t72725767->t72734018 pair): the reserver budget priced continuous duty 1.0
+ * where primitives and the shipped gate use RESERVER_DUTY 0.5 (the whole
+ * +8.02 "favorable" variance was this lie - measured 8.83 = 0.524x budget),
+ * and the evacuation budget priced every route at the 1:1 body (100e/CARRY)
+ * while the planner's parts side prices paved routes at 1.5p/CARRY (-2.82 e/t
+ * of slack that MASKED real breach). Every CARRY/MOVE part costs exactly 50e,
+ * so the parts plan converts to energy exactly: bEvac = sum spawnParts x 50.
+ */
+describe("energy account: budgets price the shipped behavior (#8)", () => {
+  const quietLosses = {
+    windowTicks: 1e9, pileDecay: 0, structureDecay: 0, repairSpend: 0,
+    tombstoneLost: 0, tombstoneRecovered: 0, tombstoneStock: 0
+  };
+
+  it("prices the account's reserver budget at the SHIPPED duty cycle", () => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.corps.corps = c.data.corps.corps.filter((x: any) => x.kind !== "reservation");
+    c.data.corps.corps.push({
+      id: "reservation-W2N2-reservation",
+      kind: "reservation",
+      creepCount: 1,
+      bodyParts: 4,
+      body: { claim: 2, move: 2 },
+      sizing: { targets: 1 }
+    });
+    const { lines } = planSpawnLoad(c);
+    const res = lines.find(([n]) => n.startsWith("reservers"))!;
+    expect(res, "the reserver line exists").to.not.equal(undefined);
+    expect(res[2], "4 parts priced at duty 0.5 over the walk-adjusted claim life").to.be.closeTo(
+      reserverSpawnLoad(4),
+      1e-9
+    );
+  });
+
+  it("budgets evacuation on the plan's OWN parts basis when routes carry spawnParts", () => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.core.losses = { ...quietLosses };
+    c.data.flow.haulers = [
+      { sourceId: "s1", carryParts: 10, distance: 20, spawnParts: (1.5 * 10) / 1480 }, // paved 2:1
+      { sourceId: "s2", carryParts: 10, distance: 20, spawnParts: (2 * 10) / 1480 } // unpaved 1:1
+    ];
+    const text = formatAccounts(c, cap72404213, computeLedger(c, cap72404213));
+    const line = text.split("\n").find(l => l.includes("evacuation  (hauler)"))!;
+    const budget = Number(line.match(/-?\d+\.\d\d/g)![0]);
+    const expected = -(((1.5 * 10) / 1480 + (2 * 10) / 1480) * 50);
+    expect(budget).to.be.closeTo(expected, 0.005);
+  });
+
+  it("keeps the 1:1 energy fallback for captures whose routes predate spawnParts", () => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.core.losses = { ...quietLosses };
+    c.data.flow.haulers = [{ sourceId: "s1", carryParts: 10, distance: 20 }];
+    const text = formatAccounts(c, cap72404213, computeLedger(c, cap72404213));
+    const line = text.split("\n").find(l => l.includes("evacuation  (hauler)"))!;
+    const budget = Number(line.match(/-?\d+\.\d\d/g)![0]);
+    expect(budget).to.be.closeTo(-haulerOverhead(10, 20), 0.005);
   });
 });

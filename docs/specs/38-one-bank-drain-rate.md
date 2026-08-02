@@ -202,8 +202,16 @@ same basis so plan and measurement cannot diverge on amortization convention.
    budget, so the override's precondition disappears? The `partsLedger.dry`
    flag (shipped v9) may already be that discriminator: t72455355 would have
    read `dry: true`, and t72681617 reads `dry: false` with 0.070 p/t unspent.
-   Unverified hypothesis — check `dry` against the two captures before
-   building on it.
+   **CHECKED 2026-08-02 (phase-0 hedge of the income-statement program):**
+   neither committed capture is dry — t72725767 (SURPLUS regime, bank 130,795,
+   controller allocated 77.6) reads partsLeft 0.133, and t72734018 (FILLING
+   regime, bank 67,206, allocation at the 15 floor) reads partsLeft 0.216. So
+   `dry` never fires in either live regime today and the t72455355 state
+   (bank full + ledger dry + allocation ~2) does not occur organically — the
+   acceptance-1 conformance test MUST STAGE it (grid cell, owned-schema
+   storage) rather than wait for a live capture. The outcome-level pin
+   already landed green in test/unit/economy/bank.test.ts ("t72455355 pin: a
+   full bank NEVER starves the relay").
 3. **Does the parts ledger need a transition term at all** (spec 11 GOAL vs
    NOW), or is the ramp cost small enough to leave in the headroom?
 

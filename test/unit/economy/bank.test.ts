@@ -165,3 +165,31 @@ describe("surplus drain horizon (owner 2026-07-29: size upgraders to the equilib
     expect(SURPLUS_DRAIN_TICKS).to.be.at.least(CREEP_LIFETIME);
   });
 });
+
+/**
+ * THE t72455355 PIN (spec 38's regression test, landed ahead of the refactor).
+ *
+ * The incident: 340k banked against a ~70k reserve while the PLAN's controller
+ * allocation read ~2 e/t - obeying the plan starved the relay to 7 e/t with a
+ * full warchest standing. The consumer-side override (feederRelayRate reading
+ * the BANK, not the plan) is what kept upgrading alive, and spec 38 warns that
+ * a naive clamp to the plan re-opens exactly this hole.
+ *
+ * This pin encodes the OUTCOME, not the mechanism: however phase 4 moves the
+ * floor into the solver and kills the +15 side-channel, a bank deep in surplus
+ * must still drive a large drain. If this test breaks, the refactor re-created
+ * the incident - stop and re-read spec 38 section "the override is
+ * incident-backed".
+ */
+describe("t72455355 pin: a full bank NEVER starves the relay (spec 38 guard)", () => {
+  it("drives a large drain at incident-shaped stocks, whatever the plan says", () => {
+    // 340k banked, 70k reserve: surplus 270k -> drain capped at MAX_SURPLUS_DRAW.
+    const rate = feederRelayRate(340_000, 70_000);
+    expect(rate).to.be.at.least(100, "the relay the incident needed was ~115 e/t; 7 e/t starved it");
+    expect(rate).to.equal(STORAGE_UPGRADE_TARGET + MAX_SURPLUS_DRAW);
+  });
+
+  it("still relays the save-regime floor when the bank sits AT reserve", () => {
+    expect(feederRelayRate(70_000, 70_000)).to.equal(STORAGE_UPGRADE_TARGET);
+  });
+});

@@ -54,6 +54,17 @@ export function spawnDirectionsToward(
 /**
  * Serialized state specific to SpawningCorp
  */
+/**
+ * What one successful executeSpawn actually bought: the parts count and the
+ * energy DEBITED for the body (never the budget granted - the two differ
+ * whenever the built body rounds under the grant, and booking the grant put
+ * +3.99 e/t of phantom spend on the evacuation line at t72734018).
+ */
+export interface SpawnPurchase {
+  parts: number;
+  cost: number;
+}
+
 export interface SerializedSpawningCorp extends SerializedCorp {
   spawnId: string;
 }
@@ -121,9 +132,9 @@ export class SpawningCorp extends Corp {
     haulerRatio?: HaulerRatio,
     bodyStrategy?: string,
     bufferCarry?: number
-  ): number {
+  ): SpawnPurchase | null {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (!spawn || spawn.spawning) return 0;
+    if (!spawn || spawn.spawning) return null;
 
     const corpKind = getCorpKind(kind);
     const roleSpec = corpKind?.roles[role];
@@ -131,14 +142,14 @@ export class SpawningCorp extends Corp {
       // A wiring bug (unregistered kind / undeclared role), surfaced loudly:
       // conformance asserts every kind's demand roles are declared.
       console.log(`[Spawning] no registered kind/role for ${kind}/${role} (buyer ${buyerCorpId})`);
-      return 0;
+      return null;
     }
 
     const body = corpKind.body(role, bodyParam, energyBudget, { haulerRatio, bodyStrategy, bufferCarry });
-    if (body.length === 0) return 0;
+    if (body.length === 0) return null;
 
     const bodyCost = this.calculateBodyCost(body);
-    if (spawn.room.energyAvailable < bodyCost) return 0;
+    if (spawn.room.energyAvailable < bodyCost) return null;
 
     const name = `${role}-${buyerCorpId.slice(-6)}-${tick}`;
     // Drain in refill-circuit order (owner directive): spawning empties the
@@ -160,17 +171,19 @@ export class SpawningCorp extends Corp {
       this.recordProduction(workParts * CREEP_LIFETIME);
       // Cumulative spend ledger, at the executor: EVERY purchase crosses this
       // seam (the director AND direct buyers like the scout corp), and
-      // `bodyCost` is the energy actually debited - the director's blackbox
-      // receipt records the BUDGET it granted, which rounds high whenever the
-      // built body lands under it. The account differences these totals
-      // between captures, so its window is never bounded by a deploy.
+      // `bodyCost` is the energy actually debited - the grant rounds high
+      // whenever the built body lands under it. The account differences these
+      // totals between captures, so its window is never bounded by a deploy.
       accrueSpawnSpend(role, bodyCost, body.length);
       const carryParts = body.filter(p => p === CARRY).length;
       const partsInfo = role === "hauler" ? `${carryParts}C` : `${workParts}W`;
       console.log(`[Spawning] Spawned ${name} (${partsInfo}, ${bodyCost} energy)`);
-      return body.length;
+      // The purchase record IS the receipt's source of truth (methodology #8):
+      // parts AND the debit, so the director's blackbox row books what was
+      // paid, never the budget it happened to grant.
+      return { parts: body.length, cost: bodyCost };
     }
-    return 0;
+    return null;
   }
 
   /**

@@ -49,9 +49,10 @@ function twoSpawnWorld(energyAvailable: number): { registry: any; built: Built[]
       // Faithful to the real executor's affordability gate: no creep if the
       // bank can't cover the granted budget (that is what the decrement guards).
       executeSpawn: (_k: string, _r: string, buyer: string, budget: number) => {
-        if (room.energyAvailable < budget) return false;
+        if (room.energyAvailable < budget) return null;
         built.push({ spawn: s.id, buyer, budget });
-        return true;
+        // Stub bodies cost exactly the grant (methodology #8 purchase record).
+        return { parts: 1, cost: budget };
       }
     } as any;
   }
@@ -176,7 +177,7 @@ describe("runSpawnScheduling - pooled two-spawn assignment", () => {
       registry.spawningCorps[id] = {
         executeSpawn: (_k: string, _r: string, buyer: string, budget: number) => {
           built.push({ spawn: id, buyer, budget });
-          return true;
+          return { parts: 1, cost: budget };
         }
       } as any;
     }
@@ -236,9 +237,9 @@ describe("runSpawnScheduling - pooled two-spawn assignment", () => {
     for (const id of ["sRich", "sPoor"]) {
       registry.spawningCorps[id] = {
         executeSpawn: (_k: string, _r: string, buyer: string, budget: number) => {
-          if ((Game.rooms as any)[id === "sRich" ? RICH : POOR].energyAvailable < budget) return false;
+          if ((Game.rooms as any)[id === "sRich" ? RICH : POOR].energyAvailable < budget) return null;
           built.push({ spawn: id, buyer, budget });
-          return true;
+          return { parts: 1, cost: budget };
         }
       } as any;
     }
