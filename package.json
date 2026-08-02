@@ -50,7 +50,8 @@
     "deploy": "ts-node -P tsconfig.test.json scripts/deploy-code.ts",
     "audit:ledger": "ts-node -P tsconfig.test.json scripts/waste-ledger.ts",
     "audit:report": "ts-node -P tsconfig.test.json scripts/audit-report.ts",
-    "fiscal:close": "ts-node -P tsconfig.test.json scripts/fiscal-close.ts"
+    "fiscal:close": "ts-node -P tsconfig.test.json scripts/fiscal-close.ts",
+    "budget": "ts-node -P tsconfig.test.json scripts/budget.ts"
   },
   "repository": {
     "type": "git",
