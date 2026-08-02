@@ -30,6 +30,7 @@ import {
 } from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { travelTicksPerTile } from "./economics";
+import { traceHaulTick } from "../telemetry/HaulTrace";
 
 /**
  * Hard backstop on bodies per hauling corp - the pathological case where the
@@ -262,11 +263,22 @@ export class CarryCorp extends Corp {
       const energy = creep.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0;
       const prev = creep.memory.dutyPos;
       const prevEnergy = creep.memory.dutyEnergy;
+      if (prev === undefined || prevEnergy === undefined) {
+        // First observation: seeds the snapshot, counts toward nothing. The
+        // trace still records it so a life starts at tick one rather than two.
+        traceHaulTick(creep, this.id, tick, energy, "seed");
+      }
       if (prev !== undefined && prevEnergy !== undefined) {
         const moved = prev.x !== creep.pos.x || prev.y !== creep.pos.y || prev.roomName !== creep.pos.roomName;
         const transacted = prevEnergy !== energy;
         this.dutyAlive += 1;
-        switch (classifyHaulerTick(moved, transacted, energy > 0)) {
+        const verdict = classifyHaulerTick(moved, transacted, energy > 0);
+        // PER-TICK TRACE (owner 2026-08-02). The duty counters below aggregate
+        // this same verdict into a mean; the trace keeps it unaggregated for
+        // ONE armed creep, because a mean cannot show a hauler standing on one
+        // tile for forty ticks and a timeline can.
+        traceHaulTick(creep, this.id, tick, energy, verdict);
+        switch (verdict) {
           case "active":
             this.dutyActive += 1;
             break;

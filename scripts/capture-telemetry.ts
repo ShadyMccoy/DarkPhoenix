@@ -3,7 +3,7 @@
 /**
  * capture-telemetry - snapshot the live bot's telemetry segments to disk.
  *
- * The live bot writes colony state to RawMemory.segments[0-6] every tick and
+ * The live bot writes colony state to RawMemory.segments[0-7] every tick and
  * marks them public (src/telemetry/Telemetry.ts). This pulls those parsed
  * segments down as ONE timestamped JSON file so live economy state is
  * diff-able / inspectable in the dev repo - the on-disk counterpart of the
@@ -64,7 +64,8 @@ const SEGMENT_LABELS: Record<number, string> = {
   3: "intel",
   4: "corps",
   5: "blackbox",
-  6: "flow"
+  6: "flow",
+  7: "haulTrace"
 };
 const ALL_SEGMENTS = [0, 1, 2, 3, 4, 5, 6];
 

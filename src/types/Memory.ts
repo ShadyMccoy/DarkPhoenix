@@ -352,6 +352,17 @@ declare global {
     lastFleetCharge?: number;
 
     /**
+     * Arms the per-tick hauler flight recorder (telemetry/HaulTrace). Every
+     * other hauling instrument is an aggregate, and a mean cannot show a creep
+     * standing on one tile for forty ticks. Set from the live console:
+     *   Memory.haulTrace = { corp: "mining-W43N24-harvest-cd8e" }
+     *   Memory.haulTrace = { creep: "h_1234" }
+     * Deleting it stops the recorder. The subject is locked once chosen so the
+     * trace follows ONE life rather than hopping between creeps.
+     */
+    haulTrace?: { corp?: string; creep?: string };
+
+    /**
      * CUMULATIVE loss totals in energy (telemetry/LossMeter), monotonic and
      * surviving global resets. In Memory because the measured window must be
      * bounded by how far apart two captures are, not by VM lifetime: as module

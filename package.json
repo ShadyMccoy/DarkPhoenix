@@ -51,7 +51,8 @@
     "audit:ledger": "ts-node -P tsconfig.test.json scripts/waste-ledger.ts",
     "audit:report": "ts-node -P tsconfig.test.json scripts/audit-report.ts",
     "fiscal:close": "ts-node -P tsconfig.test.json scripts/fiscal-close.ts",
-    "budget": "ts-node -P tsconfig.test.json scripts/budget.ts"
+    "budget": "ts-node -P tsconfig.test.json scripts/budget.ts",
+    "haul:trace": "ts-node -P tsconfig.test.json scripts/haul-trace.ts"
   },
   "repository": {
     "type": "git",
