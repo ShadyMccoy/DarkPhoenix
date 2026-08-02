@@ -19,6 +19,7 @@
 import { Colony } from "../colony/Colony";
 import { controllerSideStock, sourceBufferStock, sourceDroppedStock } from "../corps/nodeEnergy";
 import { lossReport } from "./LossMeter";
+import { spawnSpendView } from "./spawnLedger";
 import { linkLedger } from "./LinkMeter";
 import { getCompletedLedger } from "./cpuLedgerCache";
 import { SPAWN_PARTS_PER_TICK } from "../economy/primitives";
@@ -253,8 +254,17 @@ export interface CoreTelemetry {
     tombstoneByRole?: Record<string, number>;
     tombstoneExpired?: number;
     tombstoneKilled?: number;
-    /** Mean/max TTL remaining at death (v24) - the AUDIT on the cause split.
-     *  A 0%/100% split is the signature of a misread field, not a finding. */
+    /**
+     * Energy whose cause of death could NOT be resolved (v25). v23 derived
+     * cause from `tombstone.creep.ticksToLive` - 0/undefined on every dead
+     * creep - so everything defaulted into "expired" and the v24 audit line
+     * read SUSPECT forever. Cause now comes from the death watch (last-seen
+     * TTL vs deathTime); no watch entry lands here, honestly, instead of in
+     * a fabricated bucket.
+     */
+    tombstoneCauseUnknown?: number;
+    /** Mean/max TTL remaining at death (v24) - over KNOWN deaths only since
+     *  v25 (an unresolvable ttl no longer drags the mean toward zero). */
     tombstoneTtlMean?: number;
     tombstoneTtlMax?: number;
     /**
@@ -263,7 +273,8 @@ export interface CoreTelemetry {
      * 480t against a 1251-tick capture window at t72722670, so a 1500-tick
      * fiscal month could never be measured. The account DIFFERENCES these
      * between captures instead, so the measured window equals the capture
-     * window for any length.
+     * window for any length. The tombstone attribution keys (v25, additive)
+     * make the by-role/by-cause decomposition differenceable the same way.
      */
     cumulative?: {
       pileDecay: number;
@@ -271,7 +282,27 @@ export interface CoreTelemetry {
       repairSpend: number;
       tombstoneGross: number;
       tombstoneRecovered: number;
+      tombstoneByRole?: Record<string, number>;
+      tombstoneExpired?: number;
+      tombstoneKilled?: number;
+      tombstoneCauseUnknown?: number;
+      tombstoneTtlSum?: number;
+      tombstoneTtlKnown?: number;
     };
+  };
+  /**
+   * CUMULATIVE spawn spend by role (v25, telemetry/spawnLedger) - the
+   * account's LAST short-window side made capture-bounded. Every "measured at
+   * the spawn" account line was read off the blackbox ring (heap state, ~480t
+   * after a deploy), so a 1500-tick fiscal month printed WINDOW INCOHERENCE
+   * on essentially every close. The account differences these totals between
+   * two captures; the ring stays for forensics and per-corp P&L detail.
+   * Accrued at the SpawningCorp executor with the energy actually debited
+   * (the ring's `cost` is the budget GRANTED, which rounds high).
+   */
+  spawnSpend?: {
+    energyByRole: Record<string, number>;
+    partsByRole: Record<string, number>;
   };
   /** Owned rooms summary */
   rooms: {
@@ -497,7 +528,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 24, // v23 tombstone role+cause; v24 ttlAtDeath distribution (audits the cause split) 2026-08-02
+    version: 25, // v24 ttlAtDeath distribution; v25 spawnSpend cumulative + death-watch cause + unknown bucket 2026-08-02
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
@@ -568,6 +599,15 @@ export function updateCoreTelemetry(
     ...(() => {
       const losses = lossReport(Game.time);
       return losses.windowTicks > 0 ? { losses } : {};
+    })(),
+    // Published even at zero: presence means "the ledger exists", so an
+    // account differencing two captures can trust an empty baseline as a real
+    // zero (a cold-start world genuinely bought nothing) and reserves absence
+    // for captures from before the ledger shipped - those fall back to the
+    // blackbox ring, stated as such.
+    ...(() => {
+      const spend = spawnSpendView();
+      return { spawnSpend: { energyByRole: spend.energyByRole, partsByRole: spend.partsByRole } };
     })(),
     rooms
   };

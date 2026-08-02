@@ -53,6 +53,20 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  * 1: energy account (revenue / direct / overhead / appropriations / residual),
  *    budget-vs-actual-vs-variance, source P&L, controller variance bridge,
  *    ground rot split, capital vs operating, reserving as COGS.
+ * 7: SPAWN COSTS are differenced from CUMULATIVE role totals (core v25,
+ *    Memory.spawnLedger) instead of read off the blackbox ring, completing what
+ *    #5 did for losses: every account side now spans the capture window and the
+ *    WINDOW INCOHERENCE guard goes structurally quiet on modern capture pairs.
+ *    Two changes of meaning: (a) a #6 spawn line is a post-deploy ring sample
+ *    (480t live) while a #7 line is the full window - NOT comparable across the
+ *    bump; (b) the cumulative side accrues the energy actually DEBITED for the
+ *    body where the ring records the budget GRANTED, so #7 spawn lines read
+ *    slightly lower on the same colony, and scout/bootstrap purchases (which
+ *    bypass the director's receipt) are counted for the first time. Tombstone
+ *    CAUSE also becomes evidence-based here: killed/expired come from the death
+ *    watch (last-seen TTL vs deathTime), an unresolvable death lands in an
+ *    honest UNKNOWN bucket, and the #4-#6 "expired 100%" readings (a misread
+ *    constant field, flagged SUSPECT by their own audit line) are voided.
  * 6: the LINK TRANSFER TAX moves from LOSSES into DIRECT COST OF MINING, beside
  *    evacuation (owner 2026-08-02: "link tax is similar to haul body"). Both are
  *    per-source costs scaling with the flow they move; only the currency differs
@@ -86,7 +100,7 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
  *    the newly-attributed losses.
  */
-export const METHODOLOGY = 6;
+export const METHODOLOGY = 7;
 
 export interface LedgerRow {
   id: string;
@@ -1896,17 +1910,41 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const ring = rows0.length > 1 ? rows0[rows0.length - 1].t - rows0[0].t : 0;
   const spawnRows = rows0.filter(r => r.k === "spawn" && r.d?.cost);
 
+  // SPAWN COSTS OVER THE CAPTURE WINDOW (methodology #7). The blackbox ring is
+  // heap state: a deploy restarts it, so every "measured at the spawn" line
+  // sampled a post-deploy window (480t live) against a 1500-tick fiscal month
+  // and the coherence guard fired on essentially every close. The spawn ledger
+  // (core v25) publishes CUMULATIVE energy-by-role totals; when BOTH captures
+  // carry them the account differences those - the same shape as gcl.progress,
+  // storage and the loss lines - and the ring remains only the forensic
+  // fallback for older captures, stated as such in the header.
+  const spendOf = (c: any): { energyByRole: Record<string, number> } | undefined => c.data.core?.spawnSpend;
+  const spendCap = spendOf(cap);
+  const spendBase = spendOf(base);
+  const spawnSpanned = spendCap !== undefined && spendBase !== undefined;
+
   const cost: Record<string, number> = {
     extraction: 0, evacuation: 0, reservation: 0,
     infra: 0, defense: 0, consumers: 0, expansion: 0, incursion: 0, other: 0
   };
   const unknownRoles = new Set<string>();
-  for (const r of spawnRows) {
-    const cls = ACCOUNT_CLASS_OF_ROLE[r.d.role];
-    if (!cls) unknownRoles.add(r.d.role);
-    cost[cls ?? "other"] += r.d.cost;
+  if (spawnSpanned) {
+    const roles = new Set([...Object.keys(spendCap.energyByRole ?? {}), ...Object.keys(spendBase.energyByRole ?? {})]);
+    for (const role of roles) {
+      const spent = Math.max(0, (spendCap.energyByRole?.[role] ?? 0) - (spendBase.energyByRole?.[role] ?? 0));
+      if (spent <= 0) continue;
+      const cls = ACCOUNT_CLASS_OF_ROLE[role];
+      if (!cls) unknownRoles.add(role);
+      cost[cls ?? "other"] += spent;
+    }
+  } else {
+    for (const r of spawnRows) {
+      const cls = ACCOUNT_CLASS_OF_ROLE[r.d.role];
+      if (!cls) unknownRoles.add(r.d.role);
+      cost[cls ?? "other"] += r.d.cost;
+    }
   }
-  const perTick = (n: number) => (ring > 0 ? n / ring : 0);
+  const perTick = (n: number) => (spawnSpanned ? n / dt : ring > 0 ? n / ring : 0);
   const direct = cost.extraction + cost.evacuation + cost.reservation;
   const overhead = cost.infra + cost.defense + cost.consumers + cost.other;
   const capital = cost.expansion + cost.incursion;
@@ -1957,6 +1995,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
         tombstoneByRole?: Record<string, number>;
         tombstoneExpired?: number;
         tombstoneKilled?: number;
+        tombstoneCauseUnknown?: number;
         tombstoneTtlMean?: number;
         tombstoneTtlMax?: number;
         tombstoneStock: number;
@@ -2095,7 +2134,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     return `${" ".repeat(indent)}${label.padEnd(38 - indent)}${b.padStart(9)}${actual.toFixed(2).padStart(10)}${v.padStart(11)}`;
   };
   return [
-    `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ring ${ring}t${
+    `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ${spawnSpanned ? `${dt}t cumulative` : `ring ${ring}t`}${
       meter ? `; losses ${spanned ? `${dt}t cumulative` : `${meter.windowTicks}t since-reset`}` : ""
     })  [methodology #${METHODOLOGY}]`,
     // WINDOW COHERENCE (methodology #3). The residual is a DIFFERENCE of rates,
@@ -2111,9 +2150,11 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     // 4.3x - and the residual came out at -25.10, i.e. 25% of gross mining
     // OVER-attributed. That is what prompted this check.
     ...(() => {
-      // Cumulative loss totals span the capture window by construction, so
-      // only the spawn ring can still be short.
-      const shortest = Math.min(ring || dt, spanned || !meter ? dt : meter.windowTicks);
+      // Every side that reads CUMULATIVE totals spans the capture window by
+      // construction; only a side still on its legacy short window (the ring
+      // for old captures, the since-reset meter for pre-v22 ones) can drag
+      // the residual into incoherence.
+      const shortest = Math.min(spawnSpanned ? dt : ring || dt, spanned || !meter ? dt : meter.windowTicks);
       const spread = shortest > 0 ? dt / shortest : Infinity;
       if (spread <= 2) return [];
       return [
@@ -2187,30 +2228,79 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
                 // cannot attribute is not actionable: haulers expiring mid-route
                 // fold into the carry deficit, anything KILLED is a defense
                 // question, and those are different work items.
+                //
+                // Cause is a VERDICT from the death watch (methodology #7):
+                // expired/killed carry evidence, and a death the watch never
+                // saw prints as UNKNOWN instead of being defaulted - the #4-#6
+                // rule read a field that is 0 on every dead creep and called
+                // 100% of deaths "expired", which its own audit line flagged
+                // SUSPECT on every close. Attribution prefers the CUMULATIVE
+                // keys (same capture-bounded window as the loss line itself);
+                // the meter's since-reset view is the stated fallback.
                 ...(() => {
-                  const byRole = meter?.tombstoneByRole;
-                  if (!byRole || Object.keys(byRole).length === 0) return [];
-                  const gross = Object.values(byRole).reduce((a, b) => a + b, 0) || 1;
-                  const roles = Object.entries(byRole)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([r, e]) => `${r} ${((e / gross) * 100).toFixed(0)}%`)
-                    .join("  ");
-                  const killed = meter?.tombstoneKilled ?? 0;
-                  const expired = meter?.tombstoneExpired ?? 0;
-                  const cause = killed + expired > 0
-                    ? `expired ${((expired / (killed + expired)) * 100).toFixed(0)}%  killed ${((killed / (killed + expired)) * 100).toFixed(0)}%`
-                    : "cause unknown";
-                  // The cause split is only as good as the field behind it, so
-                  // print the raw TTL distribution beside it. 0%/100% with a
-                  // CONSTANT ttl is a misread field; a spread is a real answer.
-                  const mean = meter?.tombstoneTtlMean ?? 0;
-                  const max = meter?.tombstoneTtlMax ?? 0;
-                  const suspect = (killed === 0 || expired === 0) && mean === max;
-                  return [
-                    `      by role: ${roles}`,
-                    `      by cause: ${cause}   (ttl at death mean ${mean.toFixed(0)} max ${max.toFixed(0)})` +
-                      (suspect ? "  <- SUSPECT: one-sided split on a constant ttl, read the field not the %" : "")
-                  ];
+                  const cc = cumCap as any;
+                  const cb = cumBase as any;
+                  const attSpanned = spanned && cc?.tombstoneExpired !== undefined && cb?.tombstoneExpired !== undefined;
+                  const attDiff = (key: string): number => Math.max(0, (cc?.[key] ?? 0) - (cb?.[key] ?? 0));
+                  const byRole: Record<string, number> = attSpanned
+                    ? (() => {
+                        const out: Record<string, number> = {};
+                        const keys = new Set([
+                          ...Object.keys(cc.tombstoneByRole ?? {}),
+                          ...Object.keys(cb.tombstoneByRole ?? {})
+                        ]);
+                        for (const k of keys) {
+                          const d = Math.max(0, (cc.tombstoneByRole?.[k] ?? 0) - (cb.tombstoneByRole?.[k] ?? 0));
+                          if (d > 0) out[k] = d;
+                        }
+                        return out;
+                      })()
+                    : meter?.tombstoneByRole ?? {};
+                  // A capture WITHOUT the v25 unknown bucket predates the death
+                  // watch: its expired/killed figures came off the dead field
+                  // and are VOIDED (#7) - live archaeology has the v23 deploy
+                  // booking 100% killed and the v24 one 100% expired off the
+                  // SAME field. Role attribution never depended on that field
+                  // and stays; cause degrades to unknown, honestly.
+                  const v25 = attSpanned || meter?.tombstoneCauseUnknown !== undefined;
+                  const expired = attSpanned ? attDiff("tombstoneExpired") : v25 ? meter?.tombstoneExpired ?? 0 : 0;
+                  const killed = attSpanned ? attDiff("tombstoneKilled") : v25 ? meter?.tombstoneKilled ?? 0 : 0;
+                  const unknown = attSpanned
+                    ? attDiff("tombstoneCauseUnknown")
+                    : v25
+                      ? meter?.tombstoneCauseUnknown ?? 0
+                      : Object.values(byRole).reduce((a, b) => a + b, 0);
+                  const causeTotal = expired + killed + unknown;
+                  const out: string[] = [];
+                  if (Object.keys(byRole).length > 0) {
+                    const gross = Object.values(byRole).reduce((a, b) => a + b, 0) || 1;
+                    out.push(
+                      `      by role: ` +
+                        Object.entries(byRole)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([r, e]) => `${r} ${((e / gross) * 100).toFixed(0)}%`)
+                          .join("  ")
+                    );
+                  }
+                  if (causeTotal > 0) {
+                    const pct = (n: number): string => `${((n / causeTotal) * 100).toFixed(0)}%`;
+                    // TTL context rides along where any death was resolved: for
+                    // known deaths the ttl IS the verdict's evidence (expired =
+                    // 0 by definition, killed = the life cut short).
+                    const ttlKnown = attSpanned ? attDiff("tombstoneTtlKnown") : 0;
+                    const ttlMean = attSpanned
+                      ? ttlKnown > 0
+                        ? attDiff("tombstoneTtlSum") / ttlKnown
+                        : 0
+                      : meter?.tombstoneTtlMean ?? 0;
+                    const ttl =
+                      expired + killed > 0 ? `   (ttl at death mean ${ttlMean.toFixed(0)} over known deaths)` : "";
+                    out.push(
+                      `      by cause: expired ${pct(expired)}  killed ${pct(killed)}  unknown ${pct(unknown)}${ttl}` +
+                        (unknown === causeTotal ? "  <- no death-watch coverage this window" : "")
+                    );
+                  }
+                  return out;
                 })(),
                 L("repair (energy spent holding hits)", -repairSpend, 4),
                 L("= measured losses", -meteredLosses, 4)

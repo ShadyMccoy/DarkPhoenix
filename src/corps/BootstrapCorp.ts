@@ -25,6 +25,7 @@ import {
 } from "./CorpConstants";
 import { Corp, SerializedCorp } from "./Corp";
 import { Position } from "../types/Position";
+import { accrueSpawnSpend } from "../telemetry/spawnLedger";
 
 /**
  * Ticks the spawn must be stuck (no creeps, low energy) before bootstrap activates.
@@ -276,6 +277,11 @@ export class BootstrapCorp extends Corp {
       });
       this.lastEmergencyAttempt = tick;
       if (result === OK) {
+        // Bootstrap bypasses the SpawningCorp executor, so it must feed the
+        // cumulative spend ledger itself or cold-start bodies vanish from the
+        // account. "jack" has no account class on purpose: it prints as
+        // UNCLASSIFIED, which is honest for a pre-economy body.
+        accrueSpawnSpend("jack", JACK_COST, JACK_BODY.length);
         this.emergencyJackNames.push(name);
       }
     }
@@ -367,6 +373,7 @@ export class BootstrapCorp extends Corp {
     this.lastSpawnAttempt = tick;
 
     if (result === OK) {
+      accrueSpawnSpend("jack", cost, body.length);
       this.creepNames.push(name);
       console.log(`[Bootstrap] Spawned ${name} (${body.length} parts, commute ${commute})`);
     }

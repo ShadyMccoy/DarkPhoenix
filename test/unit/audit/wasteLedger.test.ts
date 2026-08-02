@@ -1520,3 +1520,210 @@ describe("energy account: loss lines span the FULL capture window (#5)", () => {
     expect(text).to.not.include("WINDOW INCOHERENCE");
   });
 });
+
+/**
+ * SPAWN COSTS SPAN THE FULL CAPTURE WINDOW (methodology #7).
+ *
+ * After #5 made the loss lines cumulative, the blackbox ring was the account's
+ * LAST short side: every "measured at the spawn" line sampled at most ~400
+ * heap-ring rows, so a 1500-tick fiscal month read spawn costs from a 480-tick
+ * post-deploy window and the guard printed WINDOW INCOHERENCE 3.1x - "the
+ * residual below is NOT trustworthy" - on every close that followed a deploy.
+ * The fix is the SAME shape as #5: the spawn director accrues every purchase
+ * into cumulative energy-by-role totals (Memory.spawnLedger -> core.spawnSpend),
+ * and the account differences two captures. The ring stays for forensics and
+ * the per-corp SOURCE P&L; the ACCOUNT's window equals the capture window by
+ * construction.
+ */
+describe("energy account: spawn costs span the FULL capture window (#7)", () => {
+  const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+  /** Both captures carry cumulative loss totals so losses never blur the test. */
+  const spannedLosses = {
+    windowTicks: 5,
+    pileDecay: 0,
+    structureDecay: 0,
+    repairSpend: 0,
+    tombstoneLost: 0,
+    tombstoneRecovered: 0,
+    tombstoneStock: 0,
+    cumulative: { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 }
+  };
+  const rig = (
+    capSpend: any,
+    baseSpend: any,
+    opts: { ring?: any[] } = {}
+  ): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.core.losses = JSON.parse(JSON.stringify(spannedLosses));
+    base.data.core.losses = JSON.parse(JSON.stringify(spannedLosses));
+    if (capSpend) cap.data.core.spawnSpend = capSpend;
+    if (baseSpend) base.data.core.spawnSpend = baseSpend;
+    if (opts.ring) cap.data.blackbox = { rows: opts.ring };
+    return { cap, base };
+  };
+  const textOf = (cap: any, base: any): string => formatAccounts(cap, base, computeLedger(cap, base));
+  const actualOf = (text: string, label: string): number => {
+    const line = text.split("\n").find(l => l.includes(label));
+    if (!line) throw new Error(`no line matching "${label}" in:\n${text}`);
+    return Number(line.match(/-?\d+\.\d\d/g)!.slice(-2)[0]);
+  };
+
+  it("differences the cumulative totals over the capture window, not the ring", () => {
+    // The ring says miners cost a fortune over its 5 ticks; the cumulative
+    // totals say 4.5 e/t over the full window. The account must read 4.5.
+    const shortRing = [
+      { t: 100, k: "spawn", d: { role: "miner", corp: "c1", cost: 9999 } },
+      { t: 105, k: "spawn", d: { role: "miner", corp: "c1", cost: 9999 } }
+    ];
+    const { cap, base } = rig(
+      { energyByRole: { miner: 10000 + 4.5 * dt, hauler: 500 }, partsByRole: { miner: 100, hauler: 10 } },
+      { energyByRole: { miner: 10000, hauler: 500 }, partsByRole: { miner: 50, hauler: 10 } },
+      { ring: shortRing }
+    );
+    const text = textOf(cap, base);
+    expect(actualOf(text, "extraction  (miner)")).to.be.closeTo(-4.5, 0.01);
+    // The hauler role bought nothing inside the window - zero, not the ring's view.
+    expect(actualOf(text, "evacuation  (hauler)")).to.be.closeTo(0, 0.01);
+    expect(text).to.match(/spawn \d+t cumulative/);
+  });
+
+  it("stops flagging WINDOW INCOHERENCE once every side spans the capture window", () => {
+    // A 5-tick ring against a multi-thousand-tick window: the guard fired at
+    // >1000x before, and it was RIGHT to - the ring was the account's source.
+    // With cumulative totals on both captures the ring is no longer load-
+    // bearing, so the residual is trustworthy and the guard must say nothing.
+    const shortRing = [
+      { t: 100, k: "spawn", d: { role: "miner", corp: "c1", cost: 9999 } },
+      { t: 105, k: "spawn", d: { role: "miner", corp: "c1", cost: 9999 } }
+    ];
+    const { cap, base } = rig(
+      { energyByRole: { miner: 1000 }, partsByRole: { miner: 10 } },
+      { energyByRole: {}, partsByRole: {} },
+      { ring: shortRing }
+    );
+    expect(textOf(cap, base)).to.not.include("WINDOW INCOHERENCE");
+  });
+
+  it("still fires the guard - and reads the ring - when the BASELINE predates the ledger", () => {
+    // A capture pair can only be differenced when BOTH sides carry the totals.
+    // With an old baseline the account falls back to the ring, and the guard
+    // must keep calling the mismatch out rather than trusting a hybrid.
+    const shortRing = [
+      { t: 100, k: "spawn", d: { role: "miner", corp: "c1", cost: 500 } },
+      { t: 105, k: "spawn", d: { role: "miner", corp: "c1", cost: 500 } }
+    ];
+    const { cap, base } = rig({ energyByRole: { miner: 1000 }, partsByRole: { miner: 10 } }, null, {
+      ring: shortRing
+    });
+    const text = textOf(cap, base);
+    expect(text).to.include("WINDOW INCOHERENCE");
+    expect(text).to.match(/spawn ring \d+t/);
+    // Ring arithmetic: 1000e over 5t = 200 e/t - the short-window figure, stated as such.
+    expect(actualOf(text, "extraction  (miner)")).to.be.closeTo(-200, 0.01);
+  });
+
+  it("prints a role with no account as UNCLASSIFIED, from the cumulative path too", () => {
+    const { cap, base } = rig(
+      { energyByRole: { weirdo: 2 * dt }, partsByRole: { weirdo: 10 } },
+      { energyByRole: {}, partsByRole: {} }
+    );
+    const text = textOf(cap, base);
+    expect(text).to.include("UNCLASSIFIED [weirdo]");
+    expect(actualOf(text, "UNCLASSIFIED")).to.be.closeTo(-2, 0.01);
+  });
+});
+
+/**
+ * THE TOMBSTONE CAUSE SPLIT IS EVIDENCE, NOT A MISREAD FIELD (methodology #7).
+ *
+ * v23 derived killed-vs-expired from `tombstone.creep.ticksToLive` - a field
+ * that is 0/undefined on every dead creep, so the split read "expired 100%"
+ * forever and the v24 audit line printed SUSPECT (ttl mean 0 max 0) on every
+ * close. The meter now derives cause from its own death watch (last-seen TTL
+ * vs deathTime); a tombstone with no watch entry lands in an honest UNKNOWN
+ * bucket instead of defaulting into "expired". The account prints all three
+ * shares - and the SUSPECT heuristic goes away, because expired-only windows
+ * with ttl 0 are now a legitimate reading (old age IS ttl 0), not a defect
+ * signature.
+ */
+describe("energy account: tombstone cause is expired/killed/UNKNOWN (#7)", () => {
+  const withMeter = (losses: any): any => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.core.losses = {
+      windowTicks: 1e9,
+      pileDecay: 0,
+      structureDecay: 0,
+      repairSpend: 0,
+      tombstoneLost: 0,
+      tombstoneRecovered: 0,
+      tombstoneStock: 0,
+      ...losses
+    };
+    return c;
+  };
+  const textOf = (cap: any): string => formatAccounts(cap, cap72404213, computeLedger(cap, cap72404213));
+
+  it("prints the unknown share beside expired and killed", () => {
+    const text = textOf(
+      withMeter({
+        tombstoneLost: 5,
+        tombstoneByRole: { haul: 500 },
+        tombstoneExpired: 300,
+        tombstoneKilled: 100,
+        tombstoneCauseUnknown: 100
+      })
+    );
+    const line = text.split("\n").find(l => l.includes("by cause:"))!;
+    expect(line).to.include("expired 60%");
+    expect(line).to.include("killed 20%");
+    expect(line).to.include("unknown 20%");
+  });
+
+  it("does NOT cry SUSPECT on a legitimate expired-only window (ttl 0 IS old age)", () => {
+    const text = textOf(
+      withMeter({
+        tombstoneLost: 5,
+        tombstoneByRole: { haul: 400 },
+        tombstoneExpired: 400,
+        tombstoneKilled: 0,
+        tombstoneCauseUnknown: 0,
+        tombstoneTtlMean: 0,
+        tombstoneTtlMax: 0
+      })
+    );
+    expect(text).to.not.include("SUSPECT");
+  });
+
+  it("says so when the cause is entirely unknown, rather than fabricating a split", () => {
+    const text = textOf(
+      withMeter({
+        tombstoneLost: 5,
+        tombstoneByRole: { haul: 400 },
+        tombstoneExpired: 0,
+        tombstoneKilled: 0,
+        tombstoneCauseUnknown: 400
+      })
+    );
+    const line = text.split("\n").find(l => l.includes("by cause:"))!;
+    expect(line).to.include("unknown 100%");
+  });
+
+  it("VOIDS the cause split of a pre-#7 capture instead of printing the misread field", () => {
+    // Live archaeology: the v23 deploy booked 39,806e killed / 0 expired; the
+    // v24 one read ttl mean 0 max 0 - the same field, opposite constants. A
+    // capture without the v25 unknown bucket carries those voided readings,
+    // and the account must present its cause as UNKNOWN rather than confident.
+    const text = textOf(
+      withMeter({
+        tombstoneLost: 5,
+        tombstoneByRole: { haul: 400 },
+        tombstoneExpired: 0,
+        tombstoneKilled: 400 // the misread-field constant
+      })
+    );
+    const line = text.split("\n").find(l => l.includes("by cause:"))!;
+    expect(line).to.include("unknown 100%");
+    expect(line).to.not.include("killed 100%");
+  });
+});

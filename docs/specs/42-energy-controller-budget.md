@@ -181,7 +181,13 @@ score have never agreed.
   next to the repair that services it — that double-counts the same wear.
   ✅ methodology #2.
 - **Window coherence.** The residual is a difference of rates; rates from
-  different windows may not be differenced. ✅ methodology #3 guard.
+  different windows may not be differenced. ✅ methodology #3 guard — and
+  STRUCTURALLY satisfied since #7 (2026-08-02): every account side now
+  differences CUMULATIVE Memory-persisted totals between the capture pair
+  (gcl/storage always did; losses since #5 / core v22; spawn costs since #7 /
+  core v25 `spawnSpend`), so on modern capture pairs the guard is quiet by
+  construction and fires only on pre-#7 baselines, where the ring fallback
+  still applies.
 - **One formula, one home.** Every economic formula lives in
   `economy/primitives.ts`. The link tax living only in `telemetry/LinkMeter` is
   exactly how the plan came to treat link haulage as free for months.
@@ -204,7 +210,8 @@ from the decay it must service, and link tax from routed link flow.
 
 ### Stage B — the residual closes
 `|residual| ≤ 5% of gross mining` on a window-coherent capture, sustained across
-two consecutive fiscal months.
+two consecutive fiscal months. *(Window-coherent captures exist by construction
+since #7 — any v25+ capture pair qualifies, so this stage is unblocked.)*
 
 - **Test:** a grid cell asserting the identity closes on a synthetic world where
   every loss is stageable and therefore exactly known.

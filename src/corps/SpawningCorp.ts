@@ -13,6 +13,7 @@ import { drawOrder } from "./refillCircuit";
 import { HaulerRatio } from "../framework/EdgeVariant";
 import { getCorpKind } from "../economy/CorpKind";
 import { Position } from "../types/Position";
+import { accrueSpawnSpend } from "../telemetry/spawnLedger";
 
 /**
  * All 8 spawn exit directions ordered so the tile FACING `to` comes FIRST, then
@@ -157,6 +158,13 @@ export class SpawningCorp extends Corp {
     if (result === OK) {
       const workParts = body.filter(p => p === WORK).length;
       this.recordProduction(workParts * CREEP_LIFETIME);
+      // Cumulative spend ledger, at the executor: EVERY purchase crosses this
+      // seam (the director AND direct buyers like the scout corp), and
+      // `bodyCost` is the energy actually debited - the director's blackbox
+      // receipt records the BUDGET it granted, which rounds high whenever the
+      // built body lands under it. The account differences these totals
+      // between captures, so its window is never bounded by a deploy.
+      accrueSpawnSpend(role, bodyCost, body.length);
       const carryParts = body.filter(p => p === CARRY).length;
       const partsInfo = role === "hauler" ? `${carryParts}C` : `${workParts}W`;
       console.log(`[Spawning] Spawned ${name} (${partsInfo}, ${bodyCost} energy)`);

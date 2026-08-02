@@ -60,6 +60,7 @@
  * @module telemetry/LossMeter
  */
 
+import "../types/Memory"; // Memory.lossLedger / creepDeathWatch augmentation
 import {
   containerDecayEnergy,
   hitsToEnergy,
@@ -86,7 +87,12 @@ export interface RoomLossCensus {
     ticksToDecay: number;
     /** Our own workType where memory survives, else inferred from the body. */
     role?: string;
-    /** Had life left when it died => something killed it. */
+    /**
+     * Death-watch VERDICT (resolveDeathCause): true = killed with time on the
+     * clock, false = clock ran out, ABSENT = no evidence - booked as unknown,
+     * never defaulted. (A dead creep's own object has no ticksToLive; v23
+     * read it anyway and called everything "expired".)
+     */
     killed?: boolean;
     /** TTL the creep still had at death - the raw number behind `killed`. */
     ttlAtDeath?: number;
@@ -119,8 +125,14 @@ interface Totals {
   tombstoneExpired: number;
   /** Gross tombstone energy from creeps that still had life left. */
   tombstoneKilled: number;
-  /** Sum/max/count of ttlAtDeath - the AUDIT on the cause split above. A
-   *  one-sided split over a CONSTANT ttl is a misread field, not a finding. */
+  /** Gross tombstone energy whose cause could not be resolved - no death-watch
+   *  entry (enemy creep, pre-deploy death, never-sampled room). An honest
+   *  bucket, never defaulted into "expired": the v23 collector read
+   *  `tombstone.creep.ticksToLive`, which is 0/undefined on every dead creep,
+   *  so the split was a constant and its own audit line said SUSPECT. */
+  tombstoneCauseUnknown: number;
+  /** Sum/max/count of ttlAtDeath, over KNOWN deaths only - an unresolvable
+   *  ttl contributes no sample rather than dragging the mean toward zero. */
   tombstoneTtlSum: number;
   tombstoneTtlMax: number;
   tombstoneCount: number;
@@ -143,10 +155,31 @@ export interface LossCumulative {
   repairSpend: number;
   tombstoneGross: number;
   tombstoneRecovered: number;
+  /** Attribution, cumulative like the gross it decomposes (2026-08-02) - so
+   *  the account's by-role/by-cause shares describe the SAME capture-bounded
+   *  window as the tombstone line they decorate, not a since-reset subset. */
+  tombstoneByRole: Record<string, number>;
+  tombstoneExpired: number;
+  tombstoneKilled: number;
+  tombstoneCauseUnknown: number;
+  tombstoneTtlSum: number;
+  tombstoneTtlKnown: number;
 }
 
 function zeroCumulative(): LossCumulative {
-  return { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 };
+  return {
+    pileDecay: 0,
+    structureDecay: 0,
+    repairSpend: 0,
+    tombstoneGross: 0,
+    tombstoneRecovered: 0,
+    tombstoneByRole: {},
+    tombstoneExpired: 0,
+    tombstoneKilled: 0,
+    tombstoneCauseUnknown: 0,
+    tombstoneTtlSum: 0,
+    tombstoneTtlKnown: 0
+  };
 }
 
 /**
@@ -159,11 +192,27 @@ function ledger(): LossCumulative {
   if (typeof Memory === "undefined") return localLedger;
   const mem = Memory as unknown as { lossLedger?: LossCumulative };
   if (!mem.lossLedger) mem.lossLedger = zeroCumulative();
+  else if (mem.lossLedger.tombstoneByRole === undefined) {
+    // A ledger persisted before the attribution keys existed: backfill in
+    // place so every accrual below can assume the full shape.
+    const led = mem.lossLedger;
+    led.tombstoneByRole = {};
+    led.tombstoneExpired = led.tombstoneExpired ?? 0;
+    led.tombstoneKilled = led.tombstoneKilled ?? 0;
+    led.tombstoneCauseUnknown = led.tombstoneCauseUnknown ?? 0;
+    led.tombstoneTtlSum = led.tombstoneTtlSum ?? 0;
+    led.tombstoneTtlKnown = led.tombstoneTtlKnown ?? 0;
+  }
   return mem.lossLedger;
 }
 
+/** The ledger's plain-number keys (the by-role map accrues at its call site). */
+type ScalarLossKey = {
+  [K in keyof LossCumulative]: LossCumulative[K] extends number ? K : never;
+}[keyof LossCumulative];
+
 /** Add to BOTH views: the cumulative ledger and the since-reset window. */
-function accrue(key: keyof LossCumulative, windowKey: keyof Totals, energy: number): void {
+function accrue(key: ScalarLossKey, windowKey: keyof Totals, energy: number): void {
   if (!(energy > 0)) return;
   ledger()[key] += energy;
   (totals[windowKey] as number) += energy;
@@ -179,6 +228,7 @@ function blank(): Totals {
     tombstoneByRole: {},
     tombstoneExpired: 0,
     tombstoneKilled: 0,
+    tombstoneCauseUnknown: 0,
     tombstoneTtlSum: 0,
     tombstoneTtlMax: 0,
     tombstoneCount: 0,
@@ -186,6 +236,77 @@ function blank(): Totals {
     sinceTick: 0,
     started: false
   };
+}
+
+// ---------------------------------------------------------------------------
+// THE DEATH WATCH - cause of death from the meter's own evidence
+// ---------------------------------------------------------------------------
+//
+// A dead creep's object carries NO ticksToLive, so "expired vs killed" is
+// resolvable only from a record made while the creep still lived - the trap
+// list's "durable signals" doctrine wearing one more costume. The watch
+// samples every live own creep's TTL on the loss stride into Memory (a global
+// reset must not blind the deaths that follow a deploy - often the most
+// interesting ones). TTL decrements exactly 1/tick, so
+// `lastSeenTtl - (deathTime - lastSeenTick)` is EXACT whenever the creep
+// survived to its recorded deathTime: zero left = expired, time left = killed.
+
+/** Last-seen record per creep name: [ttl, tick]. */
+type DeathWatch = Record<string, [number, number]>;
+
+/**
+ * How long a dead creep's entry is kept. A tombstone stands 5 ticks per body
+ * part (max 250), so anything older than this can no longer be resolved
+ * against a standing tombstone - prune it, or the map grows with every death
+ * forever.
+ */
+const DEATH_WATCH_RETENTION = 300;
+
+let localWatch: DeathWatch = {};
+
+function deathWatch(): DeathWatch {
+  if (typeof Memory === "undefined") return localWatch;
+  const mem = Memory as unknown as { creepDeathWatch?: DeathWatch };
+  if (!mem.creepDeathWatch) mem.creepDeathWatch = {};
+  return mem.creepDeathWatch;
+}
+
+/**
+ * Record every live creep's TTL and prune entries no standing tombstone could
+ * still need. Creeps mid-spawn have no TTL yet and are skipped rather than
+ * recorded as garbage.
+ */
+export function watchCreepTtls(creeps: Record<string, { ticksToLive?: number }>, tick: number): void {
+  const watch = deathWatch();
+  for (const name in creeps) {
+    const ttl = creeps[name].ticksToLive;
+    if (typeof ttl === "number" && ttl > 0) watch[name] = [ttl, tick];
+  }
+  for (const name in watch) {
+    if (!(name in creeps) && tick - watch[name][1] > DEATH_WATCH_RETENTION) delete watch[name];
+  }
+}
+
+/** The watch record for one creep name (test/collector seam). */
+export function deathWatchEntry(name: string): [number, number] | undefined {
+  return deathWatch()[name];
+}
+
+/**
+ * Resolve a death's cause from the watch record and the tombstone's own
+ * deathTime. Pure; returns {} when the evidence cannot support a verdict -
+ * no record, no deathTime, or a record NEWER than the death (a reused name).
+ * The caller books {} as UNKNOWN, never as a default cause.
+ */
+export function resolveDeathCause(
+  watch: readonly [number, number] | undefined,
+  deathTime: number | undefined
+): { killed?: boolean; ttlAtDeath?: number } {
+  if (!watch || typeof deathTime !== "number") return {};
+  const [ttlSeen, tickSeen] = watch;
+  if (deathTime < tickSeen) return {};
+  const ttlAtDeath = Math.max(0, ttlSeen - (deathTime - tickSeen));
+  return { killed: ttlAtDeath > 0, ttlAtDeath };
 }
 
 /**
@@ -200,7 +321,11 @@ export function resetLossMeter(opts: { keepTotals?: boolean } = {}): void {
   totals = blank();
   if (!opts.keepTotals) {
     localLedger = zeroCumulative();
-    if (typeof Memory !== "undefined") (Memory as unknown as { lossLedger?: LossCumulative }).lossLedger = zeroCumulative();
+    localWatch = {};
+    if (typeof Memory !== "undefined") {
+      (Memory as unknown as { lossLedger?: LossCumulative }).lossLedger = zeroCumulative();
+      (Memory as unknown as { creepDeathWatch?: DeathWatch }).creepDeathWatch = {};
+    }
   }
 }
 
@@ -258,20 +383,39 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
     // `prev` absent = this room's baseline sample; adopt without charging.
     if (prev && t.energy > 0) {
       accrue("tombstoneGross", "tombstoneGross", t.energy);
+      const led = ledger();
       // Attribution rides with the booking, so it is counted exactly once and
-      // can never disagree with the total it decomposes.
+      // can never disagree with the total it decomposes - and it accrues into
+      // the cumulative ledger beside the gross, so the account's shares span
+      // the same capture window as the line they decorate.
       const role = t.role && t.role.length > 0 ? t.role : "unknown";
       totals.tombstoneByRole[role] = (totals.tombstoneByRole[role] ?? 0) + t.energy;
-      if (t.killed) totals.tombstoneKilled += t.energy;
-      else totals.tombstoneExpired += t.energy;
-      // The RAW TTL behind the boolean. A cause split that reads 0%/100% is the
-      // signature of a field that is not what you think it is, not a finding -
-      // so publish the distribution and let the reader tell a real answer from
-      // a constant.
-      const ttl = Math.max(0, t.ttlAtDeath ?? 0);
-      totals.tombstoneTtlSum += ttl;
-      totals.tombstoneTtlMax = Math.max(totals.tombstoneTtlMax, ttl);
-      totals.tombstoneCount += 1;
+      led.tombstoneByRole[role] = (led.tombstoneByRole[role] ?? 0) + t.energy;
+      // CAUSE is a verdict, not a default: true/false come only from the death
+      // watch's evidence (resolveDeathCause); absent evidence is UNKNOWN. The
+      // v23 rule defaulted everything into "expired" off a field that is
+      // 0/undefined on every dead creep - its own audit line read SUSPECT.
+      if (t.killed === true) {
+        totals.tombstoneKilled += t.energy;
+        led.tombstoneKilled += t.energy;
+      } else if (t.killed === false) {
+        totals.tombstoneExpired += t.energy;
+        led.tombstoneExpired += t.energy;
+      } else {
+        totals.tombstoneCauseUnknown += t.energy;
+        led.tombstoneCauseUnknown += t.energy;
+      }
+      // TTL distribution over KNOWN deaths only - an unresolvable ttl
+      // contributes no sample instead of dragging the mean toward zero,
+      // which is exactly how a constant field masqueraded as data.
+      if (t.ttlAtDeath !== undefined) {
+        const ttl = Math.max(0, t.ttlAtDeath);
+        totals.tombstoneTtlSum += ttl;
+        totals.tombstoneTtlMax = Math.max(totals.tombstoneTtlMax, ttl);
+        totals.tombstoneCount += 1;
+        led.tombstoneTtlSum += ttl;
+        led.tombstoneTtlKnown += 1;
+      }
     }
   }
 
@@ -324,7 +468,9 @@ export interface LossReport {
   tombstoneByRole: Record<string, number>;
   tombstoneExpired: number;
   tombstoneKilled: number;
-  /** Mean/max TTL remaining at death - the audit on the cause split above. */
+  /** Gross energy whose cause could not be resolved (no death-watch record). */
+  tombstoneCauseUnknown: number;
+  /** Mean/max TTL remaining at death, over KNOWN deaths only. */
   tombstoneTtlMean: number;
   tombstoneTtlMax: number;
   /**
@@ -350,9 +496,10 @@ export function lossReport(tick: number): LossReport {
     tombstoneByRole: { ...totals.tombstoneByRole },
     tombstoneExpired: totals.tombstoneExpired,
     tombstoneKilled: totals.tombstoneKilled,
+    tombstoneCauseUnknown: totals.tombstoneCauseUnknown,
     tombstoneTtlMean: totals.tombstoneCount > 0 ? totals.tombstoneTtlSum / totals.tombstoneCount : 0,
     tombstoneTtlMax: totals.tombstoneTtlMax,
-    cumulative: { ...ledger() }
+    cumulative: { ...ledger(), tombstoneByRole: { ...ledger().tombstoneByRole } }
   };
 }
 
@@ -428,6 +575,10 @@ export function collectLosses(tick: number): void {
   if (tick % LOSS_SAMPLE_STRIDE !== 0) return;
   if (typeof Game === "undefined" || !Game.rooms) return;
 
+  // Refresh the death watch FIRST, so a creep that dies later in this same
+  // stride window resolves against a record at most one stride old.
+  if (Game.creeps) watchCreepTtls(Game.creeps, tick);
+
   for (const name in Game.rooms) {
     const room = Game.rooms[name];
     try {
@@ -441,12 +592,15 @@ export function collectLosses(tick: number): void {
         energy: t.store?.[RESOURCE_ENERGY] ?? 0,
         ticksToDecay: t.ticksToDecay ?? 0,
         role: tombRole(t),
-        // A creep that ran its clock out has NO life left; one with time still
-        // on it was killed. The field can be absent on a dead creep, and the
-        // conservative default is "expired" - old age is the common case, and
-        // over-reporting kills would invent a defense problem.
-        killed: ((t.creep as { ticksToLive?: number } | undefined)?.ticksToLive ?? 0) > 0,
-        ttlAtDeath: (t.creep as { ticksToLive?: number } | undefined)?.ticksToLive ?? 0
+        // Cause from the DEATH WATCH, never from the dead creep's object: its
+        // ticksToLive is 0/undefined on every tombstone, which made the old
+        // split a constant ("expired 100%") that its own audit line called
+        // SUSPECT. No watch record (enemy creep, pre-deploy death) resolves
+        // to neither field, and the meter books the energy as cause-UNKNOWN.
+        ...resolveDeathCause(
+          deathWatchEntry((t.creep as { name?: string } | undefined)?.name ?? ""),
+          (t as { deathTime?: number }).deathTime
+        )
       }));
 
       let containers = 0;

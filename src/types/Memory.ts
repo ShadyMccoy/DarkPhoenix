@@ -376,7 +376,39 @@ declare global {
       repairSpend: number;
       tombstoneGross: number;
       tombstoneRecovered: number;
+      /** Additive attribution keys (2026-08-02); absent on older ledgers. */
+      tombstoneByRole?: Record<string, number>;
+      tombstoneExpired?: number;
+      tombstoneKilled?: number;
+      tombstoneCauseUnknown?: number;
+      tombstoneTtlSum?: number;
+      tombstoneTtlKnown?: number;
     };
+
+    /**
+     * CUMULATIVE spawn spend by role (telemetry/spawnLedger), monotonic and
+     * surviving global resets - the blackbox ring's account-side replacement.
+     * The ring is heap state bounded by VM lifetime (~480t after a deploy),
+     * so every "measured at the spawn" account line was short-windowed and
+     * the account's coherence guard fired on essentially every fiscal close.
+     * The account differences these totals between two captures instead,
+     * exactly as it does gcl.progress, storage, and lossLedger.
+     */
+    spawnLedger?: {
+      energyByRole: Record<string, number>;
+      partsByRole: Record<string, number>;
+    };
+
+    /**
+     * Death watch (telemetry/LossMeter): each own creep's last-seen TTL as
+     * `[ttl, tick]`, sampled on the loss stride. A dead creep's object has no
+     * ticksToLive, so tombstone cause (expired vs killed) is resolvable only
+     * from a record made while the creep lived: lastSeenTtl - (deathTime -
+     * lastSeenTick) is exact whenever the creep survived to its recorded
+     * deathTime. Entries are pruned once no tombstone for them could still be
+     * standing.
+     */
+    creepDeathWatch?: Record<string, [number, number]>;
 
     /**
      * The current liquidity reserve target (economy/bank.warchestTarget of the
