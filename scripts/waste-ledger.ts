@@ -53,6 +53,12 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  * 1: energy account (revenue / direct / overhead / appropriations / residual),
  *    budget-vs-actual-vs-variance, source P&L, controller variance bridge,
  *    ground rot split, capital vs operating, reserving as COGS.
+ * 5: loss lines are differenced from CUMULATIVE totals (core v22) instead of
+ *    read as since-reset rates, so the measured window equals the capture
+ *    window at any length. Before this the loss window was capped by VM
+ *    lifetime (480t against a 1251-tick capture at t72722670) and a 1500-tick
+ *    fiscal month was structurally unmeasurable. #4 loss rates are a phase
+ *    sample of an arbitrary post-reset window; #5 ones are not.
  * 4: the LINK TRANSFER TAX joins measured losses - the engine destroys 3% of
  *    every link hop (2.59 e/t measured at t72721419) and it had been inside the
  *    residual because LINK_LOSS_RATIO existed only in the telemetry meter. The
@@ -73,7 +79,7 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
  *    the newly-attributed losses.
  */
-export const METHODOLOGY = 4;
+export const METHODOLOGY = 5;
 
 export interface LedgerRow {
   id: string;
@@ -1944,14 +1950,26 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
         tombstoneStock: number;
       }
     | undefined;
-  const rot = meter ? meter.pileDecay : droppedAvg / 1000;
+  // CAPTURE-BOUNDED WINDOWS. The meter also publishes CUMULATIVE energy totals
+  // (core v22), monotonic across global resets. Differencing them gives rates
+  // over the FULL capture window - the same shape the account already uses for
+  // gcl.progress and storage - instead of the meter's since-reset rates, which
+  // are capped by VM lifetime (480t against a 1251-tick window at t72722670)
+  // and could therefore never span a 1500-tick fiscal month.
+  const cumCap = cap.data.core.losses?.cumulative as Record<string, number> | undefined;
+  const cumBase = base.data.core.losses?.cumulative as Record<string, number> | undefined;
+  const spanned = cumCap !== undefined && cumBase !== undefined;
+  const cumRate = (key: string): number => Math.max(0, ((cumCap?.[key] ?? 0) - (cumBase?.[key] ?? 0)) / dt);
+  const rot = spanned ? cumRate("pileDecay") : meter ? meter.pileDecay : droppedAvg / 1000;
   const rotKnown = meter !== undefined || cap.data.core.sourceDropped !== undefined;
   // Cash uses of delivered energy that are NOT spawn/controller/construction/
   // bank. Structure decay is deliberately absent: it is DEPRECIATION, an
   // accrued liability, and its cash cost IS the repair line - booking both
   // would double-count the same wear.
-  const tombLoss = meter?.tombstoneLost ?? 0;
-  const repairSpend = meter?.repairSpend ?? 0;
+  const tombLoss = spanned
+    ? Math.max(0, cumRate("tombstoneGross") - cumRate("tombstoneRecovered"))
+    : meter?.tombstoneLost ?? 0;
+  const repairSpend = spanned ? cumRate("repairSpend") : meter?.repairSpend ?? 0;
   // LINK TRANSFER TAX: the engine destroys 3% of every link hop, and the
   // LinkMeter already measures it per room. It is a genuine destruction of
   // delivered energy - exactly like pile rot - so it belongs in MEASURED
@@ -2057,7 +2075,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   };
   return [
     `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ring ${ring}t${
-      meter ? `; loss meter ${meter.windowTicks}t` : ""
+      meter ? `; losses ${spanned ? `${dt}t cumulative` : `${meter.windowTicks}t since-reset`}` : ""
     })  [methodology #${METHODOLOGY}]`,
     // WINDOW COHERENCE (methodology #3). The residual is a DIFFERENCE of rates,
     // so it is only meaningful when the rates describe the same stretch of time.
@@ -2072,7 +2090,9 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     // 4.3x - and the residual came out at -25.10, i.e. 25% of gross mining
     // OVER-attributed. That is what prompted this check.
     ...(() => {
-      const shortest = Math.min(ring || dt, meter ? meter.windowTicks : dt);
+      // Cumulative loss totals span the capture window by construction, so
+      // only the spawn ring can still be short.
+      const shortest = Math.min(ring || dt, spanned || !meter ? dt : meter.windowTicks);
       const spread = shortest > 0 ? dt / shortest : Infinity;
       if (spread <= 2) return [];
       return [
@@ -2126,7 +2146,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
       : []),
     ...(rotKnown
       ? [
-          `  MEASURED LOSSES${meter ? `  (meter window ${meter.windowTicks}t)` : ""}`,
+          `  MEASURED LOSSES${meter ? (spanned ? "  (cumulative, full window)" : `  (meter window ${meter.windowTicks}t)`) : ""}`,
           L(meter ? "ground pile decay (engine ceil rule)" : "ground rot (dropped energy, 0.1%/t)", -rot, 4),
           ...(meter
             ? [

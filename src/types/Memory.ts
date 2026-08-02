@@ -352,6 +352,22 @@ declare global {
     lastFleetCharge?: number;
 
     /**
+     * CUMULATIVE loss totals in energy (telemetry/LossMeter), monotonic and
+     * surviving global resets. In Memory because the measured window must be
+     * bounded by how far apart two captures are, not by VM lifetime: as module
+     * state it capped at ~480 ticks against a 1251-tick capture window
+     * (t72722670), so a 1500-tick fiscal month was never measurable end to end.
+     * The account differences these, exactly as it does gcl.progress.
+     */
+    lossLedger?: {
+      pileDecay: number;
+      structureDecay: number;
+      repairSpend: number;
+      tombstoneGross: number;
+      tombstoneRecovered: number;
+    };
+
+    /**
      * The current liquidity reserve target (economy/bank.warchestTarget of the
      * last solve's measured income). Persisted so every consumer - the plan's
      * bank-surplus emission and the execution corps that size off it - reads

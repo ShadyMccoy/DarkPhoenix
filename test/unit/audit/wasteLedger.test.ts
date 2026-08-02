@@ -1424,3 +1424,54 @@ describe("energy account: the link transfer tax is budgeted, not just measured",
     expect(line.match(/-?\d+\.\d\d/g)!).to.have.length(1); // actual only
   });
 });
+
+/**
+ * A FISCAL MONTH MUST BE MEASURABLE (methodology #5, owner 2026-08-01: "can it
+ * show the last 1500+ ticks of actual?").
+ *
+ * It could not: the loss meter's rates were since-reset, so the measured window
+ * was bounded by VM lifetime - 480t against a 1251-tick capture window - and a
+ * 1500-tick fiscal month never fit. Differencing CUMULATIVE totals makes the
+ * measured window equal the capture window at any length.
+ */
+describe("energy account: loss lines span the FULL capture window (#5)", () => {
+  const withCumulative = (capTotals: any, baseTotals: any): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    const shell = { windowTicks: 5, pileDecay: 999, structureDecay: 0, repairSpend: 999, tombstoneLost: 999, tombstoneRecovered: 0, tombstoneStock: 0 };
+    cap.data.core.losses = { ...shell, cumulative: capTotals };
+    base.data.core.losses = { ...shell, cumulative: baseTotals };
+    return { cap, base };
+  };
+  const zero = { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 };
+
+  it("differences the totals over the capture window, ignoring the since-reset rates", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    const { cap, base } = withCumulative({ ...zero, pileDecay: 3 * dt, repairSpend: dt }, zero);
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const line = (label: string): number =>
+      Number(text.split("\n").find(l => l.includes(label))!.match(/-?\d+\.\d\d/g)!.slice(-1)[0]);
+    // 3 e/t and 1 e/t - NOT the 999 the since-reset shell carries.
+    expect(line("ground pile decay")).to.be.closeTo(-3, 0.01);
+    expect(line("repair (energy spent")).to.be.closeTo(-1, 0.01);
+    expect(text).to.include("cumulative, full window");
+  });
+
+  it("nets tombstone recovery out of the cumulative loss", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    const { cap, base } = withCumulative(
+      { ...zero, tombstoneGross: 5 * dt, tombstoneRecovered: 2 * dt },
+      zero
+    );
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const v = Number(text.split("\n").find(l => l.includes("tombstone losses"))!.match(/-?\d+\.\d\d/g)!.slice(-1)[0]);
+    expect(v).to.be.closeTo(-3, 0.01);
+  });
+
+  it("stops blaming the LOSS lines for window incoherence once they span the window", () => {
+    const { cap, base } = withCumulative(zero, zero);
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    // The 5-tick since-reset shell would have tripped the guard at ~1400x.
+    expect(text).to.not.include("WINDOW INCOHERENCE");
+  });
+});

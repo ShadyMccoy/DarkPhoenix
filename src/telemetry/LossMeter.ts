@@ -42,8 +42,20 @@
  * against their OWN next sample (the "room state from intel, never creep
  * positions" trap wearing a different costume - CLAUDE.md).
  *
- * Module state that re-inits on a global reset, exactly like LinkMeter: a
- * rolling window since the reset, rates = counter / (now - sinceTick).
+ * TOTALS ARE CUMULATIVE AND PERSISTED; only the rate view is module state.
+ *
+ * The first version kept everything in module state like LinkMeter, which
+ * bounded the measured window by VM LIFETIME rather than by how far apart two
+ * captures are: live t72722670 reported a 480-tick loss window against a
+ * 1251-tick capture window purely because a deploy had reset the globals. A
+ * fiscal month is 1500 ticks (spec 41), so NO month was ever measurable end to
+ * end and the account's window-incoherence guard fired structurally.
+ *
+ * So the meter publishes cumulative ENERGY totals in `Memory.lossLedger` and
+ * the ledger DIFFERENCES two captures - the same shape the account already uses
+ * for gcl.progress and storage. The measured window then equals the capture
+ * window by construction, for any length. The since-reset rate view stays for
+ * the live console.
  *
  * @module telemetry/LossMeter
  */
@@ -99,6 +111,39 @@ const bookedTombs = new Set<string>();
 const rooms = new Map<string, RoomState>();
 let totals: Totals = blank();
 
+/** Cumulative energy totals, monotonic, surviving global resets. */
+export interface LossCumulative {
+  pileDecay: number;
+  structureDecay: number;
+  repairSpend: number;
+  tombstoneGross: number;
+  tombstoneRecovered: number;
+}
+
+function zeroCumulative(): LossCumulative {
+  return { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 };
+}
+
+/**
+ * The persisted ledger. Memory when the game provides it (survives resets),
+ * a module-level fallback otherwise so unit tests and Game-free callers work.
+ */
+let localLedger: LossCumulative = zeroCumulative();
+
+function ledger(): LossCumulative {
+  if (typeof Memory === "undefined") return localLedger;
+  const mem = Memory as unknown as { lossLedger?: LossCumulative };
+  if (!mem.lossLedger) mem.lossLedger = zeroCumulative();
+  return mem.lossLedger;
+}
+
+/** Add to BOTH views: the cumulative ledger and the since-reset window. */
+function accrue(key: keyof LossCumulative, windowKey: keyof Totals, energy: number): void {
+  if (!(energy > 0)) return;
+  ledger()[key] += energy;
+  (totals[windowKey] as number) += energy;
+}
+
 function blank(): Totals {
   return {
     pileDecay: 0,
@@ -112,11 +157,20 @@ function blank(): Totals {
   };
 }
 
-/** Drop all state - a global reset, or a test. Never reports a spike after. */
-export function resetLossMeter(): void {
+/**
+ * Drop the module-state view - what a global reset does to the globals.
+ *
+ * `keepTotals` models the real thing: Memory survives a reset, the globals do
+ * not. Tests use the default (drop everything) for isolation.
+ */
+export function resetLossMeter(opts: { keepTotals?: boolean } = {}): void {
   rooms.clear();
   bookedTombs.clear();
   totals = blank();
+  if (!opts.keepTotals) {
+    localLedger = zeroCumulative();
+    if (typeof Memory !== "undefined") (Memory as unknown as { lossLedger?: LossCumulative }).lossLedger = zeroCumulative();
+  }
 }
 
 /**
@@ -125,7 +179,7 @@ export function resetLossMeter(): void {
  * (a creep pays per WORK part, a tower pays its fixed shot cost).
  */
 export function recordRepair(energy: number): void {
-  if (energy > 0) totals.repairSpend += energy;
+  accrue("repairSpend", "repairSpend", energy);
 }
 
 /**
@@ -148,13 +202,13 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
     // interval from being charged as if it had rotted the whole time.
     let pile = 0;
     for (const amount of census.piles) pile += pileDecayRate(amount);
-    totals.pileDecay += pile * dt;
+    accrue("pileDecay", "pileDecay", pile * dt);
 
     const structure =
       census.containers * containerDecayEnergy(census.owned) +
       census.ramparts * rampartDecayEnergy() +
       Math.max(0, census.roadDecayEnergy);
-    totals.structureDecay += structure * dt;
+    accrue("structureDecay", "structureDecay", structure * dt);
   }
 
   // --- tombstones: book at FIRST SIGHT, credit only witnessed recovery ---
@@ -171,7 +225,7 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
     if (bookedTombs.has(t.id)) continue;
     bookedTombs.add(t.id);
     // `prev` absent = this room's baseline sample; adopt without charging.
-    if (prev && t.energy > 0) totals.tombstoneGross += t.energy;
+    if (prev && t.energy > 0) accrue("tombstoneGross", "tombstoneGross", t.energy);
   }
 
   if (prev) {
@@ -183,7 +237,7 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
       // that a creep took the energy.
       if (stillEnergy === undefined) continue;
       const drawn = wasEnergy - stillEnergy;
-      if (drawn > 0) totals.tombstoneRecovered += drawn;
+      if (drawn > 0) accrue("tombstoneRecovered", "tombstoneRecovered", drawn);
     }
   }
 
@@ -213,6 +267,13 @@ export interface LossReport {
   tombstoneRecovered: number;
   /** Energy sitting in live tombstones right now (at risk, not yet lost). */
   tombstoneStock: number;
+  /**
+   * CUMULATIVE energy totals, monotonic and surviving global resets. The
+   * account differences these between two captures, so the measured window
+   * equals the capture window for any length - including a full fiscal month,
+   * which the since-reset rates above can never span.
+   */
+  cumulative: LossCumulative;
 }
 
 export function lossReport(tick: number): LossReport {
@@ -225,7 +286,8 @@ export function lossReport(tick: number): LossReport {
     repairSpend: rate(totals.repairSpend),
     tombstoneLost: rate(Math.max(0, totals.tombstoneGross - totals.tombstoneRecovered)),
     tombstoneRecovered: rate(totals.tombstoneRecovered),
-    tombstoneStock: totals.tombstoneStock
+    tombstoneStock: totals.tombstoneStock,
+    cumulative: { ...ledger() }
   };
 }
 

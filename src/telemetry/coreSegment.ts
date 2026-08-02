@@ -242,6 +242,21 @@ export interface CoreTelemetry {
     tombstoneLost: number;
     tombstoneRecovered: number;
     tombstoneStock: number;
+    /**
+     * CUMULATIVE energy totals (v22), monotonic and surviving global resets.
+     * The rates above are since-reset and therefore capped by VM lifetime -
+     * 480t against a 1251-tick capture window at t72722670, so a 1500-tick
+     * fiscal month could never be measured. The account DIFFERENCES these
+     * between captures instead, so the measured window equals the capture
+     * window for any length.
+     */
+    cumulative?: {
+      pileDecay: number;
+      structureDecay: number;
+      repairSpend: number;
+      tombstoneGross: number;
+      tombstoneRecovered: number;
+    };
   };
   /** Owned rooms summary */
   rooms: {
@@ -467,7 +482,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 21, // v20 losses block; v21 tombstones LOST-by-default (tombstoneLost/Recovered) 2026-08-01
+    version: 22, // v21 tombstones lost-by-default; v22 losses.cumulative (capture-bounded windows) 2026-08-01
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {

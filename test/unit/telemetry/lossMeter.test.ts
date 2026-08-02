@@ -193,3 +193,62 @@ describe("LossMeter (residual line items)", () => {
     expect(lossReport(110).tombstoneLost).to.be.closeTo(30, 1e-9);
   });
 });
+
+/**
+ * A FISCAL MONTH MUST BE MEASURABLE (owner 2026-08-01: "can it show the last
+ * 1500+ ticks of actual?").
+ *
+ * It could not. The meter's totals were module state, so the measured window
+ * was bounded by VM LIFETIME, not by how far apart two captures are - live
+ * t72722670 read a 480-tick loss window against a 1251-tick capture window,
+ * purely because a deploy had reset the globals. A fiscal month is 1500 ticks,
+ * so no month was ever measurable end to end, and the account's window-
+ * incoherence guard fired structurally rather than occasionally.
+ *
+ * The fix is to publish CUMULATIVE energy totals that survive a reset, and let
+ * the ledger DIFFERENCE two captures - the same shape the account already uses
+ * for gcl.progress and storage. The measured window then EQUALS the capture
+ * window by construction, for any length.
+ */
+describe("LossMeter cumulative totals (a fiscal month must be measurable)", () => {
+  beforeEach(() => resetLossMeter());
+
+  const census = (over: any = {}) => ({
+    room: "W1N1", owned: true, piles: [], tombstones: [], containers: 0, ramparts: 0, roadDecayEnergy: 0, ...over
+  });
+
+  it("reports totals in ENERGY, monotonically - not a rate over its own window", () => {
+    sampleRoomLosses(census({ piles: [1000] }), 100);
+    sampleRoomLosses(census({ piles: [1000] }), 200);
+    const a = lossReport(200).cumulative;
+    sampleRoomLosses(census({ piles: [1000] }), 300);
+    const b = lossReport(300).cumulative;
+    expect(a.pileDecay).to.be.closeTo(100, 1e-9); // 1 e/t over 100t
+    expect(b.pileDecay).to.be.closeTo(200, 1e-9);
+    expect(b.pileDecay).to.be.greaterThan(a.pileDecay); // monotonic: differenceable
+  });
+
+  it("carries totals ACROSS a global reset, so the window is capture-bounded", () => {
+    sampleRoomLosses(census({ piles: [1000] }), 100);
+    sampleRoomLosses(census({ piles: [1000] }), 200);
+    const before = lossReport(200).cumulative.pileDecay;
+
+    resetLossMeter({ keepTotals: true }); // a global reset: Memory survives, globals do not
+    // The room must re-baseline (no prior sample), then accumulate onward.
+    sampleRoomLosses(census({ piles: [1000] }), 300);
+    sampleRoomLosses(census({ piles: [1000] }), 400);
+
+    const after = lossReport(400).cumulative.pileDecay;
+    expect(before).to.be.closeTo(100, 1e-9);
+    // 100 ticks of the gap are lost to re-baselining - honest, and bounded by
+    // the sample stride - but the TOTAL never restarts at zero.
+    expect(after).to.be.closeTo(200, 1e-9);
+  });
+
+  it("still re-bases the RATE view on a reset (the live-console figure)", () => {
+    sampleRoomLosses(census({ piles: [1000] }), 100);
+    sampleRoomLosses(census({ piles: [1000] }), 200);
+    resetLossMeter({ keepTotals: true });
+    expect(lossReport(200).windowTicks).to.equal(0);
+  });
+});
