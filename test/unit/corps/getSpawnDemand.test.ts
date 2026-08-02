@@ -206,7 +206,20 @@ describe("corp getSpawnDemand()", () => {
 
     it("a scaling upgrader under surplus declares holdToFund on its indivisible body", () => {
       const corp = new UpgradingCorp(`${ROOM}-upgrading`, SPAWN_ID);
-      stageRoom(191_613, corp.id); // the incident's bank, one incumbent -> scaling demand
+      stageRoom(191_613, corp.id); // the incident's bank, one incumbent
+      // THE PLAN is what asks for growth now (owner 2026-08-02: the plan
+      // allocation IS the valve). A fat bank alone must NOT conjure an
+      // upgrader - that was the removed second valve. The bank's remaining job
+      // here is FINANCING: whether the walk can bank toward an indivisible
+      // full-size body, which is what incident t72503018 is about.
+      corp.setSinkAllocation({
+        sinkId: "controller-1",
+        sinkType: "controller",
+        allocated: 120,
+        demand: 120,
+        unmet: 0,
+        priority: 65
+      } as any);
       const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
       expect(demands).to.have.length(1);
       const d = demands[0];

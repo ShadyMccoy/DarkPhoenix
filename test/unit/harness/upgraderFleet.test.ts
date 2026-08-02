@@ -63,13 +63,21 @@ describe("upgrader fleet (spawn harness)", () => {
       expect(building.totalWork).to.be.lessThan(normal.totalWork);
     });
 
-    it("keeps a minimal upgrader alive even when the only source is dedicated to the build", () => {
+    it("keeps the anti-downgrade sip alive even when the only source is dedicated to the build", () => {
       // A single-source room dedicating its one source to a build scales the
-      // allocation to 0 - but the controller must not be abandoned, so a minimal
-      // 1-WORK upgrader is still fielded to hold off downgrade.
+      // allocation to 0 - but the controller must not be abandoned, so the
+      // ANTI_DOWNGRADE_RESERVE sip (2 e/t) is still fielded.
+      //
+      // This used to read 1 WORK. Consolidating sizing behind the plan
+      // (2026-08-02) applies that floor UNIFORMLY: the old code floored at the
+      // sip only when the work-site stock was measurable and passed a raw 0
+      // through when it was not, so an unmeasurable room got a smaller
+      // controller guard than a measurable one for no stated reason. At a
+      // 550-capacity spawn one body affords the whole 2 e/t sip, so it stays a
+      // SINGLE upgrader - it just carries 2 WORK instead of 1.
       const fleet = simulateUpgraderFleet({ energyCapacity: 550, allocated: 10, sources: 1, dedicatedBuild: true });
       expect(fleet.count).to.equal(1);
-      expect(fleet.totalWork).to.equal(1);
+      expect(fleet.totalWork).to.equal(2);
     });
   });
 });

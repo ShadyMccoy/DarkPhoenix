@@ -136,8 +136,11 @@ describe("Telemetry sizing records (segment 4, spec 14 phase 2)", () => {
     expect(s.planAllocated).to.equal(5);
     expect(s.stock).to.equal(null);
     expect(s.banked).to.equal(null);
-    expect(s.inflow).to.equal(null);
-    expect(s.allocated).to.equal(5); // null stock -> trust the plan
+    // The plan IS the inflow now (owner 2026-08-02: sizing consolidated behind
+    // the plan). There is no second rate left to report, so the stamp carries
+    // the one number the decision read rather than a null placeholder.
+    expect(s.inflow).to.equal(5);
+    expect(s.allocated).to.equal(5); // the plan, full stop
     expect(s.targetCount).to.be.a("number");
   });
 

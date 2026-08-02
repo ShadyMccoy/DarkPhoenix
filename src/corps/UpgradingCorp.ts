@@ -120,93 +120,62 @@ export function upgraderFleetSatisfied(
 }
 
 /**
- * The energy/tick the upgrader fleet is sized to consume (pure, unit-tested):
- * STOCK-GROUNDED sizing (owner doctrine 2026-07-10) - the stock at the work
- * site drained over a creep generation, plus what measurably flows in - capped
- * by the plan's allocation so upgraders never out-eat what the solver routes.
+ * The energy/tick the upgrader fleet is sized to consume.
  *
- * The inflow term is the anti-downgrade trickle (2)... UNLESS the room's bank
- * is in SURPLUS and a feeder is actively relaying it (bankedBehindFeeder is
- * the storage's energy when `controllerFeederActive`, null otherwise). Then
- * the relay rate (economy/bank.feederRelayRate - the same primitive that
- * sizes the feeder fleet) is the real inflow, and the fleet scales up to the
- * plan. This is the consumption half of the spec-03 surplus draw: while the
- * warchest FILLS the sip keeps the bank accumulating (the pinned save
- * regime); once it is FULL the windfall doctrine applies - "a windfall ->
- * consumers scale up to eat it" - which a feeder-capped 2000 input stock
- * otherwise hides (measured live: 100k banked, upgraders sized to ~3.3 e/t).
+ * THE PLAN ALLOCATION IS THE VALVE (owner 2026-08-02: *"we had a valve for the
+ * upgrader consumer sizing that was independent of the plan allocation.
+ * However, realized that the plan allocation IS the valve. That other valve
+ * might've been good in the short term, but it should be removed entirely and
+ * consolidated behind the plan."*).
+ *
+ * What was removed: a stock-grounded valve that sized the fleet from the work
+ * site's stock drained over a creep generation, with `feederRelayRate` as its
+ * inflow - a SECOND drain rate computed independently of the controller
+ * allocation the solver had just routed. It existed because the plan
+ * UNDER-STATED (prod t72448020: planAllocated pinned at the reserve 2 by a
+ * parts-exhausted fill while 234k sat banked), and bypassing the plan was the
+ * short-term fix.
+ *
+ * By 2026-08-02 it had inverted and was throttling BELOW a plan that no longer
+ * under-states - the very failure it was built to prevent, sign flipped:
+ *
+ *     tick          plan says   valve allowed
+ *     t72717545       79.11         2.00
+ *     t72721419       66.31        40.46
+ *     t72722670       81.19        47.70
+ *
+ * That is CLAUDE.md's trap by the letter - the second patch on a mechanism
+ * means the mechanism is the bug - and it is why the controller variance would
+ * not close: the plan routed 81 and the consumer was built to eat 48.
+ *
+ * So sizing is the plan and nothing else. If the plan is wrong the fix belongs
+ * IN THE PLAN, where one number can be audited rather than two disagreeing
+ * quietly. Wartime relegation is gone with it: the plan's controller sink
+ * already relegates on the same backlog lens, and it "moved no energy" only
+ * because a stock-sized fleet ignored it. One valve, one place.
+ *
+ * The bank survives for ONE job, and it is not sizing: FINANCING. Whether the
+ * spawn walk should wait to afford a full-size body (`surplus` -> holdToFund,
+ * incident t72503018) is a different question from how much the fleet should
+ * burn. Conflating the two is what produced two valves in the first place.
  */
 export function upgraderSizing(
   planAllocated: number,
-  stock: number | null,
-  bankedBehindFeeder: number | null,
-  reserveTarget: number,
-  constructionAbsorb = 0,
-  wartime = false
-): { allocated: number; inflow: number | null; surplus: boolean } {
-  if (stock === null) return { allocated: planAllocated, inflow: null, surplus: false };
-  const surplus = bankedBehindFeeder !== null && bankSurplusRate(bankedBehindFeeder, reserveTarget) > 0;
-  // WARTIME fleet relegation (spec 33, owner "surplus ... now for building";
-  // PHYSICAL lever from the t72598913 falsification). The plan-side controller
-  // cap moved no energy - the source->core->controller LINK relay feeds the
-  // controller and the fleet, sized from the ACTUAL stock the link keeps full,
-  // burned the surplus regardless of the plan (P7 9x, ~18.8 e/t vs relegated
-  // plan ~2, build inched, storage drained E4 -4067). The fix is to relegate
-  // the FLEET ITSELF: while a MEANINGFUL construction backlog stands
-  // (WARTIME_BACKLOG_THRESHOLD, the SAME lens the plan's controller sink
-  // relegates on - coherent ladder shift), drop the fleet to the
-  // anti-downgrade sip so it stops eating what the link delivers and the
-  // surplus lands in building. Fires OFF THE BACKLOG (not surplus) because the
-  // falsification's drain ran with the bank BELOW reserve (surplus false) while
-  // the link-kept stock still fed a stock-grounded fleet - relegating only in
-  // surplus would leave that drain running. Floor inviolable (the controller
-  // downgrade sip, never zeroed); surplus reported FALSE so the relegated sip
-  // funds as an ordinary must-keep-alive demand, not a held surplus-eater;
-  // reverts to the surplus-eater the tick the backlog drains (clean exit).
-  if (wartime) return { allocated: ANTI_DOWNGRADE_RESERVE, inflow: ANTI_DOWNGRADE_RESERVE, surplus: false };
-  // In a construction-free SURPLUS the plan is NOT a cap (prod t72448020:
-  // planAllocated pinned at the reserve 2 by a parts-exhausted fill while
-  // stock 2000 + relay 115 + 234k banked stood ready - the goal-plan cap
-  // held the burn at 2 e/t forever; consumers are "sized from ACTUAL stock
-  // at their work site, never from the goal plan"). The NOW-walk arbitrates
-  // spawn time, so an actuals-sized demand cannot displace producers.
-  //
-  // CONSTRUCTION-FIRST, ABSORB-BOUNDED (owner 2026-07-21: "upgrading is
-  // secondary to construction ... an investment in our future upgrading
-  // abilities"; prod t72478939): the build set eats what it CAN absorb
-  // (constructionAbsorb = buildPoolAbsorbRate, the same projectAbsorbRate
-  // lens that sizes the crew and the plan's construction sink) and the
-  // fleet eats the REMAINING share of the surplus as its inflow - the same
-  // relay feederRelayTarget will actually run, so the chain cannot fight
-  // itself. The boolean form of this clamp treated 12 road sites (absorb
-  // ~5 e/t) exactly like a 100k build-out: allocated pinned at the plan
-  // residual 2 while surplus 115 stood - the freed energy BANKED (+20.18/t
-  // at 474k, 17x target). Only a build-out that absorbs the whole draw
-  // (share <= planAllocated + headroom) returns the plan's residual clamp -
-  // the link-era behavior, preserved. While the warchest FILLS, the
-  // plan-capped sip remains the pinned save regime.
-  const share = surplus ? feederRelayRate(bankedBehindFeeder!, reserveTarget) - constructionAbsorb : 0;
-  const unclamped = surplus && (constructionAbsorb <= 0 || share > planAllocated + FEEDER_STOCK_HEADROOM);
-  const inflow = unclamped
-    ? share
-    : surplus
-      ? planAllocated + FEEDER_STOCK_HEADROOM
-      : 2;
-  const sustainable = sustainableConsumptionRate(stock, inflow);
-  // `surplus` is exported as the sizing's capital verdict: the demand's
-  // holdToFund reads it (incident t72503018), so the fleet the surplus scaled
-  // UP is one the spawn walk can actually finance - one lens, two readers.
-  return { allocated: Math.max(2, unclamped ? sustainable : Math.min(planAllocated, sustainable)), inflow, surplus };
+  financing: { bankedBehindFeeder: number | null; reserveTarget: number } | null = null
+): { allocated: number; inflow: number; surplus: boolean } {
+  const allocated = Math.max(ANTI_DOWNGRADE_RESERVE, planAllocated);
+  const surplus =
+    financing != null &&
+    financing.bankedBehindFeeder !== null &&
+    bankSurplusRate(financing.bankedBehindFeeder, financing.reserveTarget) > 0;
+  // There is no longer a second rate to report: the plan IS the inflow the
+  // fleet is sized against. Kept in the stamp so a capture still answers "what
+  // did this decision read" with one number instead of none.
+  return { allocated, inflow: allocated, surplus };
 }
 
-export function upgraderAllocation(
-  planAllocated: number,
-  stock: number | null,
-  bankedBehindFeeder: number | null,
-  reserveTarget: number,
-  constructionAbsorb = 0
-): number {
-  return upgraderSizing(planAllocated, stock, bankedBehindFeeder, reserveTarget, constructionAbsorb).allocated;
+export function upgraderAllocation(planAllocated: number): number {
+  return upgraderSizing(planAllocated).allocated;
 }
 
 /**
@@ -579,14 +548,12 @@ export class UpgradingCorp extends Corp {
     // nudge). Read only with a real home room (harness stubs skip it).
     const wartime =
       !!spawn?.pos?.roomName && buildPoolBacklog(spawn.pos.roomName) >= WARTIME_BACKLOG_THRESHOLD;
-    const { allocated, inflow, surplus } = upgraderSizing(
-      planAllocated,
-      stock,
+    // ONE VALVE: the plan's controller allocation. The bank rides along only as
+    // a FINANCING verdict (holdToFund), never as a second sizing rate.
+    const { allocated, inflow, surplus } = upgraderSizing(planAllocated, {
       bankedBehindFeeder,
-      reserveTarget,
-      constructionAbsorb,
-      wartime
-    );
+      reserveTarget
+    });
 
     // One upgrader can only afford so many WORK parts at the current capacity;
     // a single small upgrader cannot consume a whole source. Size the COUNT to
