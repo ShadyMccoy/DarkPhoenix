@@ -22,6 +22,7 @@ import {
   CARRY_MOVE_PAIR_COST,
   CLAIM_LIFETIME,
   CREEP_LIFETIME,
+  INVADER_TAX_PER_ENERGY,
   LINK_TRANSFER_LOSS,
   MINER_COST,
   MINER_PARTS,
@@ -1681,6 +1682,52 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
           (worstRatio > 0
             ? `worst ${worst}; ${overParts.toFixed(0)} parts over ${window}t`
             : `every hauler body within ${OVERBUILD_TOLERANCE}x its route's need`)
+      });
+    }
+  }
+
+  // ---- R1 raid-tax calibration (measured attrition vs the priced tax) ----
+  //
+  // The invader tax's 750e constant prices ONE GUARD BODY per expected raid -
+  // its own doc calls it "a DERIVED starting point" awaiting measured
+  // replacement at >= 10 fiscal windows (the multi-draw rule). Until the
+  // constant swaps, THIS row accumulates the evidence at every close: what
+  // raids actually cost (killed-cargo from the death watch, capture-window
+  // cumulative + early-death body churn from the ring, its own window
+  // stated) against what the plan charges. FY4849-M03's first read: kills at
+  // mean ttl 621 with the tax covering a small fraction - the plan admits
+  // remotes at margins the raid reality does not deliver.
+  {
+    const cc = cap.data.core?.losses?.cumulative as Record<string, number> | undefined;
+    const cb = base.data.core?.losses?.cumulative as Record<string, number> | undefined;
+    const killedCargo =
+      cc?.tombstoneKilled !== undefined && cb?.tombstoneKilled !== undefined
+        ? Math.max(0, (cc.tombstoneKilled ?? 0) - (cb.tombstoneKilled ?? 0)) / dt
+        : null;
+    const churnR1 = computeChurn(cap);
+    const bodyChurn =
+      churnR1 && churnR1.windowTicks > 0 ? churnR1.remoteChurn / churnR1.windowTicks : null;
+    const grossCap = ((cap.data.flow?.sources ?? []) as any[]).reduce(
+      (n: number, s: any) => n + (+s.harvestRate || 0),
+      0
+    );
+    const priced = INVADER_TAX_PER_ENERGY * grossCap;
+    if (killedCargo !== null && priced > 0) {
+      const measured = killedCargo + (bodyChurn ?? 0);
+      const ratio = measured / priced;
+      rows.push({
+        id: "R1",
+        name: "raid-tax calibration (measured attrition vs priced)",
+        value: +ratio.toFixed(1),
+        unit: "x the priced tax",
+        // The constant is KNOWN provisional; the row is a gauge, so it never
+        // FAILs - it accumulates toward the >=10-window calibration bar.
+        verdict: ratio > 3 || ratio < 1 / 3 ? "WARN" : "ok",
+        detail:
+          `measured ${measured.toFixed(2)} e/t (killed cargo ${killedCargo.toFixed(2)} full-window` +
+          (bodyChurn !== null ? ` + remote churn bodies ${bodyChurn.toFixed(2)} over ${churnR1!.windowTicks}t ring` : "") +
+          `) vs priced ${priced.toFixed(2)} (${INVADER_TAX_PER_ENERGY.toFixed(4)}/e x ${grossCap.toFixed(0)} e/t capacity); ` +
+          `swap EXPECTED_RAID_DEFENSE_COST only at >=10 accumulated fiscal windows`
       });
     }
   }

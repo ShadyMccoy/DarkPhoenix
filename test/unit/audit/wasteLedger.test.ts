@@ -1952,3 +1952,42 @@ describe("S5 spawn-throughput headroom", () => {
     expect(computeLedger(old, cap72404213).find(r => r.id === "S5")).to.equal(undefined);
   });
 });
+
+/**
+ * R1 - the raid-tax calibration gauge (phase 3).
+ *
+ * EXPECTED_RAID_DEFENSE_COST prices one guard body (750e) per expected raid;
+ * its own doc calls it a derived starting point awaiting measured replacement
+ * at >= 10 fiscal windows. R1 accumulates that evidence at every close:
+ * measured attrition (killed-cargo cumulative + remote churn bodies) against
+ * the priced tax - so the constant swap, when it comes, is a calibration
+ * backed by closes rather than an argument from structure.
+ */
+describe("R1 raid-tax calibration gauge", () => {
+  const rig = (killedCap: number, killedBase: number): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    const shell = {
+      windowTicks: 5, pileDecay: 0, structureDecay: 0, repairSpend: 0,
+      tombstoneLost: 0, tombstoneRecovered: 0, tombstoneStock: 0
+    };
+    cap.data.core.losses = { ...shell, cumulative: { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0, tombstoneKilled: killedCap } };
+    base.data.core.losses = { ...shell, cumulative: { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0, tombstoneKilled: killedBase } };
+    return { cap, base };
+  };
+
+  it("compares measured killed-cargo against the priced tax over the capture window", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    const { cap, base } = rig(10 * dt, 0); // 10 e/t of killed cargo
+    const r1 = computeLedger(cap, base).find(r => r.id === "R1")!;
+    expect(r1, "the gauge exists once the death watch spans both captures").to.not.equal(undefined);
+    expect(r1.detail).to.include("killed cargo 10.00");
+    expect(r1.verdict, "an order-of-magnitude gap is a WARN, never a FAIL (known-provisional constant)").to.equal("WARN");
+  });
+
+  it("stays quiet on captures whose baseline predates the death watch", () => {
+    const { cap, base } = rig(1000, 0);
+    delete base.data.core.losses.cumulative.tombstoneKilled;
+    expect(computeLedger(cap, base).find(r => r.id === "R1")).to.equal(undefined);
+  });
+});
