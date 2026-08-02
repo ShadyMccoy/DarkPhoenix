@@ -42,12 +42,26 @@ describe("tallyUpgradeAttempt (upgrade WORK-utilization meter)", () => {
     const meter: any = {};
     tallyUpgradeAttempt(meter, "W43N23", 100, OK_RC);
     tallyUpgradeAttempt(meter, "W43N23", 100 + UPGRADE_METER_WINDOW, DRY_RC);
-    expect(meter.W43N23, "fresh window, old counts dropped").to.deep.equal({
+    expect(meter.W43N23, "fresh window, old counts dropped").to.deep.include({
       t0: 100 + UPGRADE_METER_WINDOW,
       ticks: 1,
       fired: 0,
       dry: 1
     });
+  });
+
+  it("the duty HISTOGRAM survives the window roll (spec 40-B: shape outlives the mean)", () => {
+    // The roll is exactly when a mean resets its amnesia - percentiles need
+    // accumulation across regimes, so the buckets ride through.
+    const meter: any = {};
+    tallyUpgradeAttempt(meter, "W43N23", 100, OK_RC);
+    const before = meter.W43N23.hist;
+    expect(before, "the tally feeds the histogram").to.not.equal(undefined);
+    before.buckets[9] = 7; // pretend seven full-duty sub-windows closed
+    before.windows = 7;
+    tallyUpgradeAttempt(meter, "W43N23", 100 + UPGRADE_METER_WINDOW, DRY_RC);
+    expect(meter.W43N23.hist.windows, "buckets survive the roll").to.equal(7);
+    expect(meter.W43N23.hist.buckets[9]).to.equal(7);
   });
 
   it("meters rooms independently", () => {

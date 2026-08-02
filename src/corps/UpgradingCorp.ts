@@ -7,6 +7,7 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
+import { blankDutyHistogram, recordDutyTick } from "../telemetry/dutyHistogram";
 import { roomHasFlowHauler } from "./censusLens";
 import { controllerInputSpot, controllerParkingTiles, controllerSideStock } from "./nodeEnergy";
 import { travelToBypass } from "./movement";
@@ -48,11 +49,20 @@ export function tallyUpgradeAttempt(
 ): void {
   let w = meter[room];
   if (!w || tick - w.t0 >= UPGRADE_METER_WINDOW) {
-    w = meter[room] = { t0: tick, ticks: 0, fired: 0, dry: 0 };
+    // The duty HISTOGRAM survives the window roll (spec 40-B): percentiles
+    // need shape across regimes, and the roll is exactly when a mean resets
+    // its amnesia. Sub-windows keep closing into the same buckets.
+    const hist = w?.hist;
+    w = meter[room] = { t0: tick, ticks: 0, fired: 0, dry: 0, ...(hist ? { hist } : {}) };
   }
   w.ticks++;
   if (rc === OK) w.fired++;
   else if (rc === ERR_NOT_ENOUGH_RESOURCES) w.dry++;
+  // Spec 40-B: the same per-tick observation feeds the percentile histogram -
+  // a mean over bimodal duty hid the border-bounce 37x defect for hours; the
+  // buckets show mass at both ends where the mean shows 0.5.
+  if (!w.hist) w.hist = blankDutyHistogram();
+  recordDutyTick(w.hist, rc === OK);
 }
 
 /**

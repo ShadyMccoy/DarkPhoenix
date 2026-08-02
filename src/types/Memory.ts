@@ -272,7 +272,14 @@ declare global {
      * this window.
      */
     upgradeMeter?: {
-      [roomName: string]: { t0: number; ticks: number; fired: number; dry: number };
+      [roomName: string]: {
+        t0: number;
+        ticks: number;
+        fired: number;
+        dry: number;
+        /** Spec 40-B percentile duty histogram; survives the window roll. */
+        hist?: { buckets: number[]; windows: number; openTicks: number; openDuty: number };
+      };
     };
 
     /**
