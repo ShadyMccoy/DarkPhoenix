@@ -32,6 +32,8 @@ import {
   repairDetailRecruit
 } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
+import { recordRepair } from "../telemetry/LossMeter";
+import { creepRepairEnergy } from "../economy/primitives";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import {
@@ -167,7 +169,7 @@ export function repairRoadEnRoute(creep: Creep): void {
   });
   if (roads.length === 0) return;
   roads.sort((a, b) => a.hits - b.hits);
-  creep.repair(roads[0]);
+  if (creep.repair(roads[0]) === OK) recordRepair(creepRepairEnergy(creep.getActiveBodyparts(WORK)));
 }
 
 export class ConstructionCorp extends Corp {
@@ -2442,6 +2444,8 @@ export class ConstructionCorp extends Corp {
     }
 
     const result = creep.repair(target);
+    // MEASURED repair spend (spec 15): only an OK repair actually burned energy.
+    if (result === OK) recordRepair(creepRepairEnergy(creep.getActiveBodyparts(WORK)));
     if (result === ERR_NOT_IN_RANGE) {
       if (!onExit) {
         creep.moveTo(target, { range: 1, visualizePathStyle: { stroke: "#00ff88" } });

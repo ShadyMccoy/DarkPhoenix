@@ -1,8 +1,17 @@
 import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
-import { F1_CLASS_OF_KIND, F1_PLAN_PREFIX, computeChurn, computeLedger, planSpawnLoad } from "../../../scripts/waste-ledger";
-import { ALL_CORP_KINDS } from "../../../src/execution/CommissionHost";
+import {
+  ACCOUNT_CLASS_OF_ROLE,
+  F1_CLASS_OF_KIND,
+  F1_PLAN_PREFIX,
+  computeChurn,
+  computeLedger,
+  formatAccounts,
+  formatSourcePnL,
+  planSpawnLoad
+} from "../../../scripts/waste-ledger";
+import { ALL_CORP_KINDS, ALL_SPAWN_ROLES } from "../../../src/execution/CommissionHost";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -1175,5 +1184,339 @@ describe("F1 class map covers every registered corp kind", () => {
     const classes = new Set(Object.values(F1_CLASS_OF_KIND).concat("haulers"));
     const missing = [...classes].filter(c => !F1_PLAN_PREFIX[c]);
     expect(missing, `classes with no plan prefix: ${missing.join(", ")}`).to.deep.equal([]);
+  });
+});
+
+/**
+ * The ENERGY ACCOUNT's role map, ratcheted the same way F1's kind map is.
+ * Owner-caught 2026-08-01 ("what about claim corp"): four roles - claimer,
+ * scout, buster, striker - were landing in an unnamed "other" bucket, and one
+ * of them (claimer) is CAPEX that must never be charged to operating margin.
+ * A chart of accounts with an anonymous bucket is not a chart of accounts.
+ */
+describe("energy account: every spawnable role has an account", () => {
+  it("classifies every role any registered kind can buy", () => {
+    const unclassified = ALL_SPAWN_ROLES.filter(r => !ACCOUNT_CLASS_OF_ROLE[r]);
+    expect(unclassified, `roles with no account: ${unclassified.join(", ")}`).to.deep.equal([]);
+  });
+
+  it("maps no role that no kind declares (the ghost-key check)", () => {
+    const ghosts = Object.keys(ACCOUNT_CLASS_OF_ROLE).filter(r => !ALL_SPAWN_ROLES.includes(r));
+    expect(ghosts, `mapped roles no kind buys: ${ghosts.join(", ")}`).to.deep.equal([]);
+  });
+
+  it("keeps expansion OUT of operating cost (capex, funded from the reserve)", () => {
+    expect(ACCOUNT_CLASS_OF_ROLE.claimer).to.equal("expansion");
+    expect(ACCOUNT_CLASS_OF_ROLE.buster).to.equal("incursion");
+    expect(ACCOUNT_CLASS_OF_ROLE.striker).to.equal("incursion");
+  });
+});
+
+/**
+ * SPLITTING THE RESIDUAL (owner 2026-08-01: "I'd like to see pile decay,
+ * tombstone and decay (structures) and repair show up in the report").
+ *
+ * The account balances by construction, so every line added to the loss side
+ * comes straight OUT of the residual. That makes double-counting silent and
+ * expensive: book structure decay as cash alongside the repair that services
+ * it, and the residual shrinks by wear the colony never actually paid twice.
+ * These pin the arithmetic, not the prose.
+ */
+describe("energy account: the residual's line items (core v20 loss meter)", () => {
+  const withMeter = (losses: any): any => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.core.losses = {
+      windowTicks: 500,
+      pileDecay: 0,
+      structureDecay: 0,
+      repairSpend: 0,
+      tombstoneLost: 0,
+      tombstoneRecovered: 0,
+      tombstoneStock: 0,
+      ...losses
+    };
+    return c;
+  };
+  const accountOf = (cap: any): string => {
+    const rows = computeLedger(cap, cap72404213);
+    return formatAccounts(cap, cap72404213, rows);
+  };
+  const lineValue = (text: string, label: string): number => {
+    const line = text.split("\n").find(l => l.includes(label));
+    if (!line) throw new Error(`no line matching "${label}" in:\n${text}`);
+    return Number(/(-?\d+\.\d\d)/.exec(line.slice(line.indexOf(label) + label.length))![1]);
+  };
+
+  it("prints the three CASH loss lines and their total", () => {
+    const text = accountOf(withMeter({ pileDecay: 3, tombstoneLost: 2, repairSpend: 1 }));
+    expect(lineValue(text, "ground pile decay")).to.equal(-3);
+    expect(lineValue(text, "tombstone losses")).to.equal(-2);
+    expect(lineValue(text, "repair (energy spent")).to.equal(-1);
+    expect(lineValue(text, "= measured losses")).to.equal(-6);
+  });
+
+  it("takes every metered loss OUT of the residual, one for one", () => {
+    const bare = accountOf(withMeter({ pileDecay: 3 }));
+    const more = accountOf(withMeter({ pileDecay: 3, tombstoneLost: 2, repairSpend: 1 }));
+    const shrink = lineValue(bare, "RESIDUAL") - lineValue(more, "RESIDUAL");
+    expect(shrink, "3 e/t of newly-attributed loss leaves the residual").to.be.closeTo(3, 0.011);
+  });
+
+  it("does NOT book structure decay as cash - that would double-count repair", () => {
+    const none = accountOf(withMeter({ repairSpend: 1 }));
+    const heavy = accountOf(withMeter({ repairSpend: 1, structureDecay: 9 }));
+    expect(lineValue(heavy, "RESIDUAL")).to.be.closeTo(lineValue(none, "RESIDUAL"), 1e-9);
+  });
+
+  it("reports decay vs repair as a DEPRECIATION MEMO, and names a shortfall", () => {
+    const short = accountOf(withMeter({ repairSpend: 1, structureDecay: 9 }));
+    expect(short).to.include("DEPRECIATION MEMO");
+    expect(short).to.include("SHORTFALL 8.00");
+    const holding = accountOf(withMeter({ repairSpend: 9, structureDecay: 1 }));
+    expect(holding).to.include("KEEPING UP");
+  });
+
+  it("books tombstone energy as LOST, witnessed recovery being only a memo", () => {
+    // Owner 2026-08-01: with no reliable recovery, lost is the default. The
+    // meter has already netted any witnessed withdrawal out of tombstoneLost,
+    // so the account books that figure and reports recovery as context only.
+    const t = accountOf(withMeter({ tombstoneLost: 2, tombstoneRecovered: 50 }));
+    expect(lineValue(t, "tombstone losses")).to.equal(-2);
+    expect(lineValue(t, "= measured losses")).to.equal(-2);
+    expect(t).to.include("LOST BY DEFAULT");
+  });
+
+  it("degrades cleanly on a capture older than the meter", () => {
+    // The 2026-07-18 fixture predates even v19's sourceDropped, so it must
+    // print the fully-unsplit residual - never blank lines or NaN, and never
+    // meter sections built on absent fields.
+    const text = accountOf(JSON.parse(JSON.stringify(cap72411542)));
+    expect(text).to.include("RESIDUAL (decay, rot, raids, error)");
+    expect(text).to.not.include("DEPRECIATION MEMO");
+    expect(text).to.not.include("= measured losses");
+    expect(text).to.not.match(/NaN/);
+  });
+});
+
+/**
+ * METHODOLOGY #3 (audit cycle t72721419). Two defects the loss meter exposed
+ * the moment it gave the account real costs to subtract: the residual came out
+ * at -25.10 e/t, i.e. 25% of gross mining OVER-attributed, which is impossible
+ * if every input is sound.
+ */
+describe("energy account: revenue is MINED, and windows must cohere (#3)", () => {
+  const rig = (over: any = {}): any => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.core.losses = {
+      windowTicks: 5000,
+      pileDecay: 0,
+      structureDecay: 0,
+      repairSpend: 0,
+      tombstoneLost: 0,
+      tombstoneRecovered: 0,
+      tombstoneStock: 0,
+      ...(over.losses ?? {})
+    };
+    if (over.heldFracs) {
+      const harvest = c.data.corps.corps.filter((x: any) => x.kind === "harvest");
+      harvest.forEach((h: any, i: number) => {
+        h.sizing = { ...(h.sizing ?? {}), heldFrac: over.heldFracs[i] ?? 0 };
+      });
+    }
+    return c;
+  };
+  const textOf = (cap: any): string => formatAccounts(cap, cap72404213, computeLedger(cap, cap72404213));
+
+  /**
+   * A miner whose buffer is full STOPS HARVESTING - `heldFrac` is stamped at
+   * that decision site. Booking the unmined capacity as revenue inflates every
+   * line below it. Live: 3.03 source-equivalents held, 30.28 e/t of a nominal
+   * 100 never mined.
+   */
+  it("subtracts capacity the miners' own stamps say was never harvested", () => {
+    const idle = textOf(rig({ heldFracs: [] }));
+    expect(idle).to.include("mining capacity");
+
+    const held = textOf(rig({ heldFracs: [1, 1] })); // two sources fully held
+    expect(held).to.include("- forgone (miners held, buffer full)");
+    // Gross mining must fall BELOW capacity by the forgone amount.
+    // Columns are BUDGET then ACTUAL - take the second, or both lines read
+    // back the same capacity figure and the assertion proves nothing.
+    const actual = (label: string): number => {
+      const line = held.split("\n").find(l => l.includes(label))!;
+      return Number(line.match(/-?\d+\.\d\d/g)![1]);
+    };
+    expect(actual("= gross mining")).to.be.lessThan(actual("mining capacity"));
+    expect(actual("mining capacity") - actual("= gross mining")).to.be.closeTo(20, 0.01);
+  });
+
+  it("omits the forgone line entirely when no stamp carries heldFrac", () => {
+    // An older capture must not have a fabricated zero passed off as a reading.
+    const old = JSON.parse(JSON.stringify(cap72411542));
+    old.data.corps.corps.forEach((c: any) => {
+      if (c.sizing) delete c.sizing.heldFrac;
+    });
+    expect(textOf(old)).to.not.include("forgone");
+  });
+
+  /**
+   * The residual is a DIFFERENCE of rates. Revenue/bank/controller come from the
+   * capture pair; measured costs from the blackbox ring; losses from the meter's
+   * own window. A deploy restarts the last two but not the first, so an hour of
+   * deploys makes their difference an artifact.
+   */
+  it("flags the residual as untrustworthy when the windows diverge", () => {
+    const skewed = rig({ losses: { windowTicks: 100 } }); // vs a multi-thousand-tick capture window
+    expect(textOf(skewed)).to.include("WINDOW INCOHERENCE");
+  });
+
+  it("stays quiet when the windows agree", () => {
+    const coherent = rig({ losses: { windowTicks: 1e9 } }); // never the shortest
+    expect(textOf(coherent)).to.not.include("WINDOW INCOHERENCE");
+  });
+});
+
+/**
+ * THE LINK TAX HAS A BUDGET (methodology #4, owner 2026-08-01: "we still have
+ * the 'free' hauling from links in the plan as well?").
+ *
+ * Spec 42's first invariant: a line with an actual but no budget is a line the
+ * plan cannot control. The planner now charges each link-served source one hop,
+ * so the line can be compared instead of merely reported - and the comparison
+ * is the point, because the network loses TWO hops (source->hub->controller)
+ * while the plan bills one.
+ */
+describe("energy account: the link transfer tax is budgeted, not just measured", () => {
+  const withLinks = (opts: { linkServed?: boolean; taxRate?: number }): any => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.core.links = [{ room: "W1N1", windowTicks: 500, taxRate: opts.taxRate ?? 2.59 }];
+    c.data.core.losses = {
+      windowTicks: 1e9, // never the shortest - keeps the coherence guard quiet
+      pileDecay: 0,
+      structureDecay: 0,
+      repairSpend: 0,
+      tombstoneLost: 0,
+      tombstoneRecovered: 0,
+      tombstoneStock: 0
+    };
+    if (opts.linkServed !== undefined) {
+      c.data.flow.sources.forEach((s: any, i: number) => {
+        s.linkServed = opts.linkServed && i < 2; // two link-served sources
+      });
+    }
+    return c;
+  };
+  const textOf = (cap: any): string => formatAccounts(cap, cap72404213, computeLedger(cap, cap72404213));
+
+  it("budgets one hop per LINK-SERVED source, read from the flag not inferred", () => {
+    const t = textOf(withLinks({ linkServed: true }));
+    const line = t.split("\n").find(l => l.includes("link transfer"))!;
+    const nums = line.match(/-?\d+\.\d\d/g)!;
+    // two sources x 10 e/t x 3% = 0.60 budgeted, against 2.59 measured
+    expect(Number(nums[0])).to.be.closeTo(-0.6, 0.01);
+    expect(Number(nums[1])).to.be.closeTo(-2.59, 0.01);
+  });
+
+  /**
+   * Owner 2026-08-02: "link tax is similar to haul body." Both are per-source
+   * transport costs scaling with the flow they move - only the currency differs
+   * (hauler body = spawn parts, link hop = delivered energy). So the tax sits in
+   * DIRECT COST OF MINING beside evacuation, not in LOSSES: a link-served
+   * source must never be able to show zero transport, which is exactly how
+   * "free" link haulage went unnoticed.
+   */
+  it("books the tax as TRANSPORT (direct cost), not as a loss", () => {
+    const t = textOf(withLinks({ linkServed: true }));
+    const lines = t.split("\n");
+    const idx = (needle: string): number => lines.findIndex(l => l.includes(needle));
+    const linkIdx = idx("link transfer");
+    expect(linkIdx).to.be.greaterThan(idx("DIRECT COST OF MINING"));
+    expect(linkIdx).to.be.lessThan(idx("= NET MINING MARGIN"));
+    // and it must be OUT of the loss block
+    const lossIdx = idx("MEASURED LOSSES");
+    if (lossIdx >= 0) expect(linkIdx).to.be.lessThan(lossIdx);
+  });
+
+  it("nets link transport out of NET MINING MARGIN", () => {
+    const free = textOf(withLinks({ linkServed: true, taxRate: 0 }));
+    const taxed = textOf(withLinks({ linkServed: true, taxRate: 4 }));
+    const margin = (t: string): number =>
+      Number(t.split("\n").find(l => l.includes("= NET MINING MARGIN"))!.match(/-?\d+\.\d\d/g)!.slice(-1)[0]);
+    expect(margin(free) - margin(taxed)).to.be.closeTo(4, 0.01);
+  });
+
+  it("charges each LINK-SERVED source in the SOURCE P&L - never zero transport", () => {
+    // Needs a capture with a spawn ring (the P&L's costs are measured); the
+    // 2026-07-18 fixture predates the blackbox, so use the live one.
+    const live = fixture("shard1-t72722670.json");
+    const pnl = formatSourcePnL(live);
+    expect(pnl, "the P&L renders for a capture with a ring").to.not.equal("");
+    expect(pnl).to.include("link"); // the transport column exists
+    // Every link-served source carries a non-zero transport charge.
+    const linkIds = (live.data.flow.sources as any[]).filter(s => s.linkServed).map(s => String(s.id).slice(-4));
+    for (const id of linkIds) {
+      const row = pnl.split("\n").find(l => l.trimStart().startsWith(id))!;
+      expect(row, `row for ${id}`).to.not.equal(undefined);
+      expect(row, `${id} must not show free transport`).to.not.match(/\s-\s+\d+\.\d\d\s+10\.00/);
+    }
+  });
+
+  it("leaves the budget BLANK on a capture predating the linkServed flag", () => {
+    // Omit rather than fabricate a zero - a zero would read as "the plan says
+    // link transport is free", which is the very claim being corrected.
+    const t = textOf(withLinks({}));
+    const line = t.split("\n").find(l => l.includes("link transfer"))!;
+    expect(line.match(/-?\d+\.\d\d/g)!).to.have.length(1); // actual only
+  });
+});
+
+/**
+ * A FISCAL MONTH MUST BE MEASURABLE (methodology #5, owner 2026-08-01: "can it
+ * show the last 1500+ ticks of actual?").
+ *
+ * It could not: the loss meter's rates were since-reset, so the measured window
+ * was bounded by VM lifetime - 480t against a 1251-tick capture window - and a
+ * 1500-tick fiscal month never fit. Differencing CUMULATIVE totals makes the
+ * measured window equal the capture window at any length.
+ */
+describe("energy account: loss lines span the FULL capture window (#5)", () => {
+  const withCumulative = (capTotals: any, baseTotals: any): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    const shell = { windowTicks: 5, pileDecay: 999, structureDecay: 0, repairSpend: 999, tombstoneLost: 999, tombstoneRecovered: 0, tombstoneStock: 0 };
+    cap.data.core.losses = { ...shell, cumulative: capTotals };
+    base.data.core.losses = { ...shell, cumulative: baseTotals };
+    return { cap, base };
+  };
+  const zero = { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 };
+
+  it("differences the totals over the capture window, ignoring the since-reset rates", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    const { cap, base } = withCumulative({ ...zero, pileDecay: 3 * dt, repairSpend: dt }, zero);
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const line = (label: string): number =>
+      Number(text.split("\n").find(l => l.includes(label))!.match(/-?\d+\.\d\d/g)!.slice(-1)[0]);
+    // 3 e/t and 1 e/t - NOT the 999 the since-reset shell carries.
+    expect(line("ground pile decay")).to.be.closeTo(-3, 0.01);
+    expect(line("repair (energy spent")).to.be.closeTo(-1, 0.01);
+    expect(text).to.include("cumulative, full window");
+  });
+
+  it("nets tombstone recovery out of the cumulative loss", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    const { cap, base } = withCumulative(
+      { ...zero, tombstoneGross: 5 * dt, tombstoneRecovered: 2 * dt },
+      zero
+    );
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const v = Number(text.split("\n").find(l => l.includes("tombstone losses"))!.match(/-?\d+\.\d\d/g)!.slice(-1)[0]);
+    expect(v).to.be.closeTo(-3, 0.01);
+  });
+
+  it("stops blaming the LOSS lines for window incoherence once they span the window", () => {
+    const { cap, base } = withCumulative(zero, zero);
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    // The 5-tick since-reset shell would have tripped the guard at ~1400x.
+    expect(text).to.not.include("WINDOW INCOHERENCE");
   });
 });

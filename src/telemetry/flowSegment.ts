@@ -84,6 +84,21 @@ export interface FlowTelemetry {
     efficiency: number;
     /** Distance from spawn */
     spawnDistance: number;
+    /**
+     * This source's transport IS the link network (v14): its creep haul leg is
+     * ~1 tile, and it pays LINK_TRANSFER_LOSS per hop instead. The account
+     * budgets the link tax off this flag rather than inferring link service
+     * from a short haul distance.
+     */
+    linkServed?: boolean;
+    /**
+     * Swamp SHARE of this source's haul path (v15). Shipped 2026-08-02 as a
+     * pricing term with NO stamp, and the very next capture could not say
+     * whether carry was unchanged because the routes have no swamp or because
+     * the wiring was dead. A pricing term with no stamp is a term you cannot
+     * audit - the same lesson this program keeps re-learning.
+     */
+    swampFraction?: number;
   }[];
   /**
    * PLANNED haulers (goal-plan side). Each solver hauler assignment with the
@@ -161,6 +176,19 @@ export interface FlowTelemetry {
   summary: {
     totalHarvest: number;
     totalOverhead: number;
+    /** Per-spawn fleet maintenance charged by the fleet-charge solve - lets a
+     *  capture split the spawn sink demand into base/maintenance/agenda terms. */
+    spawnMaintenance?: number;
+    /** Inputs the charge was computed from (v13): `spawnMaintenance *
+     *  spawnCount == fleetEnergy` is the self-consistency identity, and
+     *  `passes` says whether the damped iteration converged or ran out. */
+    fleetCharge?: {
+      fleetEnergy: number;
+      production: number;
+      infra: number;
+      spawnCount: number;
+      passes: number;
+    };
     netEnergy: number;
     efficiency: number;
     isSustainable: boolean;
@@ -275,7 +303,11 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
         // harvest corp in segments 0/4.
         workParts: workPartsForEnergyRate(miner.harvestRate, HARVEST_ENERGY_PER_WORK),
         efficiency: miner.efficiency,
-        spawnDistance: miner.spawnDistance
+        spawnDistance: miner.spawnDistance,
+        // v14: this source's transport is the LINK network, so its haul leg is
+        // ~1 tile and it pays the engine's 3%-per-hop transfer tax instead.
+        ...(miner.linkServed ? { linkServed: true } : {}),
+        ...(miner.swampFraction !== undefined ? { swampFraction: miner.swampFraction } : {})
       });
     }
 
@@ -336,7 +368,7 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
     // echo (spec 34 P4: the ledger charges construction THROUGH the plan).
     // v12 adds partsLedger.plannable - the 90% planning margin
     // (SPAWN_PLAN_FRACTION, owner 2026-07-30) the fill spends from.
-    version: 12,
+    version: 15, // v14 sources[].linkServed; v15 sources[].swampFraction (audits the tick-pricing) 2026-08-02
     tick: Game.time,
     sources,
     haulers,
@@ -352,6 +384,10 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
       ? {
           totalHarvest: flowSolution.totalHarvest,
           totalOverhead: flowSolution.totalOverhead,
+          ...(flowSolution.spawnMaintenance !== undefined
+            ? { spawnMaintenance: flowSolution.spawnMaintenance }
+            : {}),
+          ...(flowSolution.fleetCharge ? { fleetCharge: flowSolution.fleetCharge } : {}),
           netEnergy: flowSolution.netEnergy,
           efficiency: flowSolution.efficiency,
           isSustainable: flowSolution.isSustainable,

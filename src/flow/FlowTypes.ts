@@ -147,6 +147,19 @@ export interface MinerAssignment {
   spawnCostPerTick: number;
 
   /**
+   * This source's transport IS the link network (its `haulPos` is the core
+   * link), so its creep haul leg is ~1 tile. Published because the cost of that
+   * transport is NOT zero - the engine destroys LINK_TRANSFER_LOSS of every hop
+   * - and the account cannot budget the link tax without knowing which sources
+   * pay it. Inferring it from a short haul distance was the alternative, and
+   * inference is what let link haulage read as free in the first place.
+   */
+  linkServed?: boolean;
+
+  /** Swamp share of this source's haul path, as the planner priced it. */
+  swampFraction?: number;
+
+  /**
    * Maximum number of miners that can work this source simultaneously.
    * Determined by counting walkable tiles adjacent to the source.
    * Allows spawning multiple smaller miners in early game when energy capacity is limited.
@@ -298,6 +311,41 @@ export interface FlowSolution {
 
   /** Total overhead (mining + hauling) */
   totalOverhead: number;
+
+  /**
+   * PER-SPAWN fleet maintenance the two-pass solve charged the spawn sinks
+   * (energy/tick). Published so a capture can DECOMPOSE the spawn demand,
+   * which is `max(base 10, maintenance) + agendaFundingRate` - only the sum
+   * was exported, and the two-pass solve's first live verification could not
+   * attribute a 4x prediction miss between the two terms because of it.
+   */
+  spawnMaintenance?: number;
+
+  /**
+   * The INPUTS the per-spawn charge above was computed from, stamped at the
+   * decision site (spec 14). Added after `spawnMaintenance` alone proved
+   * insufficient TWICE: the charge is `fleetEnergy / spawnCount`, and a
+   * capture could not tell an unconverged iteration from a wrong divisor
+   * from a mis-estimated infra term - all three predict "the charge is not
+   * the fleet cost". Each of my two diagnoses from the sum alone was wrong.
+   *
+   * `fleetEnergy` is the CONVERGED plan's total (production overhead + infra),
+   * so `charge * spawnCount == fleetEnergy` is the self-consistency identity a
+   * reader can check directly, and `passes` says whether the iteration ran out
+   * of budget before getting there.
+   */
+  fleetCharge?: {
+    /** Total fleet cost of the plan handed back (totalOverhead + infra). */
+    fleetEnergy: number;
+    /** Production term only (plan.totalOverhead). */
+    production: number;
+    /** Infrastructure term only (problem.infraEnergyPerTick). */
+    infra: number;
+    /** Divisor: spawn sinks the charge is split across. */
+    spawnCount: number;
+    /** Damped iterations actually run (0 = converged on the seed). */
+    passes: number;
+  };
 
   /** Net energy available for sinks */
   netEnergy: number;

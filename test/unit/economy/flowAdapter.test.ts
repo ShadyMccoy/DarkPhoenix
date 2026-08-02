@@ -833,3 +833,71 @@ describe("trunk-building sources (owner 2026-07-21: no hauling home until the ro
 
 
 });
+
+/**
+ * TWO-PASS SOLVE (owner-chosen 2026-08-01, option 2 of three).
+ *
+ * `discoverSinks` priced the spawn sink at a hardcoded 10 e/t "base spawn
+ * overhead demand". That was the plan's ENTIRE model of what running the spawn
+ * costs, against a fleet costing ~42 e/t (measured t72714129). Because the
+ * spawn tops the value ladder, the shortfall was freed DOWN the ladder and the
+ * controller absorbed it - the plan allocated 108.87 to a controller the
+ * runtime delivered 47.6 to.
+ *
+ * Pass 1 discovers the fleet; pass 2 charges the spawn what maintaining it
+ * costs. Scope is PRODUCTION + INFRA only - both are sized by sources and
+ * rooms, independent of the controller allocation, so pass 2 is a fixed point.
+ * Charging consumer bodies would be circular and could oscillate.
+ */
+describe("economy/flowAdapter - two-pass solve charges the spawn its fleet cost", () => {
+  const g = globalThis as unknown as { Game?: unknown };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  it("raises the spawn sink's capacity above the hardcoded base when a fleet is priced", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const pass1 = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    const spawn1 = pass1.sinks.find(k => k.kind === "spawn")!;
+
+    // pass 2 supplies a real maintenance figure
+    const MAINT = 25;
+    const pass2 = buildColonyProblem(
+      graph, manhattan, [], new Map(), new Map(), [], undefined, undefined, undefined, undefined, MAINT
+    );
+    const spawn2 = pass2.sinks.find(k => k.kind === "spawn")!;
+
+    expect(spawn1.capacity, "pass 1 keeps the legacy base - behaviour unchanged").to.be.lessThan(MAINT);
+    expect(spawn2.capacity, "pass 2 demands the fleet's real standing cost").to.be.at.least(MAINT);
+  });
+
+  it("carries the infra ENERGY twin on the problem, matching the parts twin's shape", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15)]);
+    const p = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    expect(p.infraEnergyPerTick, "the energy twin rides beside the parts term").to.be.a("number");
+    // both terms describe the same details, so they vanish together
+    if ((p.infraPartsPerTick ?? 0) === 0) expect(p.infraEnergyPerTick).to.equal(0);
+    else expect(p.infraEnergyPerTick!).to.be.greaterThan(0);
+  });
+
+  it("the CONTROLLER allocation falls once the spawn is charged (the whole point)", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const { planColony } = await import("../../../src/economy/CorpPlanner");
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const ctrlOf = (problem: any): number =>
+      planColony(problem).sinks.filter((k: any) => k.kind === "controller").reduce((n: number, k: any) => n + k.allocated, 0);
+
+    const base = ctrlOf(buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []));
+    const charged = ctrlOf(
+      buildColonyProblem(graph, manhattan, [], new Map(), new Map(), [], undefined, undefined, undefined, undefined, 25)
+    );
+    expect(charged, "energy the spawn needs stops being handed down the ladder").to.be.lessThan(base);
+  });
+});

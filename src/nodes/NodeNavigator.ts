@@ -55,6 +55,8 @@ export function estimateWalkingDistance(from: Position, to: Position): number {
  * which simply recomputes. Keeps PathFinder (expensive) off the per-tick path.
  */
 const pathDistanceCache = new Map<string, number>();
+/** Swamp SHARE (0..1) of the same cached paths - see pathSwampFraction. */
+const pathSwampCache = new Map<string, number>();
 
 function positionKey(p: Position): string {
   return `${p.roomName}:${p.x},${p.y}`;
@@ -63,6 +65,7 @@ function positionKey(p: Position): string {
 /** Clear the path-distance cache. Test seam; not used in the live game. */
 export function clearPathDistanceCache(): void {
   pathDistanceCache.clear();
+  pathSwampCache.clear();
 }
 
 /**
@@ -78,6 +81,39 @@ export function clearPathDistanceCache(): void {
  * miners out, little energy back" failure). Real path cost reflects the detour,
  * so the planner rejects those remotes.
  */
+/**
+ * Share of a cached path that is SWAMP (0..1), by the same endpoint key as
+ * {@link pathDistance}. Zero when the path was never walked (estimate
+ * fallback, mocks) - an unknown swamp share must read as "no swamp" rather
+ * than fabricate a penalty from a measurement we do not have.
+ */
+export function pathSwampFraction(from: Position, to: Position): number {
+  return pathSwampCache.get(`${positionKey(from)}->${positionKey(to)}`) ?? 0;
+}
+
+/** Swamp share of a walked path; 0 when terrain is unreadable. */
+function countSwampFraction(path: { x: number; y: number; roomName: string }[]): number {
+  const map = (globalThis as { Game?: { map?: { getRoomTerrain?: (r: string) => { get: (x: number, y: number) => number } } } }).Game
+    ?.map;
+  const maskSwamp = (globalThis as { TERRAIN_MASK_SWAMP?: number }).TERRAIN_MASK_SWAMP;
+  if (!map?.getRoomTerrain || maskSwamp === undefined || path.length === 0) return 0;
+  let swamp = 0;
+  const terrains = new Map<string, { get: (x: number, y: number) => number }>();
+  try {
+    for (const step of path) {
+      let t = terrains.get(step.roomName);
+      if (!t) {
+        t = map.getRoomTerrain(step.roomName);
+        terrains.set(step.roomName, t);
+      }
+      if (t.get(step.x, step.y) & maskSwamp) swamp += 1;
+    }
+  } catch {
+    return 0;
+  }
+  return swamp / path.length;
+}
+
 export function pathDistance(from: Position, to: Position): number {
   const key = `${positionKey(from)}->${positionKey(to)}`;
   const cached = pathDistanceCache.get(key);
@@ -85,6 +121,7 @@ export function pathDistance(from: Position, to: Position): number {
 
   const estimate = estimateWalkingDistance(from, to);
   let result = estimate;
+  let swampFrac = 0;
 
   const pf = (globalThis as { PathFinder?: typeof PathFinder }).PathFinder;
   const RP = (globalThis as { RoomPosition?: typeof RoomPosition }).RoomPosition;
@@ -103,6 +140,17 @@ export function pathDistance(from: Position, to: Position): number {
       // the analytic estimate in that case.
       if (search && !search.incomplete && search.path && search.path.length > 0) {
         result = search.path.length;
+        // SWAMP, for free. The search already walked the path; counting how
+        // much of it is swamp costs one terrain lookup per tile and nothing
+        // extra in pathfinding. Stored as a FRACTION so it applies at whatever
+        // distance a caller prices, rather than being pinned to this endpoint
+        // pair's tile count.
+        //
+        // It matters because a loaded hauler crawls swamp: a 1:1 body clears
+        // plain at 1 tick/tile and swamp at FIVE, so the same tile distance is
+        // a different TIME - and CARRY sizing is a function of time, not tiles
+        // (owner 2026-08-02: "it's supposed to translate a route into ticks").
+        swampFrac = countSwampFraction(search.path);
       }
     } catch {
       result = estimate;
@@ -110,5 +158,6 @@ export function pathDistance(from: Position, to: Position): number {
   }
 
   pathDistanceCache.set(key, result);
+  pathSwampCache.set(key, swampFrac);
   return result;
 }

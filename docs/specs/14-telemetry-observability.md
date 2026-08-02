@@ -6511,3 +6511,1137 @@ because the runtime shrank. Spec 39 owns it. **E2 crept 16 → 22 parts**
 stranded (W41N23-hauling-4-38, a single hauler) — WARN, worth a falsifier
 next cycle: if it climbs a third window it is a real strand, not a route in
 transition.
+
+### AUDIT 2026-07-31 (t72690582→t72695674, dt 5092) — the hauler churn loop ROOT-CAUSED: both sizers referenced the ROOM, not the ROUTE
+
+**CYCLE VERDICT: FIXED (bot change, red-first).** Score **34.16 pts/t** (gcl
+279,671,177 → 279,845,110), CPU 20.6/300, bucket 10,000/10,000, RCL 7.
+
+**Ledger:** 2 FAILs — F1 1.49× (top line) and P7 0.44×. They are ONE defect.
+
+| line | reading |
+|---|---|
+| F1 | measured 0.646 p/t vs plan 0.434 — **haulers 0.471 vs 0.225 (+0.246)**, upgraders 0.035 vs 0.069 (−0.033), raidGuard 0.029 unpriced |
+| P7 | controller 34.2 e/t vs plan 77.7; stock 640→609 (**the energy was there**) |
+| spawn | util 0.99 / 0.95, queueDepth 7 / 8 — a saturated, zero-sum pie |
+| X1 | 64 WORK standing, workUtil **1.00** — the upgraders that exist are never dry |
+
+The upgraders are not idle and not starved of energy; there are **half as many
+as the plan buys**. Under a saturated spawn the hauler over-build is paid for
+out of the upgraders' build time, and P7 is the score-side invoice for F1.
+
+**The mechanism (proven, not inferred).** The standing hauler fleet (~353
+parts) MATCHES the plan's carry (205 planned CARRY parts). So the 2.1× is not
+a bigger fleet — it is the same fleet **bought over and over**. The blackbox
+ring named the shape: every near-simultaneous same-corp respawn in the window
+was a small body followed by a maximum one, e.g. `W41N23-hauling-4-38`
+(carryNeeded **7**) spawning `[20, 16, 50, 16, 50]` parts — two 25-CARRY /
+2500e haulers inside 2419 ticks for a 7-CARRY job.
+
+Both hauler sizers measured a body against `maxCarryPairs(room capacity)`:
+
+- `CarryCorp.getSpawnDemand` top-up branch: once the fleet had the planned
+  COUNT but not the planned CARRY, it asked for `maxCarryPerHauler` — a
+  4-CARRY hole ordered a 25-CARRY body.
+- `CarryCorp.flagRuntForRecycling`: retired the smallest hauler whenever it
+  was under `maxCarryPerHauler`, so the 8-CARRY body that FULLY COVERED a
+  7-CARRY route read as a runt and was retired on every flush-spawn tick.
+
+At RCL 7 (capacity 5600 → 25 pairs) that pair is a **standing churn loop on
+every short route**: retire the adequate incumbent, rebuild at 3.5× the route,
+repeat. It could not exist below RCL ~5, where capacity and route need are the
+same order — the colony grew into it.
+
+**The fix: a hauler's right size is a property of its ROUTE, not of the room.**
+New primitive `haulerBodyCarry(energyBudget, carryNeeded)` = the route's even
+per-body share across the smallest fleet that covers it (≤ `maxCarryPairs` by
+construction). Both call sites now reference it. `maxCarryPairs` keeps its one
+correct job: the divisor that sets the fleet COUNT.
+
+Red-first, two cells in `CarryCorp.behavior.test.ts` — the demand half failed
+at **25 expected ≤7** before the fix; the recycle half pins that a covering
+body is never flagged. Gate: unit 1756 pass, `flow-handoff` / `runt-economy` /
+`storage-depot` green on the rebuilt bundle.
+
+**Falsifiable predictions registered for the post-deploy re-capture:**
+1. hauler spawn load falls from 0.463 p/t toward the plan's 0.225;
+2. F1 ratio falls from 1.49× toward 1.0;
+3. upgrader spawn load rises from 0.035 p/t toward 0.069, and **P7 rises from
+   0.44×** — the score-side confirmation;
+4. **no hauler body spawns above its route's `carryParts`** (blackbox parts vs
+   segment-6 `haulers[]`) — the direct read on the invariant;
+5. E6 does NOT worsen (4 of 10 gated). The fix never sizes BELOW the route's
+   share, so piles must not grow. **If they do, prediction 5 is the falsifier
+   and the change is wrong.**
+
+**Not addressed this cycle, named with data:** the ~0.21 p/t unbudgeted is not
+all this loop. Raided remotes (raidGuard debts W41N23 70,240 / W43N24 82,040;
+W43N22 raid debt 226,390 mid-window) kill haulers early, and the plan prices
+every route at a full 1500-tick life — a P5 price/behavior drift with no
+ledger row yet. Also: the harvest corps' nested haul vector carries **85% of
+hauler spawn spend** (59,150e of 69,750e) and exports **no sizing stamp** —
+the `hauling-*` carry corps stamp richly, `mining-*` stamp only the miner. The
+top spender is the least instrumented decision site in the colony.
+
+### VERIFY 2026-07-31 (t72695674→t72696547, dt 873) — route-sizing fix deployed; read is CONFOUNDED by a regime flip
+
+**CYCLE VERDICT: partial — two predictions scored, three unscoreable.** The
+route-sizing fix (206b4d7) went live at t72695674. First post-deploy read:
+
+| | pre-fix t72695674 | post t72696547 |
+|---|---|---|
+| ledger FAILs | **2** (F1 1.49×, P7 0.44×) | **0** |
+| F1 plan fidelity | 1.49× | **1.15×** (WARN) — haulers OFF the breach list |
+| E2 stranded fleet | 30 parts off-plan | **0** ("every fielded hauler serves a planned route") |
+| E6 gated miners | 4 of 10 | **3 of 10** |
+| upgrade rate (gcl Δ/t) | 34.16 | 46.41 |
+
+**SCORED:** prediction 1 (hauler spawn load toward plan) — haulers no longer
+appear in F1's breach list at all, where they were +0.246 p/t. Prediction 2
+(F1 → 1.0) — 1.49 → 1.15. Prediction 5, **the falsifier, did not trip**: E6
+went 4 → 3 gated and cbd8's pile halved (4,114 → 2,153), so the smaller bodies
+did not starve the routes. E2 → 0 is the cleanest single result: the bodies
+with no route to justify them are gone.
+
+**UNSCOREABLE — do not read the upgrade rate as a +36% win.** The colony
+flipped into the **wartime construction regime** inside the window (upgrader
+stamp `wartime: true, construction: true, allocated: 2` against
+`planAllocated 126`; upgraders 3 creeps/64 WORK → 1/2 WORK, construction
+creeps 4 → 12). The upgrader is relegated to the floor BY DESIGN there
+(spec 33), so P7 now measures against the relegated floor rather than the
+peacetime plan, and predictions 3 (upgrader load, P7) cannot be scored. The
+46.4 e/t is incumbent upgraders draining out mid-transition and the near-term
+direction is DOWN for doctrinal reasons, not because of the change. This is
+the same trap logged at t72683137→t72684708 — a transition read as a
+steady state.
+
+Prediction 4 (X6) is also unscoreable: the row exists but reads DRAIN-BLIND on
+30 of 34 spawns pre-v12, and this window offered only 2 hauler spawns.
+
+**Window quality caveat:** the deploy's global reset left the blackbox ring at
+**379 ticks**, so F1 (1.15×) and X5 (0.00) are thin reads. X5's 0.00 against a
+pre-fix 0.13 is NOT evidence yet — a post-reset ring has had no time to
+accumulate an early death.
+
+**Held back on purpose:** segment 4 v12 (7b1e185, the miner-operation
+haul-vector stamps) is committed but NOT deployed. Deploying resets the ring
+again and costs the clean steady-state window this verification still needs.
+Ship it once the next read lands.
+
+### VERIFY 2026-07-31 (t72695674→t72696770, dt 1096) — route-sizing fix CONFIRMED; the mechanism proved itself on the carry ledger
+
+**CYCLE VERDICT: FIXED, verified.** Four of five predictions scored, one
+unscoreable by design. **No FAIL lines** (was 2). No checklist line regressed.
+
+| prediction | pre-fix t72695674 | t72696770 | verdict |
+|---|---|---|---|
+| 1. hauler spawn load → plan | 0.463 p/t (plan 0.225) | **0.148 p/t** (plan 0.182) | **CONFIRMED** |
+| 2. F1 → 1.0 | 1.49× FAIL | **1.19× WARN** | CONFIRMED (direction) |
+| 3. upgrader load / P7 rise | 0.035 p/t, P7 0.44× | 0.006 p/t, P7 relegated | **UNSCOREABLE** |
+| 4. no body above its route | — | X6 **0 p/t**, 2/4 stamped | confirmed (weak, n=4) |
+| 5. E6 must not worsen (falsifier) | 4 of 10 gated | **2 of 10** | **did NOT trip** |
+
+**The mechanism proved itself, and this is the reading that matters.** Hauler
+spawn rate fell 68% (0.463 → 0.148 p/t) while STANDING CARRY ROSE 45%
+(270 → 393 parts). More fleet fielded, for less than a third of the spend.
+That is precisely what killing a replacement loop looks like — the bodies now
+LIVE instead of being retired-and-rebought — and it is the one reading the
+wartime confound cannot manufacture: a defunded class loses standing carry, it
+does not gain it. E2 held at 0 off-plan parts across both post-deploy reads.
+
+E6's piles fell with it (cd8e 2473→2008, cbd8 4114→off the list entirely),
+so the smaller, right-sized bodies did not starve their routes — the falsifier
+had a fair chance to trip and did not.
+
+**Prediction 3 stays unscoreable and that is correct, not a miss.** The colony
+is in the wartime construction regime (builders 0.211 p/t, 15 construction
+creeps, tankers 0.147); the upgrader is held at the relegated floor of 2 BY
+DOCTRINE (spec 33), so P7 measures against that floor and the peacetime
+comparison does not exist this window. F1's breach list moved with the regime:
+haulers are GONE from it, construction is now the top breach (+0.241). Score
+37.4 pts/t (34.2 pre-fix) — up, but under a regime shift, so not claimed.
+
+**Window caveat, stated:** the blackbox ring is 640t (the deploy reset it), so
+F1 and X5 remain provisional. The carry-ledger reading above does not depend
+on the ring.
+
+**Segment 4 v12 DEPLOYED** now that the verification window is spent. Next
+cycle's X6 stops being drain-blind on the 85% of hauler spend the miner
+operations carry, and E6's "read the carry pickup stamps" instruction becomes
+executable for the first time.
+
+**Open, unattacked, named:** (a) construction is the new F1 breach (+0.241
+p/t) — expected under a campaign, but it should retire when the campaign does;
+(b) the raid-driven early-death drift (P5, no ledger row) is still unpriced;
+(c) P2 micro-routes at 10 of 19.
+
+### AUDIT 2026-07-31 (t72696770→t72700221, dt 3451) — P7's chronic redness ROOT-CAUSED: the plan's energy budget subtracts two fleet classes out of eight
+
+**CYCLE VERDICT: BLOCKER NAMED WITH DATA (new ledger row P10); no bot change.**
+Score 41.5 pts/t. CPU 20.3/300, bucket full. The road campaign RETIRED in this
+window (remote sites 23→0, P8 4.40 e/t, +7,500e of receipts).
+
+**The route-sizing fix is now PINNED and holding.** X6 read 26/26 spawns judged
+against the corps' OWN carryNeeded stamps (segment 4 v12 landed) — **0 p/t
+bought above route**. F1 **1.03×**. E2 0. E5 0. E6 4→2→**1** of 10 gated.
+
+**The new picture is the inverse of last cycle's.** With the campaign gone the
+spawn went from saturated to **idle 26% of the window, 89% of that idle
+labelled `empty` = NO DEMAND**, while P7 fell to **0.39×** (41.5 e/t actual vs
+106.4 planned) and 129k sat banked. Spare spawn, spare bank, unmet plan.
+
+**The mechanism is an arithmetic identity, not a hypothesis.** Three stamps
+agree to three decimals:
+
+```
+banked 128,992 − reserve 70,000      = 58,992 surplus
+58,992 / SURPLUS_DRAIN_TICKS (1500)  = 39.328
++ STORAGE_UPGRADE_TARGET (15)        = 54.328  ← feederRelayRate
+```
+feeder stamp `relayRate = bodyRate = surplusRate = 54.328`; upgrader stamp
+`inflow = 54.328`, `allocated = 54.713` (= `sustainableConsumptionRate(578,
+54.328)`), `demand: "staffed"`, 53 WORK standing against a plan of 107.
+X1 `workUtil 0.998, dryShare 0.002` — those 53 WORK are never dry. The
+consumer is not starved; it has stopped asking, because the valve that feeds
+it is a pure function of the BANK SURPLUS.
+
+**First hypothesis FALSIFIED:** "the planner and the runtime run two different
+drain laws." They do not — `bankToTransientSource` and `feederRelayRate` both
+call `bankSurplusRate`. One law, shared.
+
+**The real seam, measured (new row P10 = 27.13 e/t).** `totalOverhead =
+minerOverhead + haulerOverhead` (flow/FlowTypes), and `netEnergy = totalHarvest
+− totalOverhead` is what the solver hands to sinks. Measured against the
+blackbox ring over 2,608t:
+
+| | e/t |
+|---|---|
+| plan `totalOverhead` (miners + haulers) | 18.29 |
+| measured miners + haulers | 25.88 (**1.42× priced**) |
+| measured OFF-PLAN — reserver 10.97, upgrader 4.06, tanker 1.92, guard 1.25, builder 1.04, feeder 0.31 | **19.54** |
+| measured TOTAL spawn spend | 45.42 |
+| **handed to sinks but already spent** | **27.13** |
+
+Six of eight fleet classes are spawned from energy the plan has already
+promised to a sink. P4 counts ALL classes on the PARTS side by doctrine; the
+ENERGY side counted two.
+
+**So the runtime is RIGHT and the plan is WRONG — the opposite of the reflex
+read.** Income ~100 e/t gross minus measured spawn 45.4 leaves ~54.6 e/t of
+true residual; the feeder valve settled at 54.33. The valve is *discovering the
+residual*, and the bank's −6.03/t slope is it converging on the fixed point
+(zero slope at surplus ≈ 59,400; measured 58,992). Raising the valve to chase
+the plan's 106.7 would buy points around the disagreement — the doctrine's
+named anti-pattern. **The fix belongs in the plan's cost accounting.**
+
+**Deliberately NOT fixed this session.** Making `totalOverhead` whole changes
+`netEnergy`, hence every sink allocation, hence the whole economy — the
+deepest class of live-behavior change, and it raises a policy question that is
+the owner's (how much of the bank is spendable once the plan stops
+over-promising). Named, priced, and pinned as P10 instead; next cycle attacks
+it against a measured target.
+
+**Labeled hypothesis, not chased (one at a time):** X5 flagged
+`W41N23-harvest-d01f 2000e@1t` as a fast respawn. All six sub-60t pairs this
+window were CROSS-SPAWN (Sp1→Sp2), zero same-spawn — the same signature seen
+at t72695674. But d01f's plan target is **2** haulers, so a 1-tick pair may be
+a correct cohort fill that X5 mis-slots: harvest corps stamp the MINER's
+staffing (1), and X5's same-slot lens keys off staffing. If so this is an
+INSTRUMENT bug in the class of the `upgrading`/`upgrade` typo, not a bot
+defect. Falsifier for next cycle: compare X5's slot arithmetic against the
+corp's hauler target rather than its stamped staffing.
+
+### AUDIT 2026-07-31 (t72700221→t72701842, dt 1621) — X6 cried wolf and was fixed; the bank SAW-TOOTH captured end-to-end
+
+**CYCLE VERDICT: instrument FIXED (X6 false positive) + blocker measured (the
+oscillation).** No bot change. Score **68.29 pts/t** — the highest sustained
+figure on record — but see the funding line below before reading that as a win.
+
+**A RAID WAVE hit three remotes inside the window** (t72700080 W41N23 debt
+112,840; t72700423 W44N23 106,620; t72700655 W42N22 72,910). F1's 1.77× breach
+is substantially that incident: `raidGuard 0.054 p/t UNPRICED` (guards are
+off-plan by doctrine, P4 amendment b) plus `haulers +0.128` replacing raid
+losses. E6 went 1 → 4 gated as remote piles rebuilt behind the dead haulers
+(cd8e 3006, cd94 3314, d01f 2540). **The ledger cannot net an incident out of
+F1**, so a raid window's F1 is not comparable to a quiet window's — noted as a
+reading limitation, not patched.
+
+**X6 FAILED and the FAIL was WRONG — my own pin, fixed.** It flagged
+`mining-W43N24-harvest-cd8d 22c on a 5.0c route (4.4x)`. Reading both
+endpoints:
+
+| | carryNeeded | plan routes |
+|---|---|---|
+| t72700221 | **18** | storage d=41, carry 16.8 |
+| t72701842 | **5** | construction d=1 carry 0.74 **+** storage d=41 carry 1.25 |
+
+The 22-CARRY body was bought at t72701035 against a need of 18 — **1.2×,
+correct**. The wartime regime then re-pointed the source at a construction
+site ONE TILE away and carryNeeded collapsed to 5, making a correct body read
+4.4× over. **Fix:** X6 now judges each body against the MAX need its route
+carried across BOTH capture endpoints. Re-run clean on both windows (27/27 and
+26/26, 0 p/t). A pin that cries wolf is worse than no pin — the row's own
+comment said so and the row broke the rule on first live contact.
+
+Related and real, though not waste: the wartime re-route collapses long haul
+routes to micro-routes mid-creep-life (P2 micro-routes 6 → 10). Correctly-sized
+bodies end up oversized for a route that changed under them. P1 does not see
+this — it tracks funded↔excluded flips, not SINK changes.
+
+**THE SAW-TOOTH, measured end-to-end** (this is the cycle's real deliverable —
+it joins last cycle's valve identity to an observed full swing):
+
+| | bank | feeder valve | upgrader alloc | standing WORK |
+|---|---|---|---|---|
+| t72700221 | 128,992 | **54.328** | 54.71 | 53 |
+| t72701842 | 55,201 | **15.000** | 2.00 | **68** |
+
+In 1,621 ticks the valve collapsed **3.6×** (the bank crossed below the 70,000
+reserve, so `bankSurplusRate` → 0 and `feederRelayRate` → `STORAGE_UPGRADE_TARGET`
+alone) while the standing upgrade fleet **GREW** 53 → 68 WORK, still filling
+toward the OLD valve. Those 68 WORK are now allocated **2 e/t** and will burn
+out unreplaced; meanwhile they drained the bank at −45.52 e/t. The valve is
+continuous in `banked` — there is no cliff — but the FLEET lags it by a
+1,500-tick creep life, and the bank swung on a ~1,600-tick timescale. Fleet
+and valve are permanently fighting the previous regime.
+
+Score reads 68.29 pts/t against a −45.52 e/t bank slope, so only **~22.8 e/t
+was income-funded**. The record-looking number is the down-stroke of the
+saw-tooth, not a new plateau.
+
+**HYPOTHESIS (labeled, not proven): P10 drives the overshoot.** The plan
+over-promises by 33.18 e/t this window (plan overhead 13.88 vs measured spawn
+47.06; off-plan 25.09 never subtracted), so the valve is set above the
+sustainable residual, the bank drains to the reserve, and the valve slams.
+Falsifier for the next cycle: if the bank refills and the valve re-opens to
+~54 while P10 stays ~30, the next down-stroke should repeat with the SAME
+period — a fixed accounting error produces a repeatable saw-tooth, whereas a
+raid-driven one-off would not recur on schedule.
+
+**Cadence correction for this log:** shard1 is running at **~4.0 s/tick**
+(measured: 188,190 ticks between 2026-07-23T03:17Z and 2026-07-31T21:02Z from
+the fixtures' `capturedAt`), not the ~1 tick/s the playbook assumes. A
+3,000-tick steady-state window is **3.3 hours**, and today's 40-minute
+post-deploy check-in bought only ~580 ticks — which is why three verification
+windows in a row came back thin.
+
+### AUDIT 2026-08-01 (t72701842→t72703512, dt 1670) — the saw-tooth HYPOTHESIS CONFIRMED: it is a LIMIT CYCLE, and every score read in this log is a phase sample
+
+**CYCLE VERDICT: hypothesis CONFIRMED + instrument added (OSC). NO economic
+delta — no ledger line reached target and the progress rate was not raised.**
+Stating that plainly per the command's own success criteria: this cycle earns
+its keep on "a blocker was named with data", nothing more.
+
+**The registered prediction held exactly.** Last cycle: *"those 68 WORK are now
+allocated 2 e/t and will burn out unreplaced."* Measured: **68 → 18 WORK**,
+score 68.29 → 13.96 pts/t, bank slope −45.52 → **+17.55** (refilling).
+
+**Four captures now describe the full cycle:**
+
+| tick | bank | valve | upgAlloc | WORK | score |
+|---|---|---|---|---|---|
+| 72696770 | 149,803 | 68.20 | 2.00 | **2** | — |
+| 72700221 | 128,992 | 54.33 | 54.71 | 53 | 41.51 |
+| 72701842 | 55,201 | **15.00** | 2.00 | **68** | **68.29** |
+| 72703512 | 84,511 | 24.67 | 25.16 | 18 | 13.96 |
+
+**The fleet PEAKS exactly as the valve BOTTOMS — ~180° antiphase.** The
+positive feedback is explicit: a wide valve builds a big fleet → the big fleet
+drains the bank past the reserve → `bankSurplusRate` → 0 → the valve slams to
+`STORAGE_UPGRADE_TARGET` → and the fleet, which cannot shed faster than a
+1,500-tick creep life, keeps burning the bank all the way down. Period ~9,000
+ticks (~10 h at 4.0 s/tick). **This is a limit cycle, not the damped
+equilibrium E4's frame assumes.**
+
+**Cycle-average score 41.12 pts/t over the 6,742-tick arc, against an in-arc
+peak of 68.29 — peak is 1.66× the mean**, and the arc still ran a −9.68 e/t
+bank slope (income-funded ≈ 31.4).
+
+**Methodological consequence, and a correction to this log.** Every window in
+`test/fixtures/telemetry/` is SHORTER than the period, so **every score claim
+in this log samples a phase**. The 2026-07-31 "highest sustained flow" ranking
+(t72700221's 41.51, and the 67.56/60.81 windows before it) was partly ranking
+positions on this curve rather than rates. A trough read looks like a
+regression; a peak read looks like a win. Neither is.
+
+**New ledger row OSC** makes the phase readable from ONE capture:
+`standingWork / relayRate` off the feeder stamp. ~1 in phase; **>2 = the
+destructive quadrant** (fleet stranded above a shut valve, eating reserve);
+<0.5 = the wasteful quadrant (valve open, fleet not built — score the colony
+is not collecting). Validated against all three phases: t72700221 **0.98 ok**,
+t72701842 **4.53 FAIL** ("score peaking and about to fall" — it then fell to
+13.96), t72703512 **0.73 ok**. Neither extreme is a defect on its own; it is
+the SWING that costs, so only the destructive quadrant FAILs.
+
+**P10 remains the standing root-cause hypothesis, still unproven.** It held
+steady across the arc (27.13 → 33.18 → 27.94 e/t) while the cycle ran, which
+is consistent with a fixed accounting error setting the valve above the
+sustainable residual — but consistency is not causation. The clean falsifier
+is now a FIX, not another observation: correct `totalOverhead` to price all
+fleet classes and the cycle should damp. That is a deep planner change
+(`netEnergy` feeds every sink allocation) and it carries an owner policy
+question, so it stays parked.
+
+**Other lines this window:** F1 1.37× with haulers +0.141 again and E2 back to
+48 stranded parts (W43N24-hauling-3-23, W41N23-hauling-4-38,
+W43N23-hauling-4-37) — the wartime re-route stranding correctly-sized bodies
+on collapsed routes, the same mechanism logged last cycle. X6 clean at 29/29
+after the both-endpoints fix. E6 4 of 10 gated, chronic.
+
+### AUDIT 2026-08-01 (t72703512→t72706408, dt 2896) — the UP-STROKE defect found and FIXED: the upgrader's count-only staffing gate
+
+**CYCLE VERDICT: FIXED (bot change, red-first). A real defect, not another
+instrument.** P7 read **0.22×** — the worst of the session (19.6 e/t actual vs
+89.4 planned) — while the bank climbed **+25.88 e/t to 159,463**, the valve sat
+wide open at **74.64**, and the spawn idled 14% of the window with **55% of that
+idle labelled "no demand"**. Spare capital, spare spawn, unmet plan.
+
+**The decision stamp named it outright:**
+
+```
+planAllocated 139.999   allocated 75.098   targetCount 2
+staffing 3              demand "staffed"   -> 41 WORK standing
+```
+
+Three creeps ≥ target 2, so the corp declared itself staffed and ordered
+nothing — while carrying **41 WORK against a 75 e/t allocation**. The three
+bodies were built in the TROUGH of the bank cycle, when the allocation was the
+anti-downgrade sip of 2; once the valve reopened they held the count gate shut
+for a full creep generation.
+
+**`UpgradingCorp.getSpawnDemand` exited on COUNT alone:**
+```ts
+if (current >= targetCount) { demand = "staffed"; return []; }
+```
+`CarryCorp` has carried the correct invariant since the runt-fleet fix —
+`current >= targetHaulers && fieldedCarry >= carryNeeded` — and its comment
+states the reason exactly: *"The count alone is not enough: under energy
+pressure haulers spawn at the runt floor, so the planned count can be reached
+while the fielded CARRY still falls short."* Same post, same failure mode, half
+the test. This is the CLAUDE.md staffsPost-symmetry trap in its purest form:
+two corps answering "is this post staffed" with different lenses.
+
+**Fix:** pure `upgraderFleetSatisfied(current, targetCount, fieldedWork,
+allocated)` requiring BOTH; `countStaffing` now returns the fleet's real WORK
+alongside its headcount; and `remainingWork` is sized against ACTUAL fielded
+WORK rather than `current × affordableWork` (the ideal per-body share, which
+over-states what small survivors contribute and under-orders the closing body).
+Stamp gains `fieldedWork` — corps segment **v12 → v13**.
+
+Red-first: the new cell failed on the exact live shape
+(`upgraderFleetSatisfied(3, 2, 41, 75.098)` expected false). Gate: unit **1760
+pass**, `flow-handoff` / `runt-economy` / `storage-depot` green on the rebuilt
+bundle. One harness gap fixed en route — a `getSpawnDemand` stub modelled an
+upgrader creep with no `getActiveBodyparts`.
+
+**This also explains the SAW-TOOTH's ASYMMETRY (ledger OSC).** The fleet
+over-shoots freely on the down-stroke — nothing stops it — but could not
+re-grow on the up-stroke, because small survivors held the count gate shut.
+That is why t72696770 sat at 2 WORK with the valve at 68.20, and why this
+window sat at 41 WORK with the valve at 74.64. **The down-stroke overshoot is a
+SEPARATE defect and is NOT fixed here** (it needs the commitment accounting /
+spec 39).
+
+**Predictions registered BEFORE deploy:**
+1. upgrade stamp `demand` flips "staffed" → "demanded"; `fieldedWork` appears;
+2. upgrader spawn load rises from 0.027 p/t toward the plan's 0.128;
+3. standing WORK rises from 41 toward the ~75 allocation;
+4. P7 rises from 0.22× — delivery from 19.6 e/t toward the valve;
+5. bank slope falls from +25.88 e/t; spawn idle falls from 14%.
+
+**FALSIFIER, stated plainly:** OSC should move 0.55 → ~1.0. If it goes **above
+2**, this fix has sharpened the saw-tooth rather than corrected the up-stroke —
+the up-stroke would now work while the down-stroke overshoot remains unfixed,
+and the correct response is to accelerate the commitment accounting rather than
+to revert.
+
+**Note on the spec-39 framing from the previous exchange:** that architectural
+reading stands, but it was too total. This defect is a plain bug inside the
+local sizing law and would exist under any architecture; it did not need the
+plan to own the fleet, only for one corp to check capacity the way its sibling
+already does. Three cycles of instrumentation preceded it — the instruments
+(v12 innerSizing, the stamps) are what made the stamp legible enough to read
+the answer straight off.
+
+### VERIFY 2026-08-01 (t72706408→t72706967, dt 559) — upgrader fleet gate CONFIRMED: score 19.6 → 47.4 e/t, falsifier clean
+
+**CYCLE VERDICT: FIXED and VERIFIED.** All five registered predictions held and
+the falsifier did not trip.
+
+| # | prediction | pre-deploy | post | |
+|---|---|---|---|---|
+| 1 | `demand` flips, `fieldedWork` appears | "staffed", no field | v13, **`fieldedWork: 76`** | ✓ |
+| 2 | upgrader load 0.027 → toward 0.128 p/t | 0.027 | **0.147** | ✓ |
+| 3 | standing WORK 41 → ~75 | 41 | **76** | ✓ |
+| 4 | P7 up from 0.22× | 0.22× (19.6 e/t) | **0.43× (47.4 e/t)** | ✓ |
+| 5 | bank slope down from +25.88 | +25.88 | **−4.26** | ✓ |
+| — | spawn idle down from 14% (55% "no demand") | idle 14% | **idle ~0**, queueDepth 4/8 | ✓ |
+| **falsifier** | OSC must stay below 2 | 0.55 | **1.04** | **clean** |
+
+**Score 19.63 → 47.39 pts/t — a 2.4× step, and P7 moved FAIL → WARN.** The
+spawn went from idling with nothing to buy to fully committed (util 0.99/0.975)
+because the demand that should always have existed now exists.
+
+**The word "staffed" now means the opposite of what it meant.** Pre-fix:
+`staffing 3 ≥ targetCount 2` with **41 WORK against a 75 e/t allocation**.
+Post-fix: `staffing 4`, **`fieldedWork 76` against `allocated 73.19`** — the
+gate closes because the fleet genuinely covers its allocation. Same verdict
+string, opposite meaning; the `fieldedWork` stamp is what makes the difference
+readable from a capture.
+
+**Caveats, stated:**
+- 559-tick window and a **307-tick blackbox ring** (the deploy reset it), so
+  F1 (1.43×) and the per-class spawn splits are not readable at this length.
+  The upgrader's +0.048 over plan is the re-growth ramp, not a steady state.
+- Per this log's own OSC row, a 559-tick score is a **phase sample** of a
+  ~9,000-tick cycle. 47.39 is not a new plateau claim.
+- E4 slipped ok → WARN purely because the bank now FALLS (−4.26) at a large
+  surplus, which is the intended consequence of the fix. That wording is E4's
+  known frame limitation (spec 40 Part C), not a regression.
+
+**The real test is still ahead.** The bank stands at 157,080 near the TOP of
+the cycle with the fleet now correctly sized at 76 WORK. **The down-stroke
+overshoot remains unfixed by design** — this cycle repaired the up-stroke only.
+Registered watch for the next cycles: as the bank falls toward the 70,000
+reserve, OSC must stay near 1. If it climbs past 2 again, the saw-tooth is
+still live with a working up-stroke, and the commitment accounting (owner's
+"upgrade rate × creep ttl against the bank allocation", spec 39 territory) is
+the next work item rather than any further local patch.
+
+**P10 unchanged at 27.65 e/t** — still the standing root-cause hypothesis, and
+now the largest FAIL on the board.
+
+### AUDIT 2026-08-01 (t72706967→t72707443, dt 476) — P10 WITHDRAWN as double accounting (owner-called); upgrader fix holding
+
+**CYCLE VERDICT: instrument RETRACTED. No economic delta this cycle** — saying
+that plainly. What it produced is the removal of a false FAIL that had been
+steering the loop for four cycles.
+
+**First, the standing watch: the upgrader fix is holding and improving.**
+
+| | t72706967 | t72707443 |
+|---|---|---|
+| OSC (falsifier, must stay <2) | 1.04 | **1.00** (69 WORK vs valve 68.67) |
+| P7 | 0.43× WARN | **1.33× ok** — actual 56.5 vs plan 42.4 |
+| score | 47.39 | **56.50 pts/t** |
+| bank slope | −4.26 | −13.82 e/t |
+
+P7 is **above** its plan for the first time this session, and income-funded
+score (56.50 − 13.82 = **42.7 e/t**) is the highest measured — previous best
+35.48. The bank is drawing down as intended with the fleet in phase.
+
+**P10 is WITHDRAWN. The owner called it as double accounting and was right.**
+
+The row asserted that `netEnergy = totalHarvest − totalOverhead` is *"what the
+solver hands to sinks"*, and priced the ~28 e/t of spawn spend it does not
+subtract. Two reads kill it:
+
+1. **`netEnergyTotal` never gates the fill.** Computed at `flowAdapter.ts:1189`
+   and consumed ONLY by the reported `netEnergy` / `efficiency` /
+   `isSustainable` fields (lines 1204–1207). It is a source-ranking and
+   reporting statistic, not a budget — so nothing is handed to sinks against it.
+2. **The plan already funds the spawn as a first-class SINK.** Measured
+   t72707443: spawn sinks allocated **100.0 + 10.0 = 110 e/t** against ~48 e/t
+   of measured spawn spend. Netting producer bodies out of source yield AND
+   routing energy to the spawn sink would BE the double count; the solver
+   correctly does only the latter.
+
+The row compared a per-source amortized efficiency statistic (producer bodies
+only) against total measured spend across all classes, and called the
+difference a leak. Those quantities are not comparable and the difference is
+not a leak.
+
+**Consequently the hypothesis P10 supported is WITHDRAWN too.** Four entries in
+this log (t72700221, t72701842, t72703512, t72706408) named P10 as the standing
+root cause of the bank saw-tooth — *"the plan over-promises by ~28 e/t, so the
+valve is set above the sustainable residual"*. That reasoning rested on a false
+premise and should not be carried forward. The saw-tooth itself remains
+measured and real (OSC); its cause is again **open**, and the leading candidate
+is now the one the owner articulated directly: no term books the standing
+fleet's forward burn against the bank.
+
+**No successor row built.** The valid question — does the spawn sink allocation
+cover actual spawn spend — needs a rate-shaped plan term; the sink's `demand`
+is a refill-CAPACITY figure (spawn + extensions), not a rate. Shipping a second
+questionable formulation on top of a retracted one would repeat the mistake.
+X6 already taught this session that a line which cries wolf is worse than no
+line; P10 is the same lesson at a larger scale, and the tell was the same —
+**I never checked what consumed the number before building a FAIL on it.**
+
+### AUDIT 2026-08-01 (t72707443→t72714129, dt 6686) — CLEAN BOARD; the upgrader fix verified on a full-period window: income-funded score +33%
+
+**CYCLE VERDICT: SUCCESS — the progress rate was raised, measured.** **Zero
+FAIL lines** — the first clean board of the session. CPU 25.3/300, bucket full,
+census 43/43 tracked (X3 = 0, also a first).
+
+**The headline is a LIKE-FOR-LIKE arc comparison**, not a phase sample. Both
+windows span most of the ~9,000-tick cycle period and are within 1% of each
+other in length:
+
+| | pre-fix arc (6,742t) | post-fix arc (6,686t) |
+|---|---|---|
+| score | 41.12 pts/t | **47.59 pts/t** (+16%) |
+| bank slope | −9.68 e/t | **−5.74 e/t** |
+| **income-funded score** | 31.44 e/t | **41.85 e/t** (**+33%**) |
+
+The drawdown nearly halved while the score rose, so the gain is real income
+converted to progress, not a deeper raid on the bank. This is the first
+defensible rate claim in the log — every earlier "record" in these entries was
+a phase sample of the limit cycle.
+
+**Every leak line is at or near target:** F1 **1.03×**, P7 **1.12× ok**
+(47.6 actual vs 42.4 lower-endpoint plan), OSC **1.16** (in phase; the
+falsifier registered at the upgrader deploy has now held across three
+captures), E2 0, E5 0, X6 0/28, X5 0.05, E6 **1 of 10** gated (best of the
+session, from 4), X1 workUtil 1.00.
+
+**The one WARN is E4, and it is the instrument, not the colony.** Bank 112,152
+falling −5.74/t toward a projected 103,549 against a 70,000 reserve; E4 reads
+*"flat/falling at a big surplus — not convergence evidence; check the spend
+path"*. The spend path is demonstrably live (P7 above plan, score 47.59). This
+is the same frame limitation logged on 2026-07-31 — E4 cannot distinguish
+"drained into progress" from "drained into waste" because capital formation has
+no instrument. **Deliberately not patched**: spec 40 Part C owns it, and
+patching E4's heuristic in isolation would be the second patch on a mechanism
+whose real gap is a missing term. (Having just retracted P10 for exactly the
+sin of building a verdict on an unexamined number, the bar for touching another
+row is higher, not lower.)
+
+**The remaining gap is architectural, and it is unchanged.** The plan wants
+**153 WORK** (0.102 p/t) at the controller; **50 WORK** stand. The fleet is not
+under-built by any local defect — OSC 1.16 says it matches its VALVE (43.10
+e/t) exactly. The valve binds, the plan does not. S4 shows the consequence:
+idle 26% of the window, **80% of that labelled "no demand"**, while the plan
+asks for three times the fielded WORK. That is spec 39 territory (the plan owns
+the fleet / actuals into `ColonyProblem`), not a corp-local bug — this cycle
+found nothing further to fix at the local layer, and inventing work there would
+be the failed-cycle pattern the command warns about.
+
+### DEPLOY 2026-08-01 — two-pass solve: the spawn sink is charged the plan's own fleet cost
+
+**Owner-chosen (option 2 of three): *"We have the CPU available and can prove
+out the concept or approach and think about how to optimize it later."***
+
+`flowAdapter.discoverSinks` priced the spawn sink at a hardcoded **`10, // Base
+spawn overhead demand`** — the plan's ENTIRE model of what running the spawn
+costs, against a fleet costing ~42 e/t. Because the spawn tops the value ladder
+(100), the shortfall was freed DOWN the ladder and the controller absorbed it:
+allocated **108.87** against ~100 e/t of net mining, while the runtime
+delivered 47.6.
+
+**Pass 1 discovers the fleet; pass 2 charges the spawn what maintaining it
+costs.** New primitive `infraSpawnEnergy` is the structural twin of
+`infraSpawnLoad` — same signature, same three details, same order, priced
+per-CLASS (feeder/tender CARRY+MOVE at 50 e/part, reservers CLAIM+MOVE at 325).
+Kept adjacent so a change to one is visibly a change to the other.
+
+**Scope is deliberately PRODUCTION + INFRA, not consumers.** Those two are
+sized by sources and rooms — independent of what the fill allocates to the
+controller — so pass 2 is a FIXED POINT: a third pass returns the same plan.
+Charging consumer bodies would be circular (spawn demand shrinks the controller
+allocation → shrinks the upgrader fleet → shrinks the spawn demand) and could
+oscillate between passes. Consumers are funded from what remains, which is what
+the ladder is for.
+
+**PREDICTIONS registered before deploy** (computed, not guessed):
+
+| | before | predicted |
+|---|---|---|
+| infra energy | — | 11.46 |
+| production (plan `totalOverhead`) | — | 18.11 |
+| fleet maintenance | — | **29.57** (14.78/spawn) |
+| spawn sinks allocated | 20.00 | **~29.57** |
+| controller allocated | 108.87 | **~99.30** |
+
+**This closes ~9.6 of the 24.21 spawn under-routing, not all of it** — stated
+plainly. The remainder is consumer bodies (excluded by design) plus the gap
+between the plan's own pricing (29.57) and measured spend (44.21). P12's
+non-bank divergence should improve from 5.38× but NOT reach 1.0; the runtime's
+hardcoded `STORAGE_UPGRADE_TARGET = 15` is the other half and is untouched.
+
+**P7 will improve MECHANICALLY because its denominator shrinks. That is not a
+delivery win and must not be read as one.**
+
+**Gate:** unit **1769** pass, `flow-handoff` / `runt-economy` / `storage-depot`
+green on the rebuilt bundle (run SERIALLY — a first attempt ran two mockup
+servers concurrently and the storage backend died in 141ms with
+`[storage] process exited with code 1`, which is an environment failure, not an
+assertion), plus grid `plan-t4-link-haul-pricing` and
+`fid-t4-preramped-steady-state` both **[P]** — the top-of-ladder demand change
+needed the sink-ordering cells (trap list: the 90-vs-85 founding incident).
+
+### VERIFY 2026-08-01 (t72714129→t72717018, dt 2889) — two-pass solve: INCONCLUSIVE, predictions missed 4×, not reverted
+
+**CYCLE VERDICT: verification INCONCLUSIVE. The predictions failed and I could
+not attribute the miss — that is the finding.**
+
+| prediction | predicted | measured |
+|---|---|---|
+| spawn sinks allocated | ~29.57 | **114.07** |
+| controller allocated | ~99.30 | **31.18** |
+| P12 non-bank divergence | 5.38× → improved, not 1.0 | **−0.96×** (sign flipped) |
+
+**Why I cannot attribute it.** Spawn demand is
+`max(base 10, maintenance) + agendaFundingRate`, and only the SUM is published.
+The agenda funding went **0 → 2,840** across the window (fundingNeed 0/0 →
+2450/390), because **the deploy's own global reset put the colony in recovery**
+— the blackbox ring is **118 ticks**. Attempting the decomposition from
+telemetry failed: subtracting the capture's funding rate leaves 25.53 and 31.73
+for a term that is split EVENLY between spawns, so the two figures are read at
+different instants (the plan re-solves on a 100t interval; the agenda publishes
+every tick) and the subtraction is unsound.
+
+Consistency check that does survive: the two demands differ by exactly 35.00,
+which is a pure funding-rate difference, and `sink.demand` is a static 10 with
+no update path. Both facts are consistent with maintenance ≈ 14.78 as predicted
+plus an ~84 e/t agenda spike — i.e. **my change contributed roughly what I
+predicted and the agenda contributed the rest** — but that is an inference, not
+a measurement, and I am not counting it as verification.
+
+**NOT REVERTED, with the reasoning stated.** The protocol says a regression
+redeploys `origin/master`. I judged this not established: delivery is healthy
+(G1 **43.61 e/t sustainable**, delivered 34.58 with the bank RISING +9.04), the
+plan's controller allocation does not gate the runtime valve in the surplus
+regime, and every spawn-side figure in the window comes off a 118-tick ring.
+Reverting would cost another global reset and restart the same transient
+without producing a cleaner read. **This is a judgement against the letter of
+the protocol and is recorded as such** — if the next clean window shows the
+plan still inverted, the revert happens then.
+
+**The real deliverable is the instrument.** `FlowSolution.spawnMaintenance` now
+publishes the per-spawn figure the two-pass charged (flow segment field), so the
+next capture decomposes the spawn demand instead of inferring it. Deployed with
+this entry — which restarts the transient clock deliberately, in exchange for
+the next check being answerable at all.
+
+**Method lesson worth keeping:** I predicted from a steady-state model and
+deployed into a reset, then read the result at 2,889 ticks with a 118-tick
+spawn ring. **Predictions about spawn-side quantities are not checkable until
+the ring is longer than the plan's re-solve interval.** Post-deploy checks on
+plan/spawn terms need ~2–3 hours of wall clock at 4 s/tick, not one.
+
+### VERIFY 2026-08-01 (t72717089) — the stamp worked; the two-pass OVER-CHARGES because my fixed-point argument was wrong
+
+**The decomposition the previous entry could not make is now a direct read:**
+
+```
+spawnMaintenance = 25.78 / spawn
+  spawn f516a5   demand 25.77 = maintenance 25.77 + funding 0.00
+  spawn aa8f33   demand 31.77 = maintenance 25.77 + funding 6.00
+  controller     allocated 85.65   (was 108.87)
+```
+
+The instrument did its job on first contact — both spawn demands resolve
+exactly, and the agenda term is separable.
+
+**The plan updated in the intended direction but over-corrected:**
+
+| | predicted | actual |
+|---|---|---|
+| maintenance/spawn | 14.78 | **25.78** |
+| spawn sinks total | ~29.57 | **51.55** |
+| controller | ~99.30 | **85.65** |
+
+**THE DESIGN ERROR (mine, not a measurement artifact).** I argued pass 2 was a
+fixed point because production and infra are "sized by sources and rooms,
+independent of the controller allocation". **Infra is. HAULING IS NOT.**
+
+Backing the numbers out: maintenance 51.55 total less infra ~11.5 leaves pass
+1's `totalOverhead` at **~40.05**, against the **17.75** the published pass-2
+plan reports. Pass 1 solves with NO spawn charge, so far more energy reaches
+the fill and far more hauler routes are funded; pass 2 then charges the spawn
+for that larger fleet — **a fleet the plan does not end up fielding**. A third
+pass would return a different, smaller figure.
+
+The circularity I claimed to have avoided by excluding consumers is present in
+the HAULER term, which I did not consider.
+
+**Assessment.** Directionally an improvement — the correct target derived from
+the measured account is ~70 (sustainable 41.86 + drawdown 28.10), so 85.65 is
+closer than 108.87. But the charge is over-stated ~1.7× and the mechanism is
+not self-consistent. Not reverted: delivery stayed healthy throughout and the
+direction is right, but this is a real design error to correct, not to leave.
+
+**Two options, both real:**
+1. **Iterate to convergence** — pass until the figure stabilises. Faithful to
+   the concept; more CPU; needs a convergence guard.
+2. **Price maintenance from pass 2's OWN fleet** — self-consistent by
+   construction: the plan charges for the fleet it actually commits to. One
+   extra evaluation instead of an open loop. **Preferred** — it converges to
+   the same place with less machinery.
+
+### FIX 2026-08-01 — the fleet charge is a FIXED POINT; option 2 was refuted by its own measurement
+
+The previous entry closed by preferring **option 2** ("price maintenance from
+pass 2's OWN fleet — self-consistent by construction"). The next capture
+refutes it, on exactly the grounds that killed option 0.
+
+```
+t72717545   spawnMaintenance stamp   24.72 / spawn  ->  49.45 total
+            plan totalOverhead (pass 2)              16.15
+            pass-2 fleet = 16.15 + ~11.5 infra    =  27.65
+```
+
+So the observed response is `charge 0 -> fleet 49.45` and
+`charge 49.45 -> fleet 27.65`. **1.79× over-charge**, and the sequence
+`0 -> 49.45 -> 27.65` is OSCILLATING.
+
+**Why option 2 fails.** "Price from pass 2's own fleet" would have charged
+27.65 — but 27.65 is the fleet cost of a plan solved at charge **49.45**, not
+at 27.65. It is one more undamped step of the same recurrence, and it inherits
+the same defect: the plan is always charged for a fleet it solved under a
+different charge. "Self-consistent by construction" was wrong; there is no
+construction that gets there in a fixed number of undamped steps, because
+`C_{n+1} = F(C_n)` here has a response slope near 1 and alternates.
+
+Fitting the two measured points linearly (`F(c) = 49.45 − 0.4408c`) puts the
+true fixed point at **c = 34.32** — between the two numbers either option would
+have shipped, and reachable by neither.
+
+**THE FIX (option 1, damped).** `convergeFleetCharge` in `economy/flowAdapter.ts`:
+iterate `C_{n+1} = (C_n + F(C_n))/2` to tolerance. Averaging is what converts
+the oscillation into a contraction — it converges for any response slope < 3,
+where the undamped recurrence already diverges above 1. Bounded at 4 passes
+(a discontinuous response must never run the per-tick solve away) and
+tolerance-stopped at 0.25 e/t, so a colony whose charge barely moves pays for
+no re-solve at all — including the zero-fleet case, which now performs **no**
+extra solve where the naive pass 2 always performed one.
+
+Pinned red-first in `test/unit/economy/fleetCharge.test.ts`, against the
+measured live response: the returned charge must be self-consistent with the
+plan handed back, must be neither 49.45 (the shipped over-charge) nor 27.65
+(option 2's under-charge), and must still converge on a synthetic world with
+slope 2 where the undamped recurrence runs away.
+
+**The lesson worth keeping.** Two entries in a row I asserted a fixed point
+from an *independence* argument about which terms move — first "consumers are
+excluded so it converges", then "pass 2's own fleet is self-consistent". Both
+were structural arguments made without measuring the response. The response was
+one capture away both times. **A fixed-point claim is an empirical claim about
+a slope; measure the slope.**
+
+**Gate (2026-08-01).** unit 1780 pass; `flow-handoff` pass; `storage-depot`
+pass; grid `plan-t4-link-haul-pricing` 1/1, `fid-t4-preramped-steady-state`
+1/1.
+
+`runt-economy` went red on the FIRST draw and green on the next two (upsize at
+t460 and t440, against the pre-change build's t460 — the same trajectory). Not
+attributed to this change: the red draw's signature was a source that never got
+staffed at all across 1200 ticks, and the world is fixed terrain with only
+mongo ids varying between draws. **Recorded as a flake in the regression trio,
+not waved away** — a binary threshold test with a ~1-in-3 red rate is a weak
+gate, and that is its own work item.
+
+**CPU is not a concern at this size, measured.** Live t72717545 reads
+`cpu.used 20.16 / limit 300`, bucket at its 10000 ceiling, and the solve runs
+once per `FULL_SOLVE_INTERVAL` (50 ticks). Going from 2 structural searches per
+replan to at most 4 spends that headroom deliberately, per the owner's call to
+prove the concept before optimising it.
+
+**The optimisation, when it is wanted:** the fixed point is PERSISTENT across
+solves — at steady state the charge barely moves between replans. Seeding the
+iteration from the previous solve's converged charge (through Memory, exactly
+as `prevBankDraw` is threaded) would make the steady-state cost ZERO extra
+searches, because the tolerance check fires on the first pass. Only a genuine
+regime change would pay for the full iteration. Deliberately NOT done here: it
+would have invalidated the gate above, and the concept had to be proven first.
+
+### DEPLOY 2026-08-01 (00edc35) — damped fixed point. PREDICTIONS
+
+Registered before recapture. The linear fit is in TOTAL e/t across both spawns
+(`F(c) = 49.45 − 0.4408c`, fixed point **34.32 total = 17.16/spawn**); the
+stamp publishes the PER-SPAWN figure.
+
+| | last (49.45 total) | predicted | why |
+|---|---|---|---|
+| `spawnMaintenance` /spawn | 24.72 | **16–19** | the fitted fixed point, 17.16 |
+| spawn sinks total | 49.45 | **33–38** | 2× the above + agenda funding |
+| controller allocated | 79.11 | **92–97** | the ~15 e/t no longer over-charged is handed back down the ladder |
+| plan `totalOverhead` | 16.15 | **17–21** | a smaller charge funds slightly MORE hauling — this is the term whose motion made the naive pass wrong, so it must move UP, not stay put |
+
+**The sharpest one is the last.** If `totalOverhead` comes back unchanged at
+~16.15 while the charge falls, the response slope I fitted is wrong and the
+whole mutual-dependence story needs re-deriving — that would be the finding,
+not a miss. If maintenance lands at neither ~24.7 nor ~13.8, the iteration is
+demonstrably reaching a point neither undamped scheme could.
+
+Falsifier for the mechanism as a whole: `spawnMaintenance` differing by more
+than ~2 e/t between two consecutive captures in the same bank phase would mean
+4 passes is not enough to converge on the live world.
+
+### VERIFY 2026-08-01 (t72718367) — the stamp settled it in one capture; infra is 66% of the fleet
+
+The decomposition, read directly:
+
+```
+spawnMaintenance 23.49 / spawn      spawn sinks: 31.29  31.29
+fleetCharge { fleetEnergy 50.21, production 17.23, infra 32.98,
+              spawnCount 2, passes 4 }
+```
+
+**Predictions: all four wrong, and the stamp says exactly why.** I predicted
+16–19/spawn from a linear fit anchored on an assumed infra term of ~11.5 e/t.
+The real term is **32.98** — infra is 66% of the whole fleet cost, nearly twice
+production's 17.23. Every number downstream of that estimate was wrong, and the
+"1.79× over-charge" the previous entry computed was arithmetic on a bad
+constant. The two things I could not distinguish from the sum:
+
+- **The divisor is correct.** `spawnCount 2`, and 23.49 × 2 = 46.98 against
+  `fleetEnergy` 50.21. The charge IS split across the spawn sinks; the 2× I
+  suspected does not exist.
+- **The iteration did not converge.** `passes: 4` is the cap, and the residual
+  gap is 3.23 e/t total (6.4%) — above the 0.25 tolerance. It ran out of budget,
+  it did not settle.
+
+Third hypothesis right, first two wrong, and the capture cost one deploy. This
+is the case for stamping inputs rather than results: `spawnMaintenance` alone
+supported three incompatible stories for two cycles running.
+
+**THE FIX — seed the iteration from the previous solve's charge.** The fixed
+point persists across replans: 50 ticks apart, the colony's fleet barely moves.
+Starting from 0 every time both discards the answer and spends the entire pass
+budget re-deriving it. `Memory.lastFleetCharge` now carries the converged charge
+between solves (threaded through `solveColony` exactly as `prevBankDraw` is —
+the pure layer never reads Memory itself), pass 1 solves AT that charge, and the
+tolerance check usually fires immediately.
+
+Steady state therefore costs **one** search — fewer than the two-pass solve it
+replaces — while being strictly more converged. Only a real regime change pays
+for the full iteration, which is the only time it is worth paying for.
+
+Pinned: a warm seed at the fixed point runs `passes: 0` and re-solves nothing;
+it hands back `solved: undefined` so the caller keeps its own pass-1 plan (a
+stale re-solve here would hand back a plan priced at a different charge — the
+original bug in miniature); and a shifted response still moves off a warm seed
+rather than sitting on a stale number.
+
+**Gate:** unit 1783 pass; `flow-handoff`, `runt-economy` (upsize t440),
+`storage-depot` pass; grid `plan-t4-link-haul-pricing` 1/1,
+`fid-t4-preramped-steady-state` 1/1.
+
+**Open, and now measurable:** infra at 32.98 e/t against production's 17.23 is
+the single largest line in the fleet and nothing has audited it. `infraSpawnEnergy`
+prices feeders, tenders and reservers off nominal constants (TENDER_FLEET_PARTS
+48, RESERVER_PARTS_PER_ROOM 4, FEEDER_NOMINAL_DISTANCE) — exactly the class of
+behavioral constant spec 15's P5 exists to check against measured behaviour. If
+that term is wrong, the spawn sink is mispriced by more than everything the last
+three cycles have chased. **That is the next cycle's top line.**
+
+### VERIFY 2026-08-01 (t72718982) — seeding CONFIRMED; the charge is self-consistent and cheaper
+
+| | before seeding (t72718367) | after (t72718982) |
+|---|---|---|
+| `passes` | 4 (the cap) | **0** |
+| charge × spawnCount − `fleetEnergy` | −3.23 (6.4%) | **+0.16 (0.3%)** |
+| solve-tick CPU | 27.9 | **17.7** |
+
+The warm seed converges on arrival and re-solves nothing, so the fleet charge is
+now both self-consistent and cheaper than the two-pass solve it replaced. This
+is the first prediction in this thread that landed, and it landed because the
+stamp made the quantity checkable rather than inferable.
+
+**What the settled reading exposes next.** The spawn sinks route 98.00 e/t
+allocated (113.66 demanded), of which the fleet charge is only 50.66. The rest —
+**~63 e/t — is `agendaFundingRate`**, the NOW-plan queue's funding term. It is
+now the largest single thing the spawn sink asks for, and it is what the waste
+ledger's account has been calling "the plan OVER-routes its own fleet by 65.04
+e/t". That sentence was written when the fleet charge was the suspect; it is
+actually a statement about the agenda term, and nothing has audited it.
+
+So the two open items, in order of size:
+
+1. **`agendaFundingRate` ~63 e/t** — larger than the entire fleet it sits beside,
+   unaudited, and currently misattributed by the account's own wording.
+2. **`infraSpawnEnergy` 32.98 e/t** — 65% of the fleet charge, nearly 2× the
+   production term (17.51), priced entirely off nominal constants
+   (TENDER_FLEET_PARTS 48, RESERVER_PARTS_PER_ROOM 4, FEEDER_NOMINAL_DISTANCE).
+   Exactly the class spec 15's P5 exists to check against measured behaviour.
+
+Ledger top line this cycle remains **F1 at 1.93×** (48% of what the spawn builds
+is not in the plan; haulers 0.526 p/t measured vs 0.204 priced) — and both items
+above are plausible contributors to it, which is why they are the next cycle's
+work rather than a footnote.
+
+### CYCLE 2026-08-01 (t72721419) — INSTRUMENTED. The meter falsified the account within one window
+
+Verdict: **instrumented + falsified.** No bot behaviour changed; three reporting
+defects were found and two of them had been wrong since methodology #1.
+
+The loss meter came back on its first real window (559t):
+
+```
+pileDecay 15.67   tombstoneLost 12.21   repairSpend 3.99   structureDecay 4.26
+tombstoneRecovered 0.07   tombstoneStock 1596e
+```
+
+and the residual went **+31.69 → −25.10**, i.e. 25% of gross mining
+OVER-attributed. A residual can be large and honest; it cannot be negative. See
+spec 15 methodology #3 for the three causes and their fixes.
+
+**The owner's tombstone assumption is now measured, not assumed.** Recovery ran
+at **0.07 e/t against 12.21 e/t lost — 0.6%.** The three recovery paths exist
+but all need a creep already beside the tombstone, and the data says they
+essentially never fire. Booking tombstones as lost by default was correct.
+
+**THE TOP LINE, and it is not F1.** E6 has been a WARN for cycles while
+describing the largest leak in the colony, because it reported a COUNT and had
+no price. It now has one, from two independent instruments that agree:
+
+| | |
+|---|---|
+| forgone mining (Σ heldFrac × rate) | **30.28 e/t** |
+| ground rot on the resulting piles | **15.67 e/t** |
+| combined | **~46 e/t against 100 e/t of capacity** |
+
+Four ops are CHRONICALLY buffer-full — cd8e held 97% of the window, d01f 94%,
+cd8d 55%, cee0 28% — with buffers of 2136–3264. The engine's ceil rule on those
+four piles alone is 4+4+3+3 = **14 e/t**, which is essentially the whole
+measured 15.67. Two instruments built for different purposes, agreeing to
+within a rounding error, on a leak nothing had priced.
+
+E6's own diagnosis has been right all along and is worth quoting: *"the leak is
+HAULING (drain term / route sizing / churn), not the miner."* The evacuation
+line agrees — 21.06 e/t measured against a 13.38 budget, +57%.
+
+**Next cycle: promote E6 to FAIL with its price attached, and attack the haul
+deficit.** It is worth ~46 e/t. Every other open item — agendaFundingRate ~63
+e/t of spawn routing, infraSpawnEnergy at 33 e/t — is a pricing question about
+energy the colony still has. This one is energy it never gets.
+
+### VERIFY 2026-08-02 (t72725767, window 3097t) — the consolidation took, and moved the bottleneck one layer down
+
+The upgrader valve is gone at the decision site:
+
+```
+upgrader sizing  planAllocated 77.56 -> allocated 77.56   (was 81.19 -> 47.70)
+                 fieldedWork 92   staffing 6   workUtil 0.998   dryShare 0.002
+```
+
+Allocation passes through exactly, the fleet is BUILT past the allocation, and
+when it attempts to upgrade it succeeds 99.8% of the time. By every measure the
+consumer is now doing what the plan asks.
+
+**And delivery is still 38.04 against a 77.56 plan (P7 0.49x), with the stock
+standing.** 92 WORK is fielded; 38 e/t arrives. The bottleneck was never only
+the fleet's sizing.
+
+**What it actually is, now readable:** `OSC` reports *"92 WORK standing vs relay
+valve 55.26 e/t"*, and P12 puts the divergence at **2.51x on the non-bank term
+(plan 37.03 vs runtime 14.73)**. The plan allocates 77.56 to the controller; the
+FEEDER RELAY physically delivers 55.26; the colony scores 38.
+
+So the exact defect the owner named in the upgrader exists one layer down in the
+feeder. `feederRelayRate` is an independent valve computed without reference to
+the controller allocation it is supposed to serve - the upgrader was throttled
+by its own valve, and now it is throttled by the feeder's. **The same
+consolidation is owed to the relay**, and it is spec 38's "one bank-drain rate"
+seen from the consumer end.
+
+Other movement over the window: F1 **1.93 -> 1.44**; E6 deferred ops **4 -> 2**
+(though forgone mining rose to 20.01 e/t, so the two miners still held are held
+harder); reservation spend fell 16.11 -> 8.37 against a 16.85 budget.
+
+**Measurement caveat, stated:** the loss lines fell back to the since-reset
+window (2027t) rather than differencing cumulative totals, because the BASELINE
+capture predates core v22. That is the designed fallback, not a fault - the next
+cycle has two v22 captures and the loss lines will span the full window for the
+first time.
+
+### ANALYSIS 2026-08-02 — are the haul operations estimated and sized correctly?
+
+Owner's question, answered from t72725767 and the fidelity cells. Three separate
+answers, because "estimated" and "sized" are different things and they fail in
+opposite directions.
+
+**ESTIMATED: yes, self-consistently.** Every one of the 14 planned routes carries
+exactly `carryPartsFor(flowRate, distance)` — the plan and the primitive agree to
+the digit, with no drift. Whatever else is wrong, the plan is not misapplying its
+own formula.
+
+**SIZED: OVER-fielded live, UNDER-fielded in the cells.** Opposite failures, which
+means live and the grid are NOT the same bug and I was wrong to fold them
+together:
+
+```
+  src    dist   planCarry  fielded  ratio        live TOTAL  168.8 -> 232  (1.37x)
+  cd8e     23        9.6       12    1.25
+  cee0     41       16.8       38    2.26   <- outlier
+  cd8d     41       16.8       20    1.19
+  cedc     42       17.2       22    1.28
+  cd94     43       17.6       22    1.25
+  cbd5     52       21.2       24    1.13
+  cbd8     75       30.4       52    1.71   <- outlier
+  d01f     81       32.8       40    1.22
+```
+
+Most sources sit at **1.13–1.28×**, which is what replacement overlap looks like
+(a successor spawned inside the incumbent's lead time — by design, `staffsPost`).
+Two are genuine outliers. The grid cells, by contrast, field **53–74%** of plan.
+
+**THE DECISIVE READ, and it redirects the investigation.** `cd8e` carries **12**
+CARRY on a route the plan sizes at 9.6. Twelve parts over a 23-tile route sustain
+`50*12/48 = 12.5 e/t` against a **10 e/t** source — comfortably sufficient — and
+that source was **buffer-full for 100% of the window with 2860 staged**.
+
+Carry is adequate and the energy still is not moving. For that source the defect
+is not sizing at all; it is execution or routing. Adding carry would not have
+fixed it, and the carry-deficit hypothesis does not survive contact with this
+number.
+
+**A latent modelling gap, not currently biting.** `roundTripTicks(d) = 2d + 2`
+hardcodes one tick per tile, while the runtime's own `travelTicksPerTile` models
+**3 → 1** ticks/tile off an RCL proxy. At this colony (energyCapacity 5600) it
+returns 1.00, so the two agree and the plan is right. At low RCL the plan would
+under-ask by up to 3×, and neither model knows about swamp. It is the same "two
+models of one physical quantity in two places" pattern as the valves — worth
+consolidating before it bites a cold start, not worth chasing now.
+
+### CYCLE 2026-08-02 (t72734018, window 8251t) — the consolidation delivered; two of my own terms shipped blind
+
+**The upgrader consolidation is working, measured over 8251 ticks:**
+
+```
+controller delivered   38.04 -> 50.53 e/t
+P7  (delivery vs plan) FAIL -> off the board
+P12 (valve coherence)  FAIL -> off the board
+```
+
+Both rows that existed to detect two valves disagreeing have gone quiet, which
+is what one valve looks like. `OSC` now reads **3.07 standing WORK per e/t of
+valve — a stranded fleet above a shut valve on the down-stroke**, i.e. the
+fleet built in the high phase is still burning into a trough plan of 15.00.
+That is the limit cycle, not a regression.
+
+**TOMBSTONE ATTRIBUTION, first read — and it is decisive on the half that
+works:**
+
+```
+by role: haul 88%   harvest 7%   other 5%   reserve 0%
+```
+
+88% of tombstone energy is HAULERS dying loaded. That folds the 6.23 e/t line
+straight into the haul story rather than leaving it a separate work item.
+
+**By cause it reads `expired 0% killed 100%`, and I do not believe it.** A
+perfectly one-sided split is the signature of a misread field, not a finding -
+exactly the risk I flagged when building it ("if killed comes back at 0% across
+the board, that's either a real answer or a sign the field isn't populated").
+It came back at the other rail. Rather than argue about `Tombstone.creep
+.ticksToLive`, the meter now publishes the RAW TTL distribution (mean/max) and
+the account flags the line SUSPECT when a one-sided split sits on a constant
+ttl. The next capture settles it without a hypothesis.
+
+**THE SWAMP TERM SHIPPED WITHOUT A STAMP.** Every planned `carryParts` is
+byte-identical to the pre-deploy capture (cd8e 9.6, cee0 16.8, cbd8 30.4,
+d01f 32.8...), and I could not tell whether that means these routes have no
+swamp or the wiring is dead — because I shipped a PRICING TERM with nothing
+published about its input. That is the same lesson this program keeps
+re-learning, committed by me one cycle after writing it down. Flow segment v15
+now carries `sources[].swampFraction`.
+
+**Ledger movement:** F1 1.44 -> **1.76** (worse; haulers 0.337 vs 0.193
+planned), forgone mining 20.01 -> **28.40** (worse), E6 steady at 2 of 10
+deferred, E4 back AT target (67206 vs 70000, drawing down). The controller
+gained what the bank lost.
+
+Verdict: **fixed + instrumented**, with two self-inflicted blind spots closed.

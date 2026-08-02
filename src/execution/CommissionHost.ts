@@ -76,6 +76,20 @@ const KINDS: CorpKind[] = [
  */
 export const ALL_CORP_KINDS: string[] = KINDS.map(k => k.kind);
 
+/**
+ * Every ROLE any registered kind can buy, derived from the kinds' own `roles`
+ * declarations - the same single source of truth `executeSpawn` dispatches on.
+ * Exported so the audit's account map can be RATCHETED against the registry
+ * (spec 15's energy account): a new kind's role fails the audit until someone
+ * decides which account its spend belongs to, rather than silently landing in
+ * an "other" bucket. Same discipline as ALL_CORP_KINDS + F1's class map.
+ */
+export const ALL_SPAWN_ROLES: string[] = (() => {
+  const seen: { [role: string]: true } = {};
+  for (const k of KINDS) for (const role of Object.keys(k.roles ?? {})) seen[role] = true;
+  return Object.keys(seen).sort();
+})();
+
 function registerKinds(): void {
   for (const kind of KINDS) {
     if (!getCorpKind(kind.kind)) registerCorpKind(kind);

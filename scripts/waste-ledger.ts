@@ -18,19 +18,75 @@
 import * as fs from "fs";
 import * as path from "path";
 import {
+  BODY_COSTS,
+  CARRY_MOVE_PAIR_COST,
   CLAIM_LIFETIME,
   CREEP_LIFETIME,
+  LINK_TRANSFER_LOSS,
+  MINER_COST,
   MINER_PARTS,
   RESERVER_DUTY,
+  SOURCE_RATE,
   SOURCE_REGEN_TIME,
   SPAWN_PARTS_PER_TICK,
   carryPartsFor,
   effectiveLife,
-  haulerOverhead
+  haulerOverhead,
+  minerOverhead
 } from "../src/economy/primitives";
 import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } from "../src/economy/bank";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * METHODOLOGY STAMP (owner 2026-08-01). Every report prints it, and two
+ * reports are only directly comparable at the SAME stamp.
+ *
+ * Bump it whenever HOW a figure is computed changes - a new account, a
+ * reclassified line, a changed budget derivation, a corrected sign. Do NOT
+ * bump for a new capture, a threshold tweak that changes only a verdict, or a
+ * wording change. The point is that a historical fiscal close carries the
+ * methodology it was produced under, so a year-over-year comparison can say
+ * "these are not comparable" instead of silently mixing two definitions - the
+ * failure mode that made P10 look like a real 28 e/t leak for four cycles.
+ *
+ * 1: energy account (revenue / direct / overhead / appropriations / residual),
+ *    budget-vs-actual-vs-variance, source P&L, controller variance bridge,
+ *    ground rot split, capital vs operating, reserving as COGS.
+ * 6: the LINK TRANSFER TAX moves from LOSSES into DIRECT COST OF MINING, beside
+ *    evacuation (owner 2026-08-02: "link tax is similar to haul body"). Both are
+ *    per-source costs scaling with the flow they move; only the currency differs
+ *    (hauler body = spawn parts, link hop = delivered energy). It nets against
+ *    NET MINING MARGIN and against each link-served source in the P&L, so a
+ *    link-served source can no longer show zero transport. Same energy, same
+ *    residual - a #5 margin and a #6 margin differ by the tax.
+ * 5: loss lines are differenced from CUMULATIVE totals (core v22) instead of
+ *    read as since-reset rates, so the measured window equals the capture
+ *    window at any length. Before this the loss window was capped by VM
+ *    lifetime (480t against a 1251-tick capture at t72722670) and a 1500-tick
+ *    fiscal month was structurally unmeasurable. #4 loss rates are a phase
+ *    sample of an arbitrary post-reset window; #5 ones are not.
+ * 4: the LINK TRANSFER TAX joins measured losses - the engine destroys 3% of
+ *    every link hop (2.59 e/t measured at t72721419) and it had been inside the
+ *    residual because LINK_LOSS_RATIO existed only in the telemetry meter. The
+ *    planner now prices one hop per link-served source too, so plan and actual
+ *    stop disagreeing about whether link haulage is free.
+ * 3: revenue is MINED, not capacity - the miners' own heldFrac stamps price the
+ *    capacity a buffer-full gate forgoes (30.28 e/t of 100 at t72721419), which
+ *    #2 booked as income. Plus a WINDOW COHERENCE guard: the residual is a
+ *    difference of rates drawn from three different windows (capture pair,
+ *    blackbox ring, loss meter) and is flagged untrustworthy when they diverge
+ *    more than 2x. A #2 residual sits on inflated revenue; a #3 one does not.
+ * 2: the residual is SPLIT into line items (core v20 loss meter): ground pile
+ *    decay by the engine's own ceil rule (superseding #1's summed-pile
+ *    estimate, which missed the per-pile ceiling and saw only source-adjacent
+ *    piles), tombstone energy destroyed, and measured repair spend. Structure
+ *    decay enters as a DEPRECIATION MEMO, never as cash - its cash cost IS the
+ *    repair line, and booking both would double-count the same wear. A #1
+ *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
+ *    the newly-attributed losses.
+ */
+export const METHODOLOGY = 6;
 
 export interface LedgerRow {
   id: string;
@@ -80,7 +136,37 @@ function fleetParts(corps: any[], kind: string, fallback: number): number {
  * then converge to the ceiling, never to the plan (measured 2026-07-18:
  * 0.561 p/t vs 0.333, 168%, while progress ran at ~3 of a 115 e/t plan).
  */
-export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, number, number]> } {
+/**
+ * ENERGY per BODY PART, by fleet class - the conversion that lets every planned
+ * class carry an ENERGY budget, not just a parts budget (owner 2026-08-01: "we
+ * can always convert body parts into energy ... per creep body get the energy
+ * equivalent and sum it up").
+ *
+ * I previously refused this conversion as "biased across classes" and left four
+ * budget lines blank. That over-generalised F1's lesson. F1's warning is against
+ * using COST as a proxy for spawn TIME - a CLAIM part is 600e against 50e for
+ * CARRY, so cost mis-ranks classes by build pressure. It is NOT an argument
+ * against converting per BODY: each class's shape is known, so its energy per
+ * part is exact. Only a FLAT rate across classes would be biased.
+ */
+const ENERGY_PER_PART: Record<string, number> = {
+  // 5 WORK + 3 MOVE = 650e over 8 parts
+  miners: MINER_COST / MINER_PARTS,
+  // every hauler-shaped body is CARRY+MOVE pairs: 100e per 2 parts
+  "source-route haulers": CARRY_MOVE_PAIR_COST / 2,
+  "transient-route haulers (unbudgeted)": CARRY_MOVE_PAIR_COST / 2,
+  tenders: CARRY_MOVE_PAIR_COST / 2,
+  feeder: CARRY_MOVE_PAIR_COST / 2,
+  // CLAIM+MOVE pairs: (600 + 50) / 2
+  "reservers (claim life)": (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2
+};
+
+export function planSpawnLoad(cap: any): {
+  total: number;
+  lines: Array<[string, number, number]>;
+  /** class -> ENERGY/tick the plan's own fleet for that class implies. */
+  energy: Record<string, number>;
+} {
   const flow = cap.data.flow;
   const corps: any[] = cap.data.corps?.corps ?? [];
   const rooms = cap.data.core?.rooms ?? [];
@@ -188,7 +274,31 @@ export function planSpawnLoad(cap: any): { total: number; lines: Array<[string, 
   lines.push(["reservers (claim life)", resParts, resLoad]);
 
   const total = lines.reduce((s, [, , x]) => s + x, 0);
-  return { total, lines };
+
+  // Per-class ENERGY/tick from the SAME parts figures above. Classes whose body
+  // shape is mixed (upgraders, construction) take the measured fleet's own
+  // energy-per-part - the same discipline `upgraderPartsPerWork` and
+  // `fleetParts` already use on this function's parts side.
+  const mixedRate = (kind: string, dflt: number): number => {
+    const own = corps.filter(c => c.kind === kind && c.bodyParts > 0);
+    if (own.length === 0) return dflt;
+    let e = 0;
+    let n = 0;
+    for (const c of own) {
+      for (const [part, count] of Object.entries((c.body ?? {}) as Record<string, number>)) {
+        e += count * (BODY_COSTS[part.toUpperCase() as keyof typeof BODY_COSTS] ?? 50);
+        n += count;
+      }
+    }
+    return n > 0 ? e / n : dflt;
+  };
+  const energy: Record<string, number> = {};
+  for (const [name, , load] of lines) {
+    const flat = ENERGY_PER_PART[name] ?? (name.startsWith("feeder") ? CARRY_MOVE_PAIR_COST / 2 : undefined);
+    const rate = flat ?? (name.startsWith("upgraders") ? mixedRate("upgrade", 85) : mixedRate("construction", 65));
+    energy[name] = load * rate;
+  }
+  return { total, lines, energy };
 }
 
 /** HOME-room roles run inside the owned room; an early death there is a bot
@@ -407,6 +517,11 @@ export function f1Decompose(
   return { rows, estimated, windowTicks };
 }
 
+/** The reserve target a capture was measured against (plan-persisted, else the floor). */
+function resolveReserve(cap: any): number {
+  return cap.data.core?.warchestTarget ?? BASE_RESERVE;
+}
+
 export function computeLedger(cap: any, base: any): LedgerRow[] {
   const rows: LedgerRow[] = [];
   const core = cap.data.core;
@@ -503,6 +618,35 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         .map(([n, p, x]) => `${n} ${Math.round(p)}p=${x.toFixed(3)}`)
         .join(", ")
   });
+
+  // ---- P10 plan ENERGY accounting: WITHDRAWN 2026-08-01 (double-counting) ----
+  //
+  // This row asserted that `netEnergy = totalHarvest - totalOverhead` is "what
+  // the solver hands to sinks", and priced the ~28 e/t of spawn spend it does
+  // not subtract. The owner called it as double accounting and was right. Two
+  // reads killed it:
+  //
+  //  1. `netEnergyTotal` (flowAdapter.ts:1189) is consumed ONLY by the reported
+  //     `netEnergy` / `efficiency` / `isSustainable` fields (lines 1204-1207).
+  //     It never gates the sink fill. It is a source-ranking and reporting
+  //     statistic, not a budget - so nothing is "handed to sinks" against it.
+  //  2. The plan ALREADY funds the spawn as a first-class SINK. Measured
+  //     t72707443: spawn sinks allocated 100.0 + 10.0 = 110 e/t against ~48 e/t
+  //     of measured spawn spend. Subtracting producer bodies from source yield
+  //     AND routing energy to the spawn sink would be the double count - the
+  //     solver correctly does only the latter.
+  //
+  // The row compared a per-source amortized efficiency statistic (producer
+  // bodies only) against total measured spend across all classes and called the
+  // difference a leak. Those quantities are not comparable and the difference
+  // is not a leak.
+  //
+  // A VALID successor would ask "does the spawn sink allocation cover actual
+  // spawn spend", but the sink's `demand` is a REFILL-CAPACITY figure (spawn +
+  // extensions), not a rate, so that comparison needs a rate-shaped plan term
+  // that does not exist yet. Left unbuilt rather than shipping a second
+  // questionable formulation - a ledger line that cries wolf is worse than no
+  // line, which X6 already taught this session.
 
   // ---- P5 price/behavior drift: reserver duty ----
   const res = corps.find(c => c.kind === "reservation");
@@ -620,6 +764,58 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
           ? "equilibrium past the absorbable knee - income the spend path cannot use"
           : "flat/falling at a big surplus - not convergence evidence; check the spend path")
     });
+  }
+
+  // ---- OSC bank/consumer limit cycle: WHICH PHASE is this capture in? ----
+  //
+  // Confirmed 2026-08-01 across four captures (t72696770→t72703512, 6,742t):
+  // the bank and the upgrade fleet oscillate in ANTIPHASE, and the swing is a
+  // LIMIT CYCLE, not a transient.
+  //
+  //   tick        bank    valve  upgAlloc  WORK   score
+  //   72696770  149,803   68.20      2.00     2      -
+  //   72700221  128,992   54.33     54.71    53   41.51
+  //   72701842   55,201   15.00      2.00    68   68.29   <- fleet PEAKS as valve BOTTOMS
+  //   72703512   84,511   24.67     25.16    18   13.96
+  //
+  // Positive feedback drives it: a wide valve builds a big fleet, the big
+  // fleet drains the bank past the reserve, `bankSurplusRate` hits 0, the
+  // valve slams to STORAGE_UPGRADE_TARGET, and the fleet - which cannot shed
+  // faster than a 1,500-tick creep life - keeps burning the bank on the way
+  // down. Cycle-average score 41.12 pts/t against an in-arc peak of 68.29:
+  // PEAK IS 1.66x THE MEAN.
+  //
+  // Hence this row. Every score claim in this log is taken over a window
+  // SHORTER than the ~9,000-tick period, so it samples a phase - the ledger
+  // must say which one, or a trough read looks like a regression and a peak
+  // read looks like a win. `standingWork / relayRate` is the single-capture
+  // phase indicator: ~1 in phase, >2 the destructive quadrant (a fleet
+  // stranded above a shut valve, eating reserve), <0.5 the wasteful quadrant
+  // (valve open, fleet not built - the score the colony is not collecting).
+  {
+    const feeder = corps.find((c: any) => c.kind === "controllerFeeder");
+    const relay = feeder?.sizing?.relayRate;
+    const work = feeder?.sizing?.standingWork;
+    if (typeof relay === "number" && typeof work === "number" && relay > 0) {
+      const ratio = work / relay;
+      const phase =
+        ratio > 2
+          ? "STRANDED FLEET above a shut valve (down-stroke: burning reserve, score peaking and about to fall)"
+          : ratio < 0.5
+          ? "VALVE OPEN, fleet not built (up-stroke: score suppressed, capacity idle)"
+          : "in phase (fleet matched to valve)";
+      rows.push({
+        id: "OSC",
+        name: "bank/consumer phase (limit-cycle position)",
+        value: +ratio.toFixed(2),
+        unit: "standing WORK per e/t of valve",
+        // Neither extreme is a defect on its own - it is the SWING that costs.
+        // FAIL the destructive quadrant only; WARN the idle one.
+        verdict: ratio > 2 ? "FAIL" : ratio < 0.5 ? "WARN" : "ok",
+        detail: `${work} WORK standing vs relay valve ${relay.toFixed(2)} e/t - ${phase}; ` +
+          `read any score over a <9,000t window as a PHASE SAMPLE, not a rate (peak/mean measured 1.66x)`
+      });
+    }
   }
 
   // ---- P1/S2 plan flap: candidate verdict flips between captures ----
@@ -1284,6 +1480,122 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- X6 over-built hauler bodies (needs the blackbox spawn log, segment 5) ----
+  //
+  // The regression pin for the 2026-07-31 route-sizing fix. A hauler body is
+  // never worth more CARRY than its WHOLE route can load; past that the parts
+  // are dead weight bought out of a saturated spawn's build time. Both sizers
+  // used to measure a body against the ROOM's maxCarryPairs (25 at RCL7), so
+  // a 7-CARRY route bought 25-CARRY bodies and retired the 8-CARRY incumbent
+  // that covered it - measured 0.471 p/t of hauler spawn against a plan of
+  // 0.225 with the STANDING fleet on plan (t72695674).
+  //
+  // Measured against the plan's per-route carryParts, with headroom for the
+  // legitimate terms the plan number does not carry: the buffer-DRAIN term
+  // (haulCarryNeeded adds staged/1500 on top of sustained inflow) and integer
+  // body rounding. OVERBUILD_TOLERANCE is deliberately loose - this row must
+  // catch a 3.5x over-buy without false-failing a drain-fed body, because a
+  // ledger line that cries wolf gets ignored (the lesson E5's plan-blind
+  // cost<300 test already taught).
+  {
+    const spawnRows = ((cap.data.blackbox?.rows ?? []) as any[]).filter(
+      r => r.k === "spawn" && r.d?.role === "hauler" && typeof r.d?.parts === "number"
+    );
+    // suffix -> {carry, ratio} of the planned route, same id convention the
+    // corp ids use (legacyNodeId keys off sourceId.slice(-4)).
+    const planRoute = new Map<string, { carry: number; ratio: string }>();
+    for (const h of (flow?.haulers ?? []) as any[]) {
+      const suf = String(h.sourceId).replace(/^source-|^scavenge-[EW]\d+[NS]\d+-|^bank-/, "").slice(-4);
+      const prev = planRoute.get(suf);
+      if (!prev || h.carryParts > prev.carry) planRoute.set(suf, { carry: +h.carryParts || 0, ratio: h.ratio ?? "1:1" });
+    }
+    // The corp's OWN carryNeeded stamp beats the plan number wherever it
+    // exists: haulCarryNeeded = sustained inflow PLUS the buffer-drain term, so
+    // a route with a standing pile legitimately needs more carry than the plan
+    // prices and a plan-only comparator false-fails it (measured while building
+    // this row: W44N22-17-6 read 4.0x against a 2.0c plan route while its own
+    // stamp said carryNeeded 11 behind a 4,114 pile - not an over-buy at all).
+    // `hauling-*` corps stamp it directly; `mining-*` operations expose their
+    // haul vector's stamp via innerSizing (segment 4 v12+, 2026-07-31).
+    //
+    // Read from BOTH ENDPOINTS and keep the MAX (2026-07-31, second cycle):
+    // a body is judged against the largest need its route carried during the
+    // window, because the plan can re-route a source mid-life. Measured on the
+    // first live FAIL this row produced: `mining-W43N24-harvest-cd8d` bought a
+    // 22-CARRY hauler at t72701035 against a stamped carryNeeded of 18 (1.2x -
+    // correct), and the wartime regime then re-pointed the source at a
+    // construction site ONE TILE away, collapsing carryNeeded to 5. Judged on
+    // the closing stamp alone that correct body reads 4.4x over. A pin that
+    // cries wolf is worse than no pin - it trains us to ignore the line.
+    const stampedNeed = new Map<string, number>();
+    const noteNeed = (id: string, n: unknown): void => {
+      if (typeof n === "number") stampedNeed.set(id, Math.max(stampedNeed.get(id) ?? 0, n));
+    };
+    for (const capture of [cap, base]) {
+      for (const c of (capture?.data?.corps?.corps ?? []) as any[]) {
+        noteNeed(c.id, c.sizing?.carryNeeded);
+        for (const inner of (c.innerSizing ?? []) as any[]) noteNeed(c.id, inner.sizing?.carryNeeded);
+      }
+    }
+    const OVERBUILD_TOLERANCE = 2.0;
+    let overParts = 0;
+    let worst = "";
+    let worstRatio = 0;
+    let judged = 0;
+    let stamped = 0;
+    for (const r of spawnRows) {
+      const suf = String(r.d.corp)
+        .replace(/^mining-[EW]\d+[NS]\d+-harvest-|^hauling-[EW]\d+[NS]\d+-hauling-/, "")
+        .slice(-4);
+      const route = planRoute.get(suf);
+      if (!route || route.carry <= 0) continue; // no plan route vouches for a size
+      const need = stampedNeed.get(String(r.d.corp)) ?? route.carry;
+      if (need <= 0) continue;
+      judged += 1;
+      stamped += stampedNeed.has(String(r.d.corp)) ? 1 : 0;
+      // spawned CARRY back out of the body: 1:1 packs 2 parts per CARRY, the
+      // road ratio 2:1 packs 1.5.
+      const partsPerCarry = route.ratio === "2:1" ? 1.5 : 2;
+      const spawnedCarry = r.d.parts / partsPerCarry;
+      // At or below the sizer's own HAULER_MIN_CARRY floor the body size is set
+      // by the FLOOR, not by the route, so it cannot be an over-buy however
+      // small the route is. Without this the row fails on every micro-route's
+      // 1-CARRY body (a 0.1c planned route reads 7.9x) - which is P2's finding,
+      // not this row's, and is the false-positive class that trains us to
+      // ignore a line.
+      if (spawnedCarry <= 3) continue;
+      const ceiling = need * OVERBUILD_TOLERANCE;
+      if (spawnedCarry <= ceiling) continue;
+      overParts += (spawnedCarry - need) * partsPerCarry;
+      const ratio = spawnedCarry / need;
+      if (ratio > worstRatio) {
+        worstRatio = ratio;
+        worst = `${r.d.corp} ${spawnedCarry.toFixed(0)}c on a ${need.toFixed(1)}c route (${ratio.toFixed(1)}x)`;
+      }
+    }
+    const allRows = (cap.data.blackbox?.rows ?? []) as any[];
+    const window = allRows.length > 1 ? allRows[allRows.length - 1].t - allRows[0].t : 0;
+    if (judged > 0 && window > 0) {
+      const pt = overParts / window;
+      rows.push({
+        id: "X6",
+        name: "over-built hauler bodies (route-sizing pin)",
+        value: +pt.toFixed(3),
+        unit:
+          `p/t bought above the route (${judged} hauler spawns judged` +
+          (stamped * 2 < judged ? `, DRAIN-BLIND on ${judged - stamped} - needs segment 4 v12 stamps)` : `)`),
+        // FAIL only on a body more than DOUBLE its whole route - the shape the
+        // fix removed. Any excess at all is worth a WARN once it is measurable.
+        verdict: worstRatio >= 2.5 ? "FAIL" : pt > 0 ? "WARN" : "ok",
+        detail:
+          `${stamped}/${judged} judged against the corp's OWN carryNeeded stamp (rest against the plan route, drain-blind) - ` +
+          (worstRatio > 0
+            ? `worst ${worst}; ${overParts.toFixed(0)} parts over ${window}t`
+            : `every hauler body within ${OVERBUILD_TOLERANCE}x its route's need`)
+      });
+    }
+  }
+
   // ---- X5 rebuild churn (needs the blackbox spawn log, segment 5) ----
   {
     const churn = computeChurn(cap);
@@ -1319,8 +1631,787 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     detail: `${core.creeps.tracked}/${core.creeps.total} tracked`
   });
 
+  // ---- P11 link/haul representation mismatch (owner 2026-08-01) ----
+  //
+  // The plan models bank->controller flow as HAULER edges carrying `carryParts`,
+  // but in a link-served room the LINK network performs that work (hub link ->
+  // controller link -> the feeder relays the last tile). No hauler is ever built
+  // for those parts, so they inflate every plan-vs-actual hauler comparison.
+  //
+  // Found while reading plan-vs-actual bodies at t72714129: planned hauler CARRY
+  // 198.1 vs 210 fielded read as a comfortable 1.06x, but 26.1 of those planned
+  // parts are bank->controller edges the link serves. Against source routes only
+  // (168.8 planned) the same fleet is 1.24x - still in tolerance, but a quarter
+  // over rather than a rounding error.
+  //
+  // NOT a leak: nothing is wasted, the link is the cheaper carrier. It is a
+  // REPRESENTATION mismatch that biases a reading, so it warns rather than
+  // fails, and only when a controller link is actually live - without one those
+  // haul edges are real work and the plan is right.
+  {
+    const linkRooms = new Set(
+      ((core.links ?? []) as any[]).filter(l => (l.toControllerRate ?? 0) > 0).map(l => l.room)
+    );
+    const haulers = (flow?.haulers ?? []) as any[];
+    const totalCarry = haulers.reduce((n, h) => n + (+h.carryParts || 0), 0);
+    // bank-sourced edges into a controller, in a room the link already serves
+    const linkServed = haulers.filter(h => {
+      if (!String(h.sourceId ?? "").startsWith("bank-")) return false;
+      if (!String(h.sinkId ?? "").startsWith("controller-")) return false;
+      return linkRooms.has(String(h.sourceId).replace(/^bank-/, ""));
+    });
+    const notional = linkServed.reduce((n, h) => n + (+h.carryParts || 0), 0);
+    if (linkRooms.size > 0 && totalCarry > 0) {
+      const share = notional / totalCarry;
+      rows.push({
+        id: "P11",
+        name: "link/haul representation (notional hauler parts)",
+        value: +notional.toFixed(1),
+        unit: `CARRY parts the plan bills to haulage that the LINK performs (${(share * 100).toFixed(0)}% of planned carry)`,
+        // Not waste - a reading bias. Warn once it is big enough to matter to a
+        // plan-vs-actual hauler comparison.
+        verdict: share > 0.1 ? "WARN" : "ok",
+        detail:
+          (linkServed.length > 0
+            ? `${linkServed.length} bank->controller edge(s) in link-served room(s) [${[...linkRooms].join(", ")}]; ` +
+              `source-route carry alone is ${(totalCarry - notional).toFixed(1)} - compare fielded CARRY against THAT`
+            : "no bank->controller edges in link-served rooms") +
+          `; no energy is wasted (the link is the cheaper carrier) - this biases the plan-vs-actual READING only`
+      });
+    }
+  }
+
+  // ---- P12 valve coherence: plan vs runtime controller rate (owner 2026-08-01) ----
+  //
+  // "The plan and actual controller should use the same valve formula logic so
+  // they are more consistent. Maybe they are but using mismatched inputs."
+  // Measured t72714129 - HALF right, and the half that diverges is total:
+  //
+  //   RUNTIME valve = STORAGE_UPGRADE_TARGET(15) + bankSurplusRate(28.10) = 43.10
+  //   PLAN controller = mined(100) - spawnSinks(20) + bankSurplusRate(28.10) = 108.10
+  //
+  // The BANK term is genuinely shared - both call `bankSurplusRate` with the
+  // same inputs and agree to the decimal. The NON-BANK term is not shared at
+  // all: the plan computes it from the economy (mined less what it routes to
+  // the spawns) while the runtime substitutes a hardcoded constant. 80.00 vs
+  // 15.00, a 5.3x divergence, and it is the whole of the disagreement.
+  //
+  // This row is the pin for unifying them. It must go green by making the two
+  // agree at the CORRECT value, not by pointing the runtime at planFlow - the
+  // plan's own figure is inflated (it under-routes its fleet by 22.44 e/t and
+  // models no losses), so unifying naively would have the feeder draw ~39 e/t
+  // from the bank and reproduce the saw-tooth's down-stroke on purpose.
+  {
+    const banked = ((core.rooms ?? []) as any[]).reduce((n, r) => n + (r.storageEnergy ?? 0), 0);
+    const feeder = corps.find((c: any) => c.kind === "controllerFeeder");
+    const relay = feeder?.sizing?.relayRate;
+    const ctrlSink = ((flow?.sinks ?? []) as any[]).find(x => x.type === "controller");
+    if (typeof relay === "number" && ctrlSink && banked > 0) {
+      const drain = Math.min(MAX_SURPLUS_DRAW, Math.max(0, banked - resolveReserve(cap)) / SURPLUS_DRAIN_TICKS);
+      const runtimeNonBank = relay - drain;
+      const planNonBank = (+ctrlSink.allocated || 0) - drain;
+      const ratio = runtimeNonBank > 0 ? planNonBank / runtimeNonBank : Infinity;
+      rows.push({
+        id: "P12",
+        name: "valve coherence (plan vs runtime controller rate)",
+        value: +ratio.toFixed(2),
+        unit: `x divergence on the NON-BANK term (plan ${planNonBank.toFixed(2)} vs runtime ${runtimeNonBank.toFixed(2)})`,
+        verdict: ratio > 2 || ratio < 0.5 ? "FAIL" : ratio > 1.25 || ratio < 0.8 ? "WARN" : "ok",
+        detail:
+          `bank term SHARED and agreeing (${drain.toFixed(2)} both sides, same bankSurplusRate call); ` +
+          `non-bank term is NOT - the plan derives it from the economy, the runtime uses a constant. ` +
+          `Unify at the CORRECT rate (mined - ALL spawn cost - losses), not at planFlow: the plan's own ` +
+          `figure is inflated by the fleet energy it does not route.`
+      });
+    }
+  }
+
+  // ---- G1 sustained progress: score NET OF BANK DRAWDOWN (owner 2026-08-01) ----
+  //
+  // Pushed LAST on purpose. The sort below is stable, so within a verdict the
+  // insertion order stands, and formatLedger names fails[0] as the cycle's
+  // work item. G1 is an OUTCOME metric, not a leak class - the action on a G1
+  // FAIL is always "find which leak caused it", one of the rows above. The
+  // first draft pushed it first and it hijacked the work item from P9's
+  // rotting production; the suite caught it (P9 must lead on that fixture).
+  //
+  // THE GOAL METRIC. Raw pts/t is not it, because the same colony scored 68.29
+  // while burning the bank at -45.52 e/t and 47.59 while burning it at -5.74 -
+  // and the first is a stockpile liquidation that ends, the second is income.
+  //
+  // What the sum MEANS (derived, not asserted - the P10 lesson):
+  //   bankSlope = income - controller - spawn - construction
+  //   => score + bankSlope = income - spawn - construction
+  // i.e. the RESIDUAL the economy can sustainably route to the controller at
+  // its current spawn and construction burn. Score above it is drawdown; score
+  // below it is banking. Both sides are measured in the same unit (energy/tick;
+  // one GCL point IS one energy delivered), so the addition is meaningful.
+  //
+  // Caveat carried in the detail line, not hidden: bankSlope also absorbs
+  // construction spend and decay, so `funded` is "not drawn from storage",
+  // NOT "converted to progress". It is a floor on sustainability, not an
+  // energy audit. Shares an input with E4 but asks a different question - E4
+  // asks whether capital is idle, this asks what is paying for the score.
+  {
+    const bankOf = (c: any): number =>
+      (c.data.core.rooms ?? []).reduce((s: number, r: any) => s + (r.storageEnergy ?? 0), 0);
+    const g = core.gcl?.progress;
+    const bg = bcore.gcl?.progress;
+    if (typeof g === "number" && typeof bg === "number" && dt > 0) {
+      const score = (g - bg) / dt;
+      const slope = (bankOf(cap) - bankOf(base)) / dt;
+      const funded = score + slope;
+      const share = score > 0 ? funded / score : 1;
+      // A window shorter than the measured limit-cycle period samples a PHASE
+      // (OSC carries the same warning); say so rather than pretending to a rate.
+      const shortWindow = dt < 6000;
+      // THREE regimes, not one axis. `funded` is the sustainable capacity;
+      // `score` is what was actually delivered against it.
+      //  - score >> funded  => LIQUIDATION (the saw-tooth down-stroke)
+      //  - score ~= funded  => matched, the healthy state
+      //  - score << funded  => UNDER-SPENDING: capacity banked instead of
+      //    delivered. Caught in validation: the t72703512 trough scored 19.63
+      //    while banking +25.88 and the share form read "232% income-funded,
+      //    ok" - a compliment on the wasteful quadrant. A share above 1 is not
+      //    more health, it is unconverted capacity, so it gets its own arm.
+      const banking = share > 1.05;
+      const shortfall = funded - score;
+      rows.push({
+        id: "G1",
+        name: "sustained progress (score net of bank drawdown)",
+        value: +funded.toFixed(2),
+        unit: `pts/t sustainable (delivered ${score.toFixed(2)}, bank ${slope >= 0 ? "+" : ""}${slope.toFixed(2)})`,
+        // FAIL only on LIQUIDATION - the down-stroke shape (measured t72701842:
+        // delivered 68.29 against 22.77 sustainable, 33%). Healthy arcs measured
+        // 76-88%, so 0.5 separates them with room. Under-spending WARNs: it is
+        // real waste (OSC names the same quadrant from the fleet side) but it
+        // burns no capital, so it never outranks a liquidation.
+        verdict: banking ? "WARN" : score > 0 && share < 0.5 ? "FAIL" : share < 0.75 ? "WARN" : "ok",
+        detail:
+          (banking
+            ? `UNDER-SPENDING: delivering ${score.toFixed(2)} of ${funded.toFixed(2)} sustainable - ` +
+              `${shortfall.toFixed(2)} pts/t of capacity BANKED instead of delivered`
+            : `${(share * 100).toFixed(0)}% of the score is income-funded`) +
+          ` over ${dt}t` +
+          (shortWindow ? " [SHORT WINDOW - phase sample, not a rate]" : "") +
+          `; sustainable = income - spawn - construction (bank slope also absorbs construction + decay,` +
+          ` so this is a sustainability floor, not an energy audit)`
+      });
+    }
+  }
+
   const rank = { FAIL: 0, WARN: 1, ok: 2 };
   return rows.sort((a, b) => rank[a.verdict] - rank[b.verdict]);
+}
+
+
+/**
+ * THE ENERGY ACCOUNT - a standing chart of accounts for the colony, printed
+ * above the leak ledger every cycle (owner 2026-08-01: "we at one point had a
+ * sort of standardized chart of accounts like an income statement ... the exact
+ * chart or report will evolve over time").
+ *
+ * Every term is energy/tick over the window, and the statement BALANCES BY
+ * CONSTRUCTION: revenue - operating cost - appropriations = RESIDUAL. The
+ * residual is the whole point. It is not a rounding bucket - it is the
+ * unattributed energy (ground decay, rot above the container cap, raid losses,
+ * tower burn, measurement error), and it inherits spec 20's discipline: a
+ * named residual that cannot silently grow because both sides are published.
+ *
+ * Sources, and their honesty limits:
+ *  - REVENUE is the PLAN's gross mining capacity, less the measured change in
+ *    source piles (`core.sourceBuffers`). It is a capacity figure, not a
+ *    measured delivery - we have no independent meter of energy actually
+ *    landed in storage, so income is NOT derived as the balancing figure
+ *    (that would make the residual circular and meaningless).
+ *  - OPERATING COST is measured at the spawn (the blackbox ring, by role), so
+ *    it is real spend, not a plan price.
+ *  - APPROPRIATIONS are measured: controller = gcl delta (1 point IS 1
+ *    energy), construction = the P8 lens, bank = storage delta.
+ *
+ * The ring and the capture window differ in length; each figure is normalised
+ * over its OWN window, which is exact for rates and is stated in the header.
+ */
+/**
+ * ACCOUNT each spawn ROLE is charged to in the energy account.
+ *
+ * The OPERATING/CAPITAL split is the accounting judgement here, and it matters
+ * (owner asked "what about claim corp" 2026-08-01, when four roles - claimer,
+ * scout, buster, striker - were silently landing in an unnamed "other"):
+ *
+ *  - `claimer` is EXPANSION CAPEX, not operating cost. `BASE_RESERVE =
+ *    EXPANSION_CAPEX + EXPANSION_SAFETY_RESERVE` exists specifically to fund
+ *    it, and a 600e/CLAIM-part body buys a permanent new room. Charging it to
+ *    opex would make the operating margin look worst in exactly the cycle
+ *    where expanding is the right call - the classic reason capex is a
+ *    separate account.
+ *  - `buster`/`striker` are the same shape: coreBusterKind's own comment says
+ *    "off-budget: the mission restores a zeroed income stream". Capital repair
+ *    of an income asset, not running cost.
+ *  - `scout` IS operating cost - intel is continuous, and the bodies are ~50e.
+ *
+ * Ratcheted by test against ALL_SPAWN_ROLES (the kinds' own `roles`
+ * declarations), so a new kind's role fails the audit until someone decides
+ * its account, rather than vanishing into a bucket. Any role that still slips
+ * through prints as UNCLASSIFIED with its name, never as anonymous "other".
+ */
+export const ACCOUNT_CLASS_OF_ROLE: Record<string, string> = {
+  // DIRECT COST OF MINING - the three roles whose spend is attributable to the
+  // gross-mining revenue line, so the statement can show a NET MINING MARGIN
+  // (owner 2026-08-01: "reserving is an overhead applied to the gross mining").
+  //
+  // Reservation belongs here on a verifiable dependency, not a vibe: the plan
+  // prices EVERY source at rate 10 = SOURCE_ENERGY_CAPACITY(3000)/
+  // SOURCE_REGEN_TIME(300), which is the RESERVED yield. An unreserved remote
+  // regenerates 1500 per 300t, i.e. 5 e/t. So on 8 remote sources the
+  // reservation fleet is buying ~40 e/t of the 100 e/t revenue line - it is
+  // cost of goods, not general overhead, and burying it in infra hid both the
+  // cost AND the return.
+  miner: "extraction",
+  hauler: "evacuation",
+  reserver: "reservation",
+  // `tanker` is bought by TWO kinds - extensionTender (refills the spawn
+  // network: infra) and construction (crew haulage: really a build cost). The
+  // role alone cannot separate them, so both land in infra and the line
+  // slightly OVER-states infra during a build campaign. Stated rather than
+  // inferred from a corp-id prefix; a corp->kind join would fix it but cannot
+  // resolve a corp that died inside the window.
+  tanker: "infra",
+  feeder: "infra",
+  scout: "infra",
+  guard: "defense",
+  upgrader: "consumers",
+  builder: "consumers",
+  claimer: "expansion",
+  buster: "incursion",
+  striker: "incursion"
+};
+
+export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
+  const core = cap.data.core;
+  const bcore = base.data.core;
+  const dt = cap.tick - base.tick;
+  if (dt <= 0) return "";
+  const rows0 = (cap.data.blackbox?.rows ?? []) as any[];
+  const ring = rows0.length > 1 ? rows0[rows0.length - 1].t - rows0[0].t : 0;
+  const spawnRows = rows0.filter(r => r.k === "spawn" && r.d?.cost);
+
+  const cost: Record<string, number> = {
+    extraction: 0, evacuation: 0, reservation: 0,
+    infra: 0, defense: 0, consumers: 0, expansion: 0, incursion: 0, other: 0
+  };
+  const unknownRoles = new Set<string>();
+  for (const r of spawnRows) {
+    const cls = ACCOUNT_CLASS_OF_ROLE[r.d.role];
+    if (!cls) unknownRoles.add(r.d.role);
+    cost[cls ?? "other"] += r.d.cost;
+  }
+  const perTick = (n: number) => (ring > 0 ? n / ring : 0);
+  const direct = cost.extraction + cost.evacuation + cost.reservation;
+  const overhead = cost.infra + cost.defense + cost.consumers + cost.other;
+  const capital = cost.expansion + cost.incursion;
+  const spawnTotal = direct + overhead + capital;
+
+  const piles = (c: any): number =>
+    Object.values((c.data.core.sourceBuffers ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0);
+  const bank = (c: any): number =>
+    (c.data.core.rooms ?? []).reduce((s: number, r: any) => s + (r.storageEnergy ?? 0), 0);
+
+  const grossCapacity = ((cap.data.flow?.sources ?? []) as any[]).reduce((n, s) => n + (+s.harvestRate || 0), 0);
+  // FORGONE MINING (methodology #3). Revenue was booked at the plan's RESERVED
+  // CAPACITY - what the sources COULD yield - and that is falsified by the
+  // miners' own decision stamps. A miner whose buffer is full stops harvesting:
+  // `heldFrac` is the share of the window its E6 gate held it, stamped at the
+  // decision site, so `rate * heldFrac` is capacity that was never mined at all.
+  //
+  // Measured t72721419: four ops CHRONICALLY buffer-full (heldFrac 0.97, 0.94,
+  // 0.55, 0.28), summing to 3.03 source-equivalents = 30.28 e/t of the nominal
+  // 100 never harvested. Booking that as revenue inflated every line below it
+  // and was a large part of why the residual went NEGATIVE (over-attributed) as
+  // soon as the loss meter gave the account real costs to subtract.
+  const harvestCorps = ((cap.data.corps?.corps ?? []) as any[]).filter(c => c.kind === "harvest");
+  const heldFracSum = harvestCorps.reduce((n, c) => n + Math.min(1, Math.max(0, +c.sizing?.heldFrac || 0)), 0);
+  const sourceRate = harvestCorps.length > 0 ? grossCapacity / harvestCorps.length : 0;
+  const forgone = heldFracSum * sourceRate;
+  const forgoneKnown = harvestCorps.some(c => c.sizing?.heldFrac !== undefined);
+  const grossPlan = Math.max(0, grossCapacity - (forgoneKnown ? forgone : 0));
+  // GROUND ROT (v19): dropped energy loses ceil(amount/1000) per tick; container
+  // energy keeps. Averaged across the window's two endpoints - the piles move
+  // slowly relative to the window, and the endpoints are all we sample.
+  const droppedOf = (c: any): number =>
+    Object.values((c.data.core.sourceDropped ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0);
+  const droppedAvg = (droppedOf(cap) + droppedOf(base)) / 2;
+  // METERED LOSSES (core v20, telemetry/LossMeter): supersedes the estimate
+  // above wherever present. The estimate divided the SUMMED pile by 1000, which
+  // misses the per-pile ceiling and only ever saw source-adjacent piles; the
+  // meter applies the engine's own ceil rule to every pile in every visible
+  // room, and adds the three quantities the estimate could not see at all.
+  const meter = cap.data.core.losses as
+    | {
+        windowTicks: number;
+        pileDecay: number;
+        structureDecay: number;
+        repairSpend: number;
+        tombstoneLost: number;
+        tombstoneRecovered: number;
+        tombstoneByRole?: Record<string, number>;
+        tombstoneExpired?: number;
+        tombstoneKilled?: number;
+        tombstoneTtlMean?: number;
+        tombstoneTtlMax?: number;
+        tombstoneStock: number;
+      }
+    | undefined;
+  // CAPTURE-BOUNDED WINDOWS. The meter also publishes CUMULATIVE energy totals
+  // (core v22), monotonic across global resets. Differencing them gives rates
+  // over the FULL capture window - the same shape the account already uses for
+  // gcl.progress and storage - instead of the meter's since-reset rates, which
+  // are capped by VM lifetime (480t against a 1251-tick window at t72722670)
+  // and could therefore never span a 1500-tick fiscal month.
+  const cumCap = cap.data.core.losses?.cumulative as Record<string, number> | undefined;
+  const cumBase = base.data.core.losses?.cumulative as Record<string, number> | undefined;
+  const spanned = cumCap !== undefined && cumBase !== undefined;
+  const cumRate = (key: string): number => Math.max(0, ((cumCap?.[key] ?? 0) - (cumBase?.[key] ?? 0)) / dt);
+  const rot = spanned ? cumRate("pileDecay") : meter ? meter.pileDecay : droppedAvg / 1000;
+  const rotKnown = meter !== undefined || cap.data.core.sourceDropped !== undefined;
+  // Cash uses of delivered energy that are NOT spawn/controller/construction/
+  // bank. Structure decay is deliberately absent: it is DEPRECIATION, an
+  // accrued liability, and its cash cost IS the repair line - booking both
+  // would double-count the same wear.
+  const tombLoss = spanned
+    ? Math.max(0, cumRate("tombstoneGross") - cumRate("tombstoneRecovered"))
+    : meter?.tombstoneLost ?? 0;
+  const repairSpend = spanned ? cumRate("repairSpend") : meter?.repairSpend ?? 0;
+  // LINK TRANSFER TAX: the engine destroys 3% of every link hop, and the
+  // LinkMeter already measures it per room. It is a genuine destruction of
+  // delivered energy - exactly like pile rot - so it belongs in MEASURED
+  // LOSSES rather than inside the residual. Energy that crosses the network
+  // twice (source link -> hub -> controller link) pays twice, which is why the
+  // measured figure runs above 3% of any single leg.
+  const linkTax = ((core.links ?? []) as any[]).reduce((n, l) => n + (+l.taxRate || 0), 0);
+  const linkTaxKnown = core.links !== undefined;
+  // BUDGET for the line: the planner charges each LINK-SERVED source one hop
+  // (CorpPlanner's per-source tax term). Read off the flow segment's
+  // `linkServed` flag rather than inferring link service from a short haul
+  // distance - inference is exactly how link haulage came to read as free.
+  const linkSources = ((cap.data.flow?.sources ?? []) as any[]).filter(s => s.linkServed);
+  const bLinkTax = linkSources.reduce((n, s) => n + (+s.harvestRate || 0) * LINK_TRANSFER_LOSS, 0);
+  const linkBudgetKnown = ((cap.data.flow?.sources ?? []) as any[]).some(s => s.linkServed !== undefined);
+  // The link tax is TRANSPORT, not a loss (owner 2026-08-02: "link tax is
+  // similar to haul body"). Both are per-source costs that scale with the flow
+  // they move; they differ only in CURRENCY - a hauler body is paid in spawn
+  // parts, a link hop in delivered energy. Booking it as a loss put the
+  // transport bill for link-served sources in a different section from the
+  // transport bill for walked ones, which is exactly what let link haulage
+  // read as free: cd90/cd92 showed hauler 0.00 and net 10.00 in the P&L.
+  const meteredLosses = rot + tombLoss + repairSpend;
+
+  // ---- BUDGET (what the PLAN says each line should be) ----
+  // Computed with the planner's own primitives, never a second formula:
+  // minerOverhead/haulerOverhead are the same functions flowAdapter sums into
+  // `totalOverhead`, so extraction+evacuation must reconcile to it - and the
+  // footer prints that check rather than assuming it.
+  const planSources = (cap.data.flow?.sources ?? []) as any[];
+  const planHaulers = (cap.data.flow?.haulers ?? []) as any[];
+  const bExtract = planSources.reduce((n, src) => n + minerOverhead(+src.spawnDistance || 0), 0);
+  const bEvac = planHaulers.reduce((n, h) => n + haulerOverhead(+h.carryParts || 0, +h.distance || 0), 0);
+  const planOverhead = cap.data.flow?.summary?.totalOverhead;
+  const sinks = (cap.data.flow?.sinks ?? []) as any[];
+  const sinkAlloc = (type: string): number =>
+    sinks.filter(x => x.type === type).reduce((n, x) => n + (+x.allocated || 0), 0);
+  const bController = sinkAlloc("controller");
+  const bConstruction = sinkAlloc("construction");
+  // The plan's own net position on the bank: what it routes INTO storage less
+  // what it routes back OUT of it.
+  const bankOut = planHaulers
+    .filter(h => String(h.sourceId ?? "").startsWith("bank-"))
+    .reduce((n, h) => n + (+h.flowRate || 0), 0);
+  const bBank = sinkAlloc("storage") - bankOut;
+  // THE PLAN'S SPAWN BUDGET. This is the like-for-like comparator P10 lacked
+  // and was retracted for missing: energy the plan routes INTO the spawn
+  // structures (a rate) against energy those structures convert OUT into
+  // bodies (measured at the spawn). Same structure, same unit, same direction.
+  // At steady state refill == spend, because the network's stock is bounded at
+  // its capacity - so over a long window the two must agree, and where they do
+  // not, the plan is under-provisioning the spawn.
+  const bSpawn = sinkAlloc("spawn");
+  // The plan's OWN fleet, priced in ENERGY (owner 2026-08-01). Every class the
+  // plan sizes now carries an energy budget, so no line is blank for want of a
+  // conversion. The gap between this and `bSpawn` is the plan's INTERNAL
+  // inconsistency: it knows what its fleet costs and routes less than that to
+  // the spawns, which is why the controller allocation is ~ total net mining.
+  const planEnergy = planSpawnLoad(cap).energy;
+  const pe = (...names: string[]): number =>
+    names.reduce((n, key) => n + Object.keys(planEnergy).filter(k => k.startsWith(key)).reduce((m, k) => m + planEnergy[k], 0), 0);
+  const bReserve = pe("reservers");
+  const bInfra = pe("feeder", "tenders");
+  const bConsumers = pe("upgraders", "construction (all-in)");
+  const bFleetEnergy = Object.keys(planEnergy).reduce((n, k) => n + planEnergy[k], 0);
+  const pileDelta = (piles(cap) - piles(base)) / dt;
+  const delivered = grossPlan - pileDelta;
+  // Link transport is a real use of delivered energy, so it sits on the cost
+  // side of the identity even though it is not spawn spend.
+  const opex = perTick(spawnTotal) + linkTax;
+  // Remote sources only: home sources need no reservation, so the uplift the
+  // reservation fleet buys is (reserved 10 - unreserved 5) per REMOTE source.
+  const ownedRooms = new Set(((core.rooms ?? []) as any[]).map(r => r.name));
+  const remoteSources = ((cap.data.flow?.sources ?? []) as any[]).filter(
+    src => !ownedRooms.has(String(src.nodeId ?? "").split("-")[0])
+  ).length;
+  const reserveUplift = remoteSources * (SOURCE_RATE / 2);
+  const score = ((core.gcl?.progress ?? 0) - (bcore.gcl?.progress ?? 0)) / dt;
+  const bankDelta = (bank(cap) - bank(base)) / dt;
+  // Reuse P8's lens rather than re-deriving build delivery (the codebase rule:
+  // no second implementation of a measure that already has one).
+  const build = rows.find(r => r.id === "P8")?.value ?? 0;
+  const approp = score + build + bankDelta;
+  const residual = delivered - opex - approp - (rotKnown ? meteredLosses : 0);
+
+  // label | BUDGET | ACTUAL | VARIANCE.  `budget === null` means the plan does
+  // not state this line in energy - printed as "-" rather than a fabricated
+  // conversion (the P10 lesson: never build a number on an unexamined one).
+  // `costLine` flips the variance sign convention: on a COST, spending more
+  // than budget is Unfavourable; on revenue/output, delivering LESS is.
+  // `nature`: "output" (more is better - revenue, margin, score), "cost"
+  // (printed NEGATIVE, so spending more makes the variance more negative and
+  // THAT is Unfavourable), or "neutral" (the bank line - retained energy is
+  // neither earned nor spent, so an F/U verdict on it is meaningless; it is
+  // read together with the controller line, not on its own).
+  const L = (
+    label: string,
+    actual: number,
+    indent = 2,
+    budget: number | null = null,
+    nature: "output" | "cost" | "neutral" = "output"
+  ): string => {
+    const b = budget === null ? "-" : budget.toFixed(2);
+    let v = "-";
+    if (budget !== null) {
+      const raw = actual - budget;
+      const flat = Math.abs(raw) < 0.005;
+      const mark = nature === "neutral" || flat ? "" : raw < 0 ? " U" : " F";
+      v = `${raw >= 0 ? "+" : ""}${raw.toFixed(2)}${mark}`;
+    }
+    return `${" ".repeat(indent)}${label.padEnd(38 - indent)}${b.padStart(9)}${actual.toFixed(2).padStart(10)}${v.padStart(11)}`;
+  };
+  return [
+    `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ring ${ring}t${
+      meter ? `; losses ${spanned ? `${dt}t cumulative` : `${meter.windowTicks}t since-reset`}` : ""
+    })  [methodology #${METHODOLOGY}]`,
+    // WINDOW COHERENCE (methodology #3). The residual is a DIFFERENCE of rates,
+    // so it is only meaningful when the rates describe the same stretch of time.
+    // Revenue/bank/controller come from the capture window; every "measured at
+    // the spawn" line comes from the blackbox ring; the loss lines come from the
+    // meter's own window. A deploy restarts the ring and the meter but not the
+    // capture pair, so an hour of deploys leaves the short windows sampling a
+    // post-reset rebuild while the long one averages steady state - and their
+    // difference is then an artifact, not a finding.
+    //
+    // Measured t72721419: window 2417t against a 565t ring and a 559t meter -
+    // 4.3x - and the residual came out at -25.10, i.e. 25% of gross mining
+    // OVER-attributed. That is what prompted this check.
+    ...(() => {
+      // Cumulative loss totals span the capture window by construction, so
+      // only the spawn ring can still be short.
+      const shortest = Math.min(ring || dt, spanned || !meter ? dt : meter.windowTicks);
+      const spread = shortest > 0 ? dt / shortest : Infinity;
+      if (spread <= 2) return [];
+      return [
+        `  !! WINDOW INCOHERENCE ${spread.toFixed(1)}x - the residual below is NOT trustworthy.`,
+        `     Revenue/bank/controller span ${dt}t; measured costs and losses span as little as ${shortest}t.`,
+        "     The residual is their DIFFERENCE, so it inherits the mismatch. Recapture once the",
+        "     short windows have caught up (they restart on every deploy) before reading it as a leak."
+      ];
+    })(),
+    `${" ".repeat(38)}${"BUDGET".padStart(9)}${"ACTUAL".padStart(10)}${"VARIANCE".padStart(11)}`,
+    "  REVENUE",
+    L("mining capacity (reserved rate)", grossCapacity, 4, grossCapacity),
+    ...(forgoneKnown
+      ? [
+          L("- forgone (miners held, buffer full)", -forgone, 4, 0, "cost"),
+          L("= gross mining", grossPlan, 4, grossCapacity)
+        ]
+      : []),
+    L("+ pile drawdown / (build-up)", -pileDelta, 4),
+    L("= delivered into the economy", delivered, 4, grossCapacity),
+    "  DIRECT COST OF MINING (measured at the spawn)",
+    L("extraction  (miner)", -perTick(cost.extraction), 4, -bExtract, "cost"),
+    L("evacuation  (hauler)", -perTick(cost.evacuation), 4, -bEvac, "cost"),
+    L("reservation (reserver)", -perTick(cost.reservation), 4, -bReserve, "cost"),
+    ...(linkTaxKnown
+      ? [
+          L(
+            "link transfer  (3% per hop)",
+            -linkTax,
+            4,
+            linkBudgetKnown ? -bLinkTax : undefined,
+            "cost"
+          )
+        ]
+      : []),
+    L("= NET MINING MARGIN", delivered - perTick(direct) - linkTax, 4, grossPlan - bExtract - bEvac - bReserve - bLinkTax),
+    "  OVERHEAD (measured at the spawn)",
+    L("infra      (tanker, feeder, scout)", -perTick(cost.infra), 4, -bInfra, "cost"),
+    L("defense    (guard)", -perTick(cost.defense), 4),
+    L("consumers  (upgrader, builder)", -perTick(cost.consumers), 4, -bConsumers, "cost"),
+    ...(cost.other > 0
+      ? [L(`UNCLASSIFIED [${[...unknownRoles].join(", ")}]`, -perTick(cost.other), 4)]
+      : []),
+    L("= total overhead", -perTick(overhead), 4, -(bInfra + bConsumers), "cost"),
+    L("= TOTAL SPAWN (plan fleet, priced)", -perTick(spawnTotal), 2, -bFleetEnergy, "cost"),
+    ...(bFleetEnergy >= bSpawn
+      ? [
+          `    ...and the plan ROUTES only ${bSpawn.toFixed(2)} e/t to the spawn sinks - UNDER-routing its own`,
+          `    fleet by ${(bFleetEnergy - bSpawn).toFixed(2)} e/t, so that much is handed down the ladder to the controller.`
+        ]
+      : [
+          `    ...and the plan ROUTES ${bSpawn.toFixed(2)} e/t to the spawn sinks - OVER-routing its own fleet`,
+          `    by ${(bSpawn - bFleetEnergy).toFixed(2)} e/t, so the controller is charged for bodies the plan does not field.`
+        ]),
+    ...(capital > 0
+      ? [
+          "  CAPITAL (funded from the expansion reserve, not operating margin)",
+          ...(cost.expansion > 0 ? [L("expansion (claimer)", -perTick(cost.expansion), 4)] : []),
+          ...(cost.incursion > 0 ? [L("incursion (buster, striker)", -perTick(cost.incursion), 4)] : []),
+                L("= total capital", -perTick(capital), 4)
+        ]
+      : []),
+    ...(rotKnown
+      ? [
+          `  MEASURED LOSSES${meter ? (spanned ? "  (cumulative, full window)" : `  (meter window ${meter.windowTicks}t)`) : ""}`,
+          L(meter ? "ground pile decay (engine ceil rule)" : "ground rot (dropped energy, 0.1%/t)", -rot, 4),
+          ...(meter
+            ? [
+                L("tombstone losses (creeps died carrying)", -tombLoss, 4),
+                // WHOSE energy, and HOW they died. A tombstone line the account
+                // cannot attribute is not actionable: haulers expiring mid-route
+                // fold into the carry deficit, anything KILLED is a defense
+                // question, and those are different work items.
+                ...(() => {
+                  const byRole = meter?.tombstoneByRole;
+                  if (!byRole || Object.keys(byRole).length === 0) return [];
+                  const gross = Object.values(byRole).reduce((a, b) => a + b, 0) || 1;
+                  const roles = Object.entries(byRole)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([r, e]) => `${r} ${((e / gross) * 100).toFixed(0)}%`)
+                    .join("  ");
+                  const killed = meter?.tombstoneKilled ?? 0;
+                  const expired = meter?.tombstoneExpired ?? 0;
+                  const cause = killed + expired > 0
+                    ? `expired ${((expired / (killed + expired)) * 100).toFixed(0)}%  killed ${((killed / (killed + expired)) * 100).toFixed(0)}%`
+                    : "cause unknown";
+                  // The cause split is only as good as the field behind it, so
+                  // print the raw TTL distribution beside it. 0%/100% with a
+                  // CONSTANT ttl is a misread field; a spread is a real answer.
+                  const mean = meter?.tombstoneTtlMean ?? 0;
+                  const max = meter?.tombstoneTtlMax ?? 0;
+                  const suspect = (killed === 0 || expired === 0) && mean === max;
+                  return [
+                    `      by role: ${roles}`,
+                    `      by cause: ${cause}   (ttl at death mean ${mean.toFixed(0)} max ${max.toFixed(0)})` +
+                      (suspect ? "  <- SUSPECT: one-sided split on a constant ttl, read the field not the %" : "")
+                  ];
+                })(),
+                L("repair (energy spent holding hits)", -repairSpend, 4),
+                L("= measured losses", -meteredLosses, 4)
+              ]
+            : [])
+        ]
+      : []),
+    "  APPROPRIATIONS",
+    L("controller (score)", score, 4, bController),
+    L("construction (site progress)", build, 4, bConstruction),
+    L("to/(from) bank", bankDelta, 4, bBank, "neutral"),
+    L("= total", approp, 4, bController + bConstruction + bBank),
+    "  " + "-".repeat(46),
+    L(rotKnown ? "RESIDUAL (repair, tombstones, raids, error)" : "RESIDUAL (decay, rot, raids, error)", residual, 2),
+    "",
+    `  CONTROLLER VARIANCE BRIDGE  (plan ${bController.toFixed(2)} -> actual ${score.toFixed(2)})`,
+    ...(() => {
+      // Single-column lines - the three-column renderer above would print two
+      // empty budget/variance cells for each.
+      const B = (label: string, v: number): string => `    ${label.padEnd(42)}${v >= 0 ? "+" : ""}${v.toFixed(2)}`;
+      const spawnGap = -(perTick(spawnTotal) - bSpawn);
+      const lossGap = -(residual + (rotKnown ? meteredLosses : 0));
+      const bankGap = -(bankDelta - bBank);
+      const explains = spawnGap + lossGap + bankGap;
+      const actualVar = score - bController;
+      return [
+        B("plan under-ROUTES its own fleet cost", -(bFleetEnergy - bSpawn)),
+        B("fleet costs more than the plan prices", -(perTick(spawnTotal) - bFleetEnergy)),
+        B("losses the plan does not model (residual)", lossGap),
+        B("bank draw budgeted but not performed", bankGap),
+        B("= explains", explains),
+        B("  actual controller variance", actualVar),
+        `    ${"  unexplained (window mismatch)".padEnd(42)}${actualVar - explains >= 0 ? "+" : ""}${(actualVar - explains).toFixed(2)}`,
+        "    ACCOUNTING vs BEHAVIOUR: the first and third terms are the PLAN's own",
+        "    accounting (it under-routes a fleet cost it correctly prices, and models no",
+        "    losses at all); the fourth is runtime (a budgeted bank draw the valve did not",
+        "    perform). The second is the only fleet-EXECUTION term and it is the smallest -",
+        "    the plan's fleet pricing is accurate to ~4%."
+      ];
+    })(),
+    `  BUDGET CHECK: extraction+evacuation ${(bExtract + bEvac).toFixed(2)} vs the plan's own totalOverhead ` +
+      `${typeof planOverhead === "number" ? planOverhead.toFixed(2) : "n/a"}` +
+      `${typeof planOverhead === "number" && Math.abs(bExtract + bEvac - planOverhead) > 0.05 ? " <- DOES NOT RECONCILE" : " (reconciles)"}` +
+      `. Lines with a "-" budget are ones the plan does not state in ENERGY (reservation, infra, defense,` +
+      ` consumers) - left blank rather than converted from parts, which is biased across classes.`,
+    `  reservation buys ~${reserveUplift.toFixed(0)} e/t of the revenue line (${remoteSources} remote sources x ` +
+      `${(SOURCE_RATE / 2).toFixed(0)} e/t uplift, reserved ${SOURCE_RATE} vs unreserved ${(SOURCE_RATE / 2).toFixed(0)})` +
+      ` for ${perTick(cost.reservation).toFixed(2)} e/t of bodies.`,
+    `  ${residual >= 0 ? "unattributed" : "OVER-attributed"} = ${Math.abs(residual / Math.max(grossPlan, 1e-9) * 100).toFixed(0)}% of gross mining` +
+      ` - revenue is PLAN CAPACITY less pile change, not a delivery meter, so this bounds`,
+    meter
+      ? "  raid losses, tower burn, energy dropped away from a source, and measurement error."
+      : rotKnown
+        ? "  still unattributed: REPAIR spend (tower + builder), TOMBSTONE losses (creeps that died carrying),"
+        : "  ground decay + rot above the container cap + raid losses + tower burn + measurement error.",
+    ...(rotKnown && !meter
+      ? ["  and measurement error. Structure DECAY is not here: it is depreciation, and its cash cost IS repair."]
+      : []),
+    ...(meter
+      ? [
+          "",
+          "  DEPRECIATION MEMO (not a cash line - the account must not book wear twice)",
+          `    structure decay accruing        ${meter.structureDecay.toFixed(2)} e/t   (containers + ramparts + roads, base cadence)`,
+          `    repair actually paid            ${repairSpend.toFixed(2)} e/t`,
+          `    = ${
+            repairSpend >= meter.structureDecay
+              ? "KEEPING UP - hits are being held"
+              : `SHORTFALL ${(meter.structureDecay - repairSpend).toFixed(2)} e/t - structures are being allowed to decay`
+          }`,
+          "    Decay is an accrued liability; its CASH cost is the repair line above, so only repair",
+          "    nets against the residual. A shortfall is not free - it is deferred, and it is paid at",
+          "    full rebuild price when a structure expires (a container is 5000 energy).",
+          `    Road decay here EXCLUDES creep traffic, so it is a LOWER bound. Remote containers are`,
+          `    priced at 5x owned (0.50 vs 0.10 e/t) - the engine decays them five times as fast.`,
+          `    Tombstones now hold ${meter.tombstoneStock.toFixed(0)}e; ${meter.tombstoneRecovered.toFixed(2)} e/t was witnessed recovered`,
+          "    Tombstone energy is LOST BY DEFAULT: booked when first seen, credited back only where a\n    withdrawal was actually witnessed. Every recovery path needs a creep already beside it."
+        ]
+      : []),
+    ""
+  ].join("\n");
+}
+
+/**
+ * SOURCE P&L - the chart of accounts one level down (owner 2026-08-01: keep
+ * iterating on reporting and instrumentation).
+ *
+ * The colony account answers "did the economy pay for itself"; this answers
+ * "WHICH sources paid". Attribution is exact rather than apportioned, because
+ * spec 34 D5 made the miner operation own its evacuation haulers: every
+ * `mining-{room}-harvest-{suffix}` corp's spawn spend IS that source's
+ * extraction + evacuation cost, read straight off the blackbox ring. Only
+ * reservation needs sharing - it is bought per ROOM, so it splits evenly
+ * across the funded sources in that room.
+ *
+ * HONESTY LIMIT, printed with the table: `gross` is the plan's per-source
+ * CAPACITY, because there is no per-source delivery meter - the same gap the
+ * colony REVENUE line carries. Costs are MEASURED. So `net` is a hybrid:
+ * plan-gross less measured cost. It is directly comparable to the planner's
+ * own `candidates[].net`, which is built the same way, and that comparison is
+ * the point - it shows where the planner's per-source pricing is optimistic.
+ */
+export function formatSourcePnL(cap: any): string {
+  const rows0 = (cap.data.blackbox?.rows ?? []) as any[];
+  const ring = rows0.length > 1 ? rows0[rows0.length - 1].t - rows0[0].t : 0;
+  const sources = (cap.data.flow?.sources ?? []) as any[];
+  if (ring <= 0 || sources.length === 0) return "";
+
+  // corp -> measured spawn energy over the ring
+  const spend = new Map<string, number>();
+  for (const r of rows0) {
+    if (r.k !== "spawn" || !r.d?.cost) continue;
+    const key = `${r.d.corp}|${r.d.role}`;
+    spend.set(key, (spend.get(key) ?? 0) + r.d.cost);
+  }
+  const per = (corp: string, role: string): number => (spend.get(`${corp}|${role}`) ?? 0) / ring;
+
+  const roomOf = (nodeId: string): string => String(nodeId).split("-")[0];
+  const byRoom = new Map<string, number>();
+  for (const src of sources) byRoom.set(roomOf(src.nodeId), (byRoom.get(roomOf(src.nodeId)) ?? 0) + 1);
+
+  const verdicts = new Map<string, any>(
+    ((cap.data.flow?.candidates ?? []) as any[]).map(c => [String(c.sourceId).slice(-4), c])
+  );
+
+  const out: string[] = [
+    "",
+    "SOURCE P&L  e/tick  (gross = PLAN capacity, no per-source delivery meter; costs MEASURED)",
+    `  ${"src".padEnd(6)}${"room".padEnd(9)}${"d".padStart(4)}${"gross".padStart(8)}${"miner".padStart(8)}${"hauler".padStart(8)}${"link".padStart(7)}${"reserve".padStart(9)}${"= net".padStart(8)}${"plan net".padStart(10)}${"var".padStart(9)}`
+  ];
+  let tG = 0;
+  let tM = 0;
+  let tH = 0;
+  let tR = 0;
+  let tL = 0;
+  // LINK TRANSPORT is this source's haul bill, not a colony loss (owner
+  // 2026-08-02: "link tax is similar to haul body"). A link-served source pays
+  // it INSTEAD of a walking hauler - so it belongs in the same row, or the row
+  // reads as free transport, which is precisely how it went unnoticed.
+  for (const src of sources.slice().sort((a, b) => (a.spawnDistance ?? 0) - (b.spawnDistance ?? 0))) {
+    const suffix = String(src.id).slice(-4);
+    const room = roomOf(src.nodeId);
+    const corp = `mining-${room}-harvest-${suffix}`;
+    const gross = +src.harvestRate || 0;
+    const miner = per(corp, "miner");
+    const hauler = per(corp, "hauler");
+    // reservation is bought per ROOM; split across that room's funded sources
+    const resRoom = per(`reservation-${room}-reservation`, "reserver");
+    const reserve = resRoom / Math.max(1, byRoom.get(room) ?? 1);
+    const link = src.linkServed ? gross * LINK_TRANSFER_LOSS : 0;
+    const net = gross - miner - hauler - link - reserve;
+    const planNet = verdicts.get(suffix)?.net;
+    tG += gross;
+    tM += miner;
+    tH += hauler;
+    tL += link;
+    tR += reserve;
+    const varStr =
+      typeof planNet === "number" ? `${net - planNet >= 0 ? "+" : ""}${(net - planNet).toFixed(2)}` : "-";
+    out.push(
+      `  ${suffix.padEnd(6)}${room.padEnd(9)}${String(src.spawnDistance ?? "").padStart(4)}` +
+        `${gross.toFixed(2).padStart(8)}${(-miner).toFixed(2).padStart(8)}${(-hauler).toFixed(2).padStart(8)}` +
+        `${(link > 0 ? (-link).toFixed(2) : "-").padStart(7)}` +
+        `${(-reserve).toFixed(2).padStart(9)}${net.toFixed(2).padStart(8)}` +
+        `${typeof planNet === "number" ? planNet.toFixed(2).padStart(10) : "-".padStart(10)}${varStr.padStart(9)}`
+    );
+  }
+  out.push(
+    `  ${"TOTAL".padEnd(19)}${tG.toFixed(2).padStart(8)}${(-tM).toFixed(2).padStart(8)}${(-tH).toFixed(2).padStart(8)}` +
+      `${(-tL).toFixed(2).padStart(7)}${(-tR).toFixed(2).padStart(9)}${(tG - tM - tH - tL - tR).toFixed(2).padStart(8)}`
+  );
+  // Remote-only summary: the home sources need no reservation and pay no
+  // invader tax, so mixing them in would flatter the remote picture.
+  const remoteVars = sources
+    .map(src => {
+      const c = verdicts.get(String(src.id).slice(-4));
+      return c && (+c.tax || 0) > 0 ? c : null;
+    })
+    .filter(Boolean) as any[];
+  const meanTax = remoteVars.length
+    ? remoteVars.reduce((n, c) => n + (+c.tax || 0), 0) / remoteVars.length
+    : 0;
+  out.push(
+    "  a NEGATIVE var means the source costs MORE than the planner priced it - the planner's",
+    "  per-source net is what ADMITS OR REJECTS a source, so a chronic negative is a funding bug.",
+    `  RECONCILES to the colony account: miner ${tM.toFixed(2)} = extraction line; reserve ${tR.toFixed(2)} =` +
+      " reservation line. Hauler is LOWER than the evacuation line by the standalone scavenge",
+    "  corps, which serve no source and so appear in no row here.",
+    `  The planner's INVADER TAX is ${meanTax.toFixed(3)} e/t per remote - against a mean remote variance of` +
+      ` ${(remoteVars.length ? remoteVars.reduce((n, c) => {
+        const suffix = String(c.sourceId).slice(-4);
+        const src = sources.find(x => String(x.id).slice(-4) === suffix);
+        if (!src) return n;
+        const room = roomOf(src.nodeId);
+        const corp = `mining-${room}-harvest-${suffix}`;
+        const net = (+src.harvestRate || 0) - per(corp, "miner") - per(corp, "hauler") -
+          per(`reservation-${room}-reservation`, "reserver") / Math.max(1, byRoom.get(room) ?? 1);
+        return n + (net - (+c.net || 0));
+      }, 0) / remoteVars.length : 0).toFixed(2)} e/t it covers only a small fraction of the`,
+    "  remote cost the plan is missing."
+  );
+  return out.join("\n");
 }
 
 export function formatLedger(rows: LedgerRow[], capTick: number, baseTick: number): string {
@@ -1350,5 +2441,10 @@ if (require.main === module) {
   };
   const cap = loadCapture(get("--capture", "latest"), 0);
   const base = loadCapture(get("--baseline", "prev"), 1);
-  console.log(formatLedger(computeLedger(cap, base), cap.tick, base.tick));
+  const rows = computeLedger(cap, base);
+  // The chart of accounts frames the leak ledger: what the colony earned and
+  // where it went, before the list of what leaked.
+  console.log(formatAccounts(cap, base, rows));
+  console.log(formatSourcePnL(cap));
+  console.log(formatLedger(rows, cap.tick, base.tick));
 }

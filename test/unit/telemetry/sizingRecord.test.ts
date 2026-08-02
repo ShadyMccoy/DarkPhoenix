@@ -51,11 +51,68 @@ describe("Telemetry sizing records (segment 4, spec 14 phase 2)", () => {
     new Telemetry().update(undefined, [sized, unsized], undefined);
     const corps = JSON.parse(RawMemory.segments[4]);
 
-    expect(corps.version).to.equal(11); // v11: buildTargets V/D vector letters (2026-07-30)
+    expect(corps.version).to.equal(13); // v13: upgrader fieldedWork stamp (2026-08-01)
     const u = corps.corps.find((c: any) => c.id === "upgrading-W1N1");
     expect(u.sizing).to.deep.equal({ tick: 99, planAllocated: 9, stock: 120, banked: 200000, inflow: 2, allocated: 2, targetCount: 1 });
     const h = corps.corps.find((c: any) => c.id === "harvest-s1");
     expect(h).to.not.have.property("sizing");
+  });
+
+  // ---------------------------------------------------------------------
+  // INTERNAL ENGINES (production audit 2026-07-31, t72695674). The miner
+  // operation owns its evacuation haulers, so `mining-*` corps carried 85% of
+  // the colony's hauler spawn spend while exporting only the MINER's stamp.
+  // The haul vector's rich record (routes / carryNeeded / staged / duty) was
+  // stamped at the decision site and died there - so every hauler diagnosis
+  // was blind on exactly the corps that dominate the spend. Decision symmetry
+  // (spec 14) says the stamp must leave the runtime.
+  // ---------------------------------------------------------------------
+  it("exports the sizing stamps of a corp's INTERNAL ENGINES (the miner operation's haul vector)", () => {
+    const haulStamp = { tick: 99, routes: 1, creeps: 1, carryNeeded: 7, staged: 2144, duty: 0.931 };
+    const operation: CorpCensusEntry = {
+      corpId: "mining-W1N1-harvest-abcd",
+      kind: "harvest",
+      corp: {
+        id: "mining-W1N1-harvest-abcd",
+        type: "mining",
+        nodeId: "W1N1-harvest-abcd",
+        createdAt: 0,
+        lastActivityTick: 0,
+        getCreepCount: () => 2,
+        lastSizing: { tick: 99, gate: "clear", buffered: 847, staffing: 1, target: 1 },
+        innerCorps: () => [
+          { type: "hauling", nodeId: "W1N1-harvest-abcd", lastSizing: haulStamp },
+          // an engine that has not stamped yet contributes no row
+          { type: "hauling", nodeId: "W1N1-harvest-quiet" }
+        ]
+      } as any
+    };
+    // A corp with no engines at all carries no `innerSizing` key.
+    const plain: CorpCensusEntry = {
+      corpId: "upgrading-W1N1",
+      kind: "upgrade",
+      corp: {
+        id: "upgrading-W1N1",
+        type: "upgrading",
+        nodeId: "W1N1",
+        createdAt: 0,
+        lastActivityTick: 0,
+        getCreepCount: () => 1,
+        innerCorps: () => []
+      } as any
+    };
+
+    new Telemetry().update(undefined, [operation, plain], undefined);
+    const corps = JSON.parse(RawMemory.segments[4]);
+
+    const op = corps.corps.find((c: any) => c.id === "mining-W1N1-harvest-abcd");
+    expect(op.innerSizing).to.deep.equal([
+      { type: "hauling", nodeId: "W1N1-harvest-abcd", sizing: haulStamp }
+    ]);
+    // The operation's OWN stamp is untouched - the miner decision and the haul
+    // decision are two records, and neither may overwrite the other.
+    expect(op.sizing.gate).to.equal("clear");
+    expect(corps.corps.find((c: any) => c.id === "upgrading-W1N1")).to.not.have.property("innerSizing");
   });
 
   it("UpgradingCorp stamps its sizing inputs at the decision site (plan-trusted path)", () => {
@@ -79,8 +136,11 @@ describe("Telemetry sizing records (segment 4, spec 14 phase 2)", () => {
     expect(s.planAllocated).to.equal(5);
     expect(s.stock).to.equal(null);
     expect(s.banked).to.equal(null);
-    expect(s.inflow).to.equal(null);
-    expect(s.allocated).to.equal(5); // null stock -> trust the plan
+    // The plan IS the inflow now (owner 2026-08-02: sizing consolidated behind
+    // the plan). There is no second rate left to report, so the stamp carries
+    // the one number the decision read rather than a null placeholder.
+    expect(s.inflow).to.equal(5);
+    expect(s.allocated).to.equal(5); // the plan, full stop
     expect(s.targetCount).to.be.a("number");
   });
 

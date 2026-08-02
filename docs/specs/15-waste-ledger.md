@@ -108,3 +108,547 @@ protocol.
 - No optimization without a ledger line first (no "this feels wasteful").
 - No CPU micro-tuning while C1 is unmeasured.
 - The ledger reports; it never throttles or decides in-bot.
+
+### G1 — sustained progress (score net of bank drawdown)
+
+**Added 2026-08-01 (owner: "add rate-at-bank-slope as a ledger row").** THE
+GOAL METRIC. Raw pts/t is not it: the same colony scored **68.29 while burning
+the bank at −45.52 e/t** and **47.59 while burning it at −5.74**. The first is a
+stockpile liquidation that ends; the second is income.
+
+**What the sum means** (derived, not asserted — the P10 lesson):
+
+```
+bankSlope = income − controller − spawn − construction
+⇒ score + bankSlope = income − spawn − construction
+```
+
+i.e. the RESIDUAL the economy can sustainably route to the controller at its
+current spawn and construction burn. Both terms are energy/tick (one GCL point
+IS one energy delivered), so the addition is meaningful.
+
+**Three regimes, not one axis** — the shape validation forced this:
+
+| regime | reading | verdict |
+|---|---|---|
+| `score >> funded` | LIQUIDATION — the saw-tooth down-stroke | **FAIL** below 50% |
+| `score ≈ funded` | matched — the healthy state | ok (measured 76–88%) |
+| `score << funded` | UNDER-SPENDING — capacity banked, not delivered | WARN |
+
+The third arm exists because validation caught the first draft calling the
+t72703512 trough **"232% income-funded, ok"** — a compliment on the wasteful
+quadrant (delivered 19.63 while banking +25.88). A share above 1 is not more
+health; it is unconverted capacity, and it now reports as
+`delivering X of Y sustainable`. Under-spending never outranks a liquidation:
+it is real waste (OSC names the same quadrant from the fleet side) but it burns
+no capital.
+
+**Validated against every phase in the fixture set:** t72714129 88% ok,
+t72701842 33% **FAIL**, t72703512 arc 76% ok, t72706408 trough **WARN
+under-spending**.
+
+**Stated limitation, carried in the detail line:** the bank slope also absorbs
+construction spend and decay, so `funded` is "not drawn from storage", NOT
+"converted to progress". It is a sustainability FLOOR, not an energy audit.
+Shares an input with E4 but asks a different question — E4 asks whether capital
+is idle, G1 asks what is paying for the score. Windows below 6,000 ticks are
+labelled SHORT: they sample a phase of the ~9,000-tick limit cycle (see OSC).
+
+### The ENERGY ACCOUNT (chart of accounts) — printed above the ledger
+
+**Added 2026-08-01** (owner: *"we at one point had a sort of standardized chart
+of accounts like an income statement on the audits ... the exact chart or
+report will evolve over time"*). The precedent is the grid's `[overhead]` line
+(`test/grid/cells/fidelity.ts`: mined / sinks / Δstock / decay / Δtransit /
+**residual**) — a balanced energy account with a named residual. This is its
+live counterpart.
+
+```
+ENERGY ACCOUNT  e/tick  (window 6686t; spawn ring 2710t)
+  REVENUE
+    gross mining (plan capacity)         100.00
+    + pile drawdown / (build-up)           0.54
+    = delivered into the economy         100.54
+  OPERATING COST (measured at the spawn)
+    producers  (miner, hauler)            24.69
+    infra      (reserver, tender, feeder) 12.55
+    defense    (guard)                     1.44
+    consumers  (upgrader, builder)         5.54
+    = total spawn                         44.21
+  APPROPRIATIONS
+    controller (score)                    47.59
+    construction (site progress)           0.00
+    to/(from) bank                        -5.74
+    = total                               41.85
+  ----------------------------------------------
+  RESIDUAL (decay, rot, raids, error)     14.47   (14% of gross)
+```
+
+**It balances by construction, and the residual is the point.** It bounds
+ground decay, rot above the container cap, raid losses, tower burn and
+measurement error. It inherits spec 20's reconciliation discipline: a named
+residual that cannot silently grow, because both sides are published. **A
+residual that grows between cycles is a work item even when every leak row is
+green.** First baseline: **14% of gross mining**.
+
+**Honesty limits, carried in the printed footer:**
+- REVENUE is the plan's mining CAPACITY less the measured pile change
+  (`core.sourceBuffers`) — *not* a delivery meter. Income is deliberately NOT
+  derived as the balancing figure; that would make the residual circular and
+  meaningless.
+- OPERATING COST *is* measured — the blackbox spawn ring, bucketed by role.
+- APPROPRIATIONS are measured: controller from the GCL delta (one point IS one
+  energy), construction reuses **P8's lens** (not a second implementation),
+  bank from the storage delta.
+- The ring and capture windows differ in length; each figure is normalised over
+  its own and both appear in the header.
+
+**RESERVING IS COST OF GOODS, not overhead** (owner 2026-08-01: *"reserving is
+an overhead applied to the gross mining"*). The dependency is verifiable, not a
+judgement call: the plan prices EVERY source at rate 10 =
+`SOURCE_ENERGY_CAPACITY(3000) / SOURCE_REGEN_TIME(300)` — the **reserved**
+yield. An unreserved remote regenerates 1500 per 300t, i.e. 5 e/t. So the
+revenue line *assumes* reservation on all 8 remotes, and the reservation fleet
+is buying **~40 e/t of the 100 e/t revenue** for **~10.6 e/t of bodies — a 3.8×
+return**. Burying it in `infra` hid both the cost and the return.
+
+The statement therefore splits DIRECT COST OF MINING (extraction / evacuation /
+reservation) from OVERHEAD (infra / defense / consumers), yielding a **NET
+MINING MARGIN** subtotal — first live reading **65.29 e/t on 100.54 delivered**.
+
+**OPERATING vs CAPITAL** (owner-caught 2026-08-01, *"what about claim corp"* —
+four roles were landing in an unnamed `other` bucket):
+
+- `claimer` is **EXPANSION CAPEX**, not operating cost. `BASE_RESERVE =
+  EXPANSION_CAPEX + EXPANSION_SAFETY_RESERVE` exists to fund it, and a
+  600e/CLAIM-part body buys a permanent new room. Charging it to opex would
+  make the operating margin look worst in exactly the cycle where expanding is
+  right — the classic reason capex is its own account.
+- `buster`/`striker` are the same shape; coreBusterKind's own comment says
+  *"off-budget: the mission restores a zeroed income stream"*. Capital repair of
+  an income asset.
+- `scout` IS operating cost — intel is continuous and the bodies are ~50e.
+
+The CAPITAL section prints only when such spend exists, so a quiet colony's
+statement stays short.
+
+**RATCHETED**, same discipline as F1's kind map: `ALL_SPAWN_ROLES` is derived
+from the kinds' own `roles` declarations and a test asserts every role has an
+account and that no account maps a role no kind buys. **It earned its keep on
+its first run** — it caught `tender` as a ghost key (the real role is `tanker`).
+Any role that still slips through prints as `UNCLASSIFIED [names]`, never as
+anonymous "other".
+
+Known limitation, stated rather than inferred: `tanker` is bought by BOTH
+extensionTender (infra) and construction (crew haulage), so the infra line
+slightly over-states during a build campaign. A corp→kind join would separate
+them but cannot resolve a corp that died inside the window.
+
+**BUDGET vs ACTUAL vs VARIANCE** (owner 2026-08-01). Every line the plan
+states in ENERGY carries a budget and a signed variance; lines it does not
+state print `-` rather than a fabricated parts→energy conversion (biased across
+classes — a CLAIM part is 600e against 50e for CARRY, the exact error F1
+documents).
+
+**CORRECTION 2026-08-01 (owner): body parts CAN be converted to energy.** The
+first draft left four lines blank, claiming a parts→energy conversion is
+"biased across classes". That over-generalised F1's lesson. F1 warns against
+using COST as a proxy for spawn TIME — a CLAIM part is 600e against 50e for
+CARRY, so cost mis-ranks classes by build pressure. It is **not** an argument
+against converting per BODY: each class's shape is known, so its energy per
+part is exact, and only a FLAT rate across classes would be biased.
+`ENERGY_PER_PART` now carries the per-class factor (miner `MINER_COST/
+MINER_PARTS`, hauler/tender/feeder `CARRY_MOVE_PAIR_COST/2`, reserver
+`(CLAIM+MOVE)/2`), with mixed-shape classes (upgraders, construction) taking
+the measured fleet's own energy-per-part — the same discipline
+`upgraderPartsPerWork` already uses on the parts side.
+
+**Filling those lines changed the diagnosis.** With reservation priced, NET
+MINING MARGIN reads **budget 65.04 vs actual 65.29 (+0.26 F)** — the plan's
+mining economics are essentially exact, which was invisible while the line was
+blank.
+
+Budgets are computed with the **planner's own primitives**, never a second
+formula: `minerOverhead(spawnDistance)` per source and
+`haulerOverhead(carryParts, distance)` per route — the same functions
+`flowAdapter` sums into `totalOverhead`. The footer prints that reconciliation
+as a check rather than assuming it (**first run: 18.11 vs 18.11, reconciles**).
+Appropriation budgets come straight from the sink allocations; the bank budget
+is the plan's own net position (storage inflow less bank-sourced outflow).
+
+Variance convention: **U/F is nature-dependent**, which the first draft got
+backwards — costs print NEGATIVE, so overspending makes the variance *more*
+negative and that is Unfavourable. The bank line is **neutral** (no marker):
+retained energy is neither earned nor spent, and it is read together with the
+controller line, not on its own.
+
+First live reading — the plan is faithful on production and badly unmet on
+consumption:
+
+| line | budget | actual | variance |
+|---|---|---|---|
+| gross mining | 100.00 | 100.00 | +0.00 |
+| extraction | −4.47 | −5.11 | −0.64 **U** |
+| evacuation | −13.64 | −19.58 | −5.94 **U** |
+| **net mining margin** | 81.89 | 65.29 | −16.60 **U** |
+| controller (score) | 108.87 | 47.59 | **−61.29 U** |
+| to/(from) bank | −28.87 | −5.74 | +23.14 |
+
+The controller variance IS the P7 gap, now shown against its own budget line
+rather than inferred, and the bank line shows the other half of it: the plan
+intended to draw 28.87 e/t out of storage and drew 5.74.
+
+### The CONTROLLER VARIANCE BRIDGE — and the spawn budget P10 was missing
+
+Digging the variances (owner 2026-08-01: *"in some cases it could be an
+accounting or instrumentation error or gap that we can improve"*) produced the
+comparator P10 was **retracted for lacking**. At retraction I wrote: *"A VALID
+successor would ask 'does the spawn sink allocation cover actual spawn spend',
+but the sink's demand is a REFILL-CAPACITY figure, not a rate."* The **allocated**
+figure IS a rate — energy the plan routes INTO the spawn structures per tick —
+and it is directly comparable to energy those structures convert OUT into
+bodies. Same structure, same unit, same direction; at steady state refill must
+equal spend because the network's stock is bounded at its capacity.
+
+**The plan's own fleet, fully priced in energy, costs 42.44 e/t. Measured spend
+is 44.21 — the plan's fleet pricing is accurate to ~4%. But the plan only
+ROUTES 20.00 e/t to the spawn sinks.** It under-routes a cost it correctly
+computes, by 22.44 e/t.
+
+That is the mechanism behind the inflated controller allocation (owner: *"it's
+part of the reason the controller budget is 100, equal to total net mining"*).
+The solver never deducts its own fleet's energy from what it hands to sinks, so
+the controller gets ~all of net mining.
+
+That closes the top-line variance **arithmetically**:
+
+```
+CONTROLLER VARIANCE BRIDGE  (plan 108.87 -> actual 47.59)
+  plan under-ROUTES its own fleet cost      -22.44
+  fleet costs more than the plan prices      -1.78
+  losses the plan does not model (residual) -14.47
+  bank draw budgeted but not performed      -23.14
+  = explains                                -61.82
+    actual controller variance              -61.29
+    unexplained (window mismatch)            +0.54
+```
+
+**The shortfall is not one thing, and fleet execution is the smallest part of
+it.** Terms 1 and 3 are the plan's own accounting (36.91 e/t — it under-routes
+a cost it correctly prices, and models no losses); term 4 is runtime (23.14);
+term 2 is the only fleet-EXECUTION term at **1.78**. Roughly **60% accounting,
+40% behaviour**, and the fleet itself is priced to ~4% — which reverses the
+working assumption that P7 was primarily an execution failure.
+
+The 0.54 unexplained is the window mismatch: spawn spend is measured over the
+blackbox ring (2,710t) and everything else over the capture window (6,686t).
+Closing that needs a ring as long as the window, not a code change.
+
+**Known instrument gap, named not hidden:** the `gross mining` variance is
+**structurally +0.00** — budget and actual both derive from the plan's capacity
+figure, because there is no independent meter of energy actually delivered into
+storage. That row cannot detect an income shortfall today; the pile-delta term
+is the only real measurement in it.
+
+**Expected to evolve.** Split the residual as decay/rot/raid meters land; add a
+balance-sheet section (reserved / committed / free) once the commitment
+accounting exists. **The invariants are the balancing identity and the named
+residual — not the specific line items.**
+
+### P11 — link/haul representation (notional hauler parts)
+
+**Added 2026-08-01.** The plan models bank→controller flow as HAULER edges with
+`carryParts`, but in a link-served room the LINK performs that work (hub link →
+controller link → feeder relays the last tile). No hauler is ever built for
+those parts, so they inflate every plan-vs-actual hauler comparison.
+
+Found while reading plan-vs-actual bodies at t72714129: planned hauler CARRY
+198.1 vs 210 fielded read as a comfortable **1.06×** — but 26.1 of those planned
+parts are link work. Against source routes alone (172.0) the same fleet is
+**1.24×**: still in tolerance, but a quarter over rather than a rounding error.
+
+**Not a leak** — nothing is wasted, the link is the cheaper carrier. It is a
+REPRESENTATION mismatch that biases a reading, so it WARNs rather than FAILs,
+and only fires when a controller link is actually live; without one those haul
+edges are real work and the plan is right.
+
+### P12 — valve coherence (plan vs runtime controller rate)
+
+**Added 2026-08-01** (owner: *"the plan and actual controller should use the
+same valve formula logic so they are more consistent. Maybe they are but using
+mismatched inputs."*). Measured — **half right, and the half that diverges is
+total**:
+
+```
+RUNTIME valve   = STORAGE_UPGRADE_TARGET(15) + bankSurplusRate(28.10) =  43.10
+PLAN controller = mined(100) − spawnSinks(20) + bankSurplusRate(28.10) = 108.10
+```
+
+- **The bank term is genuinely shared.** Both call `bankSurplusRate` with the
+  same inputs and agree to the decimal (28.10 / 28.10).
+- **The non-bank term is not shared at all.** The plan derives it from the
+  economy (mined less what it routes to the spawns); the runtime substitutes
+  the hardcoded `STORAGE_UPGRADE_TARGET`. **80.77 vs 15.00 — 5.38×**, and that
+  is the entire disagreement.
+
+**ORDERING CONSTRAINT — this must not be fixed by pointing the runtime at
+`planFlow`.** `feederRelayTarget` already receives `planFlow` and discards it
+in the surplus regime, so "just use it" is a one-line change and it would be
+actively harmful: the plan's own figure is inflated (it under-routes its fleet
+by 22.44 e/t and models no losses), so the feeder would draw ~39 e/t from the
+bank and reproduce the saw-tooth's down-stroke deliberately.
+
+The correct sustainable rate today, from the measured account:
+
+```
+mined 100.54 − spawn 44.21 − losses 14.47      = 41.86  (zero bank slope)
++ deliberate drawdown bankSurplusRate 28.10    = 69.96
+```
+
+Truth is between the two and closer to the RUNTIME's number — the constant is
+wrong but the plan is more wrong. Correct sequence:
+
+1. plan deducts its own fleet energy (42.44, which it already computes) →
+   controller allocation 108.87 → ~86
+2. plan models losses (the residual) → ~72
+3. **then** unify: either the runtime reads `planFlow`, or
+   `STORAGE_UPGRADE_TARGET` becomes the computed `mined − spawn − losses`.
+   Both routes converge on the same number, which is the sign the unification
+   is right.
+
+P12 goes green when they agree — and it must go green at the correct value,
+not by making one chase the other.
+
+### The hardcoded `10` — root of the controller over-allocation
+
+**Found 2026-08-01** tracing P12/the variance bridge to its source. The plan's
+entire model of what running the spawn costs is a magic constant:
+
+```ts
+// flowAdapter.ts discoverSinks()
+const sink = createFlowSink(
+  "spawn", resource.id, node.id, resource.position,
+  10,   // <- "Base spawn overhead demand"
+  50
+);
+```
+
+Two spawns × 10 = the **20.00 e/t** the plan routes. The fleet costs **42.44
+e/t by the plan's own pricing** and **44.21 measured**. The only other term is
+`agendaFundingRate` (`fundingNeed / 50`), which counts *must-fund* queue heads
+only — a transient top-up signal, not the fleet's standing replacement cost.
+
+The spawn sink sits at the TOP of the value ladder (100), so under-stating its
+demand does not merely mis-report: it frees ~22 e/t that the fill then hands
+down the ladder, and the controller — the next real claimant — absorbs it. That
+is mechanically why the controller allocation lands at roughly total net
+mining.
+
+**Why this is NOT a one-constant fix.** The replacement value is the plan's own
+fleet maintenance energy, which is only known AFTER the solve
+(`commissionsFromPlan`), while sink capacities are needed BEFORE it. Options,
+none of them a drop-in:
+
+1. **Previous-plan feedback** — read the last solve's fleet energy from
+   `Memory.economyPlan`. Converges in one re-solve interval (100t) and matches
+   existing practice in this exact expression (`agendaFundingRate` already
+   reads Memory here). Cheapest; introduces a one-cycle lag.
+2. **Two-pass solve** — solve, price the fleet, re-solve with the spawn demand
+   set. Exact, no lag, roughly doubles solve CPU.
+3. **Pre-solve partial** — the production fleet (miners + haulers) IS derivable
+   from the graph before the solve via `minerOverhead`/`haulerOverhead`, but it
+   is only **18.11** of the 42.44. Routing 18.11 instead of 20.00 changes
+   nothing measurable; **rejected as not worth a deploy**.
+
+Recommendation: option 1, red-first, with the spawn-sink demand asserted
+against a staged previous plan, then the full regression gate plus the
+`plan-*` and `fid-*` grid cells (a top-of-ladder demand change can invert the
+sink ordering — the trap list's 90-vs-85 founding incident is the precedent).
+
+**Expected effects to predict before deploying:** controller allocation
+108.87 → ~86; P12's non-bank divergence 5.38× → ~4.3× (better, not fixed — the
+runtime's hardcoded 15 is the other half); the F1/P4 parts side unchanged; and
+**P7 improves mechanically because its denominator shrinks** — that must not be
+read as a delivery win.
+
+## Splitting the RESIDUAL — methodology #2 (2026-08-01)
+
+Owner: *"I'd like to see pile decay, tombstone and decay (structures) and repair
+show up in the report."*
+
+The account balances by construction, so the residual absorbed everything the
+report could not name: 31.69 e/t, **32% of gross mining**, covering ground
+decay, rot, tombstones, raid losses, tower burn, repair and measurement error
+in one bucket. `telemetry/LossMeter` prices the knowable parts.
+
+### Four measurement natures, deliberately not blurred
+
+| line | nature | how |
+|---|---|---|
+| ground pile decay | **EXACT** | the engine's own `ceil(amount/1000)` applied to every observed pile |
+| tombstone loss | **MEASURED** | energy booked at first sight of a tombstone, net of witnessed recovery (LOST by default) |
+| repair | **MEASURED** | recorded at the repair site — per WORK part for a creep, per shot for a tower |
+| structure decay | **MODELLED** | what holding hits costs, from the engine's decay cadences. A LOWER bound: road traffic decay is excluded |
+
+Methodology #1's rot line divided the SUMMED pile by 1000. That misses the
+per-pile ceiling — the rule is convex, and a pile one energy over a boundary
+pays a whole extra energy per tick — and it only ever saw source-adjacent
+piles. #2 supersedes it.
+
+### Tombstones are LOST BY DEFAULT
+
+Owner 2026-08-01: *"we don't have any to recover tombstones so we can assume
+that it's lost for now."*
+
+Three recovery paths do exist in the tree — `scavengeSpot`'s range-1 withdraw,
+the builder's `PICKUP_RANGE` withdraw, and the scavenge corp when the planner
+funds the stock — but **every one requires a creep already standing beside the
+tombstone**. A hauler that dies mid-route in a remote room is simply gone. So
+the default is loss, and recovery must be earned.
+
+The mechanism that makes that default safe is booking at **FIRST SIGHT**, not
+at disappearance:
+
+- it needs no theory about *why* a tombstone vanished. The earlier rule guessed
+  "gone with life to spare ⇒ somebody looted it", which understates precisely
+  when it matters;
+- it survives the sample stride — a short-lived tombstone seen once is still
+  counted, where a disappearance-based rule can miss it entirely;
+- each tombstone is booked ONCE, colony-wide, however long it stands.
+
+Recovery is then a **credit**, granted only on direct evidence: energy leaving a
+tombstone that is **still standing**. If recovery is ever built out properly,
+the number self-corrects instead of needing a rewrite. Today it should read ~0,
+and a non-zero value is itself a finding.
+
+### Decay is depreciation, not cash
+
+**Structure decay never nets against the residual.** It is an accrued
+liability whose cash cost IS the repair line — booking both would double-count
+the same wear. It appears as a DEPRECIATION MEMO pairing accrual against repair
+actually paid, which answers the question the residual could not: *are we
+keeping up?* A shortfall is not free, it is deferred, and it is paid at full
+rebuild price when a structure expires (a container is 5000 energy).
+
+Two things the memo makes visible for the first time:
+
+- a **REMOTE container costs 5× an owned one** (0.50 vs 0.10 e/t) purely because
+  the engine decays it five times as fast — a standing cost of remote mining
+  that no plan term prices;
+- road decay excludes creep traffic, so the accrual is a floor, not a ceiling.
+
+### Honesty limits
+
+- The meter samples on a **10-tick stride** (three FINDs per visible room). The
+  stride costs resolution, never correctness — each room integrates against its
+  OWN previous sample. Booking tombstones at first sight rather than at
+  disappearance is what keeps the stride from mattering to them.
+- A tombstone in a room we NEVER see is never counted. That is the one
+  systematic under-count left, and it biases exactly toward remote deaths.
+- **Vision is not a measurement.** A room merely lost from view is never scored
+  as a loss; rooms are diffed only against their own next sample. This is the
+  "room state from intel, never creep positions" trap in a different costume,
+  and without the guard every dead scout would print a loss spike.
+- The meter re-bases on a global reset rather than reporting a spike.
+- Piles dropped away from a source ARE now counted (v19's estimate could not see
+  them), but only in **visible** rooms.
+
+**A #1 residual and a #2 residual are not comparable** — #2 is smaller by
+exactly the newly-attributed losses. That is what the methodology stamp is for.
+
+## Methodology #3 (2026-08-01, cycle t72721419) — the meter falsified the account
+
+Splitting the residual worked, and the first thing it did was break the account.
+The residual went **+31.69 (under-attributed) → −25.10 (OVER-attributed)**: 25%
+of gross mining more loss than the identity had room for. A residual can be
+large and still honest; it cannot be *negative*, so an input was wrong.
+
+Three causes, all now named, two fixed here.
+
+### 1. Revenue was CAPACITY, and the miners' own stamps say otherwise
+
+`gross mining` was the plan's reserved capacity — what the sources *could*
+yield. But a miner whose buffer is full **stops harvesting**, and that decision
+is already stamped: `heldFrac` is the share of the window E6's gate held it.
+
+```
+t72721419   cd8e heldFrac 0.972   cd8d 0.555   cee0 0.282   d01f 0.936
+            Σ heldFrac 3.03 source-equivalents = 30.28 e/t of 100 never mined
+```
+
+Revenue now reads `mining capacity − forgone = gross mining`. This was the
+largest single error in the account, and it had been there since methodology #1
+— invisible until the loss meter gave the identity real costs to subtract. The
+line is omitted entirely on captures whose stamps carry no `heldFrac`, rather
+than printing a fabricated zero.
+
+### 2. The residual is a difference of rates from THREE different windows
+
+Revenue, bank and controller come from the capture pair. Every "measured at the
+spawn" line comes from the blackbox ring. The loss lines come from the meter's
+own window. **A deploy restarts the ring and the meter but not the capture
+pair**, so an hour of deploys leaves the short windows sampling a post-reset
+rebuild while the long one averages steady state — and their difference is an
+artifact.
+
+Measured: window 2417t against a 565t ring and a 559t meter, a **4.3× spread**.
+The account now prints all three windows and refuses to vouch for the residual
+past 2×.
+
+### 3. A reset spike in the meter I had just shipped
+
+"Book at first sight" is right for a tombstone that APPEARS during the window
+and wrong for the standing stock at window start: those creeps died before the
+meter existed, so charging them makes a rate out of a backlog. Live, 1596e of
+standing tombstones re-booked on the deploy's global reset — **2.85 of the
+12.21 e/t reported, ~23% phantom** — and every deploy did it again.
+
+Fixed: a room's first sample is a baseline, never a charge. The previous reset
+test only checked that the counters re-based; it never sampled a room
+afterwards, so it could not see this. `tombstoneStock` still shows the standing
+backlog, because the level and the flow are different facts.
+
+**A #2 residual sits on inflated revenue; a #3 one does not. They are not
+comparable.**
+
+## Methodology #4 — link haulage was priced as free (2026-08-01)
+
+Owner: *"And we still have the 'free' hauling from links in the plan as well?"*
+
+Yes, and it is now measured and priced.
+
+A link-served source has `haulPos` set to the core link, so the planner prices
+its haul leg at ~1 tile. **That part is correct** — the link genuinely does the
+carrying, and the creep leg really is one tile. What was missing is the link's
+OWN cost: the engine destroys 3% of every transfer.
+
+```
+t72721419 W43N23   toHub 48.19 e/t   toController 37.99 e/t
+                   3% of each = 1.45 + 1.14 = 2.59 e/t
+                   meter's taxRate                2.59 e/t   (exact)
+```
+
+Energy that crosses the network twice — source link → hub → controller link —
+**pays twice**, which is why the measured figure exceeds 3% of any single leg.
+
+`LINK_LOSS_RATIO` had existed **only in `telemetry/LinkMeter`**. The colony
+measured the loss and the planner priced none of it, so a link-served source
+looked *strictly* cheaper than a walked one rather than cheaper by the right
+amount. Two changes:
+
+- `LINK_TRANSFER_LOSS` / `linkTransferTax` move to `economy/primitives` (the one
+  place economic formulas may live), and LinkMeter re-exports rather than
+  redefining, so meter and planner cannot drift.
+- The planner charges each link-served source **one hop** of tax, in the same
+  per-source `tax` term as the invader tax — where the mine/don't-mine gate and
+  the ranking both read it. The onward hop is a colony distribution cost, not
+  attributable to any single source, and is deliberately not billed to one.
+- The measured tax joins **MEASURED LOSSES** in the account. It is a genuine
+  destruction of delivered energy, exactly like pile rot, and had been sitting
+  in the residual.
+
+**A second, larger link finding, not yet acted on:** `hubClampShare 0.576` —
+**58% of hub fires were clamped** because the core could not hold the full
+volley, with `coreCongestedShare 0.099`. The plan assumes the link carries the
+routed flow. More than half the time it cannot. That is a throughput ceiling the
+plan does not model at all, and it is the next link question.

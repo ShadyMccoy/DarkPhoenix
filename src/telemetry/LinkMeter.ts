@@ -24,13 +24,15 @@
  * @module telemetry/LinkMeter
  */
 
-import { LINK_FIRE_THRESHOLD } from "../economy/primitives";
+import { LINK_FIRE_THRESHOLD, LINK_TRANSFER_LOSS } from "../economy/primitives";
 
 /** Where a fired volley landed, in planner terms. */
 export type LinkFireTarget = "hub" | "controllerRelay" | "controllerDirect";
 
-/** The 3% link transfer fee (Screeps LINK_LOSS_RATIO). */
-export const LINK_LOSS_RATIO = 0.03;
+/** The 3% link transfer fee (Screeps LINK_LOSS_RATIO). Re-exported from
+ *  primitives so the meter and the planner cannot drift apart - the planner
+ *  now prices this too (see CorpPlanner's per-source tax term). */
+export const LINK_LOSS_RATIO = LINK_TRANSFER_LOSS;
 
 /**
  * The core-fill sampler's boundary IS the runner's fire gate (one home:

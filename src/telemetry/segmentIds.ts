@@ -25,10 +25,11 @@ export const TELEMETRY_SEGMENTS = {
   EDGES: 2, // Spatial node adjacency
   INTEL: 3, // Room intel from scouting
   CORPS: 4, // Corps details
-  FLOW: 6 // Flow economy: sources, sinks, allocations
+  FLOW: 6, // Flow economy: sources, sinks, allocations
+  HAUL_TRACE: 7 // Per-tick flight recorder for ONE hauler (telemetry/HaulTrace)
 };
 
 /**
  * Segments to make publicly readable via API.
  */
-export const PUBLIC_SEGMENTS = [0, 1, 2, 3, 4, 5, 6];
+export const PUBLIC_SEGMENTS = [0, 1, 2, 3, 4, 5, 6, 7];

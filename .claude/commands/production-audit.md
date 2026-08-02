@@ -2,9 +2,31 @@
 
 ## The goal (what a cycle is FOR)
 
-**Maximize sustained controller/GCL progress — the game's score.** One point
-of RCL/GCL = one energy delivered to a controller; everything else here is
-instrumental. Concretely, each cycle drives toward:
+**THE DELIVERABLE IS THE CODEBASE, NOT THE SCORE** (owner 2026-08-01: *"we
+don't care so much about the actual progress so much as the progress of our
+codebase, so it's fine to have some regressions in live"*).
+
+The live colony is the **measurement instrument**, not the product. Its score
+is how we find out whether the code is right — a number to reason FROM, not a
+number to protect. A cycle succeeds when the codebase ends it more correct,
+better instrumented, or better understood than it started, and a live
+regression that buys a real finding is a good trade.
+
+Two consequences a future session must not re-derive:
+
+- **A failed prediction is a SUCCESSFUL cycle if it is attributable.** The
+  two-pass solve missed its predictions by 4× on 2026-08-01 and the cycle was
+  worth more than a clean confirmation would have been: it exposed a wrong
+  fixed-point argument in the design. Chase the attribution, not the green.
+- **Do not revert to protect the score.** Revert when a change is simply wrong
+  and has stopped teaching, or when it threatens the INSTRUMENT itself — a dead
+  colony, lost rooms, a spawn deadlock, a CPU bucket collapse. Those cost the
+  feedback loop, which is the one thing that is actually expensive. Ordinary
+  regressions ride.
+
+Controller/GCL progress remains the metric the reports are built around,
+because it is the sharpest available signal of whether the economy works.
+Concretely, each cycle still drives toward:
 
 1. **Actual progress ≈ planned progress**: `rooms[].rclProgress` /
    `gcl.progress` delta per tick between captures, within tolerance of the
@@ -39,7 +61,8 @@ One hypothesis at a time; design the next capture to falsify it.
 
 ```
 SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,4,5,6
-npm run audit:ledger        # spec 15: latest capture vs previous, every leak a number
+npm run audit:ledger        # ENERGY ACCOUNT + SOURCE P&L + spec 15 leak ledger
+npm run fiscal:close        # spec 41: write any newly-crossed fiscal period to docs/fiscal/
 ```
 
 - Segment 0 (core): `bodyParts` (actual, colony), `rooms[]` ledger
@@ -60,9 +83,76 @@ npm run audit:ledger        # spec 15: latest capture vs previous, every leak a 
   Segment 5 (blackbox) and 3 (intel raid fields) via `--segments 3,5` when
   churn/raid history is needed.
 
+## 0b. The STANDING REPORT SET (spec 41 — a contract, not a suggestion)
+
+Every cycle produces these, in this order. A future session changes the set
+only deliberately, and **bumps `METHODOLOGY` in scripts/waste-ledger.ts when it
+does** — two reports are comparable only at the same stamp.
+
+1. **ENERGY ACCOUNT** — income statement, budget vs actual vs variance,
+   balancing to a named RESIDUAL.
+2. **SOURCE P&L** — the same accounts per source, vs the planner's own net.
+3. **CONTROLLER VARIANCE BRIDGE** — top-line variance split into accounting
+   terms vs behaviour terms.
+4. **WASTE LEDGER** — leak rows ranked, TOP LINE named.
+5. **FISCAL CLOSE** — `npm run fiscal:close`, append-only, into `docs/fiscal/`.
+
+**Fiscal calendar:** month = **1500 ticks** (`CREEP_LIFETIME`, the horizon every
+body cost amortizes over — so a month is exactly the period a spawn purchase is
+expensed across); year = **15000** (ten months). A YEAR averages over the
+~9000-tick bank limit cycle; a MONTH is a phase sample of it and must be read
+as one. Closes are approximate by nature — they print the ticks actually
+measured and the coverage %, refuse anything outside 50–175%, and never
+overwrite an existing close.
+
 ## 1. Triage checklist (fail ⇒ investigate; numbers from measured incidents)
 
-- **LEDGER FIRST**: `npm run audit:ledger` output outranks everything below.
+- **READ THE ENERGY ACCOUNT FIRST**, then the ledger. `audit:ledger` prints a
+  standing chart of accounts above the leak rows — the colony's income
+  statement in energy/tick over the window:
+
+  ```
+  REVENUE          gross mining (plan capacity) + pile drawdown/(build-up)
+                   = delivered into the economy
+  OPERATING COST   producers / infra / defense / consumers   (MEASURED at the spawn)
+  APPROPRIATIONS   controller (score) + construction + to/(from) bank
+  ------------------------------------------------------------------
+  RESIDUAL         delivered − opex − appropriations
+  ```
+
+  It **balances by construction**, so the RESIDUAL is the point, not a rounding
+  bucket: it bounds ground decay, rot above the container cap, raid losses,
+  tower burn and measurement error, and it inherits spec 20's discipline — a
+  named residual that cannot silently grow because both sides are published.
+  Read it as the frame for everything else: a leak row tells you WHAT is
+  leaking, the account tells you whether the colony's energy is accounted for
+  at all. **A residual that grows between cycles is a work item even when every
+  leak row is green** (first baseline 2026-08-01: 14% of gross mining).
+
+  Honesty limits to carry when quoting it: revenue is the PLAN's mining
+  CAPACITY less the measured pile change — not a delivery meter — so income is
+  deliberately NOT derived as the balancing figure (that would make the
+  residual circular). Operating cost IS measured (the blackbox ring, by role),
+  and the ring and capture windows differ in length; each figure is normalised
+  over its own and both are stated in the header.
+
+  **The chart is expected to evolve** (owner 2026-08-01). Add accounts as
+  measurement improves — split the residual as decay/rot/raid meters land, add
+  a balance-sheet section (reserved / committed / free) when the commitment
+  accounting exists. Keep the balancing identity and the named residual; those
+  are the invariants, not the specific line items.
+
+- **THEN the SOURCE P&L**, the account one level down: per-source gross, its
+  measured miner/hauler/reservation cost, and the resulting net against the
+  planner's own `candidates[].net`. Attribution is exact (spec 34 D5 gave each
+  miner operation its haulers, so a `mining-*` corp's spawn spend IS that
+  source's cost); only reservation is shared, split across its room's sources.
+  It reconciles to the colony account — miner and reserve totals match those
+  lines exactly, hauler is lower by the standalone scavenge corps. A chronic
+  NEGATIVE variance is a funding bug, not a curiosity: the planner's
+  per-source net is what admits or rejects a source.
+
+- **LEDGER FIRST among leaks**: `npm run audit:ledger` output outranks everything below.
   Any FAIL line is the cycle's work item unless a live incident preempts; the
   symptomatic checks below localize causes, the ledger finds the leak classes
   (2026-07-18 lesson: plan spawn-infeasibility 1.68×, reserver duty 2× drift,
@@ -142,8 +232,14 @@ npm run audit:ledger        # spec 15: latest capture vs previous, every leak a 
 - **Post-deploy verification is mandatory**: wait ~200+ ticks, recapture,
   re-run the triage checklist. Predict the expected deltas BEFORE deploying
   (e.g. "reserver cadence →1/150t, feeder gate →staffed") and check each.
-- Regression (a checklist line got worse than pre-deploy) ⇒ redeploy
-  `origin/master`, record the failed hypothesis in the spec, stop.
+- **Regression handling (revised 2026-08-01, see "The goal").** A checklist
+  line getting worse is NOT by itself a revert. Record it, attribute it, and
+  keep going — the codebase is the deliverable and a live regression that buys
+  understanding is a good trade. Redeploy `origin/master` only when the change
+  is wrong AND has stopped teaching, or when it threatens the instrument
+  itself: colony death, lost rooms, spawn deadlock, CPU bucket collapse.
+  **Always record the failed hypothesis in the spec either way** — that is the
+  part with lasting value, not the rollback.
 - Record the cycle verdict (fixed / instrumented / falsified) in
   docs/specs/14-telemetry-observability.md.
 
@@ -174,3 +270,19 @@ Single invocation = one cycle. For continuous monitoring run via `/loop`
 (30–60 min intervals; captures are cheap, prod moves ~1 tick/s) or a scheduled
 Routine that fires this command. Between cycles nothing polls — the game runs
 itself; the loop's value is the delta between captures.
+
+## Capture discipline (learned 2026-08-01, the hard way)
+
+**Always capture `--segments 0,3,4,5,6`.** A `0,6` capture reads the plan fine
+mid-deploy, but it carries no blackbox ring — and without the ring every
+"measured at the spawn" line in the ENERGY ACCOUNT reads **0.00** rather than
+going absent. A cycle that mixed the two produced a fiscal close reporting a
+favourable NET MINING MARGIN off thirteen zeros. `fiscal:close` now refuses
+such captures, but the account itself will still print them.
+
+**The methodology stamp is a hard gate on comparability.** `METHODOLOGY` in
+`scripts/waste-ledger.ts` is at **#2** (the residual split into pile decay /
+tombstone / repair, with structure decay as a depreciation memo). A #1 residual
+and a #2 residual differ by exactly the newly-attributed losses — never quote
+one against the other. Bump the stamp in the SAME commit as any change to the
+chart of accounts.

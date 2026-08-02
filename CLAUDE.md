@@ -57,8 +57,20 @@ whose operators are corps. Read order for architecture truth:
   transition. Tight assertions belong on actual-vs-NOW; NOW-vs-GOAL is a ramp
   gauge.
 - **Macro doctrine**: production over consumption. Fund producers first, bank
-  to the warchest, consumers burn the residual and are sized from ACTUAL stock
-  at their work site (`sustainableConsumptionRate`), never from the goal plan.
+  to the warchest, consumers burn the residual.
+- **ONE VALVE: the plan allocation** (owner 2026-08-02, SUPERSEDES the former
+  "sized from ACTUAL stock at their work site, never from the goal plan"). The
+  upgrader fleet is sized from the plan's controller allocation and nothing
+  else. The stock-grounded valve was added when the plan under-stated (t72448020:
+  plan pinned at 2 with 234k banked); by 2026-08-02 it had inverted and was
+  throttling BELOW a plan that no longer under-states (79.11 plan vs 2.00
+  allowed; 81.19 vs 47.70) — the same failure it was built to prevent, sign
+  flipped. **If the plan is wrong, fix the plan**: one number that can be
+  audited beats two that disagree quietly. The bank still answers exactly one
+  question here, and it is not sizing — FINANCING (`surplus` → holdToFund, so
+  the walk can bank toward an indivisible full-size body).
+  `sustainableConsumptionRate` remains the drain law for OTHER consumers
+  (construction fuel, haul policy); it is no longer an upgrader valve.
 
 ## Economics rules
 

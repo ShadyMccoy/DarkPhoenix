@@ -196,6 +196,9 @@ describe("remote source containers (owner 2026-07-21: build from the remote end,
           repaired.push(t.id);
           return 0;
         },
+        // A real creep always has this; the repair path meters its spend from
+        // WORK parts (spec 15 residual split), so the mock must carry it.
+        getActiveBodyparts: () => 2,
         moveTo: () => 0,
         say: () => 0
       };

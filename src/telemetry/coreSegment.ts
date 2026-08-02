@@ -17,7 +17,8 @@
  */
 
 import { Colony } from "../colony/Colony";
-import { controllerSideStock, sourceBufferStock } from "../corps/nodeEnergy";
+import { controllerSideStock, sourceBufferStock, sourceDroppedStock } from "../corps/nodeEnergy";
+import { lossReport } from "./LossMeter";
 import { linkLedger } from "./LinkMeter";
 import { getCompletedLedger } from "./cpuLedgerCache";
 import { SPAWN_PARTS_PER_TICK } from "../economy/primitives";
@@ -162,6 +163,14 @@ export interface CoreTelemetry {
    */
   sourceBuffers?: { [idTail: string]: number };
   /**
+   * The DROPPED (rotting) share of each source buffer, same keys as
+   * `sourceBuffers` (v19). Container energy keeps; dropped energy loses
+   * ceil(amount/1000) per tick, so this is the only part that rots. Exported
+   * so the audit's energy account can price ground rot as its own line instead
+   * of leaving it inside the unattributed residual.
+   */
+  sourceDropped?: { [idTail: string]: number };
+  /**
    * Our construction sites in visible UNOWNED rooms (v9): the owned-room
    * ledger's siteCount misses cross-room trunk paving entirely - the P8
    * owned-room blindness (owner 2026-07-20). Keyed by room name; rooms with
@@ -208,6 +217,62 @@ export interface CoreTelemetry {
     directShare: number;
     taxRate: number;
   }[];
+  /**
+   * RESIDUAL LINE ITEMS (v20, owner 2026-08-01: "I'd like to see pile decay,
+   * tombstone and decay (structures) and repair show up in the report").
+   *
+   * The energy account balances to a named residual bounding decay, rot, raid
+   * losses and measurement error together - 32% of gross mining at the
+   * 2026-08-01 close. These are the parts of it that are knowable, from
+   * telemetry/LossMeter. Read the natures, they differ: `pileDecay` is EXACT
+   * (the engine's ceil rule on an observed stock), `structureDecay` is a
+   * MODELLED liability (what holding hits costs, and a LOWER bound - traffic
+   * decay on roads is excluded), `repairSpend` and the tombstone figures are
+   * MEASURED. `tombstoneLost` is LOST-BY-DEFAULT: booked at first sight of a
+   * tombstone and credited back only where recovery was actually witnessed
+   * (owner 2026-08-01 - the three recovery paths all need a creep already
+   * beside the tombstone, so a hauler dying mid-route is simply gone).
+   * `tombstoneStock` is a level, everything else a rate.
+   */
+  losses?: {
+    windowTicks: number;
+    pileDecay: number;
+    structureDecay: number;
+    repairSpend: number;
+    tombstoneLost: number;
+    tombstoneRecovered: number;
+    tombstoneStock: number;
+    /**
+     * ATTRIBUTION for the tombstone loss (v23): gross energy by creep ROLE, and
+     * split by CAUSE of death (ran out of life vs killed with time left). Both
+     * decompose the gross booking, so they sum to the figure the loss line is
+     * built from. Answers whether the tombstone line is haulers expiring
+     * mid-route - which folds it into the carry deficit - or creeps being
+     * killed, which is a defense question instead.
+     */
+    tombstoneByRole?: Record<string, number>;
+    tombstoneExpired?: number;
+    tombstoneKilled?: number;
+    /** Mean/max TTL remaining at death (v24) - the AUDIT on the cause split.
+     *  A 0%/100% split is the signature of a misread field, not a finding. */
+    tombstoneTtlMean?: number;
+    tombstoneTtlMax?: number;
+    /**
+     * CUMULATIVE energy totals (v22), monotonic and surviving global resets.
+     * The rates above are since-reset and therefore capped by VM lifetime -
+     * 480t against a 1251-tick capture window at t72722670, so a 1500-tick
+     * fiscal month could never be measured. The account DIFFERENCES these
+     * between captures instead, so the measured window equals the capture
+     * window for any length.
+     */
+    cumulative?: {
+      pileDecay: number;
+      structureDecay: number;
+      repairSpend: number;
+      tombstoneGross: number;
+      tombstoneRecovered: number;
+    };
+  };
   /** Owned rooms summary */
   rooms: {
     name: string;
@@ -341,6 +406,7 @@ export function updateCoreTelemetry(
   // Source buffers (owner 2026-07-20): container + pile at each visible
   // source's mouth - the over/under-haul read.
   const sourceBuffers: NonNullable<CoreTelemetry["sourceBuffers"]> = {};
+  const sourceDropped: NonNullable<CoreTelemetry["sourceDropped"]> = {};
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     let sources: Source[] = [];
@@ -355,6 +421,8 @@ export function updateCoreTelemetry(
       const stock = sourceBufferStock(source);
       if (stock === null) continue; // partial mocks without wired finds
       sourceBuffers[source.id.slice(-6)] = stock;
+      const dropped = sourceDroppedStock(source);
+      if (dropped !== null && dropped > 0) sourceDropped[source.id.slice(-6)] = dropped;
     }
   }
 
@@ -429,7 +497,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 18, // v17 warchestTarget (dynamic reserve for E4); v18 spawns[].idle cause tally (empty/bank/buy/hold)
+    version: 24, // v23 tombstone role+cause; v24 ttlAtDeath distribution (audits the cause split) 2026-08-02
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
@@ -494,6 +562,12 @@ export function updateCoreTelemetry(
     ...(() => {
       const links = linkLedger(Game.time);
       return links.length > 0 ? { links } : {};
+    })(),
+    // Omitted until a window exists, so a fresh reset publishes no zeros that
+    // would read as "nothing is decaying".
+    ...(() => {
+      const losses = lossReport(Game.time);
+      return losses.windowTicks > 0 ? { losses } : {};
     })(),
     rooms
   };

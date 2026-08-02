@@ -32,6 +32,7 @@
 import { Position } from "../types/Position";
 import {
   netEnergy,
+  linkTransferTax,
   spawnPartsFor,
   carryPartsFor,
   constructionWorkSpawnLoad,
@@ -73,6 +74,14 @@ export interface PlannerSource {
    * stays the real walk to the source. Defaults to `pos`.
    */
   haulPos?: Position;
+  /**
+   * Share of this source's haul path that is SWAMP (0..1), measured by the
+   * adapter off the SAME PathFinder search that produced its distance. A loaded
+   * hauler crawls swamp at 5 ticks/tile against 1 on plain, so the same tile
+   * distance is a different round-TRIP TIME - and CARRY is sized from time.
+   * Absent/0 = no swamp known, which prices exactly as the old tile count did.
+   */
+  swampFraction?: number;
   /**
    * A transient source - a ground energy stock (dropped pile / tombstone / ruin)
    * that is ALREADY harvested. It needs no miner: only a scavenger hauls it home.
@@ -182,6 +191,13 @@ export interface ColonyProblem {
    * the spawn-parts ledger before the sink fill spends the rest (spec 15 P4).
    */
   infraPartsPerTick?: number;
+  /**
+   * The SAME standing infrastructure priced in ENERGY (primitives
+   * .infraSpawnEnergy - the structural twin of infraSpawnLoad). Feeds the
+   * two-pass solve's spawn-sink maintenance figure; absent = unknown, treated
+   * as zero exactly like the parts term.
+   */
+  infraEnergyPerTick?: number;
   /**
    * Execution-context facts for auxiliary propose() triggers, assembled by
    * the HOST (spec 17 P3): propose is a pure function of (problem, draft), so
@@ -375,7 +391,15 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
     // Net of the invader tax (spec 13): a remote's expected raid-defense
     // cost scales with what we harvest there, so it lands here - where both
     // the mine/don't-mine gate and the ranking read it.
-    const tax = (source.invaderTax ?? 0) * source.rate;
+    // Same shape as the invader tax, and for the same reason: a cost that
+    // scales with what we harvest belongs where the gate and the ranking both
+    // read it. A LINK-SERVED source (haulPos set) has its haul leg priced at
+    // ~1 tile because the link truly does the carrying - but the engine
+    // destroys LINK_TRANSFER_LOSS of every transfer, and pricing none of it
+    // made link service look strictly cheaper than a walked route instead of
+    // cheaper by the right amount (owner 2026-08-01).
+    const tax =
+      (source.invaderTax ?? 0) * source.rate + (source.haulPos ? linkTransferTax(source.rate) : 0);
     const net = netEnergy(source.rate, near.distance) - tax;
     const parts = spawnPartsFor(source.rate, near.distance);
     if (net <= 0) {
@@ -692,7 +716,16 @@ function routeToSinks(
         }
       }
       const paved = src?.paved === true;
-      const dEff = paved ? effectiveOneWayTiles(physD, src?.pavedFraction ?? 1, 2) : physD;
+      // TICKS, NOT TILES - on every route, not only paved ones. The unpaved
+      // branch used to pass the raw tile count, which is right for a 1:1 body
+      // on plain (loadedTicksPerTile(2,1) === 1) and wrong by up to 5x on
+      // swamp. Now both branches price the same way and differ only in their
+      // inputs: a paved route runs a 2:1 body over road, an unpaved one a 1:1
+      // body over its own plain/swamp mix. With swampFraction 0 the unpaved
+      // result is bit-identical to the old raw distance, so nothing moves on a
+      // swamp-free map.
+      const paveFrac = paved ? src?.pavedFraction ?? 1 : 0;
+      const dEff = effectiveOneWayTiles(physD, paveFrac, paved ? 2 : 1, src?.swampFraction ?? 0);
       // Parts/tick per unit of flow on this route: haul bodies + sink work bodies.
       const chargePerUnit = ((paved ? 1.5 : 2) * carryPartsFor(1, dEff)) / effectiveLife(physD) + workPerUnit;
       const maxByParts = chargePerUnit > 1e-12 ? partsRemaining / chargePerUnit : Infinity;

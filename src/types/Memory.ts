@@ -342,6 +342,43 @@ declare global {
     lastBankDraw?: number;
 
     /**
+     * The last solve's converged PER-SPAWN fleet charge (the spawn sink's
+     * maintenance term). Seeds the next solve's fixed-point iteration, which is
+     * what lets a steady-state replan converge without spending extra searches
+     * re-deriving a number that barely moved. In Memory for the same reason as
+     * `lastBankDraw`: the FlowEconomy instance is replaced on every graph
+     * rebuild, so instance-held history never reaches a second solve.
+     */
+    lastFleetCharge?: number;
+
+    /**
+     * Arms the per-tick hauler flight recorder (telemetry/HaulTrace). Every
+     * other hauling instrument is an aggregate, and a mean cannot show a creep
+     * standing on one tile for forty ticks. Set from the live console:
+     *   Memory.haulTrace = { corp: "mining-W43N24-harvest-cd8e" }
+     *   Memory.haulTrace = { creep: "h_1234" }
+     * Deleting it stops the recorder. The subject is locked once chosen so the
+     * trace follows ONE life rather than hopping between creeps.
+     */
+    haulTrace?: { corp?: string; creep?: string };
+
+    /**
+     * CUMULATIVE loss totals in energy (telemetry/LossMeter), monotonic and
+     * surviving global resets. In Memory because the measured window must be
+     * bounded by how far apart two captures are, not by VM lifetime: as module
+     * state it capped at ~480 ticks against a 1251-tick capture window
+     * (t72722670), so a 1500-tick fiscal month was never measurable end to end.
+     * The account differences these, exactly as it does gcl.progress.
+     */
+    lossLedger?: {
+      pileDecay: number;
+      structureDecay: number;
+      repairSpend: number;
+      tombstoneGross: number;
+      tombstoneRecovered: number;
+    };
+
+    /**
      * The current liquidity reserve target (economy/bank.warchestTarget of the
      * last solve's measured income). Persisted so every consumer - the plan's
      * bank-surplus emission and the execution corps that size off it - reads

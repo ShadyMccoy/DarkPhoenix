@@ -39,6 +39,7 @@ import { PUBLIC_SEGMENTS } from "./segmentIds";
 import { aggregateActualBodies, CorpCensusEntry } from "./bodyCensus";
 import { meterSpawns } from "./spawnMeter";
 import { updateCoreTelemetry } from "./coreSegment";
+import { collectLosses } from "./LossMeter";
 import { updateNodesTelemetry, updateEdgesTelemetry } from "./spatialSegments";
 import { updateIntelTelemetry } from "./intelSegment";
 import { updateCorpsTelemetry } from "./corpsSegment";
@@ -104,6 +105,11 @@ export class Telemetry {
     // Spawn meter accumulates EVERY observed tick, before the interval gate -
     // sampling busy state on an interval would systematically undercount.
     meterSpawns();
+
+    // Same rule for the loss census, and for the same reason: it accumulates on
+    // its OWN stride, before the interval gate, so the residual's line items
+    // never inherit the segment-write cadence.
+    collectLosses(Game.time);
 
     // Check if we should update based on interval
     const shouldUpdate = this.config.updateInterval === 0 || Game.time % this.config.updateInterval === 0;

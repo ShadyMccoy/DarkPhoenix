@@ -33,7 +33,7 @@ import {
 } from "../flow/FlowTypes";
 import { Node, getResourcesByType } from "../nodes/Node";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
-import { pathDistance } from "../nodes/NodeNavigator";
+import { pathDistance, pathSwampFraction } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
 import { controllerLink, coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
@@ -42,6 +42,7 @@ import {
   HARVEST_ENERGY_PER_WORK,
   INVADER_TAX_PER_ENERGY,
   UPGRADE_ENERGY_PER_WORK,
+  infraSpawnEnergy,
   infraSpawnLoad,
   minerOverhead,
   projectAbsorbRate,
@@ -687,6 +688,76 @@ export function detectPavedSources(): Map<string, number> {
   return paved;
 }
 
+/** Last pass-2 per-spawn fleet maintenance (energy/tick) - exported for the
+ *  flow segment so a capture can decompose the spawn sink's demand. */
+export let spawnMaintenanceStamp = 0;
+
+/** Inputs the last charge was computed from (spec 14 decision stamp) - exported
+ *  for the flow segment so `charge * spawnCount == fleetEnergy` is a direct read. */
+export let fleetChargeStamp: NonNullable<FlowSolution["fleetCharge"]> | undefined;
+
+/** Fixed-point iteration bounds for the spawn's fleet charge. Four passes is
+ *  ample for a damped contraction (the measured spread was 49.45 vs 27.65, so
+ *  two damped steps land inside a fraction of an e/t); the tolerance stops
+ *  early on any world where the charge barely moves. */
+const FLEET_CHARGE_MAX_PASSES = 4;
+const FLEET_CHARGE_TOLERANCE = 0.25;
+
+/**
+ * Iterate the spawn's fleet charge to its FIXED POINT, damped.
+ *
+ * The charge and the fleet are mutually dependent - charging the spawn takes
+ * energy away from the fill, which funds fewer hauler routes, which lowers the
+ * fleet the charge is priced from. Pricing the charge off a plan solved under a
+ * DIFFERENT charge (the two-pass solve as first shipped) is not a fixed point:
+ * measured live t72717545, the sequence 0 -> 49.45 -> 27.65 oscillated and the
+ * plan shipped a 1.79x over-charge.
+ *
+ * Damping (average the charge with the fleet it produces) turns that
+ * oscillation into a contraction - it converges for any response slope < 3,
+ * where the undamped recurrence diverges above 1. Bounded by MAX_PASSES so a
+ * discontinuous response can never run the per-tick solve away, and
+ * tolerance-stopped so a world whose charge barely moves pays for no re-solve
+ * at all.
+ *
+ * SEEDED from the PREVIOUS solve's charge, which is what makes this cheap and
+ * what makes it converge. The fixed point persists across solves - between two
+ * replans 50 ticks apart the colony's fleet barely moves - so starting from
+ * last time's answer means the tolerance check usually fires immediately and
+ * the whole iteration costs ZERO extra searches. Starting from 0 every time
+ * instead (as first shipped) both threw away the answer and spent its entire
+ * pass budget re-deriving it: measured live t72718367, `passes: 4` hit the cap
+ * with the charge still 6.4% short of `fleetEnergy`. Only a genuine regime
+ * change now pays for the full iteration.
+ *
+ * @param initialCharge previous solve's converged charge (0 on a cold start)
+ * @param seedFleet per-spawn fleet cost of the plan solved AT initialCharge
+ * @param fleetChargeOf per-spawn fleet cost of a solved plan
+ * @param solveWith re-solve the plan under a given per-spawn charge
+ * @returns the converged charge, and the plan solved AT it when a pass ran
+ *          (`solved` undefined means the seed already converged - the caller's
+ *          own pass-1 plan was solved at that charge and IS the answer)
+ */
+export function convergeFleetCharge<T>(
+  initialCharge: number,
+  seedFleet: number,
+  fleetChargeOf: (solved: T) => number,
+  solveWith: (charge: number) => T
+): { charge: number; solved: T | undefined; passes: number } {
+  let charge = Math.max(0, initialCharge);
+  let target = seedFleet;
+  let solved: T | undefined;
+  let passes = 0;
+  for (let pass = 0; pass < FLEET_CHARGE_MAX_PASSES; pass += 1) {
+    if (Math.abs(target - charge) <= FLEET_CHARGE_TOLERANCE) break; // converged
+    charge = Math.max(0, (charge + target) / 2); // damped step
+    solved = solveWith(charge);
+    target = fleetChargeOf(solved);
+    passes += 1;
+  }
+  return { charge, solved, passes };
+}
+
 export function buildColonyProblem(
   graph: FlowGraph,
   dist: ColonyProblem["dist"] = pathDistance,
@@ -697,7 +768,14 @@ export function buildColonyProblem(
   remoteInvaderTax: number = INVADER_TAX_PER_ENERGY,
   valuation: SinkValuation = DEFAULT_VALUATION,
   prevBankDraw?: number,
-  depositPorts: DepositPort[] = detectLinkDepositPorts()
+  depositPorts: DepositPort[] = detectLinkDepositPorts(),
+  /**
+   * PASS-2 INPUT (two-pass solve): energy/tick the plan's standing fleet costs
+   * to maintain, PER SPAWN. Zero on pass 1 (unknown until the plan exists), so
+   * pass 1 behaves exactly as before and the pass-2 problem is the only one
+   * that differs. See solveColony.
+   */
+  spawnMaintenance = 0
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -719,6 +797,23 @@ export function buildColonyProblem(
       rate: s.capacity,
       maxMiners: s.maxMiners,
       haulPos: linkHaulPos.get(s.id),
+      // Swamp share of the haul path, off the same cached PathFinder search
+      // that produced the distance - no extra pathfinding, and the planner
+      // finally prices a route in TICKS rather than tiles.
+      ...(() => {
+        // Nearest spawn is the same endpoint the source's distance is measured
+        // to, so the cached search is already warm and the fraction is free.
+        let frac = 0;
+        let best = Infinity;
+        for (const sp of spawns) {
+          const d = dist(s.position, sp.pos);
+          if (d < best) {
+            best = d;
+            frac = pathSwampFraction(s.position, sp.pos);
+          }
+        }
+        return frac > 0 ? { swampFraction: frac } : {};
+      })(),
       ...(pave && pave.ratio === "2:1" ? { paved: true, pavedFraction: pave.fraction } : {}),
       ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax })
     };
@@ -925,7 +1020,14 @@ export function buildColonyProblem(
             // consumption when the queue drains. Measured absence: the
             // reserver waited 1800+ ticks behind chained holds because its
             // 650 never banked (task #30).
-            Math.max(sink.demand, 1) + agendaFundingRate(sink.id)
+            // FLEET MAINTENANCE (two-pass solve, 2026-08-01): `sink.demand` is
+            // a hardcoded 10 "base spawn overhead" from discoverSinks - it was
+            // the plan's ENTIRE model of what running the spawn costs, against
+            // a fleet costing ~42 e/t. The spawn is the TOP of the value ladder,
+            // so the shortfall was freed down it and the controller absorbed it
+            // (measured t72714129: controller allocated 108.87 of ~100 net
+            // mining). Pass 2 supplies the fleet's real standing cost here.
+            Math.max(sink.demand, 1, spawnMaintenance) + agendaFundingRate(sink.id)
           : kind === "construction"
           ? // Build-out is an INVESTMENT: extensions raise energyCapacity, which
             // raises every body size and the whole colony's energy-per-spawn-part
@@ -1015,11 +1117,14 @@ export function buildColonyProblem(
     }
   }
   const infraPartsPerTick = infraSpawnLoad(pricedRelay, roomsWithStorage.size, remoteRooms.size, linkFedRooms);
+  // Same three details, priced in ENERGY - the second currency the spawn sink
+  // needs (see the two-pass solve in solveColony).
+  const infraEnergyPerTick = infraSpawnEnergy(pricedRelay, roomsWithStorage.size, remoteRooms.size, linkFedRooms);
 
   return {
     assembly,
     spawns,
-    sources, sinks, dist, infraPartsPerTick, depositPorts };
+    sources, sinks, dist, infraPartsPerTick, infraEnergyPerTick, depositPorts };
 }
 
 /**
@@ -1118,8 +1223,16 @@ export function solveColony(
   transientSources: PlannerSource[] = detectTransientSources(),
   bankSources: PlannerSource[] = detectBankSources(),
   goal?: Goal,
-  prevBankDraw?: number
+  prevBankDraw?: number,
+  /**
+   * The PREVIOUS solve's converged fleet charge (per spawn). Threaded from
+   * Memory by the execution layer exactly as `prevBankDraw` is - the pure
+   * layer never reads it itself. Seeds the fixed-point iteration below, which
+   * is what lets a steady-state replan converge without an extra search.
+   */
+  prevFleetCharge?: number
 ): { solution: FlowSolution; commissions: Commission[]; adopted: { sourceId: string; spawnId: string; gain: number }[] } {
+  const seedCharge = Math.max(0, prevFleetCharge ?? 0);
   const baseProblem = buildColonyProblem(
     graph,
     dist,
@@ -1129,13 +1242,76 @@ export function solveColony(
     bankSources,
     INVADER_TAX_PER_ENERGY,
     compileGoal(goal),
-    prevBankDraw
+    prevBankDraw,
+    detectLinkDepositPorts(),
+    seedCharge
   );
   // THE STRATEGIC SEARCH (spec 18 P1, live from day one): planColony is the
   // evaluator; the searcher may pin budget-dropped sources to spawns with
   // slack. Under the default goal on a status-quo-optimal world it adopts
   // nothing and the plan is bit-identical to the plain solve (the pin).
-  const searched = searchStructure(baseProblem);
+  const pass1 = searchStructure(baseProblem);
+
+  // ---- THE FLEET CHARGE: the spawn sink pays for the plan's own fleet ----
+  //
+  // The spawn sink must demand what maintaining the plan's fleet costs. Before
+  // this, `discoverSinks` priced the
+  // spawn at a hardcoded 10 e/t while the fleet cost ~42 - and because the
+  // spawn tops the value ladder, the shortfall was handed DOWN the ladder and
+  // the controller absorbed it (t72714129: controller allocated 108.87 against
+  // ~100 e/t of net mining, and the runtime delivered 47.6).
+  //
+  // Scope is deliberately PRODUCTION + INFRA, not consumers. Charging CONSUMER
+  // bodies here would be doubly circular - spawn demand shrinks the controller
+  // allocation, which shrinks the upgrader fleet, which shrinks the spawn
+  // demand - and consumers are already funded from what remains, which is
+  // exactly what the ladder is for.
+  //
+  // That scoping does NOT make a single pass 2 a fixed point, which is what
+  // the first implementation assumed and got wrong. It priced the charge off
+  // PASS 1's fleet - a fleet solved with NO spawn charge, so far more energy
+  // reached the fill and far more hauler routes were funded. Measured live
+  // t72717545: the plan charged 49.45 e/t for a fleet that, once charged, cost
+  // 27.65. A 1.79x over-charge, and the sequence 0 -> 49.45 -> 27.65 is
+  // OSCILLATING, not converging. Production is not independent of the charge
+  // after all, because routing haulers is what the fill spends its energy on.
+  //
+  // So iterate to the actual fixed point, DAMPED (average the charge with the
+  // fleet it produces). Damping is what turns an oscillation into a
+  // contraction; undamped, C_{n+1} = F(C_n) ping-pongs between the two ends.
+  // Capped and tolerance-stopped so the solve can never run away.
+  const fleetOf = (p: { plan: { totalOverhead: number } }): number =>
+    p.plan.totalOverhead + (baseProblem.infraEnergyPerTick ?? 0);
+  const spawnCount = Math.max(1, baseProblem.spawns.length);
+  const solveWith = (perSpawn: number): ReturnType<typeof searchStructure> =>
+    searchStructure(
+      buildColonyProblem(
+        graph, dist, transientSources, detectLinkHaulPositions(graph), detectPavedSources(),
+        bankSources, INVADER_TAX_PER_ENERGY, compileGoal(goal), prevBankDraw,
+        detectLinkDepositPorts(), perSpawn
+      )
+    );
+
+  const converged = convergeFleetCharge(
+    seedCharge,
+    fleetOf(pass1) / spawnCount,
+    (s: ReturnType<typeof searchStructure>) => fleetOf(s) / spawnCount,
+    solveWith
+  );
+  spawnMaintenanceStamp = converged.charge;
+  const searched = converged.solved ?? pass1;
+  // DECISION STAMP (spec 14): every input of the charge, not just the result.
+  // `spawnMaintenance` alone could not distinguish an unconverged iteration
+  // from a wrong divisor from a mis-estimated infra term - two diagnoses off
+  // the sum alone were both wrong. `charge * spawnCount == fleetEnergy` is now
+  // checkable straight from a capture.
+  fleetChargeStamp = {
+    fleetEnergy: fleetOf(searched),
+    production: searched.plan.totalOverhead,
+    infra: baseProblem.infraEnergyPerTick ?? 0,
+    spawnCount,
+    passes: converged.passes
+  };
   const problem = searched.problem;
   const plan = searched.plan;
   // Link-served sources (haulPos set): their transport is the link network +
@@ -1153,6 +1329,16 @@ export function solveColony(
     harvestRate: m.rate,
     spawnCostPerTick: minerOverhead(m.distance),
     maxMiners: m.maxMiners,
+    // Published so the account can BUDGET the link transfer tax against the
+    // sources that actually pay it, instead of inferring link service from a
+    // short haul distance (inference is how link haulage read as free).
+    ...(linkServedIds.has(m.sourceId) ? { linkServed: true } : {}),
+    // The swamp share the plan actually priced this route at - so a capture can
+    // tell "no swamp on this map" from "the wiring is dead".
+    ...(() => {
+      const src = problem.sources.find(s => s.id === m.sourceId);
+      return src?.swampFraction !== undefined ? { swampFraction: src.swampFraction } : {};
+    })(),
     efficiency: m.efficiency
   }));
 
@@ -1201,6 +1387,8 @@ export function solveColony(
     miningOverhead,
     haulingOverhead,
     totalOverhead,
+    spawnMaintenance: spawnMaintenanceStamp,
+    ...(fleetChargeStamp ? { fleetCharge: fleetChargeStamp } : {}),
     netEnergy: netEnergyTotal,
     efficiency: totalHarvest > 0 ? (netEnergyTotal / totalHarvest) * 100 : 0,
     unmetDemand,
@@ -1267,8 +1455,13 @@ export class FlowEconomy {
     // infra pinned at 0.1874 across every post-deploy solve - the fix was
     // deployed and dormant). Memory survives rebuilds and global resets.
     const prevBankDraw = typeof Memory !== "undefined" ? Memory.lastBankDraw : undefined;
-    const result = solveColony(this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw);
+    // Same rationale, same lifetime: the converged fleet charge seeds the next
+    // solve's fixed-point iteration so a steady-state replan spends no extra
+    // searches re-deriving it.
+    const prevFleetCharge = typeof Memory !== "undefined" ? Memory.lastFleetCharge : undefined;
+    const result = solveColony(this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw, prevFleetCharge);
     if (typeof Memory !== "undefined") {
+      Memory.lastFleetCharge = result.solution.spawnMaintenance;
       Memory.lastBankDraw = result.solution.sinkAllocations
         .filter(a => a.sinkType === "controller" || a.sinkType === "construction")
         .reduce((sum, a) => sum + a.allocated, 0);

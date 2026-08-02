@@ -202,6 +202,31 @@ export function maxCarryPairs(energyBudget: number): number {
 }
 
 /**
+ * CARRY parts ONE hauler should be built with to serve a route needing
+ * `carryNeeded` total, at a room of `energyBudget` capacity: the even share of
+ * the route across the smallest fleet that can cover it. Never above
+ * maxCarryPairs by construction, and - the point - never above what the ROUTE
+ * itself can load.
+ *
+ * The distinction this primitive exists to hold (production audit 2026-07-31,
+ * t72695674): a hauler's right size is a property of its ROUTE, not of the
+ * room's spawn capacity. Both hauler sizers used to reference maxCarryPairs
+ * alone, which at RCL7 (capacity 5600 -> 25 pairs) made every body under 25
+ * CARRY read as "under-built" no matter how small its route. The measured
+ * result was a standing churn loop on short routes: the demand path rebuilt a
+ * 7-CARRY route's hauler at 25 CARRY (2500e for a 700e job) and the recycle
+ * path retired the adequate 8-CARRY incumbent that covered it, on every tick
+ * the spawn happened to be flush. F1 read hauler spawn load 0.471 p/t against
+ * a plan of 0.225 - and under a saturated spawn those parts come out of the
+ * upgraders' build time (P7 controller delivery 0.44x plan).
+ */
+export function haulerBodyCarry(energyBudget: number, carryNeeded: number): number {
+  const maxPer = maxCarryPairs(energyBudget);
+  const fleet = Math.max(1, Math.ceil(carryNeeded / maxPer));
+  return Math.max(1, Math.min(maxPer, Math.ceil(carryNeeded / fleet)));
+}
+
+/**
  * CARRY parts to sustain `rate` energy/tick at a PARKED relay post - a creep
  * standing adjacent to both its bank and its sink (the link-fed controller
  * feeder: storage on one side, core link on the other; owner 2026-07-22 "The
@@ -545,6 +570,44 @@ export function infraSpawnLoad(
   // reserve capacity).
   const reservers =
     (RESERVER_DUTY * (remoteRoomCount * RESERVER_PARTS_PER_ROOM)) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK);
+  return feeder + tender + reservers;
+}
+
+/**
+ * The ENERGY twin of {@link infraSpawnLoad} - the same three details, priced in
+ * energy/tick instead of build-parts/tick.
+ *
+ * Kept adjacent and structurally identical ON PURPOSE: same signature, same
+ * terms, same order, so a change to one is visibly a change to the other. The
+ * only difference is the per-part price, and it is per-CLASS because the bodies
+ * differ - feeder and tender are CARRY+MOVE pairs (100e per 2 parts) while a
+ * reserver is CLAIM+MOVE (650e per 2). A single averaged rate would be the
+ * biased conversion F1 warns about; per body it is exact.
+ *
+ * Exists because the plan under-routed the spawn: `flowAdapter.discoverSinks`
+ * priced the spawn sink at a hardcoded 10 e/t "base overhead" while the fleet
+ * cost ~42 (measured t72714129), and the spawn sits at the TOP of the value
+ * ladder - so the shortfall was handed down it and the controller absorbed it.
+ * The two-pass solve prices the fleet after pass 1 and demands it in pass 2.
+ */
+export function infraSpawnEnergy(
+  relayRate: number,
+  depotRoomCount: number,
+  remoteRoomCount: number,
+  linkFedRoomCount = 0
+): number {
+  const CARRY_MOVE_PER_PART = CARRY_MOVE_PAIR_COST / 2;
+  const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
+  const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
+  const feeder =
+    depotRoomCount > 0 ? ((2 * carryPartsFor(relayRate, feederDist)) / effectiveLife(feederDist)) * CARRY_MOVE_PER_PART : 0;
+  const TENDER_FLEET_PARTS = 48;
+  const tender = ((depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME) * CARRY_MOVE_PER_PART;
+  const RESERVER_PARTS_PER_ROOM = 4;
+  const RESERVER_WALK = 60;
+  const reservers =
+    ((RESERVER_DUTY * (remoteRoomCount * RESERVER_PARTS_PER_ROOM)) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK)) *
+    CLAIM_MOVE_PER_PART;
   return feeder + tender + reservers;
 }
 
@@ -923,4 +986,102 @@ export const TOWER_REPAIR_BAND = 300;
  */
 export function towerRefillBelow(capacity: number): number {
   return Math.min(capacity, TOWER_DEFENSE_RESERVE + TOWER_REPAIR_BAND);
+}
+
+// ---------------------------------------------------------------------------
+// LOSS PRICING (owner 2026-08-01: "I'd like to see pile decay, tombstone and
+// decay (structures) and repair show up in the report").
+//
+// The energy account balances to a named RESIDUAL that bounds ground decay,
+// rot, raid losses and measurement error - 32% of gross mining at the
+// 2026-08-01 close, and spec 15's rule is that a residual which cannot be
+// split is a work item. These are the conversions that price the DECAY half of
+// it in energy, so the account can carry line items instead of one bucket.
+//
+// Every constant here is a GAME RULE (the engine's own decay arithmetic), not
+// a tuning knob - which is exactly why they belong in primitives rather than
+// in the meter that reads them or the ledger that prints them.
+// ---------------------------------------------------------------------------
+
+/** A dropped pile loses ceil(amount / this) energy per tick (Screeps ENERGY_DECAY). */
+export const ENERGY_DECAY_DIVISOR = 1000;
+
+/**
+ * Energy/tick a ground pile rots at. CONVEX in the pile size because of the
+ * ceiling: a pile one energy over a 1000 boundary pays a whole extra energy per
+ * tick forever. That convexity is why "let it pile up at the source and haul it
+ * later" is not free, and why E6's deferred-miner gate has an energy price.
+ */
+export function pileDecayRate(amount: number): number {
+  return amount > 0 ? Math.ceil(amount / ENERGY_DECAY_DIVISOR) : 0;
+}
+
+/** Hits restored per energy of repair (Screeps REPAIR_POWER / REPAIR_COST). */
+export const REPAIR_HITS_PER_ENERGY_RATE = 100;
+
+/** Energy it costs to restore `hits` - the price of a structure's decay. */
+export function hitsToEnergy(hits: number): number {
+  return hits > 0 ? hits / REPAIR_HITS_PER_ENERGY_RATE : 0;
+}
+
+/** Hits a container loses per decay event (Screeps CONTAINER_DECAY). */
+export const CONTAINER_DECAY_HITS = 5000;
+/** Decay cadence for a container in a room we own. */
+export const CONTAINER_DECAY_INTERVAL_OWNED = 500;
+/** Decay cadence for a container in a room we do NOT own - 5x faster. */
+export const CONTAINER_DECAY_INTERVAL_REMOTE = 100;
+
+/**
+ * Energy/tick to hold one container at full hits. A REMOTE container costs 5x
+ * an owned one (0.50 vs 0.10 e/t) purely because the engine decays it five
+ * times as fast - a standing cost of remote mining that no plan term prices.
+ */
+export function containerDecayEnergy(owned: boolean): number {
+  const interval = owned ? CONTAINER_DECAY_INTERVAL_OWNED : CONTAINER_DECAY_INTERVAL_REMOTE;
+  return hitsToEnergy(CONTAINER_DECAY_HITS / interval);
+}
+
+/** Hits a rampart loses per decay event (Screeps RAMPART_DECAY_AMOUNT). */
+export const RAMPART_DECAY_HITS = 300;
+/** Decay cadence for a rampart. */
+export const RAMPART_DECAY_INTERVAL = 100;
+
+/** Energy/tick to hold one rampart at full hits. */
+export function rampartDecayEnergy(): number {
+  return hitsToEnergy(RAMPART_DECAY_HITS / RAMPART_DECAY_INTERVAL);
+}
+
+/**
+ * Energy a creep spends repairing for one tick with `workParts`.
+ * REPAIR_COST (0.01 energy/hit) x REPAIR_POWER (100 hits/WORK/tick) = exactly
+ * one energy per WORK part, the precise inverse of hitsToEnergy - so a
+ * structure held at constant hits costs exactly its decay rate, and the
+ * account's decay and repair lines net out instead of double-counting.
+ */
+export function creepRepairEnergy(workParts: number): number {
+  return workParts > 0 ? workParts : 0;
+}
+
+/**
+ * Fraction of a link transfer the engine DESTROYS (Screeps LINK_LOSS_RATIO).
+ *
+ * This lived only in telemetry/LinkMeter, which meant the colony measured the
+ * loss and the planner priced none of it (owner 2026-08-01: "we still have the
+ * 'free' hauling from links in the plan as well?"). A link-served source has
+ * its haul leg priced at ~1 tile - correct, the link really does carry it - but
+ * with no transfer cost it looked strictly cheaper than a walked source rather
+ * than cheaper-by-the-right-amount.
+ */
+export const LINK_TRANSFER_LOSS = 0.03;
+
+/**
+ * Energy/tick destroyed moving `rate` through ONE link hop.
+ *
+ * Charged per SOURCE for the hop that puts its output on the network. The
+ * onward hop (hub -> controller link) is a colony distribution cost, not
+ * attributable to any one source, and is deliberately not billed here - the
+ * live meter sees both (t72721419: 1.45 e/t at the hub + 1.14 onward = 2.59).
+ */
+export function linkTransferTax(rate: number): number {
+  return rate > 0 ? rate * LINK_TRANSFER_LOSS : 0;
 }

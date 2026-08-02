@@ -184,10 +184,30 @@ export function partialPaveRatio(builtTiles: number, totalTiles: number): Partia
  * tiles modeled as plain - swamps are paved first / detoured by the planner).
  * For a 1:1 body, or a 2:1 body on a fully paved route, this is the identity.
  */
-export function effectiveOneWayTiles(oneWayTiles: number, pavedFraction: number, carryPerMove: number): number {
+export function effectiveOneWayTiles(
+  oneWayTiles: number,
+  pavedFraction: number,
+  carryPerMove: number,
+  swampFraction = 0
+): number {
   const paved = oneWayTiles * Math.min(1, Math.max(0, pavedFraction));
   const unpaved = oneWayTiles - paved;
-  const loadedBack = paved * loadedTicksPerTile(1, carryPerMove) + unpaved * loadedTicksPerTile(2, carryPerMove);
+  // SWAMP is a share of the UNPAVED remainder: a built road costs 1 whatever
+  // lies under it, so paving is exactly what neutralises swamp. A loaded 1:1
+  // body clears plain at 1 tick/tile and swamp at FIVE, so ignoring swamp
+  // under-states the round TRIP - and CARRY sizing is a function of time, not
+  // tiles (owner 2026-08-02: "it's supposed to translate a route into ticks so
+  // accounting for swamps, move ratio, carry fill and roads is essential").
+  const swampShare = Math.min(1, Math.max(0, swampFraction));
+  const unpavedSwamp = unpaved * swampShare;
+  const unpavedPlain = unpaved - unpavedSwamp;
+  const loadedBack =
+    paved * loadedTicksPerTile(1, carryPerMove) +
+    unpavedPlain * loadedTicksPerTile(2, carryPerMove) +
+    unpavedSwamp * loadedTicksPerTile(10, carryPerMove);
+  // Empty out at 1 tick/tile always (an unladen creep generates no fatigue),
+  // loaded back at the terrain-and-ratio rate. Halved because callers multiply
+  // it back into a round trip.
   return (oneWayTiles + loadedBack) / 2;
 }
 
