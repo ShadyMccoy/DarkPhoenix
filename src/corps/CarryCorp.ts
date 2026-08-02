@@ -30,6 +30,14 @@ import {
 } from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { travelTicksPerTile } from "./economics";
+
+/**
+ * Hard backstop on bodies per hauling corp - the pathological case where the
+ * fielded bodies are so small that even twice the route's carry would take a
+ * crowd. Generous on purpose: the CARRY cap above it is the real bound, and
+ * this only exists so a degenerate room cannot spawn without limit.
+ */
+const HAULER_BODY_CEILING = 12;
 import { nextStop, roomCircuit } from "./refillCircuit";
 import { hostileRooms, routeIsDangerous } from "../utils/RoomDiscovery";
 import { Position } from "../types/Position";
@@ -87,6 +95,8 @@ export class CarryCorp extends Corp {
    * mid-window doesn't read as a duty collapse (the tender-meter pattern).
    */
   private dutyAlive = 0;
+  /** Which gate ended the last hauler-sizing walk (spec 14 exit verdict). */
+  private lastExit: "staffed" | "swarm-cap" | "asking" | undefined;
   private dutyActive = 0;
   private dutyIdleSource = 0;
   private dutyIdleSink = 0;
@@ -185,6 +195,7 @@ export class CarryCorp extends Corp {
       // drain term), plus the source link state - so the next capture names
       // whether a standing pile is hauler under-sizing or a link backlog.
       carryNeeded: this.haulCarryNeeded(),
+      ...(this.lastExit ? { exit: this.lastExit } : {}),
       staged: pickup.staged,
       srcLinkEnergy: pickup.srcLinkEnergy,
       srcLinkCap: pickup.srcLinkCap,
@@ -1249,10 +1260,40 @@ export class CarryCorp extends Corp {
     // a self-sustaining stall. Keep adding haulers until the CARRY is actually
     // covered, capped at twice the planned count so a pathologically starved room
     // can't spawn an unbounded swarm.
+    // EXIT VERDICT (spec 14): which gate ended this sizing walk. The upgrader
+    // has carried a `demand` verdict since t72455355 for exactly this reason -
+    // "targetCount 6 with ONE fielded creep and NO agenda entry" was
+    // undiagnosable without it. The fidelity cells show fielded carry landing
+    // at 53-74% of plan with the spawn 54-82% IDLE, so the shortfall is a
+    // DEMAND-side gate, not affordability - and two gates here can produce it.
+    this.lastExit = "staffed";
     if (current >= targetHaulers && fieldedCarry >= carryNeeded) return [];
     // The swarm cap stays on the PHYSICAL count: replacement overlap may field
     // one extra body per expiring hauler, but never an unbounded swarm.
-    if (this.getCreepCount() >= targetHaulers * 2) return [];
+    // THE SWARM CAP IS DENOMINATED IN CARRY, like the gate above it.
+    //
+    // It used to cap the physical COUNT at 2x targetHaulers while the gate
+    // above stops on CARRY. Those are different currencies, and when the
+    // fielded bodies are smaller than the planner sized them, 2x the count is
+    // reachable while the carry is still short - so the corp stopped asking at
+    // a PERMANENT deficit, with spawn capacity going spare.
+    //
+    // Measured 2026-08-02 in all three plan-fidelity cells: fielded carry
+    // 53-74% of plan with the spawn 54-82% IDLE, and the controller shortfall
+    // tracking the carry shortfall across every one (74%->46%, 67%->42%,
+    // 53%->34%). Reproduced deterministically in CarryCorp.behavior: four
+    // 1-CARRY runts satisfy a 2x count cap on a 6-CARRY route carrying 4.
+    //
+    // The runaway protection is real and kept - a starved room must not spawn
+    // an unbounded swarm - but it belongs in the same unit as the need. A fleet
+    // already carrying twice the route's requirement is a swarm by any
+    // definition; one that is count-heavy but carry-short is just undersized.
+    // The absolute body ceiling stays as a hard backstop for the pathological
+    // case where bodies are so small that even 2x carry needs a crowd.
+    this.lastExit = "swarm-cap";
+    if (fieldedCarry >= carryNeeded * 2) return [];
+    if (this.getCreepCount() >= HAULER_BODY_CEILING) return [];
+    this.lastExit = "asking";
 
     // Size while FILLING the planned fleet by an EVEN share of the route's carry -
     // not a greedy "max out each body and leave whatever is left for the last one",

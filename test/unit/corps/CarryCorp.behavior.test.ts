@@ -240,6 +240,51 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       expect(totalCarry).to.be.at.least(needed, "fleet must cover spawn + controller carry combined");
     });
 
+    /**
+     * THE CARRY GAP, ISOLATED (2026-08-02). All three plan-fidelity grid cells
+     * field 53-74% of the planned CARRY while the spawn sits 54-82% IDLE, and
+     * the controller shortfall tracks the carry shortfall across all three
+     * (74%->46%, 67%->42%, 53%->34%). Idle spawn means the missing haulers are
+     * not unaffordable and not crowded out - they are not being ASKED for.
+     *
+     * Two gates in getSpawnDemand can swallow the ask, and they disagree about
+     * what "enough" means:
+     *
+     *   if (current >= targetHaulers && fieldedCarry >= carryNeeded) return [];
+     *   if (this.getCreepCount() >= targetHaulers * 2)               return [];
+     *
+     * The first is on CARRY (correct - it is the runt-fleet invariant). The
+     * second is on the physical COUNT. When the fielded bodies are smaller than
+     * the planner sized them, 2x the count is reachable while the carry is
+     * still short - and the corp then stops asking FOREVER, at a permanent
+     * deficit, with spawn capacity going spare.
+     */
+    it("keeps asking when the fleet is COUNT-complete but CARRY-short (the fidelity-cell shape)", () => {
+      const nodeId = "W1N1-hauling-undersized";
+      const corp = carryCorp(nodeId);
+      // carryNeeded 6, maxCarryPerHauler 5 -> targetHaulers 2, swarm cap 4.
+      corp.setHaulerAssignments([route("controller-cccc", 20, 6)]);
+
+      // Four RUNT haulers (1 CARRY each): the swarm cap is reached at 4 bodies
+      // while the fielded carry is 4 of the 6 the route needs.
+      const creeps: Record<string, unknown> = {};
+      for (let i = 0; i < 4; i += 1) {
+        creeps[`r${i}`] = {
+          memory: { corpId: nodeId, workType: "haul" },
+          spawning: false,
+          store: { getCapacity: () => 50 },
+          getActiveBodyparts: (part: string) => (part === "carry" ? 1 : 0)
+        };
+      }
+      (global as any).Game = { ...MockGame, creeps, time: 100 };
+
+      const demands = corp.getSpawnDemand(ctx);
+      expect(
+        demands.length,
+        "carry is 4 of 6 and the spawn is idle - the corp must still be asking"
+      ).to.be.greaterThan(0);
+    });
+
     it("stops demanding once the fleet is large enough", () => {
       const nodeId = "W1N1-hauling-stop";
       const corp = carryCorp(nodeId);
