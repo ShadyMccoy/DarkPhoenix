@@ -158,9 +158,12 @@ left.
 | construction | ✅ | all-in commission price (spec 34 D4) |
 | bank accumulation | ⚠️ | three drain rates disagree — **spec 38** |
 | **ground pile decay** | ❌ | measured 15.67 e/t, priced nowhere |
-| **tombstone losses** | ❌ | measured 12.21 e/t, priced nowhere |
+| **tombstone losses** | ❌ | measured 12.21 e/t, priced nowhere — but the death watch (2026-08-02) now splits cause: first live read **killed 100%, mean ttl-at-death 725** — a defense-economics number, not an aging number |
 | **structure decay** | ❌ | accrues 4.26 e/t; repair 3.99 e/t is spent but unbudgeted |
-| **forgone mining** | ❌ | 30.28 e/t of capacity never harvested; now *reported*, still unpriced |
+| **forgone mining** | ✅ 2026-08-02 | **MEASURED, not inferred**: harvest corps' cumulative `produced` (corps v14) differences per capture pair — capacity − mined covers held, unstaffed and unreserved mouths at once; heldFrac demoted to diagnostic |
+| **buffer-drain fleet** | ✅ 2026-08-02 | the ONE drain law (`bufferDrainCarry`) priced into plan routes from the adapter's `staged` read — plan and corp size from the same two terms |
+| **transient/scavenge routes** | ✅ 2026-08-02 | floor-body pricing (`scavengeFloorParts`) — the literal "(unbudgeted)" line is budgeted |
+| **defense (standing guards)** | ✅ 2026-08-02 | replacement-cadence line in planSpawnLoad; the raid SURGE stays with the invader tax, whose recalibration (measured ~11x under-priced) waits on a fiscal-month soak |
 | **link throughput ceiling** | ❌ | 58% of hub fires clamped; the plan assumes full flow |
 
 The unpriced rows sum to roughly **60 e/t against 100 e/t of capacity.** That is
