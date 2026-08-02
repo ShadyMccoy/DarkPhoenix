@@ -11,10 +11,11 @@ import {
   bankSurplusRate,
   feederRelayRate,
   bankSourceId,
-  bankToTransientSource
+  bankToTransientSource,
+  controllerFloorRate
 } from "../../../src/economy/bank";
 import { EXPANSION_CAPEX, EXPANSION_SAFETY_RESERVE } from "../../../src/economy/expansion";
-import { CREEP_LIFETIME } from "../../../src/economy/primitives";
+import { ANTI_DOWNGRADE_RESERVE, CREEP_LIFETIME } from "../../../src/economy/primitives";
 
 // Spec 03 (storage draw-down), the SURPLUS half: once the bank holds the
 // liquidity reserve, everything above it is spendable on the controller. The
@@ -191,5 +192,32 @@ describe("t72455355 pin: a full bank NEVER starves the relay (spec 38 guard)", (
 
   it("still relays the save-regime floor when the bank sits AT reserve", () => {
     expect(feederRelayRate(70_000, 70_000)).to.equal(STORAGE_UPGRADE_TARGET);
+  });
+});
+
+/**
+ * SPEC 38 PHASE A - the controller floor moves INSIDE the plan.
+ *
+ * The runtime's feederRelayRate carries a +STORAGE_UPGRADE_TARGET constant
+ * the solver never modeled (P12 read 3.30x divergence on the non-bank term
+ * at FY4849-M03). Phase A gives the plan the floor as a SINK RESERVE, priced
+ * by the one drain law: the bank funds a floor it can sustain for a creep
+ * generation - never more than the save target, and a cold storage room
+ * floors at the anti-downgrade trickle so a thin economy's spawn is never
+ * out-reserved by its own controller.
+ */
+describe("controllerFloorRate (spec 38 phase A: the plan's own floor)", () => {
+  it("caps at the save-regime target once the bank can sustain it", () => {
+    expect(controllerFloorRate(340_000)).to.equal(STORAGE_UPGRADE_TARGET); // t72455355's bank
+    expect(controllerFloorRate(STORAGE_UPGRADE_TARGET * CREEP_LIFETIME)).to.equal(STORAGE_UPGRADE_TARGET);
+  });
+
+  it("scales with what the bank can actually sustain below the target", () => {
+    expect(controllerFloorRate(7500)).to.be.closeTo(5, 1e-9); // 7500/1500
+  });
+
+  it("floors at the anti-downgrade trickle on an empty bank", () => {
+    expect(controllerFloorRate(0)).to.equal(ANTI_DOWNGRADE_RESERVE);
+    expect(controllerFloorRate(1000)).to.equal(ANTI_DOWNGRADE_RESERVE); // 0.67 < trickle
   });
 });

@@ -29,7 +29,7 @@ import "../types/Memory"; // Memory augmentation for the expansion import below
 import { Position } from "../types/Position";
 import { PlannerSource } from "./CorpPlanner";
 import { EXPANSION_CAPEX, EXPANSION_SAFETY_RESERVE } from "./expansion";
-import { CREEP_LIFETIME } from "./primitives";
+import { ANTI_DOWNGRADE_RESERVE, CREEP_LIFETIME, sustainableConsumptionRate } from "./primitives";
 
 /**
  * The colony's HARD liquidity floor: the expansion campaign's full CAPEX plus a
@@ -164,6 +164,22 @@ export function bankSurplusRate(banked: number, reserveTarget: number): number {
  */
 export function feederRelayRate(banked: number, reserveTarget: number): number {
   return STORAGE_UPGRADE_TARGET + bankSurplusRate(banked, reserveTarget);
+}
+
+/**
+ * The controller floor the PLAN itself guarantees (spec 38 phase A): the
+ * save-regime upgrade target, but only as fast as the standing bank can
+ * sustain for one creep generation (the ONE drain law - the same
+ * stock/CREEP_LIFETIME behind bankSurplusRate and consumer sizing), floored
+ * at the anti-downgrade trickle. Wired as the controller SINK RESERVE in the
+ * adapter, so the reserve pre-pass wins the floor's parts before value greed
+ * - the planner-side half of retiring feederRelayRate's
+ * +STORAGE_UPGRADE_TARGET side-channel (P12's measured 3.30x non-bank
+ * divergence). A cold storage room floors at the trickle: its spawn is never
+ * out-reserved by its own controller.
+ */
+export function controllerFloorRate(banked: number): number {
+  return Math.max(ANTI_DOWNGRADE_RESERVE, Math.min(STORAGE_UPGRADE_TARGET, sustainableConsumptionRate(banked)));
 }
 
 /**

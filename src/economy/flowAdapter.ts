@@ -89,6 +89,7 @@ import {
   STORAGE_UPGRADE_TARGET,
   bankToTransientSource,
   bankSourceId,
+  controllerFloorRate,
   resolveReserveTarget,
   warchestTarget
 } from "./bank";
@@ -670,6 +671,12 @@ export function storageRoomRemaining(roomName: string): number {
   return storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? Infinity;
 }
 
+/** Energy standing in a room's storage (0 without one; harness-safe 0). */
+export function storageRoomStock(roomName: string): number {
+  if (typeof Game === "undefined" || !Game.rooms) return 0;
+  return Game.rooms[roomName]?.storage?.store?.[RESOURCE_ENERGY] ?? 0;
+}
+
 /**
  * Paved FRACTION of each source's haul route, by GAME id (the receipts in
  * room memory - see RoomMemory.roadRoutes): the binary `paved` receipt reads
@@ -1102,7 +1109,15 @@ export function buildColonyProblem(
               controllerUpgradeCap(sink.position.roomName),
               wartimeRooms
             ), // controller: mops up the remainder up to the fleet's physical upgrade rate (#21); the excess banks to storage
-      reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined
+      // SPEC 38 PHASE A (2026-08-02): the controller's floor moves INSIDE the
+      // plan. controllerFloorRate = the save-regime target as fast as the
+      // standing bank can sustain it (the ONE drain law), floored at the
+      // anti-downgrade trickle - so the reserve pre-pass guarantees what
+      // feederRelayRate's +STORAGE_UPGRADE_TARGET side-channel guaranteed
+      // outside the plan (P12's measured 3.30x non-bank divergence), and a
+      // cold storage room's spawn is never out-reserved by its controller.
+      reserve:
+        kind === "controller" ? controllerFloorRate(storageRoomStock(sink.position.roomName)) : undefined
     });
   }
 
