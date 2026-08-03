@@ -1161,12 +1161,27 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   // is inflow-sized, no drain term) - a plan fix. Low duty / high idleSource
   // => execution loss (energy standing, haulers idle/blocked) - a behavior fix.
   // idleSink => sink backpressure (storage/port full). Absent pre-instrument.
+  //
+  // BASIS = top-level carry corps PLUS the operations' inner haul engines
+  // (innerSizing type "hauling", corps v13/spec 34 D5 - published precisely
+  // because the biggest hauling spend rides INSIDE harvest operations).
+  // Until phase 3 of the income-statement program H1 read only the former,
+  // so its duty basis was the 0-3 standalone survivors while 8+ operation
+  // engines went uncounted (t72743103: 8 inner stamps, 0 carry corps, H1
+  // silently absent). Inner stamps weight by their OWN fielded creeps (the
+  // stamp's `creeps`), never the operation's creepCount (that counts miners).
   {
-    const haulers = corps.filter(c => c.kind === "carry" && c.sizing && c.sizing.duty !== undefined);
-    const creeps = haulers.reduce((s, c) => s + (c.creepCount || 0), 0);
+    const haulers: { sizing: any; weight: number }[] = [];
+    for (const c of corps) {
+      if (c.kind === "carry" && c.sizing && c.sizing.duty !== undefined)
+        haulers.push({ sizing: c.sizing, weight: c.creepCount || 0 });
+      for (const i of c.innerSizing ?? [])
+        if (i.type === "hauling" && i.sizing && i.sizing.duty !== undefined)
+          haulers.push({ sizing: i.sizing, weight: i.sizing.creeps || 0 });
+    }
+    const creeps = haulers.reduce((s, c) => s + c.weight, 0);
     if (haulers.length > 0 && creeps > 0) {
-      const wavg = (f: string): number =>
-        haulers.reduce((s, c) => s + (c.sizing[f] || 0) * (c.creepCount || 0), 0) / creeps;
+      const wavg = (f: string): number => haulers.reduce((s, c) => s + (c.sizing[f] || 0) * c.weight, 0) / creeps;
       const duty = wavg("duty");
       const idleSource = wavg("idleSourceFrac");
       const idleSink = wavg("idleSinkFrac");
@@ -1202,6 +1217,54 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
               ? `- idleSink AT-SINK, storage HAD ROOM (${atSinkStorageRoom.toFixed(2)}) => SPATIAL contention at the deposit (queue / parked mover), not saturation => geometry/deposit-spread fix`
               : "- idleSink AT-SINK, storage FULL => sink saturation (spill the load / open the drain)"
             : "- buffers near cap, no leak")
+      });
+    }
+  }
+
+  // ---- H3 chronic mouth: buffer full at BOTH ends, zero drain fielded ----
+  // The t72654979 cd8e signature as a STANDING gauge: a source buffer over
+  // the container cap at BOTH captures whose haul stamp fields ZERO drain
+  // creeps at the capture end - cd8e grew 2649 -> 3874 across a whole window
+  // with creeps 0, chronic for 512t, found only by hand in the E6 audit.
+  // Reads the same merged haul-stamp basis as H1 (top-level carry corps +
+  // inner "hauling" engines), matched per corp/engine across the pair.
+  // GROWING is the disease (FAIL); flat-but-full with no drain is a WARN
+  // (could be a just-retired route scavenging down). A fielded drain creep,
+  // an under-cap mouth, or captures predating the stamps stay silent.
+  {
+    const CONTAINER_CAP = 2000;
+    const haulStampsOf = (arr: any[]): Map<string, any> => {
+      const m = new Map<string, any>();
+      for (const c of arr ?? []) {
+        if (c.kind === "carry" && c.sizing && c.sizing.staged !== undefined) m.set(c.id, c.sizing);
+        for (const i of c.innerSizing ?? [])
+          if (i.type === "hauling" && i.sizing && i.sizing.staged !== undefined) m.set(`${c.id}/${i.nodeId}`, i.sizing);
+      }
+      return m;
+    };
+    const capStamps = haulStampsOf(cap.data.corps?.corps ?? []);
+    const baseStamps = haulStampsOf(base.data.corps?.corps ?? []);
+    const chronic: { id: string; from: number; to: number; growing: boolean }[] = [];
+    for (const [id, s] of capStamps) {
+      const b = baseStamps.get(id);
+      if (!b) continue;
+      const to = s.staged ?? 0;
+      const from = b.staged ?? 0;
+      if (to <= CONTAINER_CAP || from <= CONTAINER_CAP) continue; // full at BOTH ends or it's just staging
+      if ((s.creeps ?? 0) > 0) continue; // a drain IS fielded - the route works the pile
+      chronic.push({ id, from, to, growing: to > from + 1 });
+    }
+    if (chronic.length > 0) {
+      const growing = chronic.filter(c => c.growing);
+      rows.push({
+        id: "H3",
+        name: "chronic mouth (buffer full, no drain fielded)",
+        value: chronic.length,
+        unit: "mouths over cap with zero drain creeps at both captures",
+        verdict: growing.length > 0 ? "FAIL" : "WARN",
+        detail:
+          chronic.map(c => `${c.id} ${Math.round(c.from)}->${Math.round(c.to)}${c.growing ? " GROWING" : ""}`).join("; ") +
+          " - the cd8e class: order the drain (the plan's bufferDrainCarry term should have caught this - check the route's carryNeeded vs fielded)"
       });
     }
   }

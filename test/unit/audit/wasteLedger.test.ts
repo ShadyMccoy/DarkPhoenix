@@ -1991,3 +1991,95 @@ describe("R1 raid-tax calibration gauge", () => {
     expect(computeLedger(cap, base).find(r => r.id === "R1")).to.equal(undefined);
   });
 });
+
+/**
+ * H1's duty basis includes the INNER haul engines (phase 3 of the
+ * income-statement program). The corps segment publishes innerSizing
+ * (v13, spec 34 D5) precisely because the biggest hauling spend rides
+ * INSIDE harvest operations - but H1 kept reading only top-level carry
+ * corps, so its duty basis was the 0-3 standalone survivors while 8+
+ * operation engines went uncounted (measured t72743103: 8 corps with
+ * inner hauling stamps, 0 top-level carry corps, H1 silently absent).
+ */
+describe("H1 hauler duty reads the inner haul engines (the spec-34 blindness fix)", () => {
+  const rig = (): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    // No top-level carry corps in the capture at all - the live t72743103 shape.
+    cap.data.corps.corps = (cap.data.corps.corps ?? []).filter((c: any) => c.kind !== "carry");
+    cap.data.corps.corps.push(
+      {
+        id: "mining-W1N1-harvest-aaaa", kind: "harvest", creepCount: 3, bodyParts: 20,
+        innerSizing: [{ type: "hauling", nodeId: "W1N1-harvest-aaaa",
+          sizing: { duty: 0.9, idleSourceFrac: 0, idleSinkFrac: 0.1, idleSinkAtSinkFrac: 0, idleSinkStorageRoomFrac: 0, creeps: 2, carryNeeded: 8, staged: 500 } }]
+      },
+      {
+        id: "mining-W1N1-harvest-bbbb", kind: "harvest", creepCount: 3, bodyParts: 20,
+        innerSizing: [{ type: "hauling", nodeId: "W1N1-harvest-bbbb",
+          sizing: { duty: 0.5, idleSourceFrac: 0.4, idleSinkFrac: 0, idleSinkAtSinkFrac: 0, idleSinkStorageRoomFrac: 0, creeps: 2, carryNeeded: 8, staged: 500 } }]
+      }
+    );
+    return { cap, base };
+  };
+
+  it("fields the row from inner stamps alone, creep-weighted (duty 0.9 x2 + 0.5 x2 -> 0.7)", () => {
+    const { cap, base } = rig();
+    const h1 = computeLedger(cap, base).find(r => r.id === "H1")!;
+    expect(h1, "inner haul engines ARE the fleet - the row must exist without top-level carry corps").to.not.equal(
+      undefined
+    );
+    expect(h1.value).to.be.closeTo(0.7, 1e-6);
+    expect(h1.detail).to.include("4 creeps");
+  });
+});
+
+/**
+ * H3 chronic mouth - the t72654979 cd8e signature as a STANDING gauge.
+ * cd8e's buffer grew 2649 -> 3874 across a whole window while its drain
+ * route stamped creeps 0 - chronic for 512t, found only by hand in the E6
+ * audit. The gauge reads the same haul stamps H1 reads (staged + creeps,
+ * both captures, matched per corp): a mouth over the container cap at BOTH
+ * ends with NO drain creep fielded at the capture end is the leak; growing
+ * is the disease (FAIL), flat is a warning. Routes with a fielded drain,
+ * or captures predating the stamps, stay silent.
+ */
+describe("H3 chronic mouth (buffer full, zero drain demand - t72654979)", () => {
+  const inner = (staged: number, creeps: number): any => ({
+    innerSizing: [{ type: "hauling", nodeId: "W1N1-harvest-cccc",
+      sizing: { duty: 0, idleSourceFrac: 0, idleSinkFrac: 0, creeps, carryNeeded: creeps > 0 ? 4 : 1, staged } }]
+  });
+  const rig = (capStaged: number, baseStaged: number, capCreeps: number): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.corps.corps = (cap.data.corps.corps ?? []).filter((c: any) => c.kind !== "carry");
+    base.data.corps.corps = (base.data.corps.corps ?? []).filter((c: any) => c.kind !== "carry");
+    cap.data.corps.corps.push({ id: "mining-W1N1-harvest-cccc", kind: "harvest", creepCount: 1, ...inner(capStaged, capCreeps) });
+    base.data.corps.corps.push({ id: "mining-W1N1-harvest-cccc", kind: "harvest", creepCount: 1, ...inner(baseStaged, 0) });
+    return { cap, base };
+  };
+
+  it("a growing over-cap mouth with zero drain creeps is the cd8e FAIL", () => {
+    const { cap, base } = rig(3874, 2649, 0);
+    const h3 = computeLedger(cap, base).find(r => r.id === "H3")!;
+    expect(h3).to.not.equal(undefined);
+    expect(h3.verdict).to.equal("FAIL");
+    expect(h3.detail).to.include("cccc");
+    expect(h3.detail).to.include("3874");
+  });
+
+  it("a flat over-cap mouth with zero drain is a WARN, not a FAIL", () => {
+    const { cap, base } = rig(2650, 2649, 0);
+    const h3 = computeLedger(cap, base).find(r => r.id === "H3")!;
+    expect(h3.verdict).to.equal("WARN");
+  });
+
+  it("a fielded drain creep silences the gauge (the route is working the pile)", () => {
+    const { cap, base } = rig(3874, 2649, 1);
+    expect(computeLedger(cap, base).find(r => r.id === "H3")).to.equal(undefined);
+  });
+
+  it("mouths under the cap stay silent - piles below container size are normal staging", () => {
+    const { cap, base } = rig(1500, 1400, 0);
+    expect(computeLedger(cap, base).find(r => r.id === "H3")).to.equal(undefined);
+  });
+});
