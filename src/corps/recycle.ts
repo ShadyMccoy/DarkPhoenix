@@ -46,12 +46,39 @@ export function pickRuntToRecycle(partCounts: number[], partsNeeded: number, max
   return idx;
 }
 
-/** Walk a retired creep to the spawn, dumping any carried energy, then recycle it. */
+/**
+ * Walk a retired creep to the spawn, banking any carried energy, then recycle
+ * it - onto a container when one stands beside the spawn.
+ *
+ * Two mechanics fixes (owner 2026-08-03, on the t72755898 finding that
+ * recycle tombstones masqueraded as combat kills):
+ * - CARGO DELIVERS, NEVER ENTOMBS: the bank is storage-first. The old spawn
+ *   dump livelocked in any healthy room (the spawn buffer is pinned FULL, so
+ *   ERR_FULL forever) and the cargo eventually died into a tombstone the
+ *   death watch read as a kill. Rooms without storage keep the spawn dump.
+ * - THE REFUND LANDS IN A STORE: recycleCreep's body refund drops onto the
+ *   creep's tile, and the engine banks it into a container under the creep.
+ *   When a container stands beside the spawn the recycler seats it first;
+ *   occupied or absent falls back to the plain adjacent recycle - the pad is
+ *   an optimization, never a precondition. (Whether to BUILD such a pad is
+ *   priced by v28's tombstoneRecycled line; this only uses one that exists.)
+ */
 export function driveRecycle(creep: Creep, spawn: StructureSpawn): void {
   if (creep.store[RESOURCE_ENERGY] > 0) {
-    if (creep.transfer(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-      creep.moveTo(spawn, { visualizePathStyle: { stroke: "#888888" } });
+    const bank: AnyStoreStructure | StructureSpawn = creep.room.storage ?? spawn;
+    if (creep.transfer(bank, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+      creep.moveTo(bank, { visualizePathStyle: { stroke: "#888888" } });
     }
+    return;
+  }
+  const pad = spawn.pos
+    .findInRange(FIND_STRUCTURES, 1, { filter: (s: AnyStructure) => s.structureType === STRUCTURE_CONTAINER })
+    .find(p => {
+      const others = typeof p.pos.lookFor === "function" ? p.pos.lookFor(LOOK_CREEPS) : [];
+      return !others.some((c: { name?: string }) => c.name !== creep.name);
+    });
+  if (pad && !creep.pos.isEqualTo(pad.pos)) {
+    creep.moveTo(pad.pos, { visualizePathStyle: { stroke: "#888888" } });
     return;
   }
   if (creep.pos.isNearTo(spawn)) {
