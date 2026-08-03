@@ -610,7 +610,16 @@ export class CarryCorp extends Corp {
   private pickupEnergy(creep: Creep, room: Room): void {
     // Our source is reserved for the builder: don't draw from it. Stand by (idle
     // until the build finishes) so the construction tankers get its full output.
-    if (this.yieldsToBuild()) return;
+    // STAND-DOWN NEVER FREEZES CARGO (fid-t4-synthetic probe, t800-1100): a
+    // controller-circuit hauler entered pickup at 99/100, its source was
+    // dedicated to the build, and this return froze it LOADED for 300+ ticks
+    // while the upgrader one tile away starved at 0 - the cell's controller
+    // line read 0.0 of a 2.0 plan. Yielding means no NEW pickups; anything
+    // already aboard delivers first, then the empty creep stands by.
+    if (this.yieldsToBuild()) {
+      if (creep.store[RESOURCE_ENERGY] > 0) this.depart(creep, room);
+      return;
+    }
 
     // Resolve this hauler's ONE pickup stop first: both the degraded-refill
     // locality check below and the normal pickup leg need it, and getAssignedSource
@@ -702,7 +711,31 @@ export class CarryCorp extends Corp {
       }
       return;
     }
-    workSpot(creep, sourcePickupSpot(targetPos), "collect");
+    // DEPART ON DRY, ordinary haulers too (fid-t4-synthetic probe, t800-1100):
+    // the scavenger branch above has ALWAYS departed a drained stock with a
+    // partial load, but a regular hauler waited at its pickup for the full-load
+    // flip - and a pickup that yields nothing (a phantom assignedSourcePos from
+    // a long-gone transient stock, or a source at its regen gap with no pile)
+    // froze one at (23,13) holding 99 of 100 for 300+ ticks while the upgrader
+    // one tile away starved at 0 and the cell's controller line read 0.0 of
+    // 2.0. Carrying SOMETHING at a dry stop: deliver it and come back - the
+    // regen-gap case is also just correct economics (the 99 beats waiting out
+    // a 300-tick regen for the last 1). Empty-handed at a dry REAL source
+    // still waits (it regenerates); the phantom-pos case falls to the
+    // orphan/retire machinery as before.
+    const spot = sourcePickupSpot(targetPos);
+    const spotStocked =
+      (spot.structure && ((spot.structure as StructureContainer).store?.[RESOURCE_ENERGY] ?? 0) > 0) ||
+      (typeof spot.pos?.findInRange === "function" &&
+        spot.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
+          filter: (r: Resource) => r.resourceType === RESOURCE_ENERGY && r.amount > 0
+        }).length > 0) ||
+      (assignedSource ? (assignedSource.energy ?? 0) > 0 : false);
+    if (!spotStocked && creep.store[RESOURCE_ENERGY] > 0 && creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+      this.depart(creep, room);
+      return;
+    }
+    workSpot(creep, spot, "collect");
   }
 
   /** True when this corp serves a transient ground stock rather than a source. */
