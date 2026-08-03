@@ -1683,6 +1683,71 @@ describe("spec 42 stage A: every loss line has a BUDGET (methodology #9)", () =>
 });
 
 /**
+ * F3 output fidelity (spec 40 part A's contract OUTPUT term, at spec 39's
+ * commission grain). F1/F2 audit the PRICE term (spawn parts); F3 audits what
+ * each mining commission PRODUCED against the plan's own per-source rate -
+ * the v14 cumulative `produced` counter differenced across the capture pair,
+ * joined to flow sources by the P&L's corp-id construction
+ * (mining-{room}-harvest-{last4 of source id}). Two-sided: an operation
+ * out-producing its declaration distorts the plan exactly as much as one
+ * under-delivering. A negative delta is a corp REBUILT mid-window (the
+ * counter rides the store serialize) - skipped and counted, never booked as
+ * output. No joinable rows -> no row.
+ */
+describe("F3 output fidelity (contract OUTPUT term per mining commission)", () => {
+  const dtF3 = cap72411542.data.core.tick - cap72404213.data.core.tick;
+  const rig = (rows: { suffix: string; rate: number; capProduced: number; baseProduced: number }[]): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.flow = cap.data.flow ?? {};
+    cap.data.flow.sources = rows.map(r => ({ id: `source-aaaa${r.suffix}`, nodeId: "W9N9-25-25", harvestRate: r.rate }));
+    const corpRow = (r: any, produced: number): any => ({
+      id: `mining-W9N9-harvest-${r.suffix}`,
+      kind: "harvest",
+      creepCount: 1,
+      bodyParts: 8,
+      produced
+    });
+    cap.data.corps.corps = (cap.data.corps.corps ?? []).concat(rows.map(r => corpRow(r, r.capProduced)));
+    base.data.corps.corps = (base.data.corps.corps ?? []).concat(rows.map(r => corpRow(r, r.baseProduced)));
+    return { cap, base };
+  };
+
+  it("differences the produced counter per commission against the plan's own rate; names the offender", () => {
+    const { cap, base } = rig([
+      { suffix: "good", rate: 10, capProduced: 100 + 10 * dtF3, baseProduced: 100 },
+      { suffix: "slow", rate: 10, capProduced: 5 * dtF3, baseProduced: 0 }
+    ]);
+    const f3 = computeLedger(cap, base).find(r => r.id === "F3")!;
+    expect(f3, "joinable produced counters field the row").to.not.equal(undefined);
+    // |10-10| + |5-10| = 5 over a declared basis of 20
+    expect(f3.value).to.be.closeTo(0.25, 1e-3);
+    expect(f3.verdict).to.equal("WARN");
+    expect(f3.detail).to.include("harvest-slow");
+    expect(f3.detail).to.include("-5.0");
+  });
+
+  it("a corp REBUILT mid-window (negative delta) is skipped and counted, never booked as output", () => {
+    const { cap, base } = rig([
+      { suffix: "good", rate: 10, capProduced: 100 + 10 * dtF3, baseProduced: 100 },
+      { suffix: "rebt", rate: 10, capProduced: 50, baseProduced: 900 }
+    ]);
+    const f3 = computeLedger(cap, base).find(r => r.id === "F3")!;
+    expect(f3.value, "only the faithful row is in the basis").to.be.closeTo(0, 1e-3);
+    expect(f3.verdict).to.equal("ok");
+    expect(f3.detail).to.include("1 reset");
+  });
+
+  it("no joinable rows -> no F3 (absence, never a fake zero)", () => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    for (const c of cap.data.corps.corps ?? []) delete c.produced;
+    for (const c of base.data.corps.corps ?? []) delete c.produced;
+    expect(computeLedger(cap, base).find(r => r.id === "F3")).to.equal(undefined);
+  });
+});
+
+/**
  * BALANCE SHEET (spec 42 section 2b - the owner's target layout): the
  * account's STOCK side at close. Measured lines only; a line the captures
  * cannot measure prints as a NAMED gap ("not measured"), never a fabricated

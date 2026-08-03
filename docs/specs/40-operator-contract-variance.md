@@ -44,6 +44,15 @@ A 37× defect sat inside an "ok" verdict for hours. No line caught it; the
 
 ## Part A — the contract (the ontology/object boundary made auditable)
 
+**Status 2026-08-03: the first two terms are LIVE at the commission grain.**
+The PRICE term is F2 (spec 39 phase 1: `Commission.fleet` declared, segment 4
+v15 publishes it beside the measured body, the gauge names offenders by
+commission id). The OUTPUT term is F3 (v14 cumulative `produced` differenced
+per mining commission against the plan's own per-source rate - first read
+0.01: 10 commissions, 100 e/t declared, 0.6 e/t total gap; extraction is
+faithful, the leak class is evacuation). INPUTS/POST/CAPITAL/UPKEEP remain
+open (capital+upkeep per Part C).
+
 This continues spec 34's thesis (*"simple economic interface up
 positions/rates/ALL-IN price, sophistication inside, faithfulness measured"*)
 and depends on spec 39 making the fleet side real. What is missing is that

@@ -726,6 +726,57 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     }
   }
 
+  // ---- F3 output fidelity (spec 40-A's contract OUTPUT term, commission grain) ----
+  // F1/F2 audit the PRICE term; F3 audits what each mining commission
+  // PRODUCED against the plan's own per-source rate: the v14 cumulative
+  // `produced` counter differenced across the capture pair, joined to flow
+  // sources by the P&L's corp-id construction. Two-sided. A negative delta is
+  // a corp REBUILT mid-window (the counter rides the store serialize) -
+  // skipped and counted, never booked as output.
+  {
+    const capCorpsF3 = new Map(((cap.data?.corps?.corps ?? []) as any[]).map(c => [c.id, c]));
+    const baseCorpsF3 = new Map(((base.data?.corps?.corps ?? []) as any[]).map(c => [c.id, c]));
+    const roomOfF3 = (nodeId: string): string => String(nodeId).split("-")[0];
+    const joined: { id: string; declared: number; actual: number }[] = [];
+    let resets = 0;
+    for (const src of (cap.data?.flow?.sources ?? []) as any[]) {
+      const corpId = `mining-${roomOfF3(src.nodeId)}-harvest-${String(src.id).slice(-4)}`;
+      const a = capCorpsF3.get(corpId);
+      const b = baseCorpsF3.get(corpId);
+      if (!a || !b || a.produced === undefined || b.produced === undefined || dt <= 0) continue;
+      const delta = (+a.produced || 0) - (+b.produced || 0);
+      if (delta < 0) {
+        resets += 1;
+        continue;
+      }
+      joined.push({ id: corpId, declared: +src.harvestRate || 0, actual: delta / dt });
+    }
+    const declaredSum = joined.reduce((s, r) => s + r.declared, 0);
+    if (joined.length > 0 && declaredSum > 0) {
+      const gapSum = joined.reduce((s, r) => s + Math.abs(r.actual - r.declared), 0);
+      const frac = gapSum / declaredSum;
+      const worst = [...joined].sort((a, b) => Math.abs(b.actual - b.declared) - Math.abs(a.actual - a.declared))
+        .slice(0, 3)
+        .filter(r => Math.abs(r.actual - r.declared) > 0.5);
+      rows.push({
+        id: "F3",
+        name: "output fidelity (produced vs declared, per mining commission)",
+        value: +frac.toFixed(3),
+        unit: "frac of declared",
+        verdict: frac > 0.5 ? "FAIL" : frac >= 0.25 ? "WARN" : "ok",
+        detail:
+          `${joined.length} commissions declare ${declaredSum.toFixed(0)} e/t; |gap| ${gapSum.toFixed(1)} e/t` +
+          (resets > 0 ? `; ${resets} reset (rebuilt mid-window, excluded)` : "") +
+          (worst.length
+            ? `; worst: ` +
+              worst
+                .map(r => `${r.id} ${r.actual.toFixed(1)} vs ${r.declared.toFixed(1)} (${r.actual >= r.declared ? "+" : "-"}${Math.abs(r.actual - r.declared).toFixed(1)})`)
+                .join(", ")
+            : "")
+      });
+    }
+  }
+
   rows.push({
     id: "P4",
     name: "plan spawn-infeasibility",
