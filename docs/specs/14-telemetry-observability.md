@@ -7735,3 +7735,39 @@ spec-34 item 5 deferral.
 Verdict: **instrumented + attributed** - four real regressions caught,
 windowed, and acquitted/indicted by build; the codebase knows exactly where
 to dig.
+
+## Cycle t72754631 addendum — the evacuation diagnosis inverts (owner skepticism vindicated)
+
+Owner 2026-08-03: *"a lot is blamed on raids without sufficient evidence
+sometimes."* Same-day measurement agreed:
+
+**The chronic-mouth mechanism is deposit-tile contention at the hub, not
+raids.** Every walk-served remote's haul stamp shows at-sink idle WITH
+storage free (the meter's own fork: "spatial contention... NOT a bigger
+fleet"): d01f 0.243, cee0 0.174, cedc 0.151, cd94 0.128 - while cd8e, the
+one PORTED route, runs the best duty (0.834). cd8d shows the second shape
+(0.376 idle EN ROUTE - approach-lane congestion). d01f's arithmetic: 64
+CARRY fielded x 0.715 duty = 46 effective < 49 needed - the backlog stands
+on throughput loss; the drain law then buys MORE carry into the SAME queue.
+A positive feedback loop, and raids are a co-payer (3.72 e/t measured
+cargo), not the cause.
+
+**Shipped now (v27, deployed):** killed-WHERE attribution - tombstone
+killed energy by booking room + intel-hostile flag, cumulative, printed on
+the account ("the share the raid story can claim"). The R1 swap gains an
+EVIDENCE GATE at the constant: it prices INVADER raids specifically, so it
+inherits only the hostile-room share of the measured ratio.
+
+**The fix map (task #15, in evidence order):**
+1. Deposit-spread: route the DEP gauge's eligible remotes through the home
+   links (60 e/t over 6 routes measured waiting; the raised controller
+   allocation raises port headroom). Solver work, full gate.
+2. Approach/deposit geometry at the hub (cd8d's lane; the parked feeder).
+3. Drain-law cap: a chronic mouth alarms (E6/H3) instead of buying
+   incremental CARRY into the queue.
+4. The plan declares the whole stack (drain term + body quantization) so
+   F1/F2 read ~1.0 and real excess stays visible.
+5. Raid-tax swap at window 10, gated on the v27 hostile-room share.
+
+Verdict: **instrumented + re-attributed** - the fix program now aims at the
+measured mechanism.
