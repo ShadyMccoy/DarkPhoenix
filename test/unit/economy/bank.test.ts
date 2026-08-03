@@ -9,6 +9,7 @@ import {
   resolveReserveTarget,
   spendableBankSurplus,
   bankSurplusRate,
+  bankRefillRate,
   feederRelayRate,
   bankSourceId,
   bankToTransientSource,
@@ -109,6 +110,37 @@ describe("economy/bank - the surplus spend primitives", () => {
     });
     it("tapers to zero approaching the target (no flapping at the boundary)", () => {
       expect(bankSurplusRate(BASE_RESERVE + SURPLUS_DRAIN_TICKS, BASE_RESERVE)).to.be.closeTo(1, 1e-9);
+    });
+  });
+
+  describe("bankRefillRate (owner 2026-08-03: 'It should approach the equilibrium asymptotically')", () => {
+    // The FILLING half of the same law. The old refill was a regime SWITCH:
+    // below target the controller capped hard at STORAGE_UPGRADE_TARGET and
+    // the storage soaked everything else, so crossing the target swung the
+    // published controller allocation 85 -> 15 in one solve. The refill is
+    // now the drain's mirror - claim deficit / SURPLUS_DRAIN_TICKS - so the
+    // bank approaches the reserve target asymptotically from BOTH sides and
+    // the controller allocation is continuous through it.
+    it("claims nothing at or above the target (the drain side owns that half)", () => {
+      expect(bankRefillRate(BASE_RESERVE, BASE_RESERVE)).to.equal(0);
+      expect(bankRefillRate(BASE_RESERVE + 5000, BASE_RESERVE)).to.equal(0);
+    });
+    it("refills the deficit over the SAME horizon the drain uses", () => {
+      expect(bankRefillRate(BASE_RESERVE - 1500, BASE_RESERVE)).to.be.closeTo(1500 / SURPLUS_DRAIN_TICKS, 1e-9);
+      expect(bankRefillRate(0, 30_000)).to.be.closeTo(30_000 / SURPLUS_DRAIN_TICKS, 1e-9);
+    });
+    it("caps at MAX_SURPLUS_DRAW exactly like the drain (degenerate-deficit guard)", () => {
+      const runawayDeficit = MAX_SURPLUS_DRAW * SURPLUS_DRAIN_TICKS + 50_000;
+      expect(bankRefillRate(0, runawayDeficit)).to.equal(MAX_SURPLUS_DRAW);
+    });
+    it("MIRROR SYMMETRY: refill at deficit d === drain at surplus d - ONE law on both sides of the target", () => {
+      for (const d of [0, 1, 1500, 30_000, 200_000]) {
+        expect(bankRefillRate(BASE_RESERVE - d, BASE_RESERVE)).to.be.closeTo(
+          bankSurplusRate(BASE_RESERVE + d, BASE_RESERVE),
+          1e-9,
+          `asymmetric at d=${d}`
+        );
+      }
     });
   });
 

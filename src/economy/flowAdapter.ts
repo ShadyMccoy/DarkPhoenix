@@ -87,6 +87,7 @@ export { ANTI_DOWNGRADE_RESERVE };
 export { STORAGE_UPGRADE_TARGET } from "./bank";
 import {
   STORAGE_UPGRADE_TARGET,
+  bankRefillRate,
   bankToTransientSource,
   bankSourceId,
   controllerFloorRate,
@@ -313,42 +314,43 @@ export class FlowGraph {
 }
 
 /**
- * Routing capacity for a controller sink. Uncapped (mops up the remainder) until
- * the controller's room has a storage bank that is still FILLING, then bounded to
- * {@link STORAGE_UPGRADE_TARGET} so the surplus banks in storage. Once the bank
- * passes the warchest target (the room appears in `surplusRooms` because a bank
- * source was emitted for it - see detectBankSources), the cap lifts and the
- * controller reverts to mopping up: the warchest is full, so there is nothing
- * left to save for and the surplus draw needs somewhere to land. Pure over the
- * two room sets so it is unit-testable without Game.
+ * Routing capacity for a controller sink: mop up the remainder, bounded by the
+ * upgrader fleet's PHYSICAL burn rate, in EVERY bank regime. The old
+ * save-regime cap (hard {@link STORAGE_UPGRADE_TARGET} while the warchest
+ * filled, lifted once it passed the target) is retired (owner 2026-08-03: "I
+ * don't think it should swing hard from 85 to 15 and go into banking mode in
+ * the first place. It should approach the equilibrium asymptotically") - it
+ * was a step function at the target crossing, and crossing it swung the
+ * published controller allocation 85 -> 15 in one solve. Saving now happens
+ * through the storage sink's refill RESERVE (bank.bankRefillRate via
+ * storageRefillReserve: deficit / SURPLUS_DRAIN_TICKS, the exact mirror of
+ * the surplus drain), claimed in the pre-pass ahead of value greed - so the
+ * bank approaches its target asymptotically from both sides and the
+ * controller allocation is continuous through it.
  */
 export function controllerRoutingCapacity(
   sink: { position: Position },
   totalSupply: number,
-  roomsWithStorage: ReadonlySet<string>,
-  surplusRooms: ReadonlySet<string> = new Set(),
   physicalUpgradeCap: number = Infinity,
   wartimeRooms: ReadonlySet<string> = new Set()
 ): number {
-  // Two cases cap the controller at the save-regime floor so the surplus does
-  // NOT mop up here:
-  //  - FILLING warchest: the surplus banks toward the reserve (unchanged).
-  //  - WARTIME (spec 33, owner 2026-07-27 "surplus ... normally for upgrading,
-  //    but now for building"): a MEANINGFUL construction backlog stands in this
-  //    room, so upgrading RELEGATES to the floor and the surplus flows to
-  //    construction (value 70) instead of the controller's mop-up. Relegated
-  //    != off - the anti-downgrade floor still holds; the mode exits (mop-up
-  //    resumes) the moment the backlog drains, no isolated-sink nudge.
-  const filling = roomsWithStorage.has(sink.position.roomName) && !surplusRooms.has(sink.position.roomName);
-  if (filling || wartimeRooms.has(sink.position.roomName)) {
+  // WARTIME (spec 33, owner 2026-07-27 "surplus ... normally for upgrading,
+  // but now for building"): a MEANINGFUL construction backlog stands in this
+  // room, so upgrading RELEGATES to the floor and the surplus flows to
+  // construction (value 70) instead of the controller's mop-up. Relegated
+  // != off - the anti-downgrade floor still holds; the mode exits (mop-up
+  // resumes) the moment the backlog drains, no isolated-sink nudge. This is
+  // deliberate doctrine keyed to a real backlog, NOT the retired bank-level
+  // regime switch.
+  if (wartimeRooms.has(sink.position.roomName)) {
     return Math.max(STORAGE_UPGRADE_TARGET, ANTI_DOWNGRADE_RESERVE);
   }
-  // #21 (owner 2026-07-19): in surplus the controller mops up the warchest, but
-  // no faster than the upgrader fleet can PHYSICALLY burn it (parking tiles x
-  // affordable WORK - see controllerUpgradeCap). Surplus beyond the cap has no
-  // upgrader to consume it, so it overflows into the storage sink instead of
-  // publishing an infeasible upgrade plan that out-competes remote mining
-  // (live t72429680: uncapped 137 e/t against a ~4-upgrader fleet).
+  // #21 (owner 2026-07-19): the controller mops up, but no faster than the
+  // upgrader fleet can PHYSICALLY burn it (parking tiles x affordable WORK -
+  // see controllerUpgradeCap). Surplus beyond the cap has no upgrader to
+  // consume it, so it overflows into the storage sink instead of publishing
+  // an infeasible upgrade plan that out-competes remote mining (live
+  // t72429680: uncapped 137 e/t against a ~4-upgrader fleet).
   return Math.min(Math.max(totalSupply, 1), physicalUpgradeCap);
 }
 
@@ -652,8 +654,8 @@ export function detectLinkDepositPorts(): DepositPort[] {
  * Detect SURPLUS storage banks across visible owned rooms and turn each into a
  * transient bank source at its storage position (spec 03 withdrawal, surplus
  * half - see economy/bank.ts). A bank still filling its warchest emits nothing:
- * the deposit half (STORAGE_UPGRADE_TARGET cap) keeps accumulating it. Live
- * default for buildColonyProblem; injectable for tests.
+ * the deposit half (storageRefillReserve's asymptotic claim) keeps
+ * accumulating it. Live default for buildColonyProblem; injectable for tests.
  */
 export function detectBankSources(): PlannerSource[] {
   if (typeof Game === "undefined" || !Game.rooms) return [];
@@ -694,6 +696,25 @@ export function storageRoomRemaining(roomName: string): number {
 export function storageRoomStock(roomName: string): number {
   if (typeof Game === "undefined" || !Game.rooms) return 0;
   return Game.rooms[roomName]?.storage?.store?.[RESOURCE_ENERGY] ?? 0;
+}
+
+/**
+ * The storage sink's refill RESERVE claim (energy/tick): bank.bankRefillRate
+ * over the room's LIVE stock and the plan-persisted reserve target - the
+ * filling mirror of detectBankSources' surplus emission, same guards, same
+ * resolveReserveTarget, so the two halves of the one drain law read the same
+ * numbers and can never both be nonzero (surplus emits above the target,
+ * refill claims below it, both zero exactly at it). Requires a real OWNED
+ * storage to read: harness/unit paths without one claim 0, keeping staged
+ * problems unchanged unless the test stages a stock deliberately.
+ */
+export function storageRefillReserve(roomName: string): number {
+  if (typeof Game === "undefined" || !Game.rooms) return 0;
+  const storage = Game.rooms[roomName]?.storage;
+  if (!storage || !storage.my) return 0;
+  const banked = storage.store?.[RESOURCE_ENERGY] ?? 0;
+  const reserveTarget = resolveReserveTarget(typeof Memory !== "undefined" ? Memory.warchestTarget : undefined);
+  return bankRefillRate(banked, reserveTarget);
 }
 
 /**
@@ -916,22 +937,21 @@ export function buildColonyProblem(
   // controller 50, so opening the capacity valve is the whole change).
   const bankRate = bankSources.reduce((sum, b) => sum + b.rate, 0);
 
-  // Rooms whose bank is built: their controller stops mopping up the surplus so
-  // the storage can soak it (see controllerRoutingCapacity / STORAGE_UPGRADE_TARGET).
+  // Rooms whose bank is built (storage-hub rooms): used for infra pricing and
+  // remote-site exclusion below. The storage sink STAYS open in every regime
+  // (owner 2026-07-19: consumers draw from storage, so it is a valid home for
+  // remote surplus - keeping it lets excess production bank instead of rotting
+  // at remote containers, #19). The anti-pump is structural in routeToSinks:
+  // bank sources never fill the storage sink, so a solve can never both
+  // withdraw the warchest AND deposit to it - and the refill claim
+  // (storageRefillReserve) is nonzero only BELOW the target, where no bank
+  // source exists, so claim-and-drain can never coexist either. The storage
+  // sink's capacity is its physical room remaining, so a topped-out bank
+  // presents zero room and the surplus mining is defunded rather than rotted.
   const roomsWithStorage = new Set<string>();
   for (const sink of graph.getSinks()) {
     if (sink.type === "storage") roomsWithStorage.add(sink.position.roomName);
   }
-  // Rooms whose bank is in SURPLUS (a bank source was emitted): the warchest is
-  // over its target, so the controller cap lifts. The storage sink STAYS (owner
-  // 2026-07-19: consumers draw from storage, so it is a valid home for remote
-  // surplus - keeping it lets excess production bank instead of rotting at remote
-  // containers, #19). The anti-pump is now structural in routeToSinks: bank
-  // sources never fill the storage sink, so a solve can never both withdraw the
-  // warchest AND deposit to it. The storage sink's capacity is its physical room
-  // remaining, so a topped-out bank presents zero room and the surplus mining is
-  // defunded rather than rotted.
-  const surplusRooms = new Set(bankSources.map(b => b.pos.roomName));
 
   // HUB-AND-SPOKE (owner 2026-07-19): the storage is the hub - mined income banks
   // to it and consumers draw it back. The bank/hub SOURCE that routeToSinks spends
@@ -1139,8 +1159,6 @@ export function buildColonyProblem(
           : controllerRoutingCapacity(
               sink,
               totalSupply,
-              roomsWithStorage,
-              surplusRooms,
               controllerUpgradeCap(sink.position.roomName),
               wartimeRooms
             ), // controller: mops up the remainder up to the fleet's physical upgrade rate (#21); the excess banks to storage
@@ -1151,8 +1169,15 @@ export function buildColonyProblem(
       // feederRelayRate's +STORAGE_UPGRADE_TARGET side-channel guaranteed
       // outside the plan (P12's measured 3.30x non-bank divergence), and a
       // cold storage room's spawn is never out-reserved by its controller.
+      // THE REFILL CLAIM (owner 2026-08-03, asymptotic equilibrium): a
+      // filling bank claims deficit / SURPLUS_DRAIN_TICKS here - the drain's
+      // mirror - instead of capping the controller; see storageRefillReserve.
       reserve:
-        kind === "controller" ? controllerFloorRate(storageRoomStock(sink.position.roomName)) : undefined
+        kind === "controller"
+          ? controllerFloorRate(storageRoomStock(sink.position.roomName))
+          : kind === "storage"
+          ? storageRefillReserve(sink.position.roomName)
+          : undefined
     });
   }
 
@@ -1186,6 +1211,13 @@ export function buildColonyProblem(
   // bigger consumer allocation -> next solve prices the feeder for it;
   // converges in <=2 solves both directions). No history (first solve,
   // harness, golden master) keeps the old full-surplus pricing.
+  // KNOWN DRIFT (2026-08-03, deferred deliberately): with the save-regime
+  // controller cap retired, a FILLING room's published allocation can exceed
+  // this price's 15-floor while bankRate is 0, so the feeder's infra charge
+  // under-states the relay it will field. Measured scale: the whole feeder
+  // term is ~0.005 p/t (P4) - a ~25 e/t relay mispricing is ~0.003 p/t
+  // against F1's 0.244 p/t breach. Fix belongs with P12's unification (price
+  // the PREVIOUS solve's published allocation), not here.
   const pricedRelay =
     prevBankDraw !== undefined
       ? Math.min(STORAGE_UPGRADE_TARGET + bankRate, Math.max(STORAGE_UPGRADE_TARGET, prevBankDraw))

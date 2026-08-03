@@ -115,25 +115,21 @@ export const SURPLUS_DRAIN_TICKS = CREEP_LIFETIME;
 export const MAX_SURPLUS_DRAW = 100;
 
 /**
- * Energy/tick the planner keeps routing to the controller ONCE THE ROOM HAS A
- * STORAGE bank that is still FILLING; everything above this banks in the
- * storage instead of piling at the controller drop-off (owner 2026-07-11:
- * "once we have a storage, that should be a good destination for a lot of
- * drop-offs, and we deliver it locally from there"). This is the deposit half
- * of the storage bank: the durable storage - not the controller - soaks the
- * surplus, so it can accumulate the expansion CAPEX the capital trigger saves
- * toward. Once the bank passes the reserve target the cap lifts entirely (the
- * controller reverts to mopping up) and the surplus draws back out - see
- * bankSurplusRate.
+ * The save-regime controller FLOOR (energy/tick): the upgrade rate the plan
+ * keeps guaranteed to a storage room's controller (controllerFloorRate wires
+ * it as the controller sink's reserve, bounded by what the bank can sustain),
+ * and the level upgrading RELEGATES to under spec 33 wartime (a standing
+ * construction backlog). Comfortably above the anti-downgrade reserve so
+ * upgrading always makes progress.
  *
- * It is the tuning knob for the upgrade-vs-bank balance: raise it to favour
- * faster RCL, lower it to save harder. Below this rate the controller still
- * mops up ALL income (its capacity exceeds the supply, so nothing is left to
- * bank), so a lean single/2-source room upgrades exactly as before and only
- * genuine surplus banks. Comfortably above the anti-downgrade reserve so
- * upgrading always makes progress. Without a storage there is nowhere durable
- * to bank surplus, so the controller keeps absorbing the whole remainder
- * (pre-storage behaviour is unchanged). Lives here (not flowAdapter) so the
+ * HISTORY (owner 2026-08-03, "approach the equilibrium asymptotically"): this
+ * was also the save-regime controller CAP - a filling warchest hard-limited
+ * the controller here and the storage soaked everything else, which swung the
+ * published allocation 85 -> 15 in one solve at the target crossing. That cap
+ * is retired: saving is now the storage sink's refill RESERVE
+ * (bankRefillRate, the surplus drain's mirror), so the bank approaches its
+ * target asymptotically and this constant survives only as the floor/wartime
+ * level and the feeder's price floor. Lives here (not flowAdapter) so the
  * feeder and upgrader sizing derive from the same module without cycles.
  */
 export const STORAGE_UPGRADE_TARGET = 15;
@@ -152,6 +148,25 @@ export function spendableBankSurplus(banked: number, reserveTarget: number): num
  */
 export function bankSurplusRate(banked: number, reserveTarget: number): number {
   return Math.min(MAX_SURPLUS_DRAW, spendableBankSurplus(banked, reserveTarget) / SURPLUS_DRAIN_TICKS);
+}
+
+/**
+ * The FILLING half of the same law (owner 2026-08-03: "I don't think it
+ * should swing hard from 85 to 15 and go into banking mode in the first
+ * place. It should approach the equilibrium asymptotically"): energy/tick the
+ * bank claims toward its reserve target, the exact mirror of bankSurplusRate
+ * - refill the deficit over SURPLUS_DRAIN_TICKS, capped at MAX_SURPLUS_DRAW,
+ * zero at/above the target. Wired as the storage sink's RESERVE in the
+ * adapter (storageRefillReserve), so the pre-pass wins the claim ahead of
+ * value greed and the controller mops up the rest in EVERY regime - the old
+ * save-regime controller cap (hard 15 while filling, lifted in surplus) is
+ * retired; it was the step that swung the published allocation 85 -> 15 in
+ * one solve at the target crossing. With both halves linear over the same
+ * horizon, the bank approaches the target asymptotically from either side
+ * and the controller allocation is continuous through it.
+ */
+export function bankRefillRate(banked: number, reserveTarget: number): number {
+  return Math.min(MAX_SURPLUS_DRAW, Math.max(0, reserveTarget - banked) / SURPLUS_DRAIN_TICKS);
 }
 
 /**

@@ -262,3 +262,49 @@ precondition narrowed to the parts-dry case it was born for. That is one
 candidate, not a decision; question 1 above must be answered with data first,
 because it determines whether this is a ledger-honesty fix or a real
 over-fleeting bug.
+
+## PHASE C (2026-08-03) — the FILLING half: asymptotic refill, regime switch retired
+
+Owner directive (verbatim): *"Like I don't think it should swing hard from 85
+to 15 and go into banking mode in the first place. It should approach the
+equilibrium asymptotically."*
+
+The drain side was already asymptotic (`bankSurplusRate` = surplus /
+`SURPLUS_DRAIN_TICKS`, "tapers smoothly to zero at the target instead of
+flapping a regime switch"). The FILLING side was not: a storage room below its
+reserve target hard-capped the controller at `STORAGE_UPGRADE_TARGET` (15)
+via `controllerRoutingCapacity`'s `filling` branch, and the cap lifted
+entirely in surplus — a step function at the target crossing that swung the
+published controller allocation 85 → 15 in one solve (the swing the retired
+excess-shed then amplified into recycles).
+
+**The law** (shipped this phase):
+
+- `bank.bankRefillRate(banked, target)` = min(`MAX_SURPLUS_DRAW`,
+  deficit / `SURPLUS_DRAIN_TICKS`) — the drain's exact mirror; unit-pinned
+  symmetric (refill at deficit d === drain at surplus d, ONE law both sides).
+- `flowAdapter.storageRefillReserve` stamps it on the storage sink's
+  `reserve` (same guards + `resolveReserveTarget` as `detectBankSources`, so
+  claim-and-drain can never both be nonzero; harness-safe 0 without a live
+  owned storage).
+- `CorpPlanner.planColony` shrinks each hub's bank-source draw-out by the
+  claim: consumers draw `funded mined + surplus − refill`; deposits stay
+  gross, so the bank RETAINS exactly the claim. End-to-end pin: halving the
+  staged deficit halves the claim and moves the allocation 5 e/t, not 70.
+- `controllerRoutingCapacity` loses the `filling` branch (and its two
+  room-set params): the controller mops up to its physical burn cap in EVERY
+  bank regime. Spec 33 WARTIME relegation is kept verbatim — that one keys to
+  a real construction backlog, not a bank level.
+
+`STORAGE_UPGRADE_TARGET` survives only as the floor/wartime level
+(`controllerFloorRate`) and the feeder price floor. KNOWN DEFERRED DRIFT:
+`pricedRelay` still floors the feeder's infra price at 15 while a filling
+room's published allocation can now exceed it — measured scale ~0.003 p/t
+against F1's 0.244 breach; the fix belongs with P12's unification (price the
+previous solve's published allocation).
+
+Continuity argument (why the swing is gone): at target+ε the draw is ε/1500,
+at target−ε the claim is ε/1500, and the mined mop-up term is identical on
+both sides — the published allocation is continuous through the crossing, and
+the bank approaches the target exponentially (τ = `SURPLUS_DRAIN_TICKS`) from
+either side.
