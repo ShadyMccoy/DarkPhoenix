@@ -25,10 +25,18 @@ significant energy and spawn parts cost."*
   `(2d+2)/N`, so the unusable tail (ttl < one trip -> recycle) shrinks
   proportionally. d01f (d=85, trip 172t) is the measured worst (X4:
   "remaining 107t of 164t trips").
-- **The larger prize may be hub decongestion**: only the INNERMOST hauler
-  visits the deposit tile - the measured #1 evacuation mechanism (at-sink
-  idle 0.128-0.243 across every walk-served remote, storage free) collapses
-  by construction.
+- **Hub congestion: SECOND-ORDER only (owner correction 2026-08-03: the
+  innermost hauler "visits N more times so that kind of washes out")**.
+  Throughput fixes total deposit events, so the tile's service demand is
+  CONSERVED under segmentation. What survives: arrival regularity (N short
+  deterministic loops beat bursty long-loop returns - queue wait scales with
+  arrival variance at fixed utilization) and instantaneous approach-ring
+  crowding (one inner creep per route instead of whole fleets converging;
+  cd8d's en-route lane blockage, not the tile). AGAINST it: backpressure - a
+  stalled inner hauler stalls the whole chain unless segments carry slack,
+  so the relay is MORE sensitive to hub service time. The deposit queue's
+  first-order fix remains SERVICE CAPACITY (ports/pad/spread), independent
+  of who visits.
 - **Raid exposure concentrates on the newest bodies** (outermost segment) -
   least sunk cost at risk.
 
@@ -56,7 +64,8 @@ significant energy and spawn parts cost."*
 ## Acceptance (when built)
 
 - eol-tail recycles on relayed routes -> ~0 (v29 byReason, per window).
-- At-sink idle on relayed routes falls to the ported route's profile
-  (cd8e duty 0.834 is the benchmark).
+- At-sink idle on relayed routes: no regression (the backpressure risk is
+  the thing to disprove); any improvement is variance relief, a bonus not a
+  pillar - the justification rests on the eol-tail line.
 - Route throughput (produced vs delivered per commission, F3) unchanged or
   better - the handoff friction stays invisible at the commission grain.
