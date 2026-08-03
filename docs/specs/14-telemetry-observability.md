@@ -7691,3 +7691,47 @@ boundary draw; the collapse class this cell pins sits at 73%).
 Verdict: **fixed + verified + instrumented** - the funded-set prediction
 table is the program's cleanest verification to date, and the per-commission
 attribution the owner asked for ("good for accounting too") is live.
+
+## Incident: the first full-grid run since PR #146 catches four real regressions (2026-08-03)
+
+`npm run grid:full` (the ratchet's first full run in this program) reported
+BOT LEVEL 4 -> 0: six baseline-green cells red. Attribution by standalone
+rerun + src bisect (build dist at historical commits, current cell defs -
+cell files unchanged across the range for every probed cell):
+
+| cell | failure | verified green at | verified red at | window |
+|---|---|---|---|---|
+| plan-t5-remote-pipeline | always "extensions refill before the draining spawn finishes" @397-511 | 0afffda (five-mechanism restoration) | 9314653, 4130c3f, HEAD | **[0afffda..9314653] - the five-mechanism deploy itself** |
+| cons-t3-build-and-repair-concurrent | eventually "the build crew keeps building" times out | baseline #146 era (unprobed) | 9314653, HEAD | [#146..9314653]; five-mechanism window LIKELY, un-anchored - probe 0afffda first in the fix session |
+| plan-t1-single-source-loop | eventually "controller progresses in the back half" times out | baseline #146 era (unprobed) | 9314653, HEAD | same as cons-t3 |
+| spawn-timer-survives-busy-spawn | always "the stamp survives every busy period byte-identical" @101-137 (builder demand firstSeen re-registers) | **9314653** | 4130c3f, HEAD | **(9314653..4130c3f] = efcee77 (spec-36 replan WIRING - prime suspect: a forced replan re-registering the demand key) or 454d20b (tender rotation)** |
+| fid-t4-synthetic, fid-t5-real-maze | steady-state fidelity | — | — | NOT regressions: baseline stale since PR #146; documented accepted-red pending spec-34 item 5 |
+
+Everything deployed THIS stretch (spawn-sink max-combinator, funded-set,
+fleet declaration, fielded adapter, stage-A primitives) is ACQUITTED on all
+four - each cell reproduces identically on pre-stretch builds.
+
+Mechanism hypotheses for the fix session (one at a time, red-first):
+- cons-t3 + plan-t1: the isSpawnRefillStock guard starving builders/
+  upgraders whose buffer sits within range 2 of a spawn (builder-buffer-feed
+  measured the same trade at 89.77%; these worlds' geometry may sit inside
+  the guard). plan-t5's refill breach may be the OTHER side (hold-to-fund
+  delaying a refill-relevant purchase, or tender-rotation service order).
+- spawn-timer: split efcee77 vs 454d20b with one probe, then read the
+  forced-replan path's demand-key lifecycle.
+
+Lessons, plainly: (1) the previous stretch's five-mechanism deploy was gated
+by trio + targeted cells and bought VERIFIED live wins (P7 0.31->1.12, the
+en-route feed, controller 45-63) - and the full grid now shows it also
+regressed T1/T3/T5 worlds the gate never ran. Trio + targeted cells are not
+the grid. (2) The baseline had not been ratcheted since PR #146, so five of
+six "regressions" were reported against a months-old snapshot - the ratchet
+is only as honest as its last full run. The baseline stays UNTOUCHED until
+the fixes land (recording red as accepted would defeat the ratchet); the
+fix session drives the four green and updates the baseline in the same
+commits, with the fid pair recorded accepted-red per the owner-scheduled
+spec-34 item 5 deferral.
+
+Verdict: **instrumented + attributed** - four real regressions caught,
+windowed, and acquitted/indicted by build; the codebase knows exactly where
+to dig.
