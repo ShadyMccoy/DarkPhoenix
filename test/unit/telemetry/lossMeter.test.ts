@@ -281,7 +281,7 @@ describe("LossMeter (residual line items)", () => {
       sampleRoomLosses(
         census({
           room: "W43N23",
-          tombstones: [{ id: "a", energy: 400, ticksToDecay: 500, recycled: true }]
+          tombstones: [{ id: "a", energy: 400, ticksToDecay: 500, recycled: true, recycleReason: "eol-tail" }]
         }),
         100
       );
@@ -290,6 +290,24 @@ describe("LossMeter (residual line items)", () => {
       expect(r.tombstoneKilled).to.equal(0);
       expect(r.tombstoneKilledByRoom).to.deep.equal({});
       expect(r.cumulative.tombstoneRecycled).to.equal(400);
+      // The WHY rides the booking (owner 2026-08-03: "make sure those are
+      // legit") - attributed to the flag site's stamped trigger class.
+      expect(r.tombstoneRecycledByReason).to.deep.equal({ "eol-tail": 400 });
+      expect(r.cumulative.tombstoneRecycledByReason).to.deep.equal({ "eol-tail": 400 });
+    });
+
+    it("the reason threads from the WATCH record; an unstamped recycle books 'unstamped', never vanishes", () => {
+      watchCreepTtls({ r2: { ticksToLive: 500, memory: { recycling: true, recycleReason: "runt-upsize" } } } as any, 95);
+      const v = resolveDeathCause(deathWatchEntry("r2"), 98);
+      expect(v.recycled).to.equal(true);
+      expect(v.recycleReason).to.equal("runt-upsize");
+
+      sampleRoomLosses(census(), 90);
+      sampleRoomLosses(
+        census({ tombstones: [{ id: "u", energy: 150, ticksToDecay: 500, recycled: true }] }),
+        100
+      );
+      expect(lossReport(100).tombstoneRecycledByReason).to.deep.equal({ unstamped: 150 });
     });
 
     it("a non-recycling record still resolves killed exactly as before", () => {

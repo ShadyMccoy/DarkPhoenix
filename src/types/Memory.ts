@@ -749,6 +749,16 @@ declare global {
     recycling?: boolean;
 
     /**
+     * WHY the recycle flag was set (owner 2026-08-03: "I wanna make sure
+     * those are legit - what's actually the cause and does it hold up to
+     * scrutiny"). Stamped at the SAME site as `recycling` (a ratchet test
+     * pins every flag site), carried by the death watch into the loss
+     * meter's tombstoneRecycledByReason - so the account attributes each
+     * recycle to its trigger class instead of one opaque bucket.
+     */
+    recycleReason?: string;
+
+    /**
      * Tick a raid guard lost its room assignment (no targeted room left for
      * it). After GUARD_RECYCLE_GRACE quiet ticks it liquidates back into the
      * spawn - working capital, not a standing army. Cleared on reassignment.

@@ -189,7 +189,10 @@ export class Squad {
       plan.partsNeeded,
       plan.maxPartsPerMember
     );
-    if (idx !== null) members[idx].memory.recycling = true;
+    if (idx !== null) {
+      members[idx].memory.recycling = true;
+      members[idx].memory.recycleReason = "squad-runt";
+    }
   }
 }
 

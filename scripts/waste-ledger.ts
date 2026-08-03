@@ -2752,6 +2752,29 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
                         (unknown === causeTotal ? "  <- no death-watch coverage this window" : "")
                     );
                   }
+                  // The WHY of recycles (v29): the flag site's stamped
+                  // trigger class - "are these legit" as a read, not a story.
+                  if (attSpanned && recycled > 0 && (cc?.tombstoneRecycledByReason || cb?.tombstoneRecycledByReason)) {
+                    const byReason: Record<string, number> = {};
+                    const rk = new Set([
+                      ...Object.keys(cc?.tombstoneRecycledByReason ?? {}),
+                      ...Object.keys(cb?.tombstoneRecycledByReason ?? {})
+                    ]);
+                    for (const k of rk) {
+                      const d = Math.max(0, (cc?.tombstoneRecycledByReason?.[k] ?? 0) - (cb?.tombstoneRecycledByReason?.[k] ?? 0));
+                      if (d > 0) byReason[k] = d;
+                    }
+                    const total = Object.values(byReason).reduce((a, b) => a + b, 0);
+                    if (total > 0) {
+                      out.push(
+                        `      recycled why: ` +
+                          Object.entries(byReason)
+                            .sort((a, b) => b[1] - a[1])
+                            .map(([r, e]) => `${r} ${((e / total) * 100).toFixed(0)}%`)
+                            .join("  ")
+                      );
+                    }
+                  }
                   // The WHERE (v27, owner 2026-08-03): killed energy by room
                   // and the share intel can actually attribute to hostiles.
                   // Kills in quiet rooms are NOT raid evidence - this line is

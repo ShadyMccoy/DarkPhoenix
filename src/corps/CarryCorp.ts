@@ -340,6 +340,7 @@ export class CarryCorp extends Corp {
       if (creep.memory.recycling || creep.spawning) continue;
       if ((creep.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) === 0) {
         creep.memory.recycling = true;
+        creep.memory.recycleReason = "retiring-demob";
       }
     }
   }
@@ -353,6 +354,7 @@ export class CarryCorp extends Corp {
       if ((creep.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0) continue;
       if (creep.ticksToLive !== undefined && creep.ticksToLive < minRoundTrip) {
         creep.memory.recycling = true;
+        creep.memory.recycleReason = "eol-tail";
       }
     }
   }
@@ -394,6 +396,7 @@ export class CarryCorp extends Corp {
     if (room.energyAvailable < (minCarry + 1) * CARRY_MOVE_PAIR_COST) return;
 
     creeps[carry.indexOf(minCarry)].memory.recycling = true;
+    creeps[carry.indexOf(minCarry)].memory.recycleReason = "runt-upsize";
   }
 
   /**
@@ -708,6 +711,7 @@ export class CarryCorp extends Corp {
         // beside the dead stock for the rest of its ~1500-tick life, the parked
         // runt the "fewer creeps" goal is about. driveRecycle refunds the body.
         creep.memory.recycling = true;
+        creep.memory.recycleReason = "scavenge-drained";
       }
       return;
     }

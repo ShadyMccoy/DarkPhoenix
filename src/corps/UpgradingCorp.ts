@@ -802,7 +802,10 @@ export class UpgradingCorp extends Corp {
         smallest = c;
       }
     }
-    if (smallest && totalWork - smallestWork >= target) smallest.memory.recycling = true;
+    if (smallest && totalWork - smallestWork >= target) {
+      smallest.memory.recycling = true;
+      smallest.memory.recycleReason = "excess-shed";
+    }
   }
 
   /**

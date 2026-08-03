@@ -120,6 +120,7 @@ export class CoreBusterCorp extends SpawnAnchoredCorp {
         creep.memory.idleSince = creep.memory.idleSince ?? tick;
         if (tick - creep.memory.idleSince >= GUARD_RECYCLE_GRACE) {
           creep.memory.recycling = true;
+          creep.memory.recycleReason = "mission-done";
         }
         continue;
       }

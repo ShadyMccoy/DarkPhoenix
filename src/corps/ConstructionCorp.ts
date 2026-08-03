@@ -345,6 +345,7 @@ export class ConstructionCorp extends Corp {
     this.releaseExcessBuilders();
     for (const tanker of this.tankers.members()) {
       tanker.memory.recycling = true; // corp-driven: walk out, bank cargo, refund
+      tanker.memory.recycleReason = "tanker-demob";
     }
   }
 
@@ -817,7 +818,10 @@ export class ConstructionCorp extends Corp {
     if (room.energyAvailable < plan.desiredCost) return;
 
     const runt = builders.find(b => b.getActiveBodyparts(WORK) < (plan.maxPartsPerMember ?? 1));
-    if (runt) runt.memory.recycling = true;
+    if (runt) {
+      runt.memory.recycling = true;
+      runt.memory.recycleReason = "builder-runt";
+    }
   }
 
   /**

@@ -266,6 +266,9 @@ export interface CoreTelemetry {
     /** v28: deliberate spawn-side refunds (memory.recycling at last sight),
      *  split OUT of killed so the raid story reads only combat. */
     tombstoneRecycled?: number;
+    /** v29: recycled energy by the flag site's stamped trigger class - the
+     *  "are these legit" attribution (owner 2026-08-03). */
+    tombstoneRecycledByReason?: Record<string, number>;
     /**
      * Energy whose cause of death could NOT be resolved (v25). v23 derived
      * cause from `tombstone.creep.ticksToLive` - 0/undefined on every dead
@@ -540,7 +543,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 28, // v27 killed-WHERE attribution; v28 recycled-death verdict split out of killed 2026-08-03
+    version: 29, // v28 recycled-death verdict; v29 recycle-reason attribution (flag-site stamps) 2026-08-03
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {

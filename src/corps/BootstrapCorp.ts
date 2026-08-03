@@ -236,6 +236,7 @@ export class BootstrapCorp extends Corp {
    */
   private recycleJack(creep: Creep, spawn: StructureSpawn): void {
     creep.memory.recycling = true;
+    creep.memory.recycleReason = "jack-retire";
     driveRecycle(creep, spawn);
   }
 

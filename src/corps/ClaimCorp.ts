@@ -43,6 +43,7 @@ export class ClaimCorp extends SpawnAnchoredCorp {
       const claimed = targetRoom ? Game.rooms[targetRoom]?.controller?.my === true : true;
       if (!targetRoom || claimed || creep.memory.recycling) {
         creep.memory.recycling = true;
+        creep.memory.recycleReason = "claim-done";
         if (spawn) driveRecycle(creep, spawn);
         continue;
       }
