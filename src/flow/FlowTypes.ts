@@ -362,6 +362,15 @@ export interface FlowSolution {
     infraInputs?: { pricedRelay: number; depotRooms: number; remoteRooms: number; linkFedRooms: number };
   };
 
+  /**
+   * Remote rooms whose sources the plan FUNDED this solve (miner commissions
+   * outside spawn rooms). Persisted by the execution layer as
+   * Memory.fundedRemoteRooms and threaded back into the next solve's infra
+   * pricing - the reserver upkeep charges for rooms actually worked, not
+   * every scouted candidate (t72750467: 26 candidates vs 8 funded).
+   */
+  fundedRemoteRooms?: string[];
+
   /** Net energy available for sinks */
   netEnergy: number;
 

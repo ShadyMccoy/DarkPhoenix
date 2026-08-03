@@ -457,6 +457,15 @@ declare global {
     };
 
     /**
+     * Remote rooms the last solve FUNDED miners in (FlowSolution
+     * .fundedRemoteRooms). Threaded back into the next solve so infra's
+     * reserver upkeep prices the worked set, not every scouted candidate
+     * (t72750467: 26 candidates vs 8 funded, ~10 e/t phantom charge).
+     * Written by FlowEconomy.update, same lifetime as lastBankDraw.
+     */
+    fundedRemoteRooms?: string[];
+
+    /**
      * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so
      * CPU joins energy and spawn build-time as a metered, pullable resource.
      * `corpsTotal` is the sum over every commissioned corp this tick -

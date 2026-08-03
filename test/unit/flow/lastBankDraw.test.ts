@@ -58,6 +58,16 @@ describe("FlowEconomy - lastBankDraw survives the instance rebuild", () => {
     void recorded;
   });
 
+  it("persists the FUNDED remote set so the next solve prices reservers from reality (t72750467: 26 candidates vs 8 funded)", () => {
+    new FlowEconomy(world()).update(0);
+    const funded = g.Memory.fundedRemoteRooms as string[] | undefined;
+    expect(funded, "the solve publishes its funded remote rooms").to.be.an("array");
+    // This one-room world funds only home-room sources - the set is EMPTY,
+    // which is exactly the point: the candidate-derived set would count any
+    // scouted room, the funded set counts what the plan staffed.
+    expect(funded).to.deep.equal([]);
+  });
+
   it("publishes the plan's controller allocation PER ROOM, resolved by the pure lens (spec 38 phase B)", () => {
     new FlowEconomy(world()).update(0);
     const published = g.Memory.controllerAllocations as Record<string, number> | undefined;

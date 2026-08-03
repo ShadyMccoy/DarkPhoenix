@@ -808,7 +808,14 @@ export function buildColonyProblem(
    * pass 1 behaves exactly as before and the pass-2 problem is the only one
    * that differs. See solveColony.
    */
-  spawnMaintenance = 0
+  spawnMaintenance = 0,
+  /**
+   * The previous solve's FUNDED remote rooms (Memory.fundedRemoteRooms,
+   * threaded by the execution layer like prevBankDraw). Prices the standing
+   * reserver upkeep from the rooms actually worked instead of every scouted
+   * candidate - see the remoteRooms derivation.
+   */
+  prevFundedRemoteRooms?: readonly string[]
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -1147,8 +1154,20 @@ export function buildColonyProblem(
   // bodies the plan implies but never commissions through routeToSinks.
   // Deducted from the planner's spawn-parts ledger so the sink fill spends
   // only what the spawn can truly still build.
+  // The remote set for infra pricing is the FUNDED rooms of the previous
+  // solve when history exists (Memory.fundedRemoteRooms, threaded by the
+  // execution layer like prevBankDraw) - the candidate derivation below
+  // counts every scouted room holding a source, and the reserver upkeep
+  // priced from it charged for rooms the colony never works (measured
+  // t72750467, the first infraInputs stamp: remoteRooms 26 against 8
+  // funded - ~10+ e/t of phantom standing charge inside the fleet charge,
+  // routed to the spawn sinks at the controller's expense). No history
+  // (first solve, harness) keeps the candidate set: over-priced for ONE
+  // solve, then the published funded set converges it - the pricedRelay
+  // ratchet pattern exactly.
   const remoteRooms = new Set(
-    sources.filter(s => !s.transient && !spawnRooms.has(s.pos.roomName)).map(s => s.pos.roomName)
+    prevFundedRemoteRooms ??
+      sources.filter(s => !s.transient && !spawnRooms.has(s.pos.roomName)).map(s => s.pos.roomName)
   );
   // FEEDER PRICED AT THE REALIZED DRAW (prod t72447444, the starvation
   // loop): pricing the relay at the FULL surplus (15 + bankRate = 115 live)
@@ -1293,7 +1312,13 @@ export function solveColony(
    * layer never reads it itself. Seeds the fixed-point iteration below, which
    * is what lets a steady-state replan converge without an extra search.
    */
-  prevFleetCharge?: number
+  prevFleetCharge?: number,
+  /**
+   * The previous solve's funded remote rooms (Memory.fundedRemoteRooms) -
+   * threaded exactly like prevBankDraw; prices infra's reserver term from
+   * the worked set, not the scouted candidates (t72750467: 26 vs 8).
+   */
+  prevFundedRemoteRooms?: readonly string[]
 ): { solution: FlowSolution; commissions: Commission[]; adopted: { sourceId: string; spawnId: string; gain: number }[] } {
   const seedCharge = Math.max(0, prevFleetCharge ?? 0);
   const baseProblem = buildColonyProblem(
@@ -1307,7 +1332,8 @@ export function solveColony(
     compileGoal(goal),
     prevBankDraw,
     detectLinkDepositPorts(),
-    seedCharge
+    seedCharge,
+    prevFundedRemoteRooms
   );
   // THE STRATEGIC SEARCH (spec 18 P1, live from day one): planColony is the
   // evaluator; the searcher may pin budget-dropped sources to spawns with
@@ -1351,7 +1377,7 @@ export function solveColony(
       buildColonyProblem(
         graph, dist, transientSources, detectLinkHaulPositions(graph), detectPavedSources(),
         bankSources, INVADER_TAX_PER_ENERGY, compileGoal(goal), prevBankDraw,
-        detectLinkDepositPorts(), perSpawn
+        detectLinkDepositPorts(), perSpawn, prevFundedRemoteRooms
       )
     );
 
@@ -1455,6 +1481,19 @@ export function solveColony(
     totalOverhead,
     spawnMaintenance: spawnMaintenanceStamp,
     ...(fleetChargeStamp ? { fleetCharge: fleetChargeStamp } : {}),
+    // The funded remote set this solve actually worked - persisted by the
+    // execution layer (Memory.fundedRemoteRooms) to price the NEXT solve's
+    // reserver upkeep from reality (see buildColonyProblem.remoteRooms).
+    fundedRemoteRooms: (() => {
+      const spawnRoomSet = new Set(problem.spawns.map(s => s.pos.roomName));
+      const srcById = new Map(problem.sources.map(s => [s.id, s]));
+      const rooms = new Set<string>();
+      for (const m of plan.miners) {
+        const rn = srcById.get(m.sourceId)?.pos.roomName;
+        if (rn && !spawnRoomSet.has(rn)) rooms.add(rn);
+      }
+      return [...rooms].sort();
+    })(),
     netEnergy: netEnergyTotal,
     efficiency: totalHarvest > 0 ? (netEnergyTotal / totalHarvest) * 100 : 0,
     unmetDemand,
@@ -1525,9 +1564,15 @@ export class FlowEconomy {
     // solve's fixed-point iteration so a steady-state replan spends no extra
     // searches re-deriving it.
     const prevFleetCharge = typeof Memory !== "undefined" ? Memory.lastFleetCharge : undefined;
-    const result = solveColony(this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw, prevFleetCharge);
+    // Same lifetime and rationale as the two above: the funded remote set
+    // prices the next solve's reserver upkeep from the rooms actually worked.
+    const prevFundedRemoteRooms = typeof Memory !== "undefined" ? Memory.fundedRemoteRooms : undefined;
+    const result = solveColony(
+      this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw, prevFleetCharge, prevFundedRemoteRooms
+    );
     if (typeof Memory !== "undefined") {
       Memory.lastFleetCharge = result.solution.spawnMaintenance;
+      Memory.fundedRemoteRooms = result.solution.fundedRemoteRooms;
       Memory.lastBankDraw = result.solution.sinkAllocations
         .filter(a => a.sinkType === "controller" || a.sinkType === "construction")
         .reduce((sum, a) => sum + a.allocated, 0);
