@@ -56,7 +56,7 @@ import {
   tankerCarryNeededFor,
   RoadRouteSpec
 } from "../economy/roadEconomics";
-import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, isSpawnRefillStock, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { buildPool, buildPoolAbsorbRate, buildPoolBacklog, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
 import {
@@ -2468,8 +2468,10 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
+    // The spawn-refill stock guard applies here too (see refuelInPlace) -
+    // repair fuel must not raid a short bank's drop pool either.
     const drop = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
-      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20 && !isSpawnRefillStock(creep.room, r.pos)
     });
     if (drop) {
       if (creep.pickup(drop) === ERR_NOT_IN_RANGE) {
@@ -2480,7 +2482,8 @@ export class ConstructionCorp extends Corp {
 
     const store = creep.pos.findClosestByPath(FIND_STRUCTURES, {
       filter: s =>
-        (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) &&
+        (s.structureType === STRUCTURE_STORAGE ||
+          (s.structureType === STRUCTURE_CONTAINER && !isSpawnRefillStock(creep.room, s.pos))) &&
         (s as StructureContainer).store[RESOURCE_ENERGY] > 0
     }) as StructureContainer | StructureStorage | null;
     if (store) {
@@ -2600,10 +2603,18 @@ export class ConstructionCorp extends Corp {
    * Top up from energy immediately adjacent (range 1) without moving: a tanker's
    * delivery, a drop at our feet, or an adjacent container. Lets the builder
    * refuel while staying put and building.
+   *
+   * SPAWN-REFILL STOCK GUARD (isSpawnRefillStock): a builder parked beside the
+   * spawn drop tile must not hoover the refill apparatus's draw pool while the
+   * extension bank is short - the grid's plan-t5 refill-SLA regression (t=537,
+   * post-#148 route-share delivery quanta) measured exactly that. Storage is
+   * exempt by construction (the guard covers drops and CONTAINERS only): a
+   * bank draw is priced by the plan's construction allocation.
    */
   private refuelInPlace(creep: Creep): void {
     const drop = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
-      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0
+      filter: r =>
+        r.resourceType === RESOURCE_ENERGY && r.amount > 0 && !isSpawnRefillStock(creep.room, r.pos)
     })[0];
     if (drop) {
       creep.pickup(drop);
@@ -2611,7 +2622,8 @@ export class ConstructionCorp extends Corp {
     }
     const store = creep.pos.findInRange(FIND_STRUCTURES, 1, {
       filter: s =>
-        (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) &&
+        (s.structureType === STRUCTURE_STORAGE ||
+          (s.structureType === STRUCTURE_CONTAINER && !isSpawnRefillStock(creep.room, s.pos))) &&
         (s as StructureContainer).store[RESOURCE_ENERGY] > 0
     })[0] as StructureContainer | undefined;
     if (store) {
@@ -2700,9 +2712,10 @@ export class ConstructionCorp extends Corp {
     // ticks), so every moveTo repairs the road underfoot in the same tick -
     // repairRoadEnRoute no-ops when the store is empty, so a fully-drained
     // builder just walks (faster, unladen) and only a laden one maintains.
-    // Check for dropped energy within range
+    // Check for dropped energy within range - the spawn-refill stock guard
+    // applies (see refuelInPlace): a short bank's drop pool is not build fuel.
     const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
-      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20 && !isSpawnRefillStock(creep.room, r.pos)
     });
     if (dropped.length > 0) {
       const target = dropped[0];
@@ -2739,9 +2752,12 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
-    // Check containers within range
+    // Check containers within range (same refill-stock guard as the drops)
     const containers = creep.pos.findInRange(FIND_STRUCTURES, PICKUP_RANGE, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 50
+      filter: s =>
+        s.structureType === STRUCTURE_CONTAINER &&
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 50 &&
+        !isSpawnRefillStock(creep.room, s.pos)
     }) as StructureContainer[];
     if (containers.length > 0) {
       const target = containers[0];

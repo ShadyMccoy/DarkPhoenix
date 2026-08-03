@@ -46,6 +46,39 @@ export function coreDepot(room: Room): CoreDepot | null {
 }
 
 /**
+ * Reach of the SPAWN-REFILL STOCK GUARD: drops/containers this close to a
+ * my-spawn are the refill apparatus's draw pool (the drop tile is range 1;
+ * one more covers cluster-adjacent stock). Deliberately tight - a site pile
+ * three tiles out is build fuel, not refill stock.
+ */
+export const SPAWN_REFILL_STOCK_RANGE = 2;
+
+/**
+ * TRUE while energy at `pos` is SPAWN-REFILL STOCK a consumer must not raid:
+ * within {@link SPAWN_REFILL_STOCK_RANGE} of a my-spawn while the extension
+ * bank is short. The sink ladder applied at the STOCK level (spawn 100 >
+ * construction 70) - the grid's refill-SLA regression (plan-t5, t=537,
+ * surfaced by #148's route-share hauler bodies) measured a builder parked on
+ * the spawn drop tile hoovering each delivery the tick it landed, so the
+ * tender's reload fell back to a source pile 15 tiles out and the next
+ * drain's deadline lapsed while it walked. A FULL bank drops the guard: the
+ * pile is then genuine surplus and construction may eat it
+ * (construction-first doctrine unchanged in surplus). Storage is never
+ * guarded - a bank draw is priced by the plan's construction allocation,
+ * not this claim rule. Shared by every construction fuel path (one lens,
+ * every reader - the staffsPost symmetry rule).
+ */
+export function isSpawnRefillStock(room: Room, pos: { x: number; y: number }): boolean {
+  // Fail OPEN on harness stubs / degenerate rooms: the guard is a claim-order
+  // refinement, never something a fuel walk may crash on.
+  if (typeof room.find !== "function" || room.energyAvailable === undefined) return false;
+  if (room.energyAvailable >= room.energyCapacityAvailable) return false;
+  return room
+    .find(FIND_MY_SPAWNS)
+    .some(s => Math.max(Math.abs(s.pos.x - pos.x), Math.abs(s.pos.y - pos.y)) <= SPAWN_REFILL_STOCK_RANGE);
+}
+
+/**
  * The room's CORE link: the link beside the storage, the receiving end of the
  * link network (source links fire their energy here; haulers withdraw from it).
  * Null until the room has both a storage and a link next to it.

@@ -99,6 +99,58 @@ describe("tender rate-matching (spawn appetite, not bank size)", () => {
     it("a cold room with a tiny body still fields at least one tender", () => {
       expect(tenderFleetTarget({ spawnCount: 1, extensionCapacity: 50, maxCarry: 1, walkTicks: 8, clusters: 1 })).to.be.at.least(1);
     });
+
+    describe("DEPOT-LESS one-wave floor (the plan-t5 refill tail, t=554)", () => {
+      // Measured (grid plan-t5, three runs after the fuel fixes): a lone
+      // 7-carry tender (350e) against a 400e extension wave loses the SLA by
+      // the mid-sweep reload round-trip - loaded, 2 tiles from the LAST short
+      // extension, 1-2 ticks late, every draw. Throughput rate-matching
+      // covers the AVERAGE appetite but not the WAVE: with no depot the
+      // reload leg is pile-dependent, so the fleet's combined carry must
+      // cover one full extension wave. Scoped to depot-less rooms ONLY - a
+      // storage-adjacent tender multi-trips legally (instant reload, long
+      // high-RCL builds), which is the measured t72663189 over-provision the
+      // rate-match fixed; the floor must not re-open it.
+      const t5 = {
+        spawnCount: 1,
+        extensionCapacity: 50,
+        maxCarry: 7,
+        walkTicks: 1,
+        clusters: 1,
+        extensionCapacityTotal: 400,
+        hasDepot: false
+      };
+
+      it("fields a SECOND tender when one body cannot cover the extension wave (plan-t5 shape)", () => {
+        expect(tenderFleetTarget(t5)).to.equal(2);
+      });
+
+      it("a depot silences the floor - reload is instant there (the t72663189 pin's world)", () => {
+        expect(tenderFleetTarget({ ...t5, hasDepot: true })).to.equal(1);
+      });
+
+      it("a body that covers the wave alone needs no second tender", () => {
+        expect(tenderFleetTarget({ ...t5, maxCarry: 8 })).to.equal(1); // 400/400 - exactly one wave
+      });
+
+      it("the RCL7 storage room is untouched (hasDepot: the over-provision fix holds)", () => {
+        expect(
+          tenderFleetTarget({
+            spawnCount: 1,
+            extensionCapacity: 100,
+            maxCarry: 25,
+            walkTicks: 5,
+            clusters: 1,
+            extensionCapacityTotal: 6000,
+            hasDepot: true
+          })
+        ).to.equal(1);
+      });
+
+      it("the fleet cap still binds over the wave floor", () => {
+        expect(tenderFleetTarget({ ...t5, maxCarry: 1, extensionCapacityTotal: 1000 })).to.be.at.most(3);
+      });
+    });
   });
 });
 
