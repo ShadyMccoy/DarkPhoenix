@@ -859,6 +859,15 @@ export const INVADER_TTL = 1_500;
  * mean(ratios) x 750 - ~12,250e/raid at today's mean - applied HERE and
  * nowhere else (tombstoneLossBudget and R1 read through this constant, so
  * the account's budget and the gauge recalibrate in the same commit).
+ *
+ * EVIDENCE GATE (owner 2026-08-03: "a lot is blamed on raids without
+ * sufficient evidence"): before the swap fires, read the v27 killed-WHERE
+ * line (tombstoneKilledByRoom / tombstoneKilledHostileRoom, live from
+ * window 8). This constant prices INVADER raids specifically - if the
+ * killed share in intel-hostile rooms is low, the attrition belongs to a
+ * different mechanism (routing through danger, stale intel, players) and
+ * swapping THIS constant would price the wrong thing. The swap inherits
+ * only the hostile-room share of the measured ratio.
  */
 export const EXPECTED_RAID_DEFENSE_COST = 750;
 

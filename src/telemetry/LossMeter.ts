@@ -68,6 +68,7 @@ import {
   rampartDecayEnergy
 } from "../economy/primitives";
 import { ROAD_DECAY_HITS, ROAD_DECAY_INTERVAL, ROAD_HITS } from "../economy/roadEconomics";
+import { hostileRooms } from "../utils/RoomDiscovery";
 
 /** One room's decaying-asset census for a single sample. */
 export interface RoomLossCensus {
@@ -103,6 +104,15 @@ export interface RoomLossCensus {
   ramparts: number;
   /** Road decay for the room, already terrain-weighted, in energy/tick. */
   roadDecayEnergy: number;
+  /**
+   * Intel flagged this room hostile when the census was taken (the vision-free
+   * RoomDiscovery.hostileRooms lens, host-assembled per the trap list - the
+   * fold never reads Game). Splits killed-tombstone energy into
+   * evidence-supported raid losses vs kills the raid narrative cannot claim
+   * (owner 2026-08-03: "a lot is blamed on raids without sufficient
+   * evidence"). Absent = not flagged.
+   */
+  hostileFlagged?: boolean;
 }
 
 interface RoomState {
@@ -125,6 +135,12 @@ interface Totals {
   tombstoneExpired: number;
   /** Gross tombstone energy from creeps that still had life left. */
   tombstoneKilled: number;
+  /** KILLED energy by the room it was booked in - the WHERE the raid
+   *  narrative was missing (owner 2026-08-03). */
+  tombstoneKilledByRoom: Record<string, number>;
+  /** KILLED energy booked in rooms intel flagged hostile at the time - the
+   *  share the invader story can actually claim. */
+  tombstoneKilledHostileRoom: number;
   /** Gross tombstone energy whose cause could not be resolved - no death-watch
    *  entry (enemy creep, pre-deploy death, never-sampled room). An honest
    *  bucket, never defaulted into "expired": the v23 collector read
@@ -161,6 +177,11 @@ export interface LossCumulative {
   tombstoneByRole: Record<string, number>;
   tombstoneExpired: number;
   tombstoneKilled: number;
+  /** Killed energy by booking room / by intel-hostile flag (2026-08-03):
+   *  cumulative like the cause buckets, so capture pairs difference the
+   *  WHERE exactly as they difference the WHAT. */
+  tombstoneKilledByRoom: Record<string, number>;
+  tombstoneKilledHostileRoom: number;
   tombstoneCauseUnknown: number;
   tombstoneTtlSum: number;
   tombstoneTtlKnown: number;
@@ -176,6 +197,8 @@ function zeroCumulative(): LossCumulative {
     tombstoneByRole: {},
     tombstoneExpired: 0,
     tombstoneKilled: 0,
+    tombstoneKilledByRoom: {},
+    tombstoneKilledHostileRoom: 0,
     tombstoneCauseUnknown: 0,
     tombstoneTtlSum: 0,
     tombstoneTtlKnown: 0
@@ -203,6 +226,11 @@ function ledger(): LossCumulative {
     led.tombstoneTtlSum = led.tombstoneTtlSum ?? 0;
     led.tombstoneTtlKnown = led.tombstoneTtlKnown ?? 0;
   }
+  if (mem.lossLedger.tombstoneKilledByRoom === undefined) {
+    // Pre-location ledger (v26 and earlier): backfill the WHERE keys.
+    mem.lossLedger.tombstoneKilledByRoom = {};
+    mem.lossLedger.tombstoneKilledHostileRoom = mem.lossLedger.tombstoneKilledHostileRoom ?? 0;
+  }
   return mem.lossLedger;
 }
 
@@ -228,6 +256,8 @@ function blank(): Totals {
     tombstoneByRole: {},
     tombstoneExpired: 0,
     tombstoneKilled: 0,
+    tombstoneKilledByRoom: {},
+    tombstoneKilledHostileRoom: 0,
     tombstoneCauseUnknown: 0,
     tombstoneTtlSum: 0,
     tombstoneTtlMax: 0,
@@ -398,6 +428,15 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
       if (t.killed === true) {
         totals.tombstoneKilled += t.energy;
         led.tombstoneKilled += t.energy;
+        // The WHERE (owner 2026-08-03): killed energy by booking room, and
+        // the share intel can actually attribute to hostiles. Kills in quiet
+        // rooms falsify the raid narrative rather than feeding it.
+        totals.tombstoneKilledByRoom[census.room] = (totals.tombstoneKilledByRoom[census.room] ?? 0) + t.energy;
+        led.tombstoneKilledByRoom[census.room] = (led.tombstoneKilledByRoom[census.room] ?? 0) + t.energy;
+        if (census.hostileFlagged === true) {
+          totals.tombstoneKilledHostileRoom += t.energy;
+          led.tombstoneKilledHostileRoom += t.energy;
+        }
       } else if (t.killed === false) {
         totals.tombstoneExpired += t.energy;
         led.tombstoneExpired += t.energy;
@@ -468,6 +507,10 @@ export interface LossReport {
   tombstoneByRole: Record<string, number>;
   tombstoneExpired: number;
   tombstoneKilled: number;
+  /** KILLED energy by booking room / by intel-hostile flag - the WHERE
+   *  (owner 2026-08-03: kills in quiet rooms falsify the raid narrative). */
+  tombstoneKilledByRoom: Record<string, number>;
+  tombstoneKilledHostileRoom: number;
   /** Gross energy whose cause could not be resolved (no death-watch record). */
   tombstoneCauseUnknown: number;
   /** Mean/max TTL remaining at death, over KNOWN deaths only. */
@@ -496,10 +539,16 @@ export function lossReport(tick: number): LossReport {
     tombstoneByRole: { ...totals.tombstoneByRole },
     tombstoneExpired: totals.tombstoneExpired,
     tombstoneKilled: totals.tombstoneKilled,
+    tombstoneKilledByRoom: { ...totals.tombstoneKilledByRoom },
+    tombstoneKilledHostileRoom: totals.tombstoneKilledHostileRoom,
     tombstoneCauseUnknown: totals.tombstoneCauseUnknown,
     tombstoneTtlMean: totals.tombstoneCount > 0 ? totals.tombstoneTtlSum / totals.tombstoneCount : 0,
     tombstoneTtlMax: totals.tombstoneTtlMax,
-    cumulative: { ...ledger(), tombstoneByRole: { ...ledger().tombstoneByRole } }
+    cumulative: {
+      ...ledger(),
+      tombstoneByRole: { ...ledger().tombstoneByRole },
+      tombstoneKilledByRoom: { ...ledger().tombstoneKilledByRoom }
+    }
   };
 }
 
@@ -579,6 +628,9 @@ export function collectLosses(tick: number): void {
   // stride window resolves against a record at most one stride old.
   if (Game.creeps) watchCreepTtls(Game.creeps, tick);
 
+  // One intel read per stride, shared across the room loop.
+  const hostileSet = hostileRooms();
+
   for (const name in Game.rooms) {
     const room = Game.rooms[name];
     try {
@@ -620,7 +672,11 @@ export function collectLosses(tick: number): void {
           tombstones,
           containers,
           ramparts,
-          roadDecayEnergy: roadDecayFor(roads)
+          roadDecayEnergy: roadDecayFor(roads),
+          // The WHERE flag from the vision-free intel lens (trap list: room
+          // state from intel, never vision) - host-assembled here so the
+          // fold stays pure.
+          hostileFlagged: hostileSet.has(name)
         },
         tick
       );

@@ -221,6 +221,45 @@ describe("LossMeter (residual line items)", () => {
       expect(r.tombstoneKilled).to.equal(0);
     });
 
+    /**
+     * KILLED needs a WHERE (owner 2026-08-03: "a lot is blamed on raids
+     * without sufficient evidence sometimes"). "Killed" is solid evidence of
+     * DAMAGE (a creep with TTL left died), but the raid NARRATIVE - and the
+     * R1 constant swap it justifies - needs the kill's location and whether
+     * intel flagged the room hostile when it was booked. Kills clustering in
+     * intel-hostile rooms support the invader story; kills in quiet rooms
+     * falsify it (SK / player / stale intel - different fixes). The flag
+     * rides the CENSUS (host-assembled from the vision-free RoomDiscovery
+     * lens, per the trap list) so the fold stays pure.
+     */
+    it("books killed energy BY ROOM and by intel-hostile flag - evidence, not narrative", () => {
+      sampleRoomLosses(census({ room: "W41N23", hostileFlagged: true }), 90);
+      sampleRoomLosses(census({ room: "W43N23" }), 90);
+      sampleRoomLosses(
+        census({ room: "W41N23", hostileFlagged: true, tombstones: [tomb({ id: "a", energy: 300, killed: true })] }),
+        100
+      );
+      sampleRoomLosses(census({ room: "W43N23", tombstones: [tomb({ id: "b", energy: 200, killed: true })] }), 100);
+      const r = lossReport(100);
+      expect(r.tombstoneKilledByRoom).to.deep.equal({ W41N23: 300, W43N23: 200 });
+      expect(r.tombstoneKilledHostileRoom, "only the intel-flagged room's kill").to.equal(300);
+    });
+
+    it("expired and unknown deaths contribute NOTHING to the killed-location split", () => {
+      sampleRoomLosses(census({ room: "W41N23", hostileFlagged: true }), 90);
+      sampleRoomLosses(
+        census({
+          room: "W41N23",
+          hostileFlagged: true,
+          tombstones: [tomb({ id: "a", energy: 300, killed: false }), tomb({ id: "b", energy: 100 })]
+        }),
+        100
+      );
+      const r = lossReport(100);
+      expect(r.tombstoneKilledByRoom).to.deep.equal({});
+      expect(r.tombstoneKilledHostileRoom).to.equal(0);
+    });
+
     it("keeps the three cause buckets summing to the gross booking", () => {
       sampleRoomLosses(census(), 90);
       sampleRoomLosses(

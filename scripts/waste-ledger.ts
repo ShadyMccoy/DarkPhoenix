@@ -2748,6 +2748,34 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
                         (unknown === causeTotal ? "  <- no death-watch coverage this window" : "")
                     );
                   }
+                  // The WHERE (v27, owner 2026-08-03): killed energy by room
+                  // and the share intel can actually attribute to hostiles.
+                  // Kills in quiet rooms are NOT raid evidence - this line is
+                  // what the R1 constant swap must read before it fires.
+                  if (attSpanned && cc?.tombstoneKilledByRoom !== undefined && cb?.tombstoneKilledByRoom !== undefined) {
+                    const byRoom: Record<string, number> = {};
+                    const roomKeys = new Set([
+                      ...Object.keys(cc.tombstoneKilledByRoom ?? {}),
+                      ...Object.keys(cb.tombstoneKilledByRoom ?? {})
+                    ]);
+                    for (const k of roomKeys) {
+                      const d = Math.max(0, (cc.tombstoneKilledByRoom?.[k] ?? 0) - (cb.tombstoneKilledByRoom?.[k] ?? 0));
+                      if (d > 0) byRoom[k] = d;
+                    }
+                    const killedTotal = Object.values(byRoom).reduce((a, b) => a + b, 0);
+                    if (killedTotal > 0) {
+                      const hostileShare = attDiff("tombstoneKilledHostileRoom");
+                      out.push(
+                        `      killed where: ` +
+                          Object.entries(byRoom)
+                            .sort((a, b) => b[1] - a[1])
+                            .slice(0, 4)
+                            .map(([r, e]) => `${r} ${((e / killedTotal) * 100).toFixed(0)}%`)
+                            .join("  ") +
+                          `   (${((hostileShare / killedTotal) * 100).toFixed(0)}% in intel-hostile rooms - the share the raid story can claim)`
+                      );
+                    }
+                  }
                   return out;
                 })(),
                 L("repair (energy spent holding hits)", -repairSpend, 4, -bRepair, "cost"),

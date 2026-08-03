@@ -255,6 +255,15 @@ export interface CoreTelemetry {
     tombstoneExpired?: number;
     tombstoneKilled?: number;
     /**
+     * KILLED energy by booking room / by intel-hostile flag (v27, owner
+     * 2026-08-03: "a lot is blamed on raids without sufficient evidence").
+     * Kills clustering in intel-hostile rooms support the invader story and
+     * the R1 constant swap; kills in quiet rooms falsify both. Cumulative
+     * twins live in `cumulative` so capture pairs difference the WHERE.
+     */
+    tombstoneKilledByRoom?: Record<string, number>;
+    tombstoneKilledHostileRoom?: number;
+    /**
      * Energy whose cause of death could NOT be resolved (v25). v23 derived
      * cause from `tombstone.creep.ticksToLive` - 0/undefined on every dead
      * creep - so everything defaulted into "expired" and the v24 audit line
@@ -528,7 +537,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 26, // v25 spawnSpend cumulative + death-watch cause; v26 losses published unconditionally (cumulative survives the arming window) 2026-08-03
+    version: 27, // v26 losses published unconditionally; v27 killed-WHERE attribution (byRoom + intel-hostile flag) 2026-08-03
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
