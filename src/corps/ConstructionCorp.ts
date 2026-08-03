@@ -1265,6 +1265,25 @@ export class ConstructionCorp extends Corp {
       }
     }
 
+    // 1.8 Recycle pad (AFTER the surplus controller container - rung 1.7
+    //     keeps its pinned queue-jump, cons-ctrl-container-surplus-first) (owner 2026-08-03): a container beside each spawn in a
+    //     MATURE room. The depot rule (1.5) is storage-gated off, so mature
+    //     rooms had NO spawn-side container - and recycleCreep's body refund
+    //     decays in the tombstone onto a bare tile (measured t72757611:
+    //     13.07 e/t of refund flow against ~5 recovered, zero containers in
+    //     the live home room; the 5k container pays back in under half a
+    //     fiscal month). Storage-gated ON, so every bootstrap-era rung
+    //     ordering pin is untouched; driveRecycle seats the pad the moment
+    //     it stands.
+    if (containersOpen && room.storage?.my) {
+      const pad = this.findMissingRecyclePad(room);
+      if (pad) {
+        this.placeSite(room, pad.x, pad.y, STRUCTURE_CONTAINER);
+        return;
+      }
+    }
+
+
     // 1.8 Tower (RCL 3, spec 07 - owner directive 2026-07-17 "at home, we
     //     will build towers"): the room's entire NPC defense. Between the core
     //     depot and extensions: the engine's raid table only sends 50-part
@@ -2036,6 +2055,24 @@ export class ConstructionCorp extends Corp {
     if (this.hasContainerNear(room, spawn.pos, 1)) return null;
     const tile = bestAdjacentTile(room, spawn.pos, 1, spawn.pos, undefined, STRUCTURE_CONTAINER);
     return tile ? { x: tile.x, y: tile.y } : null;
+  }
+
+  /**
+   * The RECYCLE PAD (owner 2026-08-03): a container beside a spawn in a
+   * STORAGE room, so recycleCreep's refund - which the engine returns into
+   * the TOMBSTONE, whose decay then drops it on the recycler's tile - lands
+   * in a store instead of rotting on bare ground. The mature-era mirror of
+   * findMissingCoreDepot (whose storage gate is exactly why no pad existed).
+   * One pass per spawn lacking one; driveRecycle seats it once built.
+   */
+  private findMissingRecyclePad(room: Room): { x: number; y: number } | null {
+    if (this.containerBudgetFull(room)) return null;
+    for (const spawn of room.find(FIND_MY_SPAWNS)) {
+      if (this.hasContainerNear(room, spawn.pos, 1)) continue;
+      const tile = bestAdjacentTile(room, spawn.pos, 1, spawn.pos, undefined, STRUCTURE_CONTAINER);
+      if (tile) return { x: tile.x, y: tile.y };
+    }
+    return null;
   }
 
   /**

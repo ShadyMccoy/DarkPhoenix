@@ -136,6 +136,32 @@ export function buildConstructionT1Cells(): GridCell[] {
         ),
       ],
     },
+
+    {
+      // THE RECYCLE PAD (owner 2026-08-03: "build a container by the spawn to
+      // recycle into"). In a MATURE room the depot rule is storage-gated OFF,
+      // so no container ever stands beside the spawn - and recycleCreep's
+      // body refund decays in the tombstone onto a bare tile (measured
+      // t72757611: 13.07 e/t of refund flow, ~5 recovered, ZERO containers in
+      // the live home room; the 5k container pays back in under half a fiscal
+      // month). Rung 1.8: after the depot/controller-container class, gated
+      // on a STANDING storage, so every bootstrap-era ordering pin is
+      // untouched; driveRecycle already seats the pad the moment it exists.
+      id: "cons-recycle-pad-mature-room",
+      tier: 4,
+      avenue: "construction",
+      window: 80,
+      rooms: { home: rungRoom },
+      bot: { x: 25, y: 25 },
+      controller: { level: 4 },
+      structures: [{ type: "storage", room: "home", x: 27, y: 25, energy: 20000 }],
+      creeps: quiet(),
+      assertions: [
+        eventually("the recycle-pad container site lands beside the spawn", (s) =>
+          sites(s).some((o: any) => o.structureType === "container" && cheb(o, SPAWN) === 1)
+        ),
+      ],
+    },
   ];
 }
 

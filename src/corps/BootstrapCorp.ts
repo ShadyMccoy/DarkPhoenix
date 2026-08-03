@@ -24,6 +24,7 @@ import {
   SPAWN_COOLDOWN
 } from "./CorpConstants";
 import { Corp, SerializedCorp } from "./Corp";
+import { driveRecycle } from "./recycle";
 import { Position } from "../types/Position";
 import { accrueSpawnSpend } from "../telemetry/spawnLedger";
 
@@ -225,22 +226,17 @@ export class BootstrapCorp extends Corp {
   }
 
   /**
-   * Retire a jack: deliver any carried energy, then recycle it at the spawn to
-   * recover part of its body cost.
+   * Retire a jack through the ONE recycle driver (corps/recycle.driveRecycle).
+   * This was a private duplicate of the old driver - same spawn-dump livelock
+   * (the spawn buffer is pinned full in a healthy room), and it never set
+   * memory.recycling, so the death watch booked every jack recycle as KILLED
+   * (t72757611: the 900e/window "killed at home, zero hostiles" class was
+   * exactly this). The flag is the verdict's evidence; the driver banks cargo
+   * storage-first and seats the recycle pad when one stands.
    */
   private recycleJack(creep: Creep, spawn: StructureSpawn): void {
-    if (creep.store[RESOURCE_ENERGY] > 0) {
-      // Dump remaining energy into the spawn network on the way out.
-      if (creep.transfer(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(spawn, { visualizePathStyle: { stroke: "#888888" } });
-      }
-      return;
-    }
-    if (creep.pos.isNearTo(spawn)) {
-      spawn.recycleCreep(creep);
-    } else {
-      creep.moveTo(spawn, { visualizePathStyle: { stroke: "#888888" } });
-    }
+    creep.memory.recycling = true;
+    driveRecycle(creep, spawn);
   }
 
   /**
