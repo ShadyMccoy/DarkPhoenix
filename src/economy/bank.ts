@@ -183,6 +183,25 @@ export function controllerFloorRate(banked: number): number {
 }
 
 /**
+ * The plan's routed controller allocation for a room (energy/tick), or
+ * undefined before the first solve publishes one (spec 38 phase B). THE
+ * runtime lens for "how fast does energy reach this controller": call sites
+ * pass Memory.controllerAllocations (published by FlowEconomy.update) - the
+ * feeder corp gets the same solve's number through its commission, and every
+ * other reader (the feeder trunk's road-payback flow in ConstructionCorp)
+ * resolves this instead of re-deriving a rate from the bank - the
+ * feederRelayRate consumer side-channel this spec retires. Pure, persisted
+ * value as argument: the exact resolveReserveTarget shape, keeping the
+ * planning core Memory-free (spec 17 purity).
+ */
+export function plannedControllerFlow(
+  published: Record<string, number> | undefined,
+  roomName: string
+): number | undefined {
+  return published?.[roomName];
+}
+
+/**
  * Stable bank source id for a room (one storage per room): "bank-W1N1". THE
  * encoder for the bank id space - the matching lenses (economy/ids.ts
  * isBankSourceId / bankRoomFromId) decode exactly this form; change one only

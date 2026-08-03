@@ -1391,9 +1391,11 @@ export function solveColony(
     // (the v8 hauler-spawnParts pattern). Construction only: the controller
     // line's ledger model deliberately stays plan-side workParts.
     const charge = k.kind === "construction" ? consumerSpawnLoad(problem, k, sinkPosById.get(k.sinkId)) : null;
+    const roomName = sinkPosById.get(k.sinkId)?.roomName;
     return {
       sinkId: k.sinkId,
       sinkType: sinkTypeById.get(k.sinkId) ?? "controller",
+      ...(roomName ? { roomName } : {}),
       allocated: k.allocated,
       demand: k.demand,
       unmet: Math.max(0, k.demand - k.allocated),
@@ -1501,6 +1503,21 @@ export class FlowEconomy {
       Memory.lastBankDraw = result.solution.sinkAllocations
         .filter(a => a.sinkType === "controller" || a.sinkType === "construction")
         .reduce((sum, a) => sum + a.allocated, 0);
+      // Publish the plan's routed controller allocation PER ROOM (spec 38
+      // phase B) - the ONE number every runtime reader that asks "how fast
+      // does energy reach this controller" resolves through
+      // bank.plannedControllerFlow: the feeder trunk's road-payback flow
+      // (ConstructionCorp), and any future reader. The feeder corp itself
+      // receives the same solve's number through its commission
+      // (controllerFeederKind), so the two channels cannot disagree by more
+      // than one solve's staleness. Same publish-don't-rederive pattern as
+      // warchestTarget above.
+      const ctrlByRoom: Record<string, number> = {};
+      for (const a of result.solution.sinkAllocations) {
+        if (a.sinkType !== "controller" || !a.roomName) continue;
+        ctrlByRoom[a.roomName] = (ctrlByRoom[a.roomName] ?? 0) + a.allocated;
+      }
+      Memory.controllerAllocations = ctrlByRoom;
       // Publish the liquidity reserve target for next solve's bank-surplus
       // emission and every consumer that sizes off it (bank.resolveReserveTarget).
       // Income is the colony's sustained mined rate - the SAME set and rule as

@@ -1,11 +1,35 @@
 # Spec 38 — One bank-drain rate
 
-**Status: BACKLOG (owner 2026-07-30).** Raised by the owner during the audit
-loop: *"Can't the plan take into account the draining 300 K bank?"* The answer
-is **yes, and it already does** — but three different drain rates exist and
-the plan's *spawn-parts* budget is computed against the smallest while the
-*consumption chain* draws the largest. Problem inventory first (same shape as
-spec 37); the direction section is short and non-binding.
+**Status: PHASES A+B SHIPPED (2026-08-03); live acceptance measurement open.**
+Raised by the owner during the audit loop: *"Can't the plan take into account
+the draining 300 K bank?"* The answer is **yes, and it already does** — but
+three different drain rates existed and the plan's *spawn-parts* budget was
+computed against the smallest while the *consumption chain* drew the largest.
+
+**Phase A (2026-08-02, deployed t72743103):** the controller floor moved
+INSIDE the plan — `controllerFloorRate(banked)` (the ONE drain law, capped at
+the save target, floored at the anti-downgrade trickle) wired as the
+controller SINK RESERVE in the adapter, won by the reserve pre-pass before
+value greed or ledger exhaustion.
+
+**Phase B (2026-08-03):** the consumer override (P-C) died. `feederRelayTarget`
+relays the plan's controller allocation + stock headroom in EVERY regime (the
+surplus formula survives only as the no-allocation legacy fallback);
+`feederBodyRate` retired outright (relay target and consumer burn are one
+number now); the constructionAbsorb netting died with the override (the plan's
+allocation is already the post-construction residual). The solve publishes
+`Memory.controllerAllocations` per room, resolved through the pure lens
+`bank.plannedControllerFlow` — ConstructionCorp's feeder-trunk road-payback
+flow reads it instead of `feederRelayRate`. Acceptance 1+2 landed as the
+STAGED t72455355 conformance suite (test/unit/economy/bank.test.ts "spec 38
+acceptance": ledger genuinely dry + bank full → the floor holds, the chain
+agrees end to end; plus the healthy-ledger case: the full surplus drain flows
+THROUGH the plan). Remaining: acceptance 3+4 are LIVE measurements — P4
+plan-implied vs measured parts/tick converging, P12 → ~1.0x, no score loss —
+tracked by the fiscal-close loop; and the full-stack staged grid cell rides
+with the phase-3 grid work (blocked on the #148 plan-t5 regression).
+
+Original problem inventory below, kept for the record (same shape as spec 37).
 
 ## The plan is NOT blind to the bank (measured, t72681617)
 

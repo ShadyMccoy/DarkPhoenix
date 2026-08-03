@@ -221,3 +221,108 @@ describe("controllerFloorRate (spec 38 phase A: the plan's own floor)", () => {
     expect(controllerFloorRate(1000)).to.equal(ANTI_DOWNGRADE_RESERVE); // 0.67 < trickle
   });
 });
+
+import { planColony, ColonyProblem, PlannerSink, PlannerSpawn } from "../../../src/economy/CorpPlanner";
+import { plannableSpawnParts } from "../../../src/economy/primitives";
+import { Position } from "../../../src/types/Position";
+import { feederRelayTarget, FEEDER_STOCK_HEADROOM } from "../../../src/corps/ControllerFeederCorp";
+import { upgraderSizing } from "../../../src/corps/UpgradingCorp";
+
+/**
+ * SPEC 38 ACCEPTANCE 1+2 - the staged t72455355 state (bank full, ledger dry).
+ *
+ * The incident state does not occur organically in either live regime (checked
+ * 2026-08-02: partsLeft 0.133 surplus / 0.216 filling), so the conformance
+ * test STAGES it: a full bank's transient source standing, the spawn-parts
+ * budget squeezed to a sliver (infraPartsPerTick eats all but ~4x the floor's
+ * own charge), and a HIGHER-VALUE competitor (a founding site at 85, above
+ * controller's 80) that would drain that sliver first under pure value greed -
+ * exactly how t72455355's fill exhausted before the controller sink and
+ * published allocated ~2 with 340k banked.
+ *
+ * The invariant (owner decision, spec 38 item 3): the parts-ledger fill must
+ * never starve a sink the plan's own bank source is routing to below the sip
+ * floor while that source stands. Phase A provides it structurally - the
+ * reserve pre-pass runs FIRST on a fresh ledger, so the floor's parts are won
+ * before any value-ranked fill can spend them.
+ *
+ * The CHAIN then agrees end to end (phase B): the feeder relays the plan's
+ * allocation + stock headroom and the upgraders burn the plan's allocation -
+ * both small, both AGREED, instead of the incident's feeder 7 vs upgraders
+ * 115 (stock 1520 -> 60). The old override is not needed because the state it
+ * defended against is impossible by construction.
+ */
+describe("spec 38 acceptance: the staged t72455355 state (bank full, ledger dry)", () => {
+  const ROOM = "W1N1";
+  const BANKED = 340_000;
+  const RESERVE = 70_000;
+  const at = (x: number): Position => ({ x, y: 0, roomName: ROOM });
+  const manhattan = (a: Position, b: Position): number => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+  const FLOOR = controllerFloorRate(BANKED); // 15 - the bank sustains the full save target
+
+  const stagedProblem = (): ColonyProblem => {
+    const spawn: PlannerSpawn = { id: "S", pos: at(0) };
+    const bankSrc = bankToTransientSource(ROOM, at(1), BANKED, RESERVE)!;
+    const ctrl: PlannerSink = {
+      id: "ctrl",
+      kind: "controller",
+      pos: at(3),
+      value: 80,
+      capacity: 80,
+      reserve: FLOOR
+    };
+    // The ledger-drainer: a founding site OUTRANKS the controller (85 > 80,
+    // the sink-value ladder) and its long haul is parts-expensive, so under
+    // pure value order it exhausts the sliver before the controller's turn.
+    const founding: PlannerSink = { id: "founding", kind: "spawn", pos: at(120), value: 85, capacity: 100 };
+    // Squeeze the budget: standing infra eats all but a sliver (~4x the
+    // floor's own charge at these distances).
+    const infraPartsPerTick = plannableSpawnParts(1) - 0.05;
+    return { dist: manhattan, spawns: [spawn], sources: [bankSrc], sinks: [ctrl, founding], infraPartsPerTick };
+  };
+
+  it("stages the discriminator state for real: the ledger runs DRY", () => {
+    expect(planColony(stagedProblem()).partsLedger.dry).to.equal(true);
+  });
+
+  it("the parts squeeze binds the competitor, not the energy pool", () => {
+    const founding = planColony(stagedProblem()).sinks.find(s => s.sinkId === "founding")!;
+    expect(founding.allocated).to.be.greaterThan(0, "the sliver funds SOME founding haul");
+    expect(founding.allocated).to.be.lessThan(50, "nowhere near its 100 demand - parts bound it");
+  });
+
+  it("the fill never starves the bank-fed sip floor while the bank source stands (phase A invariant)", () => {
+    const ctrl = planColony(stagedProblem()).sinks.find(s => s.sinkId === "ctrl")!;
+    expect(ctrl.allocated).to.be.at.least(FLOOR - 1e-6, "the reserve pre-pass won the floor before value greed");
+    // ...and the dry ledger kept it AT the floor: the state is the incident's,
+    // only the allocation is now honest instead of ~2.
+    expect(ctrl.allocated).to.be.at.most(FLOOR + 1);
+  });
+
+  it("the chain AGREES end to end: relay covers the burn, both read the plan (phase B)", () => {
+    const alloc = planColony(stagedProblem()).sinks.find(s => s.sinkId === "ctrl")!.allocated;
+    const relay = feederRelayTarget(feederRelayRate(BANKED, RESERVE), alloc);
+    const upgraders = upgraderSizing(alloc);
+    expect(relay).to.be.closeTo(alloc + FEEDER_STOCK_HEADROOM, 1e-9, "the feeder relays the plan + headroom");
+    expect(upgraders.allocated).to.be.at.most(relay, "the supply line covers the burn - no 1520->60 drain");
+    expect(upgraders.allocated).to.be.at.least(FLOOR, "and the burn holds the sip floor");
+  });
+
+  it("HEALTHY ledger, same bank: the full surplus drain flows THROUGH the plan (the pin's outcome, end to end)", () => {
+    // The t72455355 outcome pin above guarantees the drain at the formula
+    // level; this is the same guarantee through the whole chain now that the
+    // feeder reads the plan. A full bank's transient source (100 e/t at these
+    // stocks) routes to an unconstrained controller sink, and the relay the
+    // feeder actually sizes to covers it - no override needed for a large
+    // drain to materialize.
+    const spawn: PlannerSpawn = { id: "S", pos: at(0) };
+    const bankSrc = bankToTransientSource(ROOM, at(1), BANKED, RESERVE)!;
+    const ctrl: PlannerSink = { id: "ctrl", kind: "controller", pos: at(3), value: 80, capacity: 120, reserve: FLOOR };
+    const plan = planColony({ dist: manhattan, spawns: [spawn], sources: [bankSrc], sinks: [ctrl] });
+    const alloc = plan.sinks.find(s => s.sinkId === "ctrl")!.allocated;
+    expect(alloc).to.be.closeTo(bankSurplusRate(BANKED, RESERVE), 1e-6, "the solver routes the WHOLE surplus draw");
+    const relay = feederRelayTarget(feederRelayRate(BANKED, RESERVE), alloc);
+    expect(relay).to.be.at.least(100, "the incident needed ~115; the plan-read relay delivers it");
+    expect(upgraderSizing(alloc).allocated).to.be.at.most(relay, "and the burn it feeds agrees");
+  });
+});

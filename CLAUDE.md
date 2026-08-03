@@ -71,6 +71,13 @@ whose operators are corps. Read order for architecture truth:
   the walk can bank toward an indivisible full-size body).
   `sustainableConsumptionRate` remains the drain law for OTHER consumers
   (construction fuel, haul policy); it is no longer an upgrader valve.
+  **The feeder is the same valve since spec 38 phase B (2026-08-03)**:
+  `feederRelayTarget` = plan allocation + stock headroom in every regime (the
+  surplus-regime override and `feederBodyRate` are retired; the t72455355
+  floor lives INSIDE the plan as the controller sink reserve,
+  `controllerFloorRate`). Off-plan readers resolve the published
+  `Memory.controllerAllocations` through `bank.plannedControllerFlow` — never
+  `feederRelayRate`, which is now a plan INPUT only (bank source rate).
 
 ## Economics rules
 

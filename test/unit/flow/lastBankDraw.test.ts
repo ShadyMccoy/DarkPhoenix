@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
 import { FlowEconomy } from "../../../src/economy/flowAdapter";
+import { plannedControllerFlow } from "../../../src/economy/bank";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
 
 /**
@@ -55,5 +56,18 @@ describe("FlowEconomy - lastBankDraw survives the instance rebuild", () => {
     b.update(1);
     expect(g.Memory.lastBankDraw, "the fresh instance's solve re-records").to.be.a("number");
     void recorded;
+  });
+
+  it("publishes the plan's controller allocation PER ROOM, resolved by the pure lens (spec 38 phase B)", () => {
+    new FlowEconomy(world()).update(0);
+    const published = g.Memory.controllerAllocations as Record<string, number> | undefined;
+    expect(published, "the solve publishes the per-room controller allocations").to.be.an("object");
+    expect(published!["W0N0"], "this world's one controller room is present").to.be.a("number");
+    expect(published!["W0N0"]).to.be.greaterThan(0, "a solvable world routes the controller SOMETHING");
+    // The runtime lens reads exactly what the solve published - and stays
+    // undefined-safe before the first solve (the legacy-fallback trigger).
+    expect(plannedControllerFlow(published, "W0N0")).to.equal(published!["W0N0"]);
+    expect(plannedControllerFlow(published, "W9N9")).to.equal(undefined);
+    expect(plannedControllerFlow(undefined, "W0N0")).to.equal(undefined);
   });
 });

@@ -20,7 +20,7 @@ import {
   serializeStore
 } from "../../../src/economy/CorpKind";
 import { planCommissions } from "../../../src/economy/commissionPlan";
-import { ControllerFeederCorp } from "../../../src/corps/ControllerFeederCorp";
+import { ControllerFeederCorp, FEEDER_STOCK_HEADROOM } from "../../../src/corps/ControllerFeederCorp";
 import { controllerFeederKind } from "../../../src/corps/kinds/controllerFeederKind";
 import { describeCorpKindConformance } from "./conformance";
 
@@ -228,8 +228,12 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
 
     // needed carry across the relay exceeds one max body (13 CARRY at 1300
     // capacity), so the corp fields a second (and third) feeder rather than
-    // pretending one shuttle can move 35 e/t.
-    const needed = Math.ceil(carryPartsFor(feederRelayRate(banked, reserveTarget), 15) * 1.2);
+    // pretending one shuttle can move 35 e/t. The relay the corp sizes is the
+    // PLAN's allocation + stock headroom (spec 38 phase B - one law, every
+    // regime), so the test derives from the same law.
+    const needed = Math.ceil(
+      carryPartsFor(feederRelayRate(banked, reserveTarget) + FEEDER_STOCK_HEADROOM, 15) * 1.2
+    );
     const maxCarry = 13;
     const wantedFeeders = Math.ceil(needed / maxCarry);
     expect(wantedFeeders).to.be.greaterThan(1); // the scenario actually exercises scaling

@@ -428,6 +428,18 @@ declare global {
     warchestTarget?: number;
 
     /**
+     * The plan's routed controller allocation per room (energy/tick), from the
+     * last solve's sink allocations (spec 38 phase B - the plan allocation is
+     * the valve). Written by FlowEconomy.update; resolved through the pure
+     * lens bank.plannedControllerFlow(Memory.controllerAllocations, room).
+     * Runtime readers that ask "how fast does energy reach this controller"
+     * (the feeder trunk's road-payback judge) resolve THIS instead of
+     * re-deriving a rate from the bank - the feederRelayRate side-channel
+     * spec 38 retires.
+     */
+    controllerAllocations?: Record<string, number>;
+
+    /**
      * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so
      * CPU joins energy and spawn build-time as a metered, pullable resource.
      * `corpsTotal` is the sum over every commissioned corp this tick -

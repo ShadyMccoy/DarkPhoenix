@@ -48,7 +48,7 @@ import {
   sustainableConsumptionRate,
   workPartsForEnergyRate
 } from "../economy/primitives";
-import { feederRelayRate, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
+import { feederRelayRate, plannedControllerFlow, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
 import {
   declinedVerdictStands,
   effectiveOneWayTiles,
@@ -1491,8 +1491,12 @@ export class ConstructionCorp extends Corp {
       if (!this.routeSettled(e, trunk.flow)) return true;
     }
     const feeder = room.memory.roadRoutes?.["feeder"];
+    // The trunk carries the PLAN's controller flow (spec 38 phase B - the
+    // relay is sized to it now); the raw relay formula survives only as the
+    // pre-first-solve fallback.
     const feederFlow = room.storage?.my
-      ? feederRelayRate(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
+      ? plannedControllerFlow(Memory.controllerAllocations, room.name) ??
+        feederRelayRate(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
       : 0;
     if (!this.routeSettled(feeder, feederFlow) && room.storage?.my) {
       const ctrl = room.controller;
@@ -1818,14 +1822,13 @@ export class ConstructionCorp extends Corp {
     };
     let entry: NonNullable<Room["memory"]["roadRoutes"]>[string] | undefined = routes["feeder"];
     const bank = room.storage;
-    if (
-      entry?.declined &&
-      bank?.my &&
-      !declinedVerdictStands(
-        entry.judgedFlow,
-        feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
-      )
-    ) {
+    // The judge flow is the PLAN's controller allocation (spec 38 phase B):
+    // what the relay is actually sized to move down this lane. Raw formula =
+    // pre-first-solve fallback only.
+    const trunkFlow = (): number =>
+      plannedControllerFlow(Memory.controllerAllocations, room.name) ??
+      feederRelayRate(bank?.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget));
+    if (entry?.declined && bank?.my && !declinedVerdictStands(entry.judgedFlow, trunkFlow())) {
       delete routes["feeder"]; // the relay rate outgrew the cached verdict - re-judge
       entry = undefined;
     }
@@ -1876,12 +1879,9 @@ export class ConstructionCorp extends Corp {
       return;
     }
     const tiles = result.path.map(p => ({ x: p.x, y: p.y }));
-    // Flow = the live relay rate: this lane moves the bank draw, not a source's 10.
-    const spec = this.roadRouteSpec(
-      room,
-      tiles,
-      feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
-    );
+    // Flow = the plan's controller allocation: this lane moves what the relay
+    // is sized to relay (spec 38 phase B), not a source's 10.
+    const spec = this.roadRouteSpec(room, tiles, trunkFlow());
     const verdict = evaluateRoadRoute(spec, ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
     if (!verdict.worthPaving) {
       routes["feeder"] = { tiles: [], declined: true, judgedFlow: spec.flow };

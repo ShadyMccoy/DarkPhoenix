@@ -255,6 +255,13 @@ export interface SinkAllocation {
   /** Type of sink */
   sinkType: SinkType;
 
+  /**
+   * Room the sink stands in (from the planner problem's sink position).
+   * Feeds the per-room Memory.controllerAllocations publish (spec 38 phase
+   * B) that runtime readers resolve through bank.plannedControllerFlow.
+   */
+  roomName?: string;
+
   /** Energy allocated per tick */
   allocated: number;
 

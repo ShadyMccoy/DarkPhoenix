@@ -37,8 +37,7 @@ import { travelTo, travelToBypass } from "./movement";
 import { roomHasFlowMiner } from "./censusLens";
 import { stampControllerFeederRegime } from "./regimes";
 import { CARRY_MOVE_PAIR_COST, carryPartsFor, maxCarryPairs, parkedRelayCarry } from "../economy/primitives";
-import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
-import { buildPoolAbsorbRate } from "./constructionLedger";
+import { feederRelayRate, resolveReserveTarget } from "../economy/bank";
 
 export interface SerializedControllerFeederCorp extends SerializedSpawnAnchoredCorp {
   controllerAllocation?: number;
@@ -86,73 +85,38 @@ export const FEEDER_STOCK_HEADROOM = 5;
 /**
  * The relay rate the feeder fleet is sized to sustain (pure, unit-tested).
  *
- * SURPLUS (bankSurplusRate > 0): the raw surplus formula, IGNORING the plan's
- * controller allocation - consumers size from actuals, never the goal plan
- * (macro doctrine; the upgrader half is upgraderSizing's surplus regime, this
- * is its supply line). Prod t72455355: the plan's parts ledger exhausted
- * before the controller sink (allocated 2) while 340k stood banked; the old
- * clamp sized the feeder to relay 7 while the upgraders' sizing assumed the
- * surplus 115 - the stock drained 1520 -> 60 and burn ran 11 of 115. The two
- * halves of the consumption chain must read the SAME inflow or the upgraders'
- * math lies.
+ * THE PLAN ALLOCATION IS THE VALVE (spec 38 phase B; owner 2026-07-31:
+ * "incorporate the actual into the plan ... a single consistent framework",
+ * completing the upgrader half's 2026-08-02 consolidation). The feeder
+ * relays the plan's routed controller allocation plus the stock headroom -
+ * in EVERY regime. The actuals (bank stock, construction claims) are plan
+ * INPUTS now: the bank enters the solve as a transient source
+ * (bankToTransientSource), construction competes as a sink in the same
+ * ladder, and the sip floor is the controller sink's RESERVE
+ * (controllerFloorRate, won by the reserve pre-pass before value greed) -
+ * so reading the plan IS reading the actuals, one direction, no
+ * side-channel.
  *
- * NON-SURPLUS: the plan clamp stands (owner t72421124: while construction
- * preempts the bank the controller legitimately floors at ~2 e/t, and a
- * feeder sized to the raw formula is 90+ wasted parts). bankSurplusRate is
- * the shared regime lens - the same primitive the upgraders and the bank
- * draw read.
+ * What died here (P-C, spec 38): the surplus-regime override that returned
+ * the raw surplus formula (feederRelayRate = 15 + bankSurplusRate),
+ * measured 89.69 relayed against 50.02 planned at t72681617 - a fleet the
+ * plan never priced (P12 3.30x). It was born at prod t72455355, when the
+ * parts ledger exhausted before the controller sink (allocated 2) while
+ * 340k stood banked; phase A moved that floor INSIDE the plan, so the
+ * override's precondition is impossible by construction (staged proof:
+ * bank.test.ts "spec 38 acceptance"). The constructionAbsorb netting died
+ * with it - the plan's allocation is already the post-construction
+ * residual, netting it again double-counts (its own incident t72478939 was
+ * an artifact of netting against the RAW formula).
+ *
+ * The t72421124 clamp (plan ~2 while construction preempts, no 90-part
+ * feeder into a full stock) is now just... the law, not a special regime.
+ *
+ * No allocation (old commission, pre-first-solve): the surplus formula
+ * stands as the legacy fallback.
  */
-export function feederRelayTarget(
-  surplusRate: number,
-  planFlow: number | undefined,
-  banked: number,
-  reserveTarget: number,
-  constructionAbsorb = 0
-): number {
-  // CONSTRUCTION-FIRST, ABSORB-BOUNDED (owner 2026-07-21: "when construction
-  // is around ... funnel energy to construction. Upgrading is secondary";
-  // prod t72478939): with sites standing, the build set eats what it CAN
-  // absorb (buildPoolAbsorbRate - the same projectAbsorbRate lens that sizes
-  // the crew and the plan's construction sink) and the relay serves the REST
-  // of the surplus, floored at the plan's post-construction controller
-  // residual. The boolean form of this clamp treated 12 road sites (pool
-  // absorb ~5 e/t) exactly like a 100k build-out: relay clamped to 7 while
-  // surplus 115 stood and construction ate 0.47 e/t measured - the freed
-  // energy BANKED (+20.18/t at 474k, 17x target). A build-out that absorbs
-  // the whole draw floors the relay at the plan residual - the link-era
-  // clamp, preserved. No sites -> the unclamped surplus draw stands.
-  if (bankSurplusRate(banked, reserveTarget) > 0) {
-    if (constructionAbsorb <= 0 || planFlow === undefined) return surplusRate;
-    return Math.max(Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM), surplusRate - constructionAbsorb);
-  }
-  return planFlow !== undefined ? Math.min(surplusRate, planFlow + FEEDER_STOCK_HEADROOM) : surplusRate;
-}
-
-/**
- * The rate the feeder's BODY is sized to (owner 2026-07-22: "the feeder
- * seems way too large") - distinct from the RELAY TARGET above, which paces
- * how much the feeder moves over time. The body only needs to keep pace
- * with what the consumers can actually BURN: standing upgrader WORK x 1 e/t
- * with 1.5x headroom (fleet growth + stock building), floored at the plan's
- * controller flow so a mid-resize dip never starves the allocation. At the
- * link-fed distance 1 the old body sized to the full surplus VALVE (~110
- * e/t -> 11 carry, a 22-part creep) while the fleet burned ~40 - the valve
- * pacing is unchanged, the feeder just makes more trips with a body sized
- * from ACTUALS (sustainableConsumptionRate doctrine, applied to the relay).
- */
-export function feederBodyRate(
-  relayRate: number,
-  planFlow: number | undefined,
-  standingWork: number,
-  banked: number,
-  reserveTarget: number
-): number {
-  // SURPLUS regime only: the save-regime relay is already small (the
-  // warchest trickle) and its sizing contract is pinned - a filling
-  // warchest must see no behavior change.
-  if (bankSurplusRate(banked, reserveTarget) <= 0) return relayRate;
-  const burnCap = Math.max(planFlow ?? 0, standingWork * 1.5);
-  return burnCap > 0 ? Math.min(relayRate, burnCap) : relayRate;
+export function feederRelayTarget(surplusRate: number, planFlow: number | undefined): number {
+  return planFlow !== undefined ? planFlow + FEEDER_STOCK_HEADROOM : surplusRate;
 }
 
 export class ControllerFeederCorp extends SpawnAnchoredCorp {
@@ -433,34 +397,25 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     const linkFed = !!controllerLink(spawn.room);
     const distance = linkFed ? 1 : spawn.pos.getRangeTo(controller.pos);
     const maxCarry = maxCarryPairs(ctx.energyCapacity);
-    // The relay serves the PLAN's controller flow, never the raw surplus
-    // formula: when construction preempts the bank the controller floors at
-    // ~2 e/t and relaying 115 into a full stock is 90+ wasted parts (owner
-    // t72421124). No allocation known (old commission) -> formula unclamped.
+    // THE PLAN ALLOCATION IS THE VALVE (spec 38 phase B): the relay serves the
+    // plan's routed controller flow + stock headroom in every regime - the
+    // surplus formula survives only as the legacy fallback for a commission
+    // that carries no allocation. The body sizes to the SAME rate: relay
+    // target and consumer burn (upgraderSizing reads the same allocation) are
+    // one number now, so the old feederBodyRate actuals-clamp ("the feeder
+    // seems way too large" - a body sized to a 110 e/t valve while consumers
+    // burned 40) has nothing left to clamp.
     const reserveTarget = resolveReserveTarget(Memory.warchestTarget);
     const surplusRate = feederRelayRate(banked, reserveTarget);
     const planFlow = this.controllerAllocation;
-    // ONE absorb lens with the upgraders AND the crew (owner 2026-07-21 +
-    // prod t72478939): construction eats what it can absorb; the relay
-    // serves the rest of the surplus, floored at the plan residual.
-    const constructionAbsorb = buildPoolAbsorbRate(spawn.pos.roomName, spawn.pos);
-    const relayRate = feederRelayTarget(surplusRate, planFlow, banked, reserveTarget, constructionAbsorb);
-    // BODY sized to consumer burn, not the surplus valve (feederBodyRate -
-    // owner: "the feeder seems way too large"). Standing WORK read from the
-    // live upgrader fleet, the same actuals-first doctrine consumers use.
-    let standingWork = 0;
-    for (const name in Game.creeps) {
-      const c = Game.creeps[name];
-      if (c.memory.workType === "upgrade" && !c.spawning) standingWork += c.getActiveBodyparts(WORK);
-    }
-    const bodyRate = feederBodyRate(relayRate, planFlow, standingWork, banked, reserveTarget);
+    const relayRate = feederRelayTarget(surplusRate, planFlow);
     // SOLE-OPERATOR DRAIN FLOOR (spec 02): the feeder is the ONLY creep that
     // empties the core link, so its body must move everything that emerges there
     // (link-served source income + spec-26 deposit-port inflow) to the bank, or
     // the core backs up and source-link volleys strand (the spec-26 gridlock).
     // Non-link rooms have no core drain, so this is 0 and the body is unchanged.
     const coreDrain = linkFed ? this.coreDrainRate(spawn.room) : 0;
-    const effectiveBodyRate = Math.max(bodyRate, coreDrain);
+    const effectiveBodyRate = Math.max(relayRate, coreDrain);
     const neededCarry = Math.max(
       1,
       Math.ceil((linkFed ? parkedRelayCarry(effectiveBodyRate) : carryPartsFor(effectiveBodyRate, distance)) * 1.2)
@@ -473,11 +428,8 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
       banked,
       hasMiner,
       relayRate,
-      bodyRate,
-      standingWork,
       ...(planFlow !== undefined ? { planFlow } : {}),
       surplusRate,
-      ...(constructionAbsorb > 0 ? { constructionAbsorb } : {}),
       distance,
       ...(linkFed ? { linkFed: true } : {}),
       ...(coreDrain > 0 ? { coreDrain } : {}),

@@ -23,7 +23,7 @@ import {
   ANTI_DOWNGRADE_RESERVE,
   WARTIME_BACKLOG_THRESHOLD
 } from "../economy/primitives";
-import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
+import { bankSurplusRate, resolveReserveTarget } from "../economy/bank";
 import { FEEDER_STOCK_HEADROOM } from "./ControllerFeederCorp";
 import { CONTROLLER_STARVE_FLOOR } from "./haulPolicy";
 import { buildPoolAbsorbRate, buildPoolBacklog } from "./constructionLedger";
