@@ -201,15 +201,27 @@ score have never agreed.
 
 Ordered so each stage is independently shippable and independently useful.
 
-### Stage A — every loss has a budget *(next)*
+### Stage A — every loss has a budget *(SHIPPED 2026-08-03, methodology #9)*
 `MEASURED LOSSES` prints a BUDGET column. The planner prices pile decay from the
 buffer levels its own gate creates, tombstone loss from fleet turnover, repair
 from the decay it must service, and link tax from routed link flow.
 
-- **Test:** for each loss line, `budget` is a number, never `-`.
+- **Test:** for each loss line, `budget` is a number, never `-`. ✅
 - **Test:** each budget is computed from a `primitives` function, and the
-  kind-conformance suite pins meter and planner to the same one (1e-9).
-- **Ledger:** a row FAILS when any loss line's |variance| exceeds 25% of budget.
+  kind-conformance suite pins meter and planner to the same one (1e-9). ✅
+  (`pileDecayBudget` composes the meter's own `pileDecayRate`;
+  `tombstoneLossBudget` is the R1 invader-tax constant - both pinned in
+  `lossPrimitives.test.ts`; repair budgets the meter's own accrual; link tax
+  shipped budgeted at #6.)
+- **Ledger:** a row FAILS when any loss line's |variance| exceeds 25% of
+  budget. ✅ (**L1**, 0.25 e/t noise floor so a zero budget never FAILs on
+  dust.)
+- **First live read (t72751306 vs t72751147):** pile decay 6.23 vs budget 0
+  → BREACH (the haul deficit, priced at last - the zero budget is the gate's
+  own design point, so this line IS the E6 chronic-mouth leak in energy);
+  tombstones 0.00 vs 0.71 → favorable breach on a quiet 159t window (the
+  two-sided read working; R1's long-window 16x runs the other way); repair
+  4.80 vs accrual 4.08 (+17%, inside tolerance).
 
 ### Stage B — the residual closes
 `|residual| ≤ 5% of gross mining` on a window-coherent capture, sustained across

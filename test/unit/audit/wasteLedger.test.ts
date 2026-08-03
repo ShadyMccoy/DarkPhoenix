@@ -1279,7 +1279,10 @@ describe("energy account: the residual's line items (core v20 loss meter)", () =
   const lineValue = (text: string, label: string): number => {
     const line = text.split("\n").find(l => l.includes(label));
     if (!line) throw new Error(`no line matching "${label}" in:\n${text}`);
-    return Number(/(-?\d+\.\d\d)/.exec(line.slice(line.indexOf(label) + label.length))![1]);
+    const nums = (line.slice(line.indexOf(label) + label.length).match(/-?\d+\.\d\d/g) ?? []).map(Number);
+    // Since methodology #9 a budgeted line reads BUDGET ACTUAL VARIANCE; the
+    // ACTUAL is the middle column. Unbudgeted lines still carry one number.
+    return nums.length >= 3 ? nums[1] : nums[0];
   };
 
   it("prints the three CASH loss lines and their total", () => {
@@ -1569,8 +1572,12 @@ describe("energy account: loss lines span the FULL capture window (#5)", () => {
     const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
     const { cap, base } = withCumulative({ ...zero, pileDecay: 3 * dt, repairSpend: dt }, zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    const line = (label: string): number =>
-      Number(text.split("\n").find(l => l.includes(label))!.match(/-?\d+\.\d\d/g)!.slice(-1)[0]);
+    // Budgeted lines (methodology #9) read BUDGET ACTUAL VARIANCE - the
+    // ACTUAL is the middle of the three columns.
+    const line = (label: string): number => {
+      const nums = (text.split("\n").find(l => l.includes(label))!.match(/-?\d+\.\d\d/g) ?? []).map(Number);
+      return nums.length >= 3 ? nums[1] : nums[0];
+    };
     // 3 e/t and 1 e/t - NOT the 999 the since-reset shell carries.
     expect(line("ground pile decay")).to.be.closeTo(-3, 0.01);
     expect(line("repair (energy spent")).to.be.closeTo(-1, 0.01);
@@ -1584,8 +1591,8 @@ describe("energy account: loss lines span the FULL capture window (#5)", () => {
       zero
     );
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    const v = Number(text.split("\n").find(l => l.includes("tombstone losses"))!.match(/-?\d+\.\d\d/g)!.slice(-1)[0]);
-    expect(v).to.be.closeTo(-3, 0.01);
+    const nums = (text.split("\n").find(l => l.includes("tombstone losses"))!.match(/-?\d+\.\d\d/g) ?? []).map(Number);
+    expect(nums.length >= 3 ? nums[1] : nums[0], "the ACTUAL column (methodology #9 added budget+variance)").to.be.closeTo(-3, 0.01);
   });
 
   it("stops blaming the LOSS lines for window incoherence once they span the window", () => {
@@ -1593,6 +1600,85 @@ describe("energy account: loss lines span the FULL capture window (#5)", () => {
     const text = formatAccounts(cap, base, computeLedger(cap, base));
     // The 5-tick since-reset shell would have tripped the guard at ~1400x.
     expect(text).to.not.include("WINDOW INCOHERENCE");
+  });
+});
+
+/**
+ * SPEC 42 STAGE A: every loss has a budget (methodology #9).
+ *
+ * The MEASURED LOSSES block gains a BUDGET column priced by primitives:
+ * pile decay budgets ZERO (the gate's design point holds every mouth at the
+ * container cap - pileDecayBudget(SOURCE_BUFFER_DEFER_THRESHOLD) == 0, so
+ * every measured e/t is priced unfavorable variance pointing at the haul
+ * deficit); tombstones budget the invader tax on the same capacity basis R1
+ * prices (tombstoneLossBudget - one constant home, the two rows move
+ * together at the >=10-window swap); repair budgets the structure-decay
+ * ACCRUAL (service what decays - the depreciation memo's own shortfall
+ * becomes priced variance). L1 summarizes adherence: FAIL when any line
+ * breaches 25% of its budget (with a 0.25 e/t noise floor so a zero budget
+ * doesn't FAIL on dust); absent without cumulative meters - never fabricated.
+ */
+describe("spec 42 stage A: every loss line has a BUDGET (methodology #9)", () => {
+  const shell = { windowTicks: 5, pileDecay: 999, structureDecay: 999, repairSpend: 999, tombstoneLost: 999, tombstoneRecovered: 0, tombstoneStock: 0 };
+  const rig = (capTotals: any, baseTotals: any): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.core.losses = { ...shell, cumulative: capTotals };
+    base.data.core.losses = { ...shell, cumulative: baseTotals };
+    return { cap, base };
+  };
+  const zero = { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 };
+  const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+  const grossCap = (cap72411542.data.flow?.sources ?? []).reduce((n: number, s: any) => n + (+s.harvestRate || 0), 0);
+
+  it("the loss lines print BUDGETS, never '-' (pile 0 by design; tombstone the tax; repair the accrual)", async () => {
+    const { tombstoneLossBudget } = (await import("../../../src/economy/primitives")) as any;
+    const { cap, base } = rig(
+      { ...zero, pileDecay: 3 * dt, structureDecay: 4 * dt, repairSpend: 3.5 * dt, tombstoneGross: 2 * dt },
+      zero
+    );
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const cols = (label: string): number[] =>
+      (text.split("\n").find(l => l.includes(label))!.match(/-?\d+\.\d\d/g) ?? []).map(Number);
+    // Three numeric columns each: BUDGET ACTUAL VARIANCE (no '-' budget).
+    const pile = cols("ground pile decay");
+    expect(pile.length, "pile line carries budget+actual+variance").to.be.at.least(3);
+    expect(pile[0], "pile budget is ZERO - the gate's design point").to.be.closeTo(0, 0.005);
+    const tomb = cols("tombstone losses");
+    expect(tomb[0], "tombstone budget = the invader tax on R1's capacity basis").to.be.closeTo(
+      -tombstoneLossBudget(grossCap),
+      0.01
+    );
+    const rep = cols("repair (energy spent");
+    expect(rep[0], "repair budget = the decay accrual").to.be.closeTo(-4, 0.01);
+  });
+
+  it("L1 FAILS when a loss line breaches 25% of its budget (pile decay above the zero budget)", () => {
+    const { cap, base } = rig({ ...zero, pileDecay: 3 * dt }, zero);
+    const l1 = computeLedger(cap, base).find(r => r.id === "L1")!;
+    expect(l1, "the adherence row fields").to.not.equal(undefined);
+    expect(l1.verdict).to.equal("FAIL");
+    expect(l1.detail).to.include("pile");
+  });
+
+  it("L1 is ok when every line holds inside 25% (and dust under the noise floor never FAILs a zero budget)", async () => {
+    const { tombstoneLossBudget } = (await import("../../../src/economy/primitives")) as any;
+    const tombBudget = tombstoneLossBudget(grossCap);
+    const { cap, base } = rig(
+      { ...zero, pileDecay: 0.1 * dt, structureDecay: 4 * dt, repairSpend: 3.5 * dt, tombstoneGross: tombBudget * dt },
+      zero
+    );
+    const l1 = computeLedger(cap, base).find(r => r.id === "L1")!;
+    expect(l1).to.not.equal(undefined);
+    expect(l1.verdict).to.equal("ok");
+  });
+
+  it("no cumulative meters -> no L1 row (absence, never a fake zero)", () => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    delete cap.data.core.losses;
+    delete base.data.core.losses;
+    expect(computeLedger(cap, base).find(r => r.id === "L1")).to.equal(undefined);
   });
 });
 

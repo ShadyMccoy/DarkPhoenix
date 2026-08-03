@@ -27,6 +27,7 @@ import {
   MINER_COST,
   MINER_PARTS,
   RESERVER_DUTY,
+  SOURCE_BUFFER_DEFER_THRESHOLD,
   SOURCE_RATE,
   SOURCE_REGEN_TIME,
   SPAWN_PARTS_PER_TICK,
@@ -34,7 +35,9 @@ import {
   effectiveLife,
   haulerOverhead,
   minerOverhead,
-  reserverSpawnLoad
+  pileDecayBudget,
+  reserverSpawnLoad,
+  tombstoneLossBudget
 } from "../src/economy/primitives";
 import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } from "../src/economy/bank";
 
@@ -55,6 +58,18 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  * 1: energy account (revenue / direct / overhead / appropriations / residual),
  *    budget-vs-actual-vs-variance, source P&L, controller variance bridge,
  *    ground rot split, capital vs operating, reserving as COGS.
+ * 9: EVERY LOSS HAS A BUDGET (spec 42 stage A). The MEASURED LOSSES block
+ *    gains a BUDGET column priced by primitives: pile decay budgets ZERO
+ *    (pileDecayBudget at the gate's own design point - the plan intends every
+ *    mouth AT the container cap, so all measured ground decay is priced
+ *    UNFAVORABLE variance pointing at the haul deficit, no longer a neutral
+ *    memo); tombstones budget the invader tax on R1's capacity basis
+ *    (tombstoneLossBudget - one constant home, both rows move at the
+ *    >=10-window swap); repair budgets the structure-decay ACCRUAL (the
+ *    depreciation memo's shortfall becomes a priced variance). The L1 gauge
+ *    FAILs any line breaching 25% of budget (0.25 e/t noise floor). A #8
+ *    losses block has no budget side; #9 variances are new information, not
+ *    a change in the measured actuals.
  * 8: BUDGETS PRICE THE SHIPPED BEHAVIOR, RECEIPTS BOOK THE DEBIT. Three
  *    second-implementation lies die at once, so #7-vs-#8 variances shift by
  *    their sum (~12 e/t of the #7 surface was these, not economics):
@@ -120,7 +135,7 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
  *    the newly-attributed losses.
  */
-export const METHODOLOGY = 8;
+export const METHODOLOGY = 9;
 
 export interface LedgerRow {
   id: string;
@@ -1843,6 +1858,51 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     }
   }
 
+  // ---- L1 loss-budget adherence (spec 42 stage A: every loss has a budget) ----
+  //
+  // The MEASURED LOSSES block prices each line from a primitive (never "-"):
+  // pile decay budgets ZERO (pileDecayBudget at the gate's own design point -
+  // the plan intends every mouth held AT the container cap, so all measured
+  // ground decay is priced unfavorable variance pointing at the haul deficit);
+  // tombstones budget the invader tax on R1's capacity basis (one constant
+  // home - the two rows move together at the >=10-window swap); repair budgets
+  // the structure-decay ACCRUAL (service what decays - the depreciation memo's
+  // shortfall becomes priced variance). FAIL when any line breaches 25% of its
+  // budget, with a 0.25 e/t noise floor so a zero budget never FAILs on dust.
+  {
+    const cc = cap.data.core?.losses?.cumulative as Record<string, number> | undefined;
+    const cb = base.data.core?.losses?.cumulative as Record<string, number> | undefined;
+    if (cc && cb && dt > 0) {
+      const d = (k: string): number => Math.max(0, (cc[k] ?? 0) - (cb[k] ?? 0)) / dt;
+      const sources = (cap.data.flow?.sources ?? []) as any[];
+      const grossCapL1 = sources.reduce((n: number, s: any) => n + (+s.harvestRate || 0), 0);
+      const NOISE_FLOOR = 0.25; // e/t - dust under this never breaches a zero budget
+      const lines = [
+        // Every mouth at the gate's design point carries zero ground share.
+        { name: "pile decay", actual: d("pileDecay"), budget: sources.length * pileDecayBudget(SOURCE_BUFFER_DEFER_THRESHOLD) },
+        { name: "tombstones", actual: Math.max(0, d("tombstoneGross") - d("tombstoneRecovered")), budget: tombstoneLossBudget(grossCapL1) },
+        { name: "repair", actual: d("repairSpend"), budget: d("structureDecay") }
+      ].map(l => {
+        const tolerance = Math.max(0.25 * l.budget, NOISE_FLOOR);
+        const gap = l.actual - l.budget;
+        return { ...l, gap, ratio: Math.abs(gap) / Math.max(l.budget, NOISE_FLOOR), breach: Math.abs(gap) > tolerance };
+      });
+      const breached = lines.filter(l => l.breach);
+      const worst = [...lines].sort((a, b) => b.ratio - a.ratio)[0];
+      rows.push({
+        id: "L1",
+        name: "loss-budget adherence (every loss priced, spec 42-A)",
+        value: +worst.ratio.toFixed(2),
+        unit: "x budget |gap| (worst line)",
+        verdict: breached.length > 0 ? "FAIL" : "ok",
+        detail:
+          lines
+            .map(l => `${l.breach ? "BREACH " : ""}${l.name} ${l.actual.toFixed(2)} vs budget ${l.budget.toFixed(2)} (${l.gap >= 0 ? "+" : ""}${l.gap.toFixed(2)})`)
+            .join("; ") + `; tolerance 25% of budget, floor ${NOISE_FLOOR} e/t`
+      });
+    }
+  }
+
   // ---- X5 rebuild churn (needs the blackbox spawn log, segment 5) ----
   {
     const churn = computeChurn(cap);
@@ -2283,6 +2343,20 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     ? Math.max(0, cumRate("tombstoneGross") - cumRate("tombstoneRecovered"))
     : meter?.tombstoneLost ?? 0;
   const repairSpend = spanned ? cumRate("repairSpend") : meter?.repairSpend ?? 0;
+  // LOSS BUDGETS (spec 42 stage A, methodology #9): every loss line priced by
+  // a primitive, never "-". Pile decay budgets ZERO by construction - the
+  // gate's design point (SOURCE_BUFFER_DEFER_THRESHOLD == container cap)
+  // holds every mouth with no ground share, so all measured ground decay is
+  // priced UNFAVORABLE variance pointing at the haul deficit (E6's verdict).
+  // Tombstones budget the invader tax on R1's capacity basis (one constant
+  // home). Repair budgets the structure-decay ACCRUAL from the same meter -
+  // the depreciation memo's shortfall, now a priced variance on the account.
+  const lossBudgetSources = (cap.data.flow?.sources ?? []) as any[];
+  const bPileDecay = lossBudgetSources.length * pileDecayBudget(SOURCE_BUFFER_DEFER_THRESHOLD);
+  const bTombstone = tombstoneLossBudget(
+    lossBudgetSources.reduce((n: number, s: any) => n + (+s.harvestRate || 0), 0)
+  );
+  const bRepair = spanned ? cumRate("structureDecay") : meter?.structureDecay ?? 0;
   // LINK TRANSFER TAX: the engine destroys 3% of every link hop, and the
   // LinkMeter already measures it per room. It is a genuine destruction of
   // delivered energy - exactly like pile rot - so it belongs in MEASURED
@@ -2535,10 +2609,18 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     ...(rotKnown
       ? [
           `  MEASURED LOSSES${meter ? (spanned ? "  (cumulative, full window)" : `  (meter window ${meter.windowTicks}t)`) : ""}`,
-          L(meter ? "ground pile decay (engine ceil rule)" : "ground rot (dropped energy, 0.1%/t)", -rot, 4),
+          // Budgeted since #9 (spec 42 stage A): a zero pile budget is the
+          // gate's own design point - the variance IS the haul-deficit price.
+          L(
+            meter ? "ground pile decay (engine ceil rule)" : "ground rot (dropped energy, 0.1%/t)",
+            -rot,
+            4,
+            meter ? -bPileDecay : undefined,
+            "cost"
+          ),
           ...(meter
             ? [
-                L("tombstone losses (creeps died carrying)", -tombLoss, 4),
+                L("tombstone losses (creeps died carrying)", -tombLoss, 4, -bTombstone, "cost"),
                 // WHOSE energy, and HOW they died. A tombstone line the account
                 // cannot attribute is not actionable: haulers expiring mid-route
                 // fold into the carry deficit, anything KILLED is a defense
@@ -2617,8 +2699,8 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
                   }
                   return out;
                 })(),
-                L("repair (energy spent holding hits)", -repairSpend, 4),
-                L("= measured losses", -meteredLosses, 4)
+                L("repair (energy spent holding hits)", -repairSpend, 4, -bRepair, "cost"),
+                L("= measured losses", -meteredLosses, 4, -(bPileDecay + bTombstone + bRepair), "cost")
               ]
             : [])
         ]

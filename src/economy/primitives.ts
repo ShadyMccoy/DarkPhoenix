@@ -1096,6 +1096,37 @@ export function pileDecayRate(amount: number): number {
   return amount > 0 ? Math.ceil(amount / ENERGY_DECAY_DIVISOR) : 0;
 }
 
+/** Container store capacity (Screeps CONTAINER_CAPACITY). */
+export const CONTAINER_CAP = 2000;
+
+/**
+ * The PLAN's pile-decay budget for one source mouth at `mouthLevel` total
+ * staged stock (spec 42 stage A). The mouth's first CONTAINER_CAP sits in the
+ * container (no decay); only the GROUND share above it rots, priced by the
+ * SAME pileDecayRate the loss meter integrates - one formula home, so budget
+ * and meter cannot drift (pinned to 1e-9 in lossPrimitives.test.ts).
+ *
+ * At the gate's own design point (SOURCE_BUFFER_DEFER_THRESHOLD ==
+ * CONTAINER_CAP) this is ZERO: the plan intends no ground decay at all, and
+ * every measured e/t of it is priced unfavorable variance pointing at the
+ * haul deficit (E6's verdict), never silently absorbed.
+ */
+export function pileDecayBudget(mouthLevel: number, containerCap: number = CONTAINER_CAP): number {
+  return pileDecayRate(Math.max(0, mouthLevel - containerCap));
+}
+
+/**
+ * The PLAN's tombstone-loss budget (spec 42 stage A): raid attrition is
+ * priced at ADMISSION by the invader tax, so the account's budget for
+ * creeps-died-carrying is that same term on the taxed (remote) capacity -
+ * INVADER_TAX_PER_ENERGY x remoteMinedRate. One constant home: R1's
+ * calibration gauge and this budget move together when the >=10-window
+ * evidence swaps EXPECTED_RAID_DEFENSE_COST.
+ */
+export function tombstoneLossBudget(remoteMinedRate: number): number {
+  return remoteMinedRate > 0 ? INVADER_TAX_PER_ENERGY * remoteMinedRate : 0;
+}
+
 /** Hits restored per energy of repair (Screeps REPAIR_POWER / REPAIR_COST). */
 export const REPAIR_HITS_PER_ENERGY_RATE = 100;
 
