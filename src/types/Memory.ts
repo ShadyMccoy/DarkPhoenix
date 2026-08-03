@@ -440,6 +440,23 @@ declare global {
     controllerAllocations?: Record<string, number>;
 
     /**
+     * Event-triggered replanning state (spec 36 item 1): the previous
+     * durable-signal snapshot and the last forced-solve tick, persisted so a
+     * global reset re-seeds the baseline instead of misreading the fresh
+     * heap as a world transition. Written and read only by
+     * execution/planTriggers.checkPlanTriggers.
+     */
+    planTriggerState?: {
+      snap: {
+        hostileRooms: string[];
+        expansionState?: string;
+        rclByRoom: Record<string, number>;
+        spawnCount: number;
+      };
+      lastForced?: number;
+    };
+
+    /**
      * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so
      * CPU joins energy and spawn build-time as a metered, pullable resource.
      * `corpsTotal` is the sum over every commissioned corp this tick -

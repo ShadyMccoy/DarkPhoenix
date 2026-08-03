@@ -65,6 +65,7 @@ import {
   trackRoadUsage
 } from "./execution";
 import { registerConsoleCommands } from "./execution/console";
+import { checkPlanTriggers } from "./execution/planTriggers";
 import { assembleEconomyForSolve } from "./economy/planningAssembly";
 import { SerializedNode, deserializeNode } from "./nodes";
 import { FlowEconomy } from "./economy/flowAdapter";
@@ -342,12 +343,22 @@ export const loop = ErrorMapper.wrapLoop(() => {
   const economyNeedsResolve =
     colony.getNodes().length > 0 && !isAnalysisInProgress() && Game.time % gov.solveInterval === 0;
 
-  if (shouldRunPlanning(Game.time) || economyNeedsBootstrap || economyNeedsResolve) {
+  // EVENT-TRIGGERED REPLANNING (spec 36 item 1): a durable world transition
+  // (hostile flip, expansion campaign step, RCL-up, spawn census change)
+  // forces a replan instead of waiting out the cadence - the stale-plan tax
+  // behind the retired-remote and stranded-reserver incidents. Debounced in
+  // the detector; the heavy-analysis gate still applies (a forced plan is a
+  // REQUEST, not a bypass).
+  const trigger =
+    colony.getNodes().length > 0 && !isAnalysisInProgress() ? checkPlanTriggers(Game.time) : { force: false as const };
+  if (trigger.force) console.log(`[Planning] forced replan: ${trigger.reason}`);
+
+  if (shouldRunPlanning(Game.time) || economyNeedsBootstrap || economyNeedsResolve || trigger.force) {
     // The planning + flow-solve block: the periodic re-solve is the tick's
     // heaviest work when it runs, and it was entirely unnamed. Bucket it so the
     // ledger shows the solve's cost (spec 20) and one bad solve can't abort the
     // rest of the tick (persist/telemetry still run).
-    bulkhead("planning", () => runPlanningPhase(false));
+    bulkhead("planning", () => runPlanningPhase(trigger.force));
   }
 
   // (The shadow EconomyPlanner overlay that used to re-size haulers here is

@@ -93,8 +93,11 @@ describe("planningAssembly - the ONE solve-input assembly (spec 35 phase G)", ()
     expect(mainSrc, "the planning phase must solve through the assembly seam").to.include(
       "assembleEconomyForSolve(planningNodes, Game.time)"
     );
-    // The scheduled path calls it...
-    expect(mainSrc).to.include("runPlanningPhase(false)");
+    // The scheduled path calls it - force only when the trigger detector
+    // fired (spec 36 item 1: event-triggered replanning; false on plain
+    // cadence ticks since checkPlanTriggers returns {force: false} then)...
+    expect(mainSrc).to.include("runPlanningPhase(trigger.force)");
+    expect(mainSrc, "the trigger detector feeds the ONE planning entry").to.include("checkPlanTriggers(Game.time)");
     // ...and the console-forced path calls the SAME function with force=true.
     expect(consoleSrc).to.include("deps.runPlanningPhase(true)");
 
