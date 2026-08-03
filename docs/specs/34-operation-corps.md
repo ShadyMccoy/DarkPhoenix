@@ -232,6 +232,17 @@ measurements.
    incident warns about. Needs an owner ruling on where construction's
    claim slots pre-hub; do not nudge a value in isolation.
 
+   **OWNER RULING 2026-08-02: BOUNDED PRE-PASS.** Dedication is a special
+   claim OUTSIDE the ladder, not a value change: ONE source only (nearest to
+   the site), claimed by a construction pre-pass; every other flow —
+   including the controller's anti-downgrade floor, now guaranteed
+   plan-side by the spec-38 phase-A sink reserve — follows the untouched
+   ladder. No sink value moves, so the 90-vs-85 inversion class cannot
+   recur; the claim is structural and visible in the plan. UNBLOCKED — the
+   implementation must still re-provide all four legs of the coupling
+   (stand-down, drain valve, tanker pinning, upgrader damping) per the
+   measured 2026-07-28 retirement attempt.
+
 ## The thesis (owner, 2026-07-27)
 
 > "Corps are useful abstractions that have simple interfaces and faithfully,
