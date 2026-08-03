@@ -95,6 +95,9 @@ export interface RoomLossCensus {
      * read it anyway and called everything "expired".)
      */
     killed?: boolean;
+    /** Death-watch verdict: the creep was FLAGGED recycling at last sight and
+     *  died with time left - a deliberate spawn-side refund, never combat. */
+    recycled?: boolean;
     /** TTL the creep still had at death - the raw number behind `killed`. */
     ttlAtDeath?: number;
   }[];
@@ -141,6 +144,8 @@ interface Totals {
   /** KILLED energy booked in rooms intel flagged hostile at the time - the
    *  share the invader story can actually claim. */
   tombstoneKilledHostileRoom: number;
+  /** Energy from creeps that died RECYCLING (deliberate refund, not combat). */
+  tombstoneRecycled: number;
   /** Gross tombstone energy whose cause could not be resolved - no death-watch
    *  entry (enemy creep, pre-deploy death, never-sampled room). An honest
    *  bucket, never defaulted into "expired": the v23 collector read
@@ -182,6 +187,8 @@ export interface LossCumulative {
    *  WHERE exactly as they difference the WHAT. */
   tombstoneKilledByRoom: Record<string, number>;
   tombstoneKilledHostileRoom: number;
+  /** Energy from creeps that died RECYCLING (deliberate refund, not combat). */
+  tombstoneRecycled: number;
   tombstoneCauseUnknown: number;
   tombstoneTtlSum: number;
   tombstoneTtlKnown: number;
@@ -199,6 +206,7 @@ function zeroCumulative(): LossCumulative {
     tombstoneKilled: 0,
     tombstoneKilledByRoom: {},
     tombstoneKilledHostileRoom: 0,
+    tombstoneRecycled: 0,
     tombstoneCauseUnknown: 0,
     tombstoneTtlSum: 0,
     tombstoneTtlKnown: 0
@@ -231,6 +239,7 @@ function ledger(): LossCumulative {
     mem.lossLedger.tombstoneKilledByRoom = {};
     mem.lossLedger.tombstoneKilledHostileRoom = mem.lossLedger.tombstoneKilledHostileRoom ?? 0;
   }
+  if (mem.lossLedger.tombstoneRecycled === undefined) mem.lossLedger.tombstoneRecycled = 0;
   return mem.lossLedger;
 }
 
@@ -258,6 +267,7 @@ function blank(): Totals {
     tombstoneKilled: 0,
     tombstoneKilledByRoom: {},
     tombstoneKilledHostileRoom: 0,
+    tombstoneRecycled: 0,
     tombstoneCauseUnknown: 0,
     tombstoneTtlSum: 0,
     tombstoneTtlMax: 0,
@@ -282,7 +292,10 @@ function blank(): Totals {
 // survived to its recorded deathTime: zero left = expired, time left = killed.
 
 /** Last-seen record per creep name: [ttl, tick]. */
-type DeathWatch = Record<string, [number, number]>;
+/** Per-creep last sighting: [ttl, tick, recycling?]. The third element is 1
+ *  when memory.recycling stood at last sight (the recycle path flags BEFORE
+ *  the death) - old 2-tuples persisted in Memory read as not-recycling. */
+type DeathWatch = Record<string, [number, number] | [number, number, 1]>;
 
 /**
  * How long a dead creep's entry is kept. A tombstone stands 5 ticks per body
@@ -306,11 +319,19 @@ function deathWatch(): DeathWatch {
  * still need. Creeps mid-spawn have no TTL yet and are skipped rather than
  * recorded as garbage.
  */
-export function watchCreepTtls(creeps: Record<string, { ticksToLive?: number }>, tick: number): void {
+export function watchCreepTtls(
+  creeps: Record<string, { ticksToLive?: number; memory?: { recycling?: boolean } }>,
+  tick: number
+): void {
   const watch = deathWatch();
   for (const name in creeps) {
     const ttl = creeps[name].ticksToLive;
-    if (typeof ttl === "number" && ttl > 0) watch[name] = [ttl, tick];
+    if (typeof ttl === "number" && ttl > 0) {
+      // The recycle flag rides the record: a deliberate spawn-side death must
+      // not masquerade as combat (t72755898: 4,844e of recycle cargo booked
+      // "killed" in the home room fed the raid narrative).
+      watch[name] = creeps[name].memory?.recycling === true ? [ttl, tick, 1] : [ttl, tick];
+    }
   }
   for (const name in watch) {
     if (!(name in creeps) && tick - watch[name][1] > DEATH_WATCH_RETENTION) delete watch[name];
@@ -318,7 +339,7 @@ export function watchCreepTtls(creeps: Record<string, { ticksToLive?: number }>,
 }
 
 /** The watch record for one creep name (test/collector seam). */
-export function deathWatchEntry(name: string): [number, number] | undefined {
+export function deathWatchEntry(name: string): [number, number] | [number, number, 1] | undefined {
   return deathWatch()[name];
 }
 
@@ -329,13 +350,19 @@ export function deathWatchEntry(name: string): [number, number] | undefined {
  * The caller books {} as UNKNOWN, never as a default cause.
  */
 export function resolveDeathCause(
-  watch: readonly [number, number] | undefined,
+  watch: readonly [number, number] | readonly [number, number, 1] | undefined,
   deathTime: number | undefined
-): { killed?: boolean; ttlAtDeath?: number } {
+): { killed?: boolean; recycled?: boolean; ttlAtDeath?: number } {
   if (!watch || typeof deathTime !== "number") return {};
   const [ttlSeen, tickSeen] = watch;
   if (deathTime < tickSeen) return {};
   const ttlAtDeath = Math.max(0, ttlSeen - (deathTime - tickSeen));
+  // A creep FLAGGED recycling that died with time left died at the spawn on
+  // purpose - a deliberate refund, not combat. One that ran the clock out
+  // anyway books expired exactly as before (the flag never hides a real
+  // expiry, and combat during the walk-to-spawn is indistinguishable from
+  // the recycle by design - the flag is the better evidence either way).
+  if (watch.length > 2 && ttlAtDeath > 0) return { recycled: true, ttlAtDeath };
   return { killed: ttlAtDeath > 0, ttlAtDeath };
 }
 
@@ -425,7 +452,14 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
       // watch's evidence (resolveDeathCause); absent evidence is UNKNOWN. The
       // v23 rule defaulted everything into "expired" off a field that is
       // 0/undefined on every dead creep - its own audit line read SUSPECT.
-      if (t.killed === true) {
+      if (t.recycled === true) {
+        // A deliberate spawn-side refund (memory.recycling stood at last
+        // sight): its own bucket, OUT of killed and out of the WHERE split -
+        // it is not combat evidence anywhere (t72755898: 4,844e of recycle
+        // cargo booked "killed" at home fed the raid narrative).
+        totals.tombstoneRecycled += t.energy;
+        led.tombstoneRecycled += t.energy;
+      } else if (t.killed === true) {
         totals.tombstoneKilled += t.energy;
         led.tombstoneKilled += t.energy;
         // The WHERE (owner 2026-08-03): killed energy by booking room, and
@@ -511,6 +545,8 @@ export interface LossReport {
    *  (owner 2026-08-03: kills in quiet rooms falsify the raid narrative). */
   tombstoneKilledByRoom: Record<string, number>;
   tombstoneKilledHostileRoom: number;
+  /** Energy from creeps that died RECYCLING (deliberate refund, not combat). */
+  tombstoneRecycled: number;
   /** Gross energy whose cause could not be resolved (no death-watch record). */
   tombstoneCauseUnknown: number;
   /** Mean/max TTL remaining at death, over KNOWN deaths only. */
@@ -541,6 +577,7 @@ export function lossReport(tick: number): LossReport {
     tombstoneKilled: totals.tombstoneKilled,
     tombstoneKilledByRoom: { ...totals.tombstoneKilledByRoom },
     tombstoneKilledHostileRoom: totals.tombstoneKilledHostileRoom,
+    tombstoneRecycled: totals.tombstoneRecycled,
     tombstoneCauseUnknown: totals.tombstoneCauseUnknown,
     tombstoneTtlMean: totals.tombstoneCount > 0 ? totals.tombstoneTtlSum / totals.tombstoneCount : 0,
     tombstoneTtlMax: totals.tombstoneTtlMax,

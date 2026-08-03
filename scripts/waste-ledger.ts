@@ -2713,12 +2713,16 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
                   const v25 = attSpanned || meter?.tombstoneCauseUnknown !== undefined;
                   const expired = attSpanned ? attDiff("tombstoneExpired") : v25 ? meter?.tombstoneExpired ?? 0 : 0;
                   const killed = attSpanned ? attDiff("tombstoneKilled") : v25 ? meter?.tombstoneKilled ?? 0 : 0;
+                  // v28: deliberate spawn-side refunds, split OUT of killed so
+                  // the raid story reads only combat (t72755898: 4,844e of
+                  // recycle cargo booked "killed" at home).
+                  const recycled = attSpanned ? attDiff("tombstoneRecycled") : (meter as any)?.tombstoneRecycled ?? 0;
                   const unknown = attSpanned
                     ? attDiff("tombstoneCauseUnknown")
                     : v25
                       ? meter?.tombstoneCauseUnknown ?? 0
                       : Object.values(byRole).reduce((a, b) => a + b, 0);
-                  const causeTotal = expired + killed + unknown;
+                  const causeTotal = expired + killed + recycled + unknown;
                   const out: string[] = [];
                   if (Object.keys(byRole).length > 0) {
                     const gross = Object.values(byRole).reduce((a, b) => a + b, 0) || 1;
@@ -2744,7 +2748,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
                     const ttl =
                       expired + killed > 0 ? `   (ttl at death mean ${ttlMean.toFixed(0)} over known deaths)` : "";
                     out.push(
-                      `      by cause: expired ${pct(expired)}  killed ${pct(killed)}  unknown ${pct(unknown)}${ttl}` +
+                      `      by cause: expired ${pct(expired)}  killed ${pct(killed)}${recycled > 0 ? `  recycled ${pct(recycled)}` : ""}  unknown ${pct(unknown)}${ttl}` +
                         (unknown === causeTotal ? "  <- no death-watch coverage this window" : "")
                     );
                   }

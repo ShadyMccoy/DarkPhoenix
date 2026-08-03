@@ -260,6 +260,45 @@ describe("LossMeter (residual line items)", () => {
       expect(r.tombstoneKilledHostileRoom).to.equal(0);
     });
 
+    /**
+     * RECYCLED IS NOT KILLED (the t72755898 finding, owner skepticism round
+     * two): 4,844e of "killed" cargo booked in the HOME room with no hostile
+     * mark in the ring - EOL recycling. A loaded hauler recycled at the spawn
+     * dies with TTL remaining and leaves its cargo in a home tombstone; the
+     * killed/expired discriminator read that as combat and fed the raid
+     * narrative. The recycle path flags memory.recycling BEFORE the death, so
+     * the watch records it at last sight and the verdict separates: recycled
+     * energy books its own bucket, stays OUT of killed and out of the
+     * killed-WHERE split (it is not combat evidence anywhere).
+     */
+    it("a RECYCLING creep's death books recycled, not killed - and stays out of the WHERE split", () => {
+      watchCreepTtls({ r1: { ticksToLive: 340, memory: { recycling: true } } } as any, 95);
+      const verdict = resolveDeathCause(deathWatchEntry("r1"), 98);
+      expect(verdict.recycled).to.equal(true);
+      expect(verdict.killed).to.not.equal(true);
+
+      sampleRoomLosses(census({ room: "W43N23", hostileFlagged: false }), 90);
+      sampleRoomLosses(
+        census({
+          room: "W43N23",
+          tombstones: [{ id: "a", energy: 400, ticksToDecay: 500, recycled: true }]
+        }),
+        100
+      );
+      const r = lossReport(100);
+      expect(r.tombstoneRecycled).to.equal(400);
+      expect(r.tombstoneKilled).to.equal(0);
+      expect(r.tombstoneKilledByRoom).to.deep.equal({});
+      expect(r.cumulative.tombstoneRecycled).to.equal(400);
+    });
+
+    it("a non-recycling record still resolves killed exactly as before", () => {
+      watchCreepTtls({ k1: { ticksToLive: 340, memory: {} } } as any, 95);
+      const verdict = resolveDeathCause(deathWatchEntry("k1"), 98);
+      expect(verdict.killed).to.equal(true);
+      expect(verdict.recycled).to.not.equal(true);
+    });
+
     it("keeps the three cause buckets summing to the gross booking", () => {
       sampleRoomLosses(census(), 90);
       sampleRoomLosses(
