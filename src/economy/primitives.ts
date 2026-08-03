@@ -851,6 +851,14 @@ export const INVADER_TTL = 1_500;
  * tail (~10% of raids are 2-5 smalls) and the occasional lost trade. A
  * DERIVED starting point - phase 5 telemetry replaces it with the measured
  * number (calibration windows >= 10x1500 ticks per the multi-draw rule).
+ *
+ * CALIBRATION LEDGER (R1, one row per fiscal close; swap at >=10 windows):
+ * FY4849-M06 9.5x, M07 18x, M08 30.3x, M10 15x, FY4850-M01 13.8x,
+ * M02 12.3x, M03 15.4x - 7 windows filed, mean 16.3x, minimum 9.5x (the
+ * direction is settled; the BAR is not). At window 10 the swap is
+ * mean(ratios) x 750 - ~12,250e/raid at today's mean - applied HERE and
+ * nowhere else (tombstoneLossBudget and R1 read through this constant, so
+ * the account's budget and the gauge recalibrate in the same commit).
  */
 export const EXPECTED_RAID_DEFENSE_COST = 750;
 
