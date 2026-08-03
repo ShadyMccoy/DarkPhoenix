@@ -528,7 +528,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 25, // v24 ttlAtDeath distribution; v25 spawnSpend cumulative + death-watch cause + unknown bucket 2026-08-02
+    version: 26, // v25 spawnSpend cumulative + death-watch cause; v26 losses published unconditionally (cumulative survives the arming window) 2026-08-03
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
@@ -594,11 +594,16 @@ export function updateCoreTelemetry(
       const links = linkLedger(Game.time);
       return links.length > 0 ? { links } : {};
     })(),
-    // Omitted until a window exists, so a fresh reset publishes no zeros that
-    // would read as "nothing is decaying".
+    // Published UNCONDITIONALLY since v26 (the spawnSpend doctrine below,
+    // applied here after both immediate post-deploy captures t72743103 /
+    // t72743470 published NOTHING - the whole block, Memory-backed cumulative
+    // included, hid behind the in-heap meter's arming window and blinded any
+    // capture pair whose baseline lands right after a deploy, the natural
+    // capture moment). `windowTicks: 0` states the rates are unarmed
+    // self-describingly; the cumulative side survives resets precisely so
+    // pairs can difference it. Absence now means pre-instrument, nothing else.
     ...(() => {
-      const losses = lossReport(Game.time);
-      return losses.windowTicks > 0 ? { losses } : {};
+      return { losses: lossReport(Game.time) };
     })(),
     // Published even at zero: presence means "the ledger exists", so an
     // account differencing two captures can trust an empty baseline as a real

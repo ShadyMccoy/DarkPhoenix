@@ -76,7 +76,7 @@ describe("Telemetry room energy ledger (segment 0, spec 14 phase 1)", () => {
     new Telemetry().update(undefined, [], undefined);
     const core = JSON.parse(RawMemory.segments[0]);
 
-    expect(core.version).to.equal(25); // v23 tombstone role+cause; v24 ttl distribution; v25 spawnSpend cumulative + death-watch cause
+    expect(core.version).to.equal(26); // v25 spawnSpend cumulative + death-watch cause; v26 losses published unconditionally
     const room = core.rooms[0];
     expect(room.storageEnergy).to.equal(200000);
     // 1500 in the controller-side container + 250 dropped at the input spot
