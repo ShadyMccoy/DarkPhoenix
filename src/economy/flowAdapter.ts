@@ -401,6 +401,25 @@ export function agendaFundingRate(sinkId: string): number {
 }
 
 /**
+ * The spawn sink's demand: ONE upkeep estimate, never a sum (t72749493).
+ * The fleet charge (steady-state upkeep of the plan's fleet) and the agenda
+ * funding rate (queued must-fund bodies amortized over FUND_HORIZON) both
+ * estimate "energy/tick the spawn must receive" - the queued bodies ARE the
+ * replacements the charge prices, seen as cash-flow timing. Summing them
+ * double-claimed the flow; dribble-sized while minCost-300 entries kept
+ * fundingNeed small, 58 e/t once hold-to-fund queued full-share bodies:
+ * measured t72749493, spawn sinks routed 108.25 (charge 50.29 + funding
+ * 57.96) against 41.5 actually spent, and the controller allocation sat at
+ * 16.56 for 1500+ ticks while the standing 75-WORK fleet decayed toward it.
+ * MAX is the honest combinator: a banking wave claims the funding rate
+ * exactly when it exceeds the steady charge; steady state claims the
+ * charge; the flow is never claimed twice.
+ */
+export function spawnSinkDemand(baseDemand: number, maintenance: number, fundingRate: number): number {
+  return Math.max(baseDemand, 1, maintenance, fundingRate);
+}
+
+/**
  * A NEW SPAWN's construction site (spec 06 expansion): above ordinary
  * construction so every room funnels its surplus to the founding, below the
  * live spawn network so keeping existing creeps alive still wins. Since
@@ -1054,8 +1073,10 @@ export function buildColonyProblem(
             // a fleet costing ~42 e/t. The spawn is the TOP of the value ladder,
             // so the shortfall was freed down it and the controller absorbed it
             // (measured t72714129: controller allocated 108.87 of ~100 net
-            // mining). Pass 2 supplies the fleet's real standing cost here.
-            Math.max(sink.demand, 1, spawnMaintenance) + agendaFundingRate(sink.id)
+            // mining). Pass 2 supplies the fleet's real standing cost here -
+            // combined with the agenda's funding rate by MAX, never sum (the
+            // t72749493 double-claim lock; see spawnSinkDemand).
+            spawnSinkDemand(sink.demand, spawnMaintenance, agendaFundingRate(sink.id))
           : kind === "construction"
           ? // Build-out is an INVESTMENT: extensions raise energyCapacity, which
             // raises every body size and the whole colony's energy-per-spawn-part
@@ -1156,11 +1177,17 @@ export function buildColonyProblem(
   // Same three details, priced in ENERGY - the second currency the spawn sink
   // needs (see the two-pass solve in solveColony).
   const infraEnergyPerTick = infraSpawnEnergy(pricedRelay, roomsWithStorage.size, remoteRooms.size, linkFedRooms);
+  const infraInputs = {
+    pricedRelay,
+    depotRooms: roomsWithStorage.size,
+    remoteRooms: remoteRooms.size,
+    linkFedRooms
+  };
 
   return {
     assembly,
     spawns,
-    sources, sinks, dist, infraPartsPerTick, infraEnergyPerTick, depositPorts };
+    sources, sinks, dist, infraPartsPerTick, infraEnergyPerTick, infraInputs, depositPorts };
 }
 
 /**
@@ -1346,7 +1373,8 @@ export function solveColony(
     production: searched.plan.totalOverhead,
     infra: baseProblem.infraEnergyPerTick ?? 0,
     spawnCount,
-    passes: converged.passes
+    passes: converged.passes,
+    ...(baseProblem.infraInputs ? { infraInputs: baseProblem.infraInputs } : {})
   };
   const problem = searched.problem;
   const plan = searched.plan;

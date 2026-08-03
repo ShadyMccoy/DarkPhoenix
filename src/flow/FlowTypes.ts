@@ -352,6 +352,14 @@ export interface FlowSolution {
     spawnCount: number;
     /** Damped iterations actually run (0 = converged on the seed). */
     passes: number;
+    /**
+     * The infra term's INPUTS (t72749493: infra published 33.11 while a
+     * hand-derivation from assumed inputs gave ~11 - the sum alone cannot be
+     * decomposed from a capture, the exact diagnosis failure the stamp
+     * exists to prevent). infraSpawnEnergy(pricedRelay, depotRooms,
+     * remoteRooms, linkFedRooms) is re-runnable from these four numbers.
+     */
+    infraInputs?: { pricedRelay: number; depotRooms: number; remoteRooms: number; linkFedRooms: number };
   };
 
   /** Net energy available for sinks */

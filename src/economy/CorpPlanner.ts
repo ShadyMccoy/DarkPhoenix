@@ -211,6 +211,12 @@ export interface ColonyProblem {
    */
   infraEnergyPerTick?: number;
   /**
+   * The infra pricing's INPUTS, carried for the fleet-charge decision stamp
+   * (t72749493: the published infra sum could not be decomposed from a
+   * capture). Pure bookkeeping - the planner never reads it.
+   */
+  infraInputs?: { pricedRelay: number; depotRooms: number; remoteRooms: number; linkFedRooms: number };
+  /**
    * Execution-context facts for auxiliary propose() triggers, assembled by
    * the HOST (spec 17 P3): propose is a pure function of (problem, draft), so
    * anything a trigger used to steal from Game/Memory/execution state rides
