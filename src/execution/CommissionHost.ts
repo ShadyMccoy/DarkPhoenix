@@ -27,8 +27,9 @@ import {
   runCommissionedCorps,
   serializeStore
 } from "../economy/CorpKind";
-import { Commission } from "../economy/Commission";
+import { Commission, FieldedFleet } from "../economy/Commission";
 import { ColonyProblem } from "../economy/CorpPlanner";
+import { CREEP_LIFETIME } from "../economy/primitives";
 import { Corp } from "../corps/Corp";
 import { scoutKind, setSpawningCorpResolver } from "../corps/kinds/scoutKind";
 import { reservationKind } from "../corps/kinds/reservationKind";
@@ -263,6 +264,62 @@ export function resetCommissionHost(): void {
  */
 export function seedCommissionStoreForTest(corpId: string, kind: string, corp: Corp): void {
   ensureStore().set(corpId, { kind, corp, commission: { corpId, kind } as Commission });
+}
+
+/**
+ * The FIELDED fleet per commission (spec 39 phase 2): live creeps joined to
+ * commission corpIds through the store (the runtime-id -> commission-id
+ * mapping only the store has), roles recovered by inverting each kind's own
+ * `roles` table (workType -> role; an undeclared workType buckets under
+ * itself - measured, never dropped). Inner-squad creeps stamp the OPERATION's
+ * id (HarvestCorp.setHaulRoutes: customId = this.id), so an operation's
+ * vector rides its commission entry with no special casing. Spawning creeps
+ * (no ticksToLive yet) count at FULL life; creeps no store entry claims are
+ * NOT fleet (they are X3's orphans, not the plan's). The result is threaded
+ * into ColonyProblem.fielded by main - the per-post actuals the owner ruled
+ * enter the plan ("Incorporate the actual into the plan... a single
+ * consistent framework"); phase 3's replacement scheduling reads the TTLs.
+ *
+ * The store is INJECTED (house DI style - DemobilizePredicate, CorpRunMeter);
+ * live callers pass nothing and get the module store.
+ */
+export function assembleFieldedFleets(store: CorpStore = ensureStore()): Record<string, FieldedFleet> {
+  const byRuntimeId = new Map<string, { workType: string; parts: number; ttl: number }[]>();
+  for (const name in Game.creeps) {
+    const c = Game.creeps[name];
+    const corpId = c.memory?.corpId;
+    if (!corpId) continue;
+    const list = byRuntimeId.get(corpId) ?? [];
+    list.push({
+      workType: String(c.memory?.workType ?? ""),
+      parts: (c.body ?? []).length,
+      ttl: c.ticksToLive ?? CREEP_LIFETIME
+    });
+    byRuntimeId.set(corpId, list);
+  }
+
+  const out: Record<string, FieldedFleet> = {};
+  for (const [commissionId, entry] of store) {
+    const bodies = byRuntimeId.get(entry.corp.id);
+    if (!bodies || bodies.length === 0) continue; // absence, never a fabricated zero row
+    const kindDef = getCorpKind(entry.kind);
+    const roleOf: { [workType: string]: string } = {};
+    for (const role of Object.keys(kindDef?.roles ?? {})) {
+      const wt = kindDef!.roles[role].workType;
+      if (!(wt in roleOf)) roleOf[wt] = role; // first declaration wins, deterministic
+    }
+    const fleet: FieldedFleet = {};
+    for (const b of bodies) {
+      const role = roleOf[b.workType] ?? b.workType;
+      const r = fleet[role] ?? (fleet[role] = { count: 0, parts: 0, ttls: [] });
+      r.count += 1;
+      r.parts += b.parts;
+      r.ttls.push(b.ttl);
+    }
+    for (const role of Object.keys(fleet)) fleet[role].ttls.sort((a, b) => a - b);
+    out[commissionId] = fleet;
+  }
+  return out;
 }
 
 /**

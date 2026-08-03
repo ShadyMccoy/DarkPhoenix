@@ -82,6 +82,26 @@ export interface FleetRole {
 export type CommissionFleet = { [role: string]: FleetRole };
 
 /**
+ * One role's FIELDED actuals within a commission (spec 39 phase 2) - the
+ * measured counterpart of FleetRole, host-assembled from live creeps and
+ * carried into ColonyProblem so the plan incorporates what is already walking
+ * around (owner 2026-07-31: "Incorporate the actual into the plan... a single
+ * consistent framework"). Phase 3's replacement scheduling reads the TTLs.
+ */
+export interface FieldedRole {
+  /** Live bodies of this role. */
+  count: number;
+  /** Total body parts across them (measured, never a reconstruction). */
+  parts: number;
+  /** Remaining ticksToLive per body, ascending; spawning creeps count full life. */
+  ttls: number[];
+}
+
+/** The fielded fleet per role; keys match the kind's declared role keys
+ *  (an undeclared workType buckets under itself - measured, never dropped). */
+export type FieldedFleet = { [role: string]: FieldedRole };
+
+/**
  * One commissioned corp: the planner's reasoning (consumes/produces) plus the
  * kind-specific binding payload the runtime corp executes from.
  */

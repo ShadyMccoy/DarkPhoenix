@@ -23,6 +23,7 @@ export {
 export {
   commissionedCorpsOfKind,
   allCommissionedCorps,
+  assembleFieldedFleets,
   completeCensus,
   CorpCensusEntry,
   runCommissionHost,

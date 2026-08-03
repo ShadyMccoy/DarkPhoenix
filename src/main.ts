@@ -37,6 +37,7 @@ import { updateExpansionCampaign } from "./execution/ExpansionCampaign";
 import {
   CorpRegistry,
   allCommissionedCorps,
+  assembleFieldedFleets,
   cleanupDeadCreeps,
   completeCensus,
   createCorpRegistry,
@@ -551,7 +552,9 @@ function getOrCreateFlowEconomy(activeColony: Colony): FlowEconomy {
 
     // Run initial solve if we have sources (don't wait for planning cycle)
     if (economy.getFlowGraph().getSources().length > 0) {
-      economy.update(Game.time);
+      // The fielded-fleet actuals (spec 39 phase 2): host-assembled at the
+      // execution edge, received by the pure layers as an argument.
+      economy.update(Game.time, assembleFieldedFleets());
 
       // Corps come from the solve's commissions via CommissionHost; no separate
       // materialize step.

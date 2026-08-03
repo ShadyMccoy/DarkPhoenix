@@ -51,6 +51,7 @@ import {
 import { effectiveOneWayTiles } from "./roadEconomics";
 import { DEFAULT_VALUATION } from "./goals";
 import { bankRoomFromId, isBankSourceId } from "./ids";
+import { FieldedFleet } from "./Commission";
 
 // =============================================================================
 // INPUT - a clean description of the world the planner reasons over
@@ -228,6 +229,13 @@ export interface ColonyProblem {
   freezes?: { scouting?: boolean };
   /** Rooms marked hostile by the vision-free defense lens (RoomDiscovery). */
   hostileRooms?: readonly string[];
+  /**
+   * FIELDED-fleet actuals per commission corpId (spec 39 phase 2), assembled
+   * by the host (CommissionHost.assembleFieldedFleets - the store owns the
+   * runtime-id -> commission-id join) and threaded through the adapter. The
+   * plan-side input for phase 3's replacement scheduling; unread until then.
+   */
+  fielded?: Record<string, FieldedFleet>;
 }
 
 /**

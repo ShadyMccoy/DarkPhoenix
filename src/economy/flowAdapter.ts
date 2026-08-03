@@ -69,7 +69,7 @@ import {
   SinkKind,
   planColony
 } from "./CorpPlanner";
-import { Commission } from "./Commission";
+import { Commission, FieldedFleet } from "./Commission";
 import { isBankSourceId, isMinedIncomeId, stripSourcePrefix, stripSpawnPrefix } from "./ids";
 import { DEFAULT_VALUATION, Goal, SinkValuation, compileGoal } from "./goals";
 import { searchStructure } from "./strategy";
@@ -815,7 +815,14 @@ export function buildColonyProblem(
    * reserver upkeep from the rooms actually worked instead of every scouted
    * candidate - see the remoteRooms derivation.
    */
-  prevFundedRemoteRooms?: readonly string[]
+  prevFundedRemoteRooms?: readonly string[],
+  /**
+   * FIELDED-fleet actuals per commission (spec 39 phase 2), assembled by the
+   * host (CommissionHost.assembleFieldedFleets) and threaded by main - the
+   * per-post actuals the plan incorporates. Carried as data; phase 3's
+   * replacement scheduling is the reader.
+   */
+  fielded?: Record<string, FieldedFleet>
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -1206,7 +1213,8 @@ export function buildColonyProblem(
   return {
     assembly,
     spawns,
-    sources, sinks, dist, infraPartsPerTick, infraEnergyPerTick, infraInputs, depositPorts };
+    sources, sinks, dist, infraPartsPerTick, infraEnergyPerTick, infraInputs, depositPorts,
+    ...(fielded ? { fielded } : {}) };
 }
 
 /**
@@ -1318,7 +1326,9 @@ export function solveColony(
    * threaded exactly like prevBankDraw; prices infra's reserver term from
    * the worked set, not the scouted candidates (t72750467: 26 vs 8).
    */
-  prevFundedRemoteRooms?: readonly string[]
+  prevFundedRemoteRooms?: readonly string[],
+  /** Fielded-fleet actuals (spec 39 phase 2), host-assembled - see buildColonyProblem. */
+  fielded?: Record<string, FieldedFleet>
 ): { solution: FlowSolution; commissions: Commission[]; adopted: { sourceId: string; spawnId: string; gain: number }[] } {
   const seedCharge = Math.max(0, prevFleetCharge ?? 0);
   const baseProblem = buildColonyProblem(
@@ -1333,7 +1343,8 @@ export function solveColony(
     prevBankDraw,
     detectLinkDepositPorts(),
     seedCharge,
-    prevFundedRemoteRooms
+    prevFundedRemoteRooms,
+    fielded
   );
   // THE STRATEGIC SEARCH (spec 18 P1, live from day one): planColony is the
   // evaluator; the searcher may pin budget-dropped sources to spawns with
@@ -1377,7 +1388,7 @@ export function solveColony(
       buildColonyProblem(
         graph, dist, transientSources, detectLinkHaulPositions(graph), detectPavedSources(),
         bankSources, INVADER_TAX_PER_ENERGY, compileGoal(goal), prevBankDraw,
-        detectLinkDepositPorts(), perSpawn, prevFundedRemoteRooms
+        detectLinkDepositPorts(), perSpawn, prevFundedRemoteRooms, fielded
       )
     );
 
@@ -1548,9 +1559,12 @@ export class FlowEconomy {
    * governor's solve interval and the bootstrap eager-solve gate - so this
    * always solves when called.
    */
-  public update(tick: number): void {
+  public update(tick: number, fielded?: Record<string, FieldedFleet>): void {
     // The goal is EXECUTION-owned state (Memory.goal, set by the operator via
     // global.setGoal); the pure layers only ever receive it as an argument.
+    // `fielded` (spec 39 phase 2) arrives as an ARGUMENT, not via Memory: it
+    // is a live snapshot owned by the execution layer's commission store
+    // (CommissionHost.assembleFieldedFleets), not persisted history.
     const goal: Goal | undefined = typeof Memory !== "undefined" ? Memory.goal : undefined;
     // The previous solve's realized bank draw (consumer allocations drawn
     // from the hub) - the feeder-pricing signal that breaks the starvation
@@ -1568,7 +1582,8 @@ export class FlowEconomy {
     // prices the next solve's reserver upkeep from the rooms actually worked.
     const prevFundedRemoteRooms = typeof Memory !== "undefined" ? Memory.fundedRemoteRooms : undefined;
     const result = solveColony(
-      this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw, prevFleetCharge, prevFundedRemoteRooms
+      this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw, prevFleetCharge, prevFundedRemoteRooms,
+      fielded
     );
     if (typeof Memory !== "undefined") {
       Memory.lastFleetCharge = result.solution.spawnMaintenance;
