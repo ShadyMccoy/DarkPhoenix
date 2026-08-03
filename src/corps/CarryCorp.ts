@@ -23,6 +23,7 @@ import { driveRecycle, runtUpsizeThreshold } from "./recycle";
 import {
   CARRY_MOVE_PAIR_COST,
   CREEP_LIFETIME,
+  bufferDrainCarry,
   carryPartsFor,
   haulerBodyCarry,
   haulerBodyCost,
@@ -193,11 +194,12 @@ export class CarryCorp extends Corp {
       routes: this.getHaulerAssignments().length,
       creeps: creeps.length,
       loaded: creeps.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0).length,
-      // Source-pileup instrument (2026-07-26): the ACTUAL pickup buffer vs the
-      // sustained-inflow carry the fleet is sized to (haulCarryNeeded, no
-      // drain term), plus the source link state - so the next capture names
-      // whether a standing pile is hauler under-sizing or a link backlog.
-      carryNeeded: this.haulCarryNeeded(),
+      // Source-pileup instrument (2026-07-26): the ACTUAL pickup buffer vs
+      // the carry the fleet is sized to (haulCarryNeeded - plan routes only
+      // when mature, +drain in bootstrap), plus the source link state - so
+      // the next capture names whether a standing pile is hauler
+      // under-sizing or a link backlog.
+      carryNeeded: this.haulCarryNeeded(this.homeStorageBacked()),
       ...(this.lastExit ? { exit: this.lastExit } : {}),
       staged: pickup.staged,
       srcLinkEnergy: pickup.srcLinkEnergy,
@@ -365,7 +367,7 @@ export class CarryCorp extends Corp {
    * made a body that fully covered a short route read as a runt forever.
    */
   private maxCarryPerHauler(room: Room): number {
-    return haulerBodyCarry(room.energyCapacityAvailable, this.haulCarryNeeded());
+    return haulerBodyCarry(room.energyCapacityAvailable, this.haulCarryNeeded(room.storage?.my === true));
   }
 
   /**
@@ -1350,7 +1352,7 @@ export class CarryCorp extends Corp {
     // belongs to the construction tankers.
     if (this.yieldsToBuild()) return [];
 
-    const carryNeeded = this.haulCarryNeeded();
+    const carryNeeded = this.haulCarryNeeded(ctx.storageBacked === true);
     if (carryNeeded <= 0) return [];
 
     const maxCarryPerHauler = maxCarryPairs(ctx.energyCapacity);
@@ -1535,26 +1537,58 @@ export class CarryCorp extends Corp {
    * entirely to construction yields zero here, so it fields no haulers and its
    * energy is left for the tankers.
    */
-  private haulCarryNeeded(): number {
+  private haulCarryNeeded(storageBacked: boolean): number {
     const routes = this.haulerAssignments.filter(a => !(a.toId ?? "").startsWith("construction-"));
     if (routes.length === 0) return 0; // construction-only: the tankers own this energy, pile or no pile
+    const sustained = routes.reduce((sum, a) => sum + a.carryParts, 0);
 
-    // ONE VALVE (the double-drain, F1 ask-gap t72760734): the ask IS the sum
-    // of the plan-priced routes, nothing added. The corp's own
-    // bufferDrainCarry(staged, d) re-add - born 2026-07-29 when the plan was
-    // drain-blind (cd8e staged 3874, carryNeeded 1, t72654979) - became a
-    // DOUBLE-COUNT the day the phase-1 repricing priced the same law into
-    // the routes themselves: staged mining routes carry it in carryParts
-    // (CorpPlanner `h.carryParts += drainCarry`), scavenge routes carry it
-    // in their very rate (scavengeRate = amount/2 / effectiveLife), and the
-    // bank's is bankSurplusRate. Measured live: cbd8 plan 37.5 CARRY, corp
-    // ask 45 = 37.5 + its own ~7.5 drain again - every staged route
-    // over-asked by exactly its drain term. If a pile grows between solves,
-    // the replan reprices the routes (spec 36 event triggers); if the plan
-    // under-asks, FIX THE PLAN - one number that can be audited beats two
-    // that disagree quietly. The pile read itself survives as the sizing
-    // stamp (readPickupBuffer -> staged/srcLink), an instrument, not a term.
-    return Math.ceil(routes.reduce((sum, a) => sum + a.carryParts, 0));
+    // MATURE (storage-backed): ONE VALVE - the ask IS the sum of the
+    // plan-priced routes, nothing added (the double-drain, F1 ask-gap
+    // t72760734). The corp's own bufferDrainCarry(staged, d) re-add - born
+    // 2026-07-29 when the plan was drain-blind (cd8e staged 3874,
+    // carryNeeded 1, t72654979) - became a DOUBLE-COUNT the day the phase-1
+    // repricing priced the same law into the routes themselves: staged
+    // mining routes in carryParts (CorpPlanner `h.carryParts +=
+    // drainCarry`), scavenge routes in their very rate (scavengeRate =
+    // amount/2 / effectiveLife), the bank in bankSurplusRate. Measured
+    // live: cbd8 plan 37.5 CARRY, corp ask 45 = 37.5 + its own ~7.5 again.
+    // If a pile grows between solves the replan reprices the routes (spec
+    // 36); if the plan under-asks, FIX THE PLAN.
+    if (storageBacked) return Math.ceil(sustained);
+
+    // BOOTSTRAP keeps the belt-and-suspenders drain (the same doctrine that
+    // keeps runtUpsizeThreshold's +1 crank: escape velocity beats waiting
+    // when nothing guarantees refill). Here the pile-clearance margin IS the
+    // ramp - measured 2026-08-03: with this term removed the runt-economy
+    // world plateaued at 300/550 for 900 ticks and the recycled miner's
+    // full-size successor never afforded (the plan's once-per-solve drain
+    // was too slow for a cold economy living solve-to-solve). A cold room
+    // over-asking by one drain share buys its escape; a mature room doing
+    // the same buys F1's breach - the regimes genuinely differ.
+    const staged = this.readPickupBuffer().staged;
+    if (staged === null || staged <= 0) return Math.ceil(sustained);
+    const drain = routes.reduce((sum, a) => {
+      const share = sustained > 0 ? a.carryParts / sustained : 1 / routes.length;
+      return sum + bufferDrainCarry(staged * share, a.distance ?? 0);
+    }, 0);
+    return Math.ceil(sustained + drain);
+  }
+
+  /**
+   * The bootstrap/mature discriminator at call sites that carry no
+   * SpawnDemandContext: is this corp's HOME (spawn) room storage-backed?
+   * Same `.my === true` shape the SpawnDirector stamps into
+   * ctx.storageBacked, so the two paths cannot disagree. False on any
+   * harness gap - degrading keeps the bootstrap (belt-and-suspenders) path
+   * and never fabricates maturity from a read we do not have.
+   */
+  private homeStorageBacked(): boolean {
+    try {
+      const sp = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+      return sp?.room?.storage?.my === true;
+    } catch {
+      return false;
+    }
   }
 
   /**

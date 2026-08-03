@@ -361,7 +361,7 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
      * ONE VALVE (owner doctrine): the corp sizes to its plan-priced
      * assignments and NOTHING else - if the plan under-asks, fix the plan.
      */
-    it("never re-adds the drain the plan already priced into its routes (the double-drain, t72760734)", () => {
+    it("MATURE never re-adds the drain the plan already priced into its routes (the double-drain, t72760734)", () => {
       const nodeId = "W1N1-hauling-staged";
       const corp = carryCorp(nodeId);
       const a = route("storage-ssss", 20, 6); // plan-priced: drain already inside carryParts
@@ -372,11 +372,17 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (corp as any).readPickupBuffer = () => ({ staged: 3000, srcLinkEnergy: null, srcLinkCap: null });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const asked = (corp as any).haulCarryNeeded() as number;
+      const asked = (corp as any).haulCarryNeeded(true) as number;
       expect(asked).to.equal(
         Math.ceil(a.carryParts + b.carryParts),
         "the ask IS the plan's routes - the drain lives in the plan, once"
       );
+      // BOOTSTRAP (same corp, same pile) keeps the belt-and-suspenders drain:
+      // the pile-clearance margin IS the cold ramp (the 2026-08-03
+      // runt-economy plateau: 300/550 for 900t, the upsize never afforded).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const bootstrap = (corp as any).haulCarryNeeded(false) as number;
+      expect(bootstrap).to.be.greaterThan(asked, "a cold room still over-asks to buy its escape");
     });
 
     /**

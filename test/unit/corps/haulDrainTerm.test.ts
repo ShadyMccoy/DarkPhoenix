@@ -1,34 +1,37 @@
 import { expect } from "chai";
 import { CarryCorp } from "../../../src/corps/CarryCorp";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";
-import { carryPartsFor } from "../../../src/economy/primitives";
+import { CREEP_LIFETIME, carryPartsFor } from "../../../src/economy/primitives";
 
 /**
- * THE DRAIN LIVES IN THE PLAN, ONCE (the double-drain fix, t72760734).
+ * THE DRAIN TERM HAS TWO REGIMES (the double-drain fix, t72760734 + the
+ * runt-economy plateau, both 2026-08-03).
  *
- * History, because this file has now pinned BOTH sides of the law:
+ * History, because this file has now pinned three generations of the law:
  * - 2026-07-29 (the E6 work item): haulCarryNeeded sized to sustained inflow
  *   only, so a standing pile was invisible (cd8e staged 3874, carryNeeded 1,
- *   t72654979). The corp grew its own bufferDrainCarry(staged, d) re-add and
- *   this file pinned it.
+ *   t72654979). The corp grew its own bufferDrainCarry(staged, d) add.
  * - 2026-08-02 (phase-1 route repricing): the PLAN began pricing the same
  *   drain law into the routes themselves - staged mining routes inside
- *   carryParts (CorpPlanner `h.carryParts += drainCarry`), scavenge routes
- *   inside their very rate (scavengeRate = amount/2 / effectiveLife), the
- *   bank via bankSurplusRate.
- * - 2026-08-03 (measured t72760734): both sides applying one law = twice.
- *   cbd8's plan route said 37.5 CARRY (inflow ~30 + drain ~7.5); the corp
- *   asked 45 = 37.5 + its own ~7.5 again. Every staged route over-asked by
- *   exactly its drain term - the ask-side mechanism of F1's hauler breach
- *   (built 0.449 p/t vs planned 0.218).
+ *   carryParts, scavenge routes inside their very rate (scavengeRate =
+ *   amount/2 / effectiveLife), the bank via bankSurplusRate. The corp-side
+ *   add silently became a double-count.
+ * - 2026-08-03 measured BOTH ways: MATURE cbd8 asked 45 CARRY against a
+ *   37.5 plan route (the ask-side mechanism of F1's 0.449-vs-0.218 hauler
+ *   breach) - and the pure removal then plateaued the BOOTSTRAP
+ *   runt-economy world at 300/550 for 900 ticks, the recycled miner's
+ *   full-size successor never affording (a cold economy lives
+ *   solve-to-solve; the plan's once-per-solve drain repricing is too slow
+ *   for its ramp).
  *
- * ONE VALVE (owner doctrine, the upgrader-valve lesson): the corp sizes to
- * its plan-priced assignments and nothing else. If a pile grows between
- * solves the replan reprices the routes (spec 36); if the plan under-asks,
- * fix the plan. The pile read survives as the sizing STAMP (an instrument),
- * never a sizing term.
+ * The regimes genuinely differ, and the discriminator is the SAME
+ * storageBacked lens the runt ladder uses (owner doctrine: runts and their
+ * cranks are "a colony upstart mechanism"): a MATURE (storage-backed) room
+ * asks exactly the plan's routes - ONE VALVE, fix the plan if it
+ * under-asks - while BOOTSTRAP keeps the belt-and-suspenders drain because
+ * escape velocity beats waiting when nothing guarantees refill.
  */
-describe("CarryCorp haulCarryNeeded: the ask IS the plan's routes (double-drain retired)", () => {
+describe("CarryCorp haulCarryNeeded: plan-only when mature, +drain in bootstrap", () => {
   const G: any = global;
 
   const container = (x: number, y: number, energy: number) => ({
@@ -75,20 +78,33 @@ describe("CarryCorp haulCarryNeeded: the ask IS the plan's routes (double-drain 
     G.Game = { rooms: {} as any, getObjectById: () => null };
   });
 
-  it("a standing pile adds NOTHING the plan's routes don't already carry (the t72760734 pin)", () => {
+  it("MATURE: a standing pile adds NOTHING the plan's routes don't already carry (the t72760734 pin)", () => {
     // The measured cd8e pile. Under the retired re-add this asked
     // carryPartsFor(10 + 3874/1500, 36); the plan already prices that drain
     // into carryParts, so the corp asking it again bought ~20% extra fleet.
     const sustained = Math.ceil(carryPartsFor(10, 36));
-    expect(mkCorp(3874).haulCarryNeeded()).to.equal(sustained);
+    expect(mkCorp(3874).haulCarryNeeded(true)).to.equal(sustained);
   });
 
-  it("a drained buffer asks the same (the ask never depended on the pile)", () => {
-    expect(mkCorp(0).haulCarryNeeded()).to.equal(Math.ceil(carryPartsFor(10, 36)));
+  it("BOOTSTRAP: the pile still adds one drain share, amortized over a lifetime (the cold ramp)", () => {
+    const staged = 3874;
+    const sustained = Math.ceil(carryPartsFor(10, 36));
+    const asked = mkCorp(staged).haulCarryNeeded(false);
+    expect(asked).to.be.greaterThan(sustained);
+    // rate = 10 + 3874/1500; carry = rate * roundTrip / 50, rounded up -
+    // gentle by construction (a few CARRY), never a swarm.
+    expect(asked).to.equal(Math.ceil(carryPartsFor(10 + staged / CREEP_LIFETIME, 36)));
+    expect(asked).to.be.lessThan(sustained * 2);
   });
 
-  it("fog (staged null) asks the same - no read, no term, nothing fabricated", () => {
-    expect(mkCorp(null).haulCarryNeeded()).to.equal(Math.ceil(carryPartsFor(10, 36)));
+  it("a drained buffer asks the sustained carry in BOTH regimes (self-extinguishing)", () => {
+    expect(mkCorp(0).haulCarryNeeded(false)).to.equal(Math.ceil(carryPartsFor(10, 36)));
+    expect(mkCorp(0).haulCarryNeeded(true)).to.equal(Math.ceil(carryPartsFor(10, 36)));
+  });
+
+  it("fog (staged null) fabricates nothing in either regime", () => {
+    expect(mkCorp(null).haulCarryNeeded(false)).to.equal(Math.ceil(carryPartsFor(10, 36)));
+    expect(mkCorp(null).haulCarryNeeded(true)).to.equal(Math.ceil(carryPartsFor(10, 36)));
   });
 
   it("never hauls a CONSTRUCTION-only route (the tankers own that energy)", () => {
@@ -105,6 +121,7 @@ describe("CarryCorp haulCarryNeeded: the ask IS the plan's routes (double-drain 
       } as HaulerAssignment
     ]);
     G.Game.rooms = { W43N24: roomWith([container(37, 38, 5000)]) };
-    expect(corp.haulCarryNeeded(), "yields to the builder, pile or no pile").to.equal(0);
+    expect(corp.haulCarryNeeded(false), "yields to the builder, pile or no pile").to.equal(0);
+    expect(corp.haulCarryNeeded(true)).to.equal(0);
   });
 });
