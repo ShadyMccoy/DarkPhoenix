@@ -14,6 +14,7 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { isIntelId, isScavengeId, parsePositionalId, stripSourcePrefix } from "../economy/ids";
+import { SCAVENGE_THRESHOLD } from "../economy/scavenge";
 import { isTenderCreep } from "./censusLens";
 import { tenderOwnsExtensions } from "./regimes";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
@@ -413,11 +414,70 @@ export class CarryCorp extends Corp {
     // (that energy belongs to its own source's bus). The state flips above only on
     // full and on empty, so the hauler waits at each stop until the transaction is
     // done rather than leaving with a partial load.
+    //
+    // The EN-ROUTE LOOT GRAB below is not an exception to the bus doctrine -
+    // it recovers energy that belongs to NO bus (tombstones, ruins, unclaimed
+    // dust piles), same-tick with the walk, zero detour. See grabAdjacentLoot.
+    this.grabAdjacentLoot(creep);
     if (creep.memory.working) {
       this.deliverEnergy(creep, room, spawn);
     } else {
       this.pickupEnergy(creep, room);
     }
+  }
+
+  /**
+   * EN-ROUTE LOOT GRAB (owner 2026-08-03: "cleaning out some of the decay and
+   * tombstones would be a huge boost - that's bottom-line energy that we paid
+   * the claiming, mining and at least half the hauling cost for").
+   *
+   * Measured t72744219: 11.95 e/t pile decay + 5.73 e/t net tombstone loss,
+   * 1103e standing in tombstones, 1.0 e/t recovered - and 87% of tombstone
+   * cargo is haul-role, killed ON the corridors the surviving haulers walk
+   * every trip. The planner cannot recover this class: sub-threshold stocks
+   * are priced out by design (a spawned body costs more than a small pile
+   * repays - the micro-route floor) and tombstones decay faster than a
+   * scavenger can arrive. "Every recovery path needs a creep already beside
+   * it" - so the creeps already beside it do it: pickup/withdraw are a
+   * DIFFERENT ACTION GROUP from movement, so an adjacent grab mid-walk costs
+   * zero ticks and zero detour.
+   *
+   * Bus-doctrine boundaries, explicit:
+   *  - tombstones and ruins belong to NO bus - always fair game;
+   *  - dropped piles only UNDER the scavenge threshold (unclaimed dust that
+   *    rots to zero) - a bigger pile is some route's staged stock (its drain
+   *    term prices it) and stays on its own bus;
+   *  - the feeder-managed controller bucket is DELIVERED energy - grabbing
+   *    it would un-deliver (the scavenge scanner's same exclusion).
+   */
+  private grabAdjacentLoot(creep: Creep): void {
+    if ((creep.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0) <= 0) return;
+    const tomb = creep.pos.findInRange(FIND_TOMBSTONES, 1, {
+      filter: t => (t.store[RESOURCE_ENERGY] ?? 0) > 0
+    })[0];
+    if (tomb) {
+      creep.withdraw(tomb, RESOURCE_ENERGY);
+      return;
+    }
+    const ruin = creep.pos.findInRange(FIND_RUINS, 1, {
+      filter: r => (r.store[RESOURCE_ENERGY] ?? 0) > 0
+    })[0];
+    if (ruin) {
+      creep.withdraw(ruin, RESOURCE_ENERGY);
+      return;
+    }
+    const ctrl = creep.room.controller;
+    const feederManaged = !!ctrl && ctrl.my && !!creep.room.memory?.controllerFeederActive;
+    const pile = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
+      filter: r => {
+        if (r.resourceType !== RESOURCE_ENERGY) return false;
+        if (r.amount <= 20 || r.amount >= SCAVENGE_THRESHOLD) return false;
+        if (feederManaged && ctrl && r.pos && Math.max(Math.abs(r.pos.x - ctrl.pos.x), Math.abs(r.pos.y - ctrl.pos.y)) <= 3)
+          return false;
+        return true;
+      }
+    })[0];
+    if (pile) creep.pickup(pile);
   }
 
   /**
@@ -1346,21 +1406,28 @@ export class CarryCorp extends Corp {
     const ratio = assignments[0].haulerRatio ?? "1:1";
     const desiredCost = haulerBodyCost(desiredCarry, ratio);
 
-    // Don't let the scheduler spawn a 1-CARRY runt under energy pressure: it
-    // moves only 50 energy per round trip - useless on a real route - yet it
-    // occupies one of the fleet's few slots for its whole 1500-tick life, so
-    // realized throughput falls far below the planned fleet. Floor every hauler
-    // at a useful minimum body. We deliberately do NOT hold out for the full
-    // desired body: the first hauler is what refills the spawn, so requiring a
-    // full-size body before the spawn is full would deadlock the bootstrap. The
-    // floor is cheap enough that a partly-drained spawn can still afford it, the
-    // scheduler scales up toward desiredCost whenever more energy is on hand, and
-    // any undersized survivors are recycled and replaced once we are maxed out
-    // and the spawn would otherwise idle.
+    // HOLD TO FUND on served routes (owner 2026-08-03: "we have basically
+    // over-spawned the haulers... choosing to spawn an extra creep"). The
+    // cheap floor below let EVERY purchase execute at whatever the bank held,
+    // and the blackbox ring caught the consequence: cd94 bought three haulers
+    // in 325 ticks sized 18 -> 30 -> 33 parts - each affordability-scaled,
+    // each shortfall then legitimately HEALED with another body, every small
+    // body persisting its full 1500 ticks. Raid-route fleets measured 2.2x
+    // their route need (cbd5 50/22, cd94 42/19) while single-body routes sat
+    // at 1.0-1.3x. So the upgraders' holdToFund doctrine applies here too:
+    // with a body already DRIVING the route (physical count, nothing
+    // stranded), a heal/replacement WAITS for the full even-share body. The
+    // floor survives only where its own defense holds - the FIRST hauler on
+    // a dark route, where income is stranded and restart speed beats body
+    // size (requiring a full-size body before the spawn is full would
+    // deadlock the bootstrap).
     const HAULER_MIN_CARRY = 3;
     // Same basis as desiredCost: the floor body's TRUE cost at this route's
     // ratio, never above the full ask.
-    const minCost = Math.min(haulerBodyCost(Math.min(desiredCarry, HAULER_MIN_CARRY), ratio), desiredCost);
+    const minCost =
+      this.getCreepCount() >= 1
+        ? desiredCost
+        : Math.min(haulerBodyCost(Math.min(desiredCarry, HAULER_MIN_CARRY), ratio), desiredCost);
 
     return [
       {

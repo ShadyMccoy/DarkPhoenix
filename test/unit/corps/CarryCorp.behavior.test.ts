@@ -124,6 +124,110 @@ describe("END-OF-LIFE recycle (owner 2026-07-22: 'less ttl than a round trip - r
   });
 });
 
+/**
+ * EN-ROUTE LOOT GRAB (owner 2026-08-03: "cleaning out some of the decay and
+ * tombstones would be a huge boost - that's bottom-line energy that we paid
+ * the claiming, mining and at least half the hauling cost for").
+ *
+ * Measured at t72744219: 11.95 e/t pile decay + 5.73 e/t net tombstone loss,
+ * 1103e standing in tombstones, only 1.0 e/t recovered - and 87% of
+ * tombstone cargo is haul-role, killed ON the route corridors the surviving
+ * haulers walk every trip. The planner cannot help: sub-threshold remote
+ * stocks are priced out by design (a new body costs more than a small pile
+ * recovers - the micro-route floor), and tombstones decay faster than a
+ * spawned scavenger can arrive. "Every recovery path needs a creep already
+ * beside it" - so the creeps already beside it do the recovering: pickup and
+ * withdraw are a DIFFERENT ACTION GROUP from movement, so a hauler grabbing
+ * adjacent loot mid-walk pays zero ticks and zero detour.
+ */
+describe("en-route loot grab (the free recovery pass)", () => {
+  before(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).RESOURCE_ENERGY = "energy";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).FIND_TOMBSTONES = 118;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).FIND_RUINS = 123;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).FIND_DROPPED_RESOURCES = 106;
+  });
+
+  const mkCreep = (free: number, adjacent: { tombs?: any[]; ruins?: any[]; piles?: any[] }): any => {
+    const calls: string[] = [];
+    return {
+      calls,
+      memory: {},
+      spawning: false,
+      store: { getFreeCapacity: () => free },
+      room: { controller: undefined },
+      pos: {
+        findInRange: (find: number, _range: number, opts?: { filter?: (o: any) => boolean }) => {
+          const arr =
+            find === (global as any).FIND_TOMBSTONES
+              ? adjacent.tombs ?? []
+              : find === (global as any).FIND_RUINS
+              ? adjacent.ruins ?? []
+              : adjacent.piles ?? [];
+          return opts?.filter ? arr.filter(opts.filter) : arr;
+        }
+      },
+      withdraw: (t: any) => {
+        calls.push(`withdraw:${t.id}`);
+        return 0;
+      },
+      pickup: (p: any) => {
+        calls.push(`pickup:${p.id}`);
+        return 0;
+      }
+    };
+  };
+
+  it("withdraws an adjacent tombstone mid-walk (the killed hauler's cargo comes home)", () => {
+    const corp = carryCorp("W1N1-hauling-loot");
+    const creep = mkCreep(200, { tombs: [{ id: "tomb1", store: { energy: 300 } }] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (corp as any).grabAdjacentLoot(creep);
+    expect(creep.calls).to.deep.equal(["withdraw:tomb1"]);
+  });
+
+  it("picks up an adjacent ground pile when no tombstone stands", () => {
+    const corp = carryCorp("W1N1-hauling-loot");
+    const creep = mkCreep(200, { piles: [{ id: "pile1", resourceType: "energy", amount: 120 }] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (corp as any).grabAdjacentLoot(creep);
+    expect(creep.calls).to.deep.equal(["pickup:pile1"]);
+  });
+
+  it("a FULL hauler grabs nothing (no room, no intent spent)", () => {
+    const corp = carryCorp("W1N1-hauling-loot");
+    const creep = mkCreep(0, { tombs: [{ id: "tomb1", store: { energy: 300 } }] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (corp as any).grabAdjacentLoot(creep);
+    expect(creep.calls).to.deep.equal([]);
+  });
+
+  it("leaves BIG piles on their own bus (a staged mouth is some route's stock, not dust)", () => {
+    const corp = carryCorp("W1N1-hauling-loot");
+    const creep = mkCreep(200, { piles: [{ id: "mouth", resourceType: "energy", amount: 900 }] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (corp as any).grabAdjacentLoot(creep);
+    expect(creep.calls, "900e >= the scavenge threshold - the drain term owns it").to.deep.equal([]);
+  });
+
+  it("leaves the feeder-managed controller bucket alone (grabbing it would UN-deliver)", () => {
+    const corp = carryCorp("W1N1-hauling-loot");
+    const creep = mkCreep(200, { piles: [{ id: "ctrlpile", resourceType: "energy", amount: 500, pos: { x: 11, y: 10 } }] });
+    creep.room = {
+      name: "W1N1",
+      controller: { my: true, pos: { x: 10, y: 10, roomName: "W1N1" } },
+      memory: { controllerFeederActive: true }
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (corp as any).grabAdjacentLoot(creep);
+    expect(creep.calls).to.deep.equal([]);
+  });
+});
+
 describe("RETIRING recycle (a hauler whose plan route vanished should not idle out its life)", () => {
   before(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -294,6 +398,48 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       // carryNeeded = 6, maxCarryPerHauler = 5 -> targetHaulers = 2.
       setFleet(nodeId, 2);
       expect(corp.getSpawnDemand(ctx)).to.deep.equal([], "two haulers cover a 6-CARRY route");
+    });
+
+    /**
+     * HOLD-TO-FUND ON SERVED ROUTES (owner 2026-08-03: "we have basically
+     * over-spawned the haulers... something we were doing to ourselves...
+     * choosing to spawn an extra creep. It's been pretty consistent").
+     *
+     * The mechanism, caught on the blackbox ring (cd94, t72743746-72744071):
+     * three haulers bought in 325 ticks for a one-body route, sized 18 -> 30
+     * -> 33 parts - each purchase AFFORDABILITY-SCALED (the 3-CARRY minCost
+     * floor let the scheduler buy at whatever the bank held), each shortfall
+     * then legitimately HEALED with another body, and every small body
+     * persisted its full 1500 ticks. Standing fleets measured 2.2x their
+     * route need on the raid rooms (cbd5 50/22, cd94 42/19) while
+     * single-body routes sat at 1.0-1.3x.
+     *
+     * The fix is the upgraders' holdToFund doctrine applied to haulers: with
+     * a body already DRIVING the route (physical count >= 1, nothing
+     * stranded), a heal/replacement purchase WAITS for the full even-share
+     * body instead of landing a medium now. The cheap floor survives only
+     * where its own docstring defends it - the FIRST hauler on a dark route,
+     * where income is stranded and restart speed beats body size.
+     */
+    it("HOLDS TO FUND the full share body when a driver already serves the route", () => {
+      const nodeId = "W1N1-hauling-hold";
+      const corp = carryCorp(nodeId);
+      corp.setHaulerAssignments([route("controller-cccc", 20, 11.9)]); // carry 10, target 2, share 5
+
+      setFleet(nodeId, 1); // one full 5-CARRY driver standing - the route is served
+      const d = corp.getSpawnDemand(ctx)[0];
+      expect(d, "fielded 5 of 10 - the corp is still asking").to.not.equal(undefined);
+      expect(d.minCost, "a served route's heal waits for the full share body").to.equal(d.desiredCost);
+    });
+
+    it("a DARK route still buys the cheap floor - restart speed beats body size", () => {
+      const nodeId = "W1N1-hauling-dark";
+      const corp = carryCorp(nodeId);
+      corp.setHaulerAssignments([route("controller-cccc", 20, 11.9)]);
+
+      setFleet(nodeId, 0); // nobody drives - income is stranded
+      const d = corp.getSpawnDemand(ctx)[0];
+      expect(d.minCost, "the bootstrap floor stands on a dark route").to.be.lessThan(d.desiredCost);
     });
 
     it("treats the first hauler as blocking and later haulers as scaling", () => {
