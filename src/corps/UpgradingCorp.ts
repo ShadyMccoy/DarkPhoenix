@@ -36,10 +36,26 @@ const UPGRADER_COUNT_CAP = 8;
 export const UPGRADE_METER_WINDOW = 1500;
 
 /**
+ * Rooms whose meter this HEAP has already tallied. A fresh heap (global
+ * reset - every deploy) forces a window roll on each room's first tally:
+ * a Memory-persisted window SPANNING a deploy poisons every reader with
+ * pre-deploy weighting (measured t72744628: workUtil 0.999 / X1 0.10 read
+ * healthy across a window straddling the 4b deploy while the post-deploy
+ * truth was burn 18 of 57 standing WORK - the stale meter cost the whole
+ * acceptance read). The duty HISTOGRAM still survives the roll, as on any
+ * roll. Exported reset is a TEST HOOK only.
+ */
+let meterRoomsSeenThisHeap = new Set<string>();
+export function resetUpgradeMeterHeapMarker(): void {
+  meterRoomsSeenThisHeap = new Set();
+}
+
+/**
  * One creep-tick observation for the WORK-utilization meter (pure seam,
  * spawn-meter pattern): `fired` on OK, `dry` on ERR_NOT_ENOUGH_RESOURCES
  * (the starved-buffer tick an endpoint stock read hides). Windows roll
- * after UPGRADE_METER_WINDOW ticks.
+ * after UPGRADE_METER_WINDOW ticks, and on the first tally of a fresh heap
+ * (see meterRoomsSeenThisHeap).
  */
 export function tallyUpgradeAttempt(
   meter: NonNullable<Memory["upgradeMeter"]>,
@@ -48,7 +64,9 @@ export function tallyUpgradeAttempt(
   rc: number
 ): void {
   let w = meter[room];
-  if (!w || tick - w.t0 >= UPGRADE_METER_WINDOW) {
+  const freshHeap = !meterRoomsSeenThisHeap.has(room);
+  meterRoomsSeenThisHeap.add(room);
+  if (!w || freshHeap || tick - w.t0 >= UPGRADE_METER_WINDOW) {
     // The duty HISTOGRAM survives the window roll (spec 40-B): percentiles
     // need shape across regimes, and the roll is exactly when a mean resets
     // its amnesia. Sub-windows keep closing into the same buckets.
@@ -332,6 +350,16 @@ export class UpgradingCorp extends Corp {
       // travelToBypass so an upgrader can swap through an already-parked sibling on
       // the way to its own tile instead of stalling in the cramped controller ring.
       travelToBypass(creep, park, { range: 0, visualizePathStyle: { stroke: "#ffffff" } });
+      // EN-ROUTE FEED (P7, live t72744628+: a 39-WORK upgrader stood at range
+      // 1 of a 729-energy controller link with store 0 - this branch never
+      // drew, so a creep that hasn't won its exact tile STARVED BESIDE THE
+      // SUPPLY while bypass-shuffling for its park; burn ran 18 of 57
+      // standing WORK and the whole link relay sat in the matching low
+      // equilibrium, banking the plan's 58 e/t controller allocation
+      // instead). Withdraw is a different action group from movement, so
+      // drawing while repositioning costs nothing; drawFromInput no-ops
+      // out of range.
+      if (creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0) this.drawFromInput(creep, controller);
       // Upgrade en route if it has energy and is already in range - no idle WORK
       // ticks while repositioning.
       if (creep.store[RESOURCE_ENERGY] > 0 && creep.pos.getRangeTo(controller) <= 3) this.tryUpgrade(creep, controller);
