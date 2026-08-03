@@ -1,7 +1,14 @@
 # Spec 39 — The plan owns the fleet (corps receive creeps, they don't request them)
 
-**Status: BACKLOG (owner 2026-07-30).** Unlike spec 37 (problems-first), the
-owner asked for design thinking here: *"Think about how this would work."*
+**Status: PHASE 0 SHIPPED 2026-08-03; phases 1-5 BACKLOG (owner 2026-07-30).**
+The cop landed first, per the migration table:
+`test/unit/framework/spawnAuthority.test.ts` pins `.spawnCreep(` to the
+executor + bootstrap allowlist and ratchets the `getSpawnDemand` CODE surface
+(comment-stripped) at **11 files** - the ten demand-side corp classes plus
+SpawnDirector; the spec's earlier "16 files" figure counted docstring-only
+mentions. Both lists are shrink-only from here. Unlike spec 37
+(problems-first), the owner asked for design thinking here: *"Think about how
+this would work."*
 
 ## The owner's ask (verbatim)
 
