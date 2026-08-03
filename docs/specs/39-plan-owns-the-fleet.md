@@ -1,7 +1,7 @@
 # Spec 39 — The plan owns the fleet (corps receive creeps, they don't request them)
 
-**Status: PHASE 0 SHIPPED 2026-08-03; phases 1-5 BACKLOG (owner 2026-07-30).**
-The cop landed first, per the migration table:
+**Status: PHASES 0-1 SHIPPED 2026-08-03; phases 2-5 BACKLOG (owner 2026-07-30).**
+Phase 0 (the cop) landed first, per the migration table:
 `test/unit/framework/spawnAuthority.test.ts` pins `.spawnCreep(` to the
 executor + bootstrap allowlist and ratchets the `getSpawnDemand` CODE surface
 (comment-stripped) at **11 files** - the ten demand-side corp classes plus
@@ -9,6 +9,18 @@ SpawnDirector; the spec's earlier "16 files" figure counted docstring-only
 mentions. Both lists are shrink-only from here. Unlike spec 37
 (problems-first), the owner asked for design thinking here: *"Think about how
 this would work."*
+
+**Phase 1 (2026-08-03): solver-backed commissions declare their FLEET.**
+`Commission.fleet` (`FleetRole { parts, load, workingParts?, count? }`) on
+harvest/carry/upgrade/build envelopes - the same price decomposed by role,
+built INSIDE the one derivation (`haulerFleetRole` from the planner's own
+routed spawnParts; `consumerSpawnLoad` now returns its decomposition), so the
+declaration cannot drift from the price: per commission,
+`Sigma(fleet[role].load) == consumes.spawnPartsPerTick` pinned to 1e-9 by
+`test/unit/economy/commissionFleet.test.ts`. Role keys are the kind's declared
+`roles` keys - the join key per-commission plan-vs-actual will use. Auxiliary
+commissions stay fleet-absent by design (off-budget; they join per-kind in
+phase 4).
 
 ## The owner's ask (verbatim)
 

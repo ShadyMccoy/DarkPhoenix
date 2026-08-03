@@ -285,6 +285,12 @@ export interface CorpCensusEntry {
   corp: Corp;
   /** The commission's declared shape (absent for the legacy registry kinds). */
   commissionShape?: Commission["shape"];
+  /**
+   * The commission's PLANNED fleet (spec 39 phase 1), verbatim from the
+   * envelope - the PLAN side telemetry publishes next to the corp's measured
+   * body. Absent when the commission declares none (aux kinds, legacy).
+   */
+  fleet?: Commission["fleet"];
 }
 
 /**
@@ -296,7 +302,13 @@ export interface CorpCensusEntry {
 export function allCommissionedCorps(): CorpCensusEntry[] {
   const out: CorpCensusEntry[] = [];
   for (const [corpId, entry] of ensureStore()) {
-    out.push({ corpId, kind: entry.kind, corp: entry.corp, commissionShape: entry.commission.shape });
+    out.push({
+      corpId,
+      kind: entry.kind,
+      corp: entry.corp,
+      commissionShape: entry.commission.shape,
+      ...(entry.commission.fleet ? { fleet: entry.commission.fleet } : {})
+    });
   }
   return out;
 }

@@ -16,6 +16,7 @@
  */
 
 import { CorpSizingRecord } from "../corps/Corp";
+import { CommissionFleet } from "../economy/Commission";
 import { BodyAggregate, CorpCensusEntry, corpCreepCount, corpRoomName, emptyBody } from "./bodyCensus";
 import { TELEMETRY_SEGMENTS } from "./segmentIds";
 
@@ -38,6 +39,14 @@ export interface CorpsTelemetry {
     bodyParts: number;
     /** ACTUAL body parts by type for this corp's live creeps; {} when it has none. */
     body: { [part: string]: number };
+    /**
+     * The commission's PLANNED fleet per role (v15, spec 39 phase 1), verbatim
+     * from the envelope - the PLAN side of this row. Sits next to the measured
+     * `body`/`bodyParts` so per-commission plan-vs-actual (the F1
+     * decomposition) is a single-segment read. Absent when the commission
+     * declares none (aux kinds until spec 39 phase 4).
+     */
+    fleet?: CommissionFleet;
     /**
      * Inputs of the corp's last sizing decision, exported verbatim from the
      * decision-site stamp (spec 14 phase 2). Absent for corps that don't stamp.
@@ -99,7 +108,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   const corpsByKind: { [kind: string]: number } = {};
   let activeCorps = 0;
 
-  for (const { kind, corp } of census) {
+  for (const { kind, corp, fleet } of census) {
     const creepCount = corpCreepCount(corp);
     // ACTUAL body of this corp's live creeps (measured), or empty when it owns
     // none - never a reconstruction from planned rates.
@@ -128,6 +137,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
       creepCount,
       bodyParts: body.total,
       body: body.byPart,
+      ...(fleet ? { fleet } : {}),
       sizing: corp.lastSizing,
       ...(innerSizing.length > 0 ? { innerSizing } : {}),
       ...(corp.unitsProduced > 0 ? { produced: corp.unitsProduced } : {}),
@@ -140,7 +150,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   }
 
   const telemetry: CorpsTelemetry = {
-    version: 14, // v13 upgrader fieldedWork; v14 produced/delivered cumulative throughput counters 2026-08-02
+    version: 15, // v14 produced/delivered counters; v15 planned fleet per commission (spec 39 phase 1) 2026-08-03
     tick: Game.time,
     corps,
     summary: {

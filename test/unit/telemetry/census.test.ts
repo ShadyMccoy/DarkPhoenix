@@ -171,4 +171,44 @@ describe("Telemetry actual body capture (segments 0 & 4)", () => {
     expect(empty.bodyParts).to.equal(0);
     expect(empty.body).to.deep.equal({});
   });
+
+  /**
+   * Spec 39 phase 1 publication: the commission's PLANNED fleet rides the same
+   * row as the corp's ACTUAL body, so per-commission plan-vs-actual is a
+   * single-segment read (the F1 decomposition the spec buys). The fleet is
+   * passed on the census entry by the host (allCommissionedCorps reads it off
+   * the commission envelope); rows without one publish nothing - never a
+   * reconstruction.
+   */
+  it("publishes the commission's planned fleet NEXT TO the actual body (spec 39 phase 1)", () => {
+    const fleetCensus: CorpCensusEntry[] = [
+      {
+        corpId: "harvest-s1",
+        kind: "harvest",
+        corp: { id: "harvest-s1", type: "mining", nodeId: "W1N1-1-1", createdAt: 0, lastActivityTick: 0, getCreepCount: () => 2 } as any,
+        fleet: {
+          miner: { parts: 8, load: 0.0055, workingParts: 5, count: 1 },
+          hauler: { parts: 12.4, load: 0.0086, workingParts: 6.2 }
+        }
+      },
+      {
+        corpId: "carry-s1",
+        kind: "carry",
+        corp: { id: "carry-s1", type: "hauling", nodeId: "W1N1-1-1", createdAt: 0, lastActivityTick: 0, getCreepCount: () => 1 } as any
+      }
+    ];
+    new Telemetry().update(undefined, fleetCensus, undefined);
+    const corps = JSON.parse(RawMemory.segments[4]);
+
+    const harvest = corps.corps.find((c: any) => c.id === "harvest-s1");
+    expect(harvest.fleet, "the planned fleet rides the row").to.deep.equal({
+      miner: { parts: 8, load: 0.0055, workingParts: 5, count: 1 },
+      hauler: { parts: 12.4, load: 0.0086, workingParts: 6.2 }
+    });
+    // the ACTUAL side still measures beside it (the join this row exists for)
+    expect(harvest.bodyParts).to.equal(5);
+
+    const carry = corps.corps.find((c: any) => c.id === "carry-s1");
+    expect(carry, "no declared fleet -> no field, never a reconstruction").to.not.have.property("fleet");
+  });
 });

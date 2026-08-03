@@ -20,15 +20,21 @@ import {
   CommissionedSink,
   planColony
 } from "./CorpPlanner";
-import { Commission, corpIdFor } from "./Commission";
+import { Commission, CommissionFleet, FleetRole, corpIdFor } from "./Commission";
 import { listCorpKinds } from "./CorpKind";
 import { isBankSourceId } from "./ids";
 import {
+  BUILD_ENERGY_PER_WORK,
+  HARVEST_ENERGY_PER_WORK,
+  MINER_PARTS,
   TANKER_CARRY_PER_MOVE_PLAIN,
+  UPGRADE_ENERGY_PER_WORK,
   constructionWorkSpawnLoad,
   controllerWorkSpawnLoad,
+  effectiveLife,
   minerSpawnLoad,
-  operationSpawnLoad
+  operationSpawnLoad,
+  workPartsForEnergyRate
 } from "./primitives";
 import { vectorSupplyPartsGait } from "./roadEconomics";
 import { Position } from "../types/Position";
@@ -92,32 +98,71 @@ function servingSpawnId(problem: ColonyProblem, sinkPos: Position | undefined): 
  * commission envelope, the adapter's sink stamp, and (by echo) the telemetry
  * segment and the P4 waste ledger all read this number; none re-derives.
  * Returns null for non-WORK sinks (spawn/storage/tower - delivery targets).
+ *
+ * `fleet` (spec 39 phase 1) is the SAME charge decomposed by role - built
+ * here, inside the one derivation, so envelope price and fleet declaration
+ * cannot drift (the invariant Sigma(fleet.load) == load is pinned to 1e-9).
  */
 export function consumerSpawnLoad(
   problem: ColonyProblem,
   k: CommissionedSink,
   sinkPos: Position | undefined
-): { load: number; dist: number } | null {
+): { load: number; dist: number; fleet: CommissionFleet } | null {
   if (k.kind !== "controller" && k.kind !== "construction") return null;
   const dist =
     !sinkPos || problem.spawns.length === 0 ? 0 : Math.min(...problem.spawns.map(s => problem.dist(s.pos, sinkPos)));
-  const load =
-    k.kind === "controller"
-      ? controllerWorkSpawnLoad(k.allocated, dist)
-      : // The supply vector priced at the body the runtime FIELDS (spec 34
-        // vector-gait follow-up B): the 3C:1M tanker's real loaded gait,
-        // unpaved worst case (the commission cannot see paving receipts;
-        // over-pricing a paved fuel route is conservative and stated, while
-        // the old 1:1 model under-priced every unpaved campaign ~2x and F1
-        // booked the fleet as breach).
-        operationSpawnLoad(constructionWorkSpawnLoad(k.allocated, dist), [
-          {
-            rate: k.allocated,
-            distance: dist,
-            parts: vectorSupplyPartsGait(k.allocated, dist, 0, TANKER_CARRY_PER_MOVE_PLAIN)
-          }
-        ]);
-  return { load, dist };
+  if (k.kind === "controller") {
+    const load = controllerWorkSpawnLoad(k.allocated, dist);
+    return {
+      load,
+      dist,
+      fleet: {
+        upgrader: {
+          parts: load * effectiveLife(dist),
+          load,
+          workingParts: k.allocated / UPGRADE_ENERGY_PER_WORK
+        }
+      }
+    };
+  }
+  // The supply vector priced at the body the runtime FIELDS (spec 34
+  // vector-gait follow-up B): the 3C:1M tanker's real loaded gait,
+  // unpaved worst case (the commission cannot see paving receipts;
+  // over-pricing a paved fuel route is conservative and stated, while
+  // the old 1:1 model under-priced every unpaved campaign ~2x and F1
+  // booked the fleet as breach).
+  const builderLoad = constructionWorkSpawnLoad(k.allocated, dist);
+  const tankerParts = vectorSupplyPartsGait(k.allocated, dist, 0, TANKER_CARRY_PER_MOVE_PLAIN);
+  const load = operationSpawnLoad(builderLoad, [{ rate: k.allocated, distance: dist, parts: tankerParts }]);
+  return {
+    load,
+    dist,
+    fleet: {
+      builder: {
+        parts: builderLoad * effectiveLife(dist),
+        load: builderLoad,
+        workingParts: k.allocated / BUILD_ENERGY_PER_WORK
+      },
+      tanker: {
+        parts: tankerParts,
+        load: tankerParts / effectiveLife(dist)
+      }
+    }
+  };
+}
+
+/**
+ * The routed vector squad's fleet entry (spec 39 phase 1): load is the
+ * planner's own routed spawnParts summed; standing parts is each route's load
+ * un-amortized at ITS distance - the same per-route effectiveLife the pricing
+ * paid, so the declaration and the price are one fact in two units.
+ */
+function haulerFleetRole(routes: readonly CommissionedHauler[]): FleetRole {
+  return {
+    parts: routes.reduce((s, r) => s + r.spawnParts * effectiveLife(r.distance), 0),
+    load: routes.reduce((s, r) => s + r.spawnParts, 0),
+    workingParts: routes.reduce((s, r) => s + r.carryParts, 0)
+  };
 }
 
 /** Map the solver's plan onto Commission envelopes (pure, deterministic). */
@@ -157,6 +202,18 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
         spawnPartsPerTick: minerSpawnLoad(m.distance) + routes.reduce((s, r) => s + r.spawnParts, 0)
       },
       produces: { energyRate: m.rate, at: src?.pos },
+      // Spec 39 phase 1: the same price decomposed by role. The node is ONE
+      // full-size MINER_PARTS body per source (exactly what minerSpawnLoad
+      // amortizes); the vector squad is the routed truth per route.
+      fleet: {
+        miner: {
+          parts: MINER_PARTS,
+          load: minerSpawnLoad(m.distance),
+          workingParts: workPartsForEnergyRate(m.rate, HARVEST_ENERGY_PER_WORK),
+          count: 1
+        },
+        ...(routes.length > 0 ? { hauler: haulerFleetRole(routes) } : {})
+      },
       assignment: { miner: m, routes } as MinerOperationAssignment
     });
   }
@@ -198,6 +255,7 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
         spawnPartsPerTick: routes.reduce((s, r) => s + r.spawnParts, 0)
       },
       produces: { energyRate: flow },
+      fleet: { hauler: haulerFleetRole(routes) },
       assignment: routes
     });
   }
@@ -218,7 +276,9 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
     const sink = sinkById.get(k.sinkId);
     // The all-in consumer charge (spec 34 D4/P4) - see consumerSpawnLoad,
     // the ONE derivation this envelope and the adapter's sink stamp share.
-    const spawnPartsPerTick = consumerSpawnLoad(problem, k, sink?.pos)?.load ?? 0;
+    // The fleet (spec 39 phase 1) is the same charge decomposed by role,
+    // built inside that one derivation.
+    const charge = consumerSpawnLoad(problem, k, sink?.pos);
     out.push({
       corpId: corpIdFor(kind, k.sinkId),
       kind,
@@ -226,9 +286,10 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
       consumes: {
         energyRate: k.allocated,
         at: sink?.pos,
-        spawnPartsPerTick
+        spawnPartsPerTick: charge?.load ?? 0
       },
       produces: { valuePerTick: k.allocated * k.value, at: sink?.pos },
+      ...(charge ? { fleet: charge.fleet } : {}),
       assignment: { sink: k, spawnId: servingSpawnId(problem, sink?.pos) } as ConsumeAssignment
     });
   }

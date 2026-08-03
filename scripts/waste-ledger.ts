@@ -663,6 +663,54 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       });
     }
   }
+  // ---- F2 per-commission fleet fidelity (spec 39 phase 1) ----
+  // F1 answers "does the colony build what the plan prices" at CLASS grain;
+  // F2 joins each commission's own declared fleet (segment 4 v15 `fleet` -
+  // the envelope's role decomposition, Sigma(load) == its price by
+  // construction) against the SAME row's measured bodyParts. The leak lands
+  // with a commission id attached instead of a class name. Two-sided like F1.
+  // Basis honesty: declared `parts` is the steady-state standing target;
+  // measured bodyParts includes replacement overlap and walk-in time, so
+  // per-row noise is expected - the gauge aggregates and names only the worst
+  // offenders. Rows without a declaration (aux kinds until spec 39 phase 4,
+  // pre-v15 captures) are excluded from the basis; none at all -> no row,
+  // never a fake zero.
+  {
+    const corpsRows: any[] = cap.data?.corps?.corps ?? [];
+    const declaring = corpsRows.filter(c => c.fleet && typeof c.fleet === "object");
+    if (declaring.length > 0) {
+      const perRow = declaring.map(c => {
+        const planned = Object.keys(c.fleet).reduce((s, role) => s + (+c.fleet[role]?.parts || 0), 0);
+        const actual = +c.bodyParts || 0;
+        return { id: String(c.id), planned, actual, gap: actual - planned };
+      });
+      const plannedSum = perRow.reduce((s, r) => s + r.planned, 0);
+      const absGapSum = perRow.reduce((s, r) => s + Math.abs(r.gap), 0);
+      if (plannedSum > 0) {
+        const frac = absGapSum / plannedSum;
+        const worst = [...perRow].sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap)).slice(0, 3)
+          .filter(r => Math.abs(r.gap) > 0.5);
+        rows.push({
+          id: "F2",
+          name: "per-commission fleet fidelity (fielded vs declared parts)",
+          value: +frac.toFixed(3),
+          unit: "frac of declared",
+          // >1.0: the misallocation exceeds the entire declared basis -
+          // structurally wrong, not lifecycle noise. 0.5 starts the warning
+          // band wide (replacement overlap double-counts briefly); ratchet
+          // as measured steady-state arrives.
+          verdict: frac > 1.0 ? "FAIL" : frac >= 0.5 ? "WARN" : "ok",
+          detail:
+            `${declaring.length} commissions declare ${plannedSum.toFixed(0)}p standing; ` +
+            `fielded ${perRow.reduce((s, r) => s + r.actual, 0)}p; |gap| ${absGapSum.toFixed(0)}p` +
+            (worst.length
+              ? `; worst: ` + worst.map(r => `${r.id} ${r.actual}p vs ${r.planned.toFixed(0)}p (${r.gap > 0 ? "+" : "-"}${Math.abs(r.gap).toFixed(0)})`).join(", ")
+              : "")
+        });
+      }
+    }
+  }
+
   rows.push({
     id: "P4",
     name: "plan spawn-infeasibility",

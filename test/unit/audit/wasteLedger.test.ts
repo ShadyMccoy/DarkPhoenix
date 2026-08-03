@@ -2123,3 +2123,74 @@ describe("H3 chronic mouth (buffer full, zero drain demand - t72654979)", () => 
     expect(computeLedger(cap, base).find(r => r.id === "H3")).to.equal(undefined);
   });
 });
+
+/**
+ * F2 per-commission fleet fidelity (spec 39 phase 1). F1 answers "does the
+ * colony build what the plan prices" at CLASS grain; F2 joins the commission's
+ * own declared fleet (segment 4 v15 `fleet`, the plan side) against the same
+ * row's measured bodyParts (the actual side) - the leak lands with a
+ * commission id attached instead of a class name. Two-sided like F1: a
+ * commission fielding parts its declaration lacks is exactly as
+ * uncontrollable as one declared but never staffed. Rows without a
+ * declaration (aux kinds until spec 39 phase 4, pre-v15 captures) are
+ * excluded from the basis; NO declaring rows at all -> no gauge, never a
+ * fake zero.
+ */
+describe("F2 per-commission fleet fidelity (spec 39 phase 1: declared fleet vs fielded body)", () => {
+  const fleetRow = (id: string, planned: Record<string, number>, bodyParts: number, creepCount = 1): any => {
+    const fleet: Record<string, { parts: number; load: number }> = {};
+    for (const role of Object.keys(planned)) fleet[role] = { parts: planned[role], load: planned[role] / 1500 };
+    return { id, kind: "harvest", creepCount, bodyParts, fleet };
+  };
+  const rig = (rows: any[]): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.corps.corps = (cap.data.corps.corps ?? []).concat(rows);
+    return { cap, base };
+  };
+
+  it("captures with NO declaring commissions carry no row (pre-v15: absent, never zero)", () => {
+    const { cap, base } = rig([]);
+    expect(computeLedger(cap, base).find(r => r.id === "F2")).to.equal(undefined);
+  });
+
+  it("names the offender BY COMMISSION ID with its two-sided gap", () => {
+    const { cap, base } = rig([
+      fleetRow("mining-W1N1-harvest-good", { miner: 8, hauler: 12 }, 20),
+      fleetRow("mining-W1N1-harvest-fat", { hauler: 10 }, 25)
+    ]);
+    const f2 = computeLedger(cap, base).find(r => r.id === "F2")!;
+    expect(f2, "declaring rows exist -> the gauge fields").to.not.equal(undefined);
+    // |20-20| + |25-10| = 15 over a planned basis of 30
+    expect(f2.value).to.be.closeTo(0.5, 1e-6);
+    expect(f2.verdict).to.equal("WARN");
+    expect(f2.detail).to.include("harvest-fat");
+    expect(f2.detail).to.include("+15");
+  });
+
+  it("a faithful fleet is ok", () => {
+    const { cap, base } = rig([fleetRow("mining-W1N1-harvest-good", { miner: 8, hauler: 12 }, 20)]);
+    const f2 = computeLedger(cap, base).find(r => r.id === "F2")!;
+    expect(f2.value).to.be.closeTo(0, 1e-6);
+    expect(f2.verdict).to.equal("ok");
+  });
+
+  it("a declared-but-unstaffed fleet counts the whole miss (two-sided)", () => {
+    const { cap, base } = rig([
+      fleetRow("mining-W1N1-harvest-good", { miner: 8, hauler: 12 }, 20),
+      fleetRow("mining-W9N9-harvest-dark", { miner: 8 }, 0, 0)
+    ]);
+    const f2 = computeLedger(cap, base).find(r => r.id === "F2")!;
+    // |20-20| + |0-8| = 8 over 28 (the row value is display-rounded to 3dp)
+    expect(f2.value).to.be.closeTo(8 / 28, 5e-4);
+    expect(f2.detail).to.include("harvest-dark");
+    expect(f2.detail).to.include("-8");
+  });
+
+  it("misallocation exceeding the whole planned basis is a FAIL", () => {
+    const { cap, base } = rig([fleetRow("mining-W1N1-harvest-wild", { hauler: 10 }, 25)]);
+    const f2 = computeLedger(cap, base).find(r => r.id === "F2")!;
+    expect(f2.value).to.be.closeTo(1.5, 1e-6);
+    expect(f2.verdict).to.equal("FAIL");
+  });
+});
