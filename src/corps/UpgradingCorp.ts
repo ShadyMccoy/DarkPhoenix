@@ -313,7 +313,6 @@ export class UpgradingCorp extends Corp {
     if (!controller) return;
 
     const creeps = this.getActiveCreeps();
-    this.flagExcessForRecycling(creeps, spawn);
     for (const creep of creeps) {
       if (creep.memory.recycling) {
         driveRecycle(creep, spawn);
@@ -769,44 +768,19 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
-   * Shed the smallest upgrader when the fleet's total WORK over-shoots what the
-   * (build-aware) allocation can actually feed - the "recycle if needed" half of
-   * the rebalance. Only sheds when retiring the runt still leaves us at or above
-   * the target, so a correctly-sized fleet is never disturbed and we can't thrash
-   * below target. The retired creep walks to the spawn and recycles, returning
-   * its body energy to the economy that now needs it.
-   *
-   * Scoped to the dedicated-build rebalance only: without a reserved build source
-   * the upgrade target equals the full allocation (effectiveAllocated is a no-op),
-   * so this is exactly the situation the recycle is for. Firing it more broadly
-   * churned upgraders against the normal fallback target and stole spawn ticks
-   * from a second source's miner during the cold ramp.
+   * EXCESS-SHED RETIRED (owner 2026-08-03: "Do we really need the excess
+   * shed. I'm fine with just letting die out... it shouldn't happen too
+   * often. Our colony conditions are essentially unchanged"). Upgraders are
+   * ATTRITION-ONLY: an over-target fleet shrinks by natural EOL, never by
+   * mid-life cull. The shed was the revocation class the trap list warns
+   * about - it amplified PLAN swings (the 85->15 bank-refill flip; a pad
+   * build setting dedicatedBuildSourceId) into 980e/window of body churn
+   * while the world was unchanged. Scarcity still acts at the SPAWN: the
+   * plan-sized demand + effectiveAllocated damping buy no NEW bodies over
+   * target; standing WORK costs nothing to keep and burns stock into score
+   * until it dies. Pinned by recycleReasonRatchet ("upgraders are
+   * attrition-only").
    */
-  private flagExcessForRecycling(creeps: Creep[], spawn: StructureSpawn): void {
-    if (!spawn.room.memory.dedicatedBuildSourceId) return; // only rebalance during a dedicated build
-    if (spawn.spawning) return; // don't compete with an in-progress spawn
-    if (creeps.some(c => c.memory.recycling)) return; // one at a time
-    if (creeps.length === 0) return;
-
-    const base = this.sinkAllocation && this.sinkAllocation.allocated > 0 ? this.sinkAllocation.allocated : 2;
-    const target = this.effectiveAllocated(spawn.room, base);
-
-    let smallest: Creep | null = null;
-    let smallestWork = Infinity;
-    let totalWork = 0;
-    for (const c of creeps) {
-      const w = c.getActiveBodyparts(WORK);
-      totalWork += w;
-      if (w < smallestWork) {
-        smallestWork = w;
-        smallest = c;
-      }
-    }
-    if (smallest && totalWork - smallestWork >= target) {
-      smallest.memory.recycling = true;
-      smallest.memory.recycleReason = "excess-shed";
-    }
-  }
 
   /**
    * Set the sink allocation from FlowEconomy.

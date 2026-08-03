@@ -30,4 +30,15 @@ describe("recycle-reason ratchet (every flag site stamps its WHY)", () => {
     }
     expect(offenders, `flag sites missing a recycleReason stamp: ${offenders.join(", ")}`).to.deep.equal([]);
   });
+
+  /**
+   * Upgraders are ATTRITION-ONLY (owner 2026-08-03): the excess-shed cull is
+   * retired - an over-target upgrader fleet shrinks by natural EOL. A
+   * recycling flag reappearing in UpgradingCorp is the revocation class
+   * coming back; it fails here with the doctrine attached.
+   */
+  it("UpgradingCorp sets NO recycling flag - upgraders die out, never culled", () => {
+    const src = fs.readFileSync(path.join(__dirname, "../../../src/corps/UpgradingCorp.ts"), "utf8");
+    expect(src.includes("recycling = true"), "upgraders are attrition-only").to.equal(false);
+  });
 });
