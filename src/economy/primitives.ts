@@ -868,6 +868,16 @@ export const INVADER_TTL = 1_500;
  * different mechanism (routing through danger, stale intel, players) and
  * swapping THIS constant would price the wrong thing. The swap inherits
  * only the hostile-room share of the measured ratio.
+ *
+ * GATE VERDICT SO FAR (two windows measured): killed-WHERE reads 99-100%
+ * HOME ROOM, 0-0.04% intel-hostile - and v28 shows the "killed" bucket was
+ * contaminated with EOL-recycle deaths (t72755898: 4,844e of recycle cargo
+ * booked as kills; the first partial v28 window already peels 16% into
+ * `recycled`). The pre-v28 ratio series above is therefore INVALID as raid
+ * evidence: the swap's accumulation RESTARTS on v28-clean windows, numerator
+ * = hostile-room killed cargo only. On current evidence the swap trends
+ * toward NO-OP (the 750e admission price may be roughly right for actual
+ * invader combat) - which is the gate working, not a disappointment.
  */
 export const EXPECTED_RAID_DEFENSE_COST = 750;
 
