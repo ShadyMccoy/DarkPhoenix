@@ -2243,12 +2243,31 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   // measured figure runs above 3% of any single leg.
   const linkTax = ((core.links ?? []) as any[]).reduce((n, l) => n + (+l.taxRate || 0), 0);
   const linkTaxKnown = core.links !== undefined;
-  // BUDGET for the line: the planner charges each LINK-SERVED source one hop
-  // (CorpPlanner's per-source tax term). Read off the flow segment's
-  // `linkServed` flag rather than inferring link service from a short haul
-  // distance - inference is exactly how link haulage came to read as free.
+  // BUDGET for the line: EVERY link-borne leg the plan routes, one hop each
+  // (owner 2026-08-03: "there's more sources that deliver to the link, not
+  // just the ones it was built for - account for that and the tax will be
+  // more in line with actual"). Three legs, all read off the plan's own
+  // publications, never inferred from haul distance:
+  //   1. LINK-SERVED sources (the sources the link was built for): their
+  //      harvest enters at the source link - one hop.
+  //   2. DEPOSIT-PORT flows (spec 26): remote routes whose haulers turn
+  //      around at a link port - the flow segment stamps `port` on those
+  //      routes; their flowRate crosses one hop the old budget never priced
+  //      (measured M05: ~60 e/t of port flow, the bulk of the -2.48 U gap).
+  //   3. The HUB -> CONTROLLER link leg in link-fed rooms: the controller
+  //      allocation relayed through the controller link pays a second hop
+  //      (the feeder's linkFed stamp is the room lens).
   const linkSources = ((cap.data.flow?.sources ?? []) as any[]).filter(s => s.linkServed);
-  const bLinkTax = linkSources.reduce((n, s) => n + (+s.harvestRate || 0) * LINK_TRANSFER_LOSS, 0);
+  const bLinkSourceTax = linkSources.reduce((n, s) => n + (+s.harvestRate || 0) * LINK_TRANSFER_LOSS, 0);
+  const bPortTax = ((cap.data.flow?.haulers ?? []) as any[])
+    .filter(h => h.port)
+    .reduce((n, h) => n + (+h.flowRate || 0) * LINK_TRANSFER_LOSS, 0);
+  const feederStamp = ((cap.data.corps?.corps ?? []) as any[]).find((c: any) => c.kind === "controllerFeeder")?.sizing;
+  const bCtrlLinkTax =
+    feederStamp?.linkFed && typeof feederStamp.planFlow === "number"
+      ? feederStamp.planFlow * LINK_TRANSFER_LOSS
+      : 0;
+  const bLinkTax = bLinkSourceTax + bPortTax + bCtrlLinkTax;
   const linkBudgetKnown = ((cap.data.flow?.sources ?? []) as any[]).some(s => s.linkServed !== undefined);
   // The link tax is TRANSPORT, not a loss (owner 2026-08-02: "link tax is
   // similar to haul body"). Both are per-source costs that scale with the flow

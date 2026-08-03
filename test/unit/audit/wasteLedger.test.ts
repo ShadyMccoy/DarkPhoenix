@@ -1503,6 +1503,46 @@ describe("energy account: the link transfer tax is budgeted, not just measured",
     const line = t.split("\n").find(l => l.includes("link transfer"))!;
     expect(line.match(/-?\d+\.\d\d/g)!).to.have.length(1); // actual only
   });
+
+  /**
+   * Owner 2026-08-03: "there's more sources that deliver to the link, not
+   * just the ones it was built for - account for that and the tax will be
+   * more in line with actual." The old budget priced ONLY the link-served
+   * sources' hop (0.60 at M05) while the meter read 3.08 - the missing legs
+   * were the spec-26 DEPOSIT-PORT flows (~60 e/t of remote flow turning
+   * around at link ports) and the hub->controller link leg in link-fed rooms
+   * (~42 e/t relayed through the controller link). Every link-borne leg the
+   * plan routes now budgets its hop, read off the plan's own publications.
+   */
+  it("budgets the DEPOSIT-PORT flows - remote legs that cross a link port (owner 2026-08-03)", () => {
+    const c = withLinks({ linkServed: true });
+    // Append port routes to the fixture's real haulers (replacing them would
+    // starve planSpawnLoad's route scan of its expected fields).
+    c.data.flow.haulers.push(
+      { sourceId: "src-pa", sinkId: "sink-hub", carryParts: 4, flowRate: 40, distance: 10, spawnId: "s", port: { x: 10, y: 10, roomName: "W1N1" } },
+      { sourceId: "src-pb", sinkId: "sink-hub", carryParts: 2, flowRate: 20, distance: 10, spawnId: "s", port: { x: 12, y: 10, roomName: "W1N1" } }
+    );
+    const line = textOf(c).split("\n").find(l => l.includes("link transfer"))!;
+    const nums = line.match(/-?\d+\.\d\d/g)!;
+    // 2 link-served x 10 x 3% + (40+20) port flow x 3% = 0.60 + 1.80 = 2.40
+    expect(Number(nums[0])).to.be.closeTo(-2.4, 0.01);
+  });
+
+  it("budgets the hub->controller link leg in a link-fed room (the second hop)", () => {
+    const c = withLinks({ linkServed: true });
+    c.data.corps = { corps: [{ kind: "controllerFeeder", sizing: { linkFed: true, planFlow: 42 } }] };
+    const line = textOf(c).split("\n").find(l => l.includes("link transfer"))!;
+    const nums = line.match(/-?\d+\.\d\d/g)!;
+    // 0.60 + 42 x 3% = 0.60 + 1.26 = 1.86
+    expect(Number(nums[0])).to.be.closeTo(-1.86, 0.01);
+  });
+
+  it("a WALKING feeder room budgets no controller-link hop (linkFed absent)", () => {
+    const c = withLinks({ linkServed: true });
+    c.data.corps = { corps: [{ kind: "controllerFeeder", sizing: { planFlow: 42 } }] };
+    const line = textOf(c).split("\n").find(l => l.includes("link transfer"))!;
+    expect(Number(line.match(/-?\d+\.\d\d/g)![0])).to.be.closeTo(-0.6, 0.01);
+  });
 });
 
 /**
