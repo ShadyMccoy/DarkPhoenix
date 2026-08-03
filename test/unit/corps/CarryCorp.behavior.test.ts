@@ -776,6 +776,58 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
     it("does nothing when there is no carry demand", () => {
       expect(pickRuntToRecycle([3], 0, 5)).to.equal(null);
     });
+
+    /**
+     * THE POUNCE IS FOR STANDING ROUTES ONLY (M08, t72762132): the ladder fix
+     * gated the mature pounce at FULL-SIZE affordability - but a scavenge
+     * corp's full size IS tiny (pile-sized), so the gate passed trivially and
+     * a pile flickering around one CARRY of need churned a 100e body every
+     * ~125 ticks (hauling-W43N23-hauling-1-22: FOUR buys in 370t), each
+     * recycle stamped runt-upsize - 71% of M08's recycled line after the
+     * dark-route ladder died. Mechanism, not threshold (trap list: second
+     * patch on the same mechanism means the mechanism is the bug): upsizing
+     * exists to heal a STANDING fleet; a transient corp's body is sized to a
+     * DECAYING stock and rides to route end - retiring-demob owns cleanup.
+     */
+    it("a TRANSIENT (scavenge) corp never pounces its runts; a mining corp still does", () => {
+      const mkCreep = (name: string, carry: number): any => ({
+        name,
+        memory: {},
+        getActiveBodyparts: (p: string) => (p === "carry" ? carry : 0)
+      });
+      const room: any = {
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        storage: { my: true }
+      };
+      const spawn: any = { spawning: false };
+      const scavRoute = {
+        edgeId: "scav|storage",
+        fromId: "scavenge-W43N23-1-22",
+        toId: "storage-home",
+        distance: 20,
+        carryParts: 2,
+        flowRate: 1,
+        spawnCostPerTick: 0,
+        spawnId: "spawn-spawn1",
+        haulerRatio: "1:1"
+      } as HaulerAssignment;
+
+      const scavCorp = carryCorp("W43N23-hauling-1-22");
+      scavCorp.setHaulerAssignments([scavRoute]);
+      const scavCreeps = [mkCreep("s1", 1), mkCreep("s2", 1)];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (scavCorp as any).flagRuntForRecycling(scavCreeps, room, spawn);
+      expect(scavCreeps.some(c => c.memory.recycling), "transient bodies ride to route end").to.equal(false);
+
+      const mineCorp = carryCorp("W1N1-hauling-src1");
+      mineCorp.setHaulerAssignments([{ ...route("storage-home", 20, 6), carryParts: 10 }]);
+      const mineCreeps = [mkCreep("m1", 1), mkCreep("m2", 1)];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (mineCorp as any).flagRuntForRecycling(mineCreeps, room, spawn);
+      expect(mineCreeps.some(c => c.memory.recycling), "standing routes still heal").to.equal(true);
+      expect(mineCreeps.find(c => c.memory.recycling)!.memory.recycleReason).to.equal("runt-upsize");
+    });
   });
 
   // The blind window: a route's fromId is a REAL game id (stable identity), but

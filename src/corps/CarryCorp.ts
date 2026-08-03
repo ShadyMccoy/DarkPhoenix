@@ -386,6 +386,16 @@ export class CarryCorp extends Corp {
     if (spawn.spawning) return; // a body is already mid-build; don't pile on
     if (creeps.some(c => c.memory.recycling)) return; // one at a time
     if (creeps.length < 2) return; // never strand the source
+    // STANDING ROUTES ONLY (M08 t72762132): upsizing exists to heal a fleet
+    // that will work its route for generations. A TRANSIENT (scavenge) corp's
+    // body is sized to a DECAYING stock - its "full size" is tiny, so the
+    // mature affordability gate below passes trivially, and a pile
+    // flickering around one CARRY of need churned a 100e body every ~125t
+    // (hauling-W43N23-hauling-1-22: four buys in 370t, each recycle stamped
+    // runt-upsize - 71% of M08's recycled line after the dark-route ladder
+    // died). Transient bodies ride to route end; retiring-demob owns cleanup.
+    const assignments = this.getHaulerAssignments();
+    if (assignments.length > 0 && assignments.every(a => isScavengeId(a.fromId))) return;
 
     const carry = creeps.map(c => c.getActiveBodyparts(CARRY));
     const minCarry = Math.min(...carry);
