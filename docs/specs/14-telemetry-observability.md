@@ -7645,3 +7645,49 @@ deferred, E4 back AT target (67206 vs 70000, drawing down). The controller
 gained what the bank lost.
 
 Verdict: **fixed + instrumented**, with two self-inflicted blind spots closed.
+
+## Cycle t72751147 — funded-set verification + the fleet declaration goes live (spec 39 p1-2)
+
+The `/production-audit` cycle that closed FY4849 (M10, YEAR END) and shipped
+spec 39 phases 1-2 around it.
+
+**Funded-set fix VERIFIED — all four pre-registered predictions hit.** vs
+t72750655: `infraInputs.remoteRooms` 26 -> **7** (predicted 8);
+`fleetCharge.infra` 32.98 -> **10.18** (predicted ~15); spawn sink demand
+26.02 -> **14.48**/spawn (predicted ~21); controller allocation 57.86 ->
+**85.19** (predicted +~10, measured +27.3). The freed maintenance flowed down
+the ladder to the controller exactly as the mechanism predicts - and the
+decomposition stamp (`infraInputs`, added last cycle when the 33.11 could not
+be decomposed from a capture) is what made the verification a READ instead of
+a derivation.
+
+**Spec 39 phases 1-2 shipped** (gates: unit 1995 + trio 1-1-1 each, verdicts
+read standalone): commissions declare their FLEET (the price decomposed by
+role, built inside the one derivation, Sigma(load)==price to 1e-9); segment 4
+v15 publishes it next to the measured body; `assembleFieldedFleets` joins
+live creeps to commission ids through the store and threads
+`ColonyProblem.fielded` (per-role count/parts/TTLs - phase 3's replacement
+scheduling input).
+
+**First live F2 read: 0.33 [ok], and it names names.** 11 commissions declare
+464p standing, 548p fielded. Worst: `mining-W43N22-harvest-cd94` **+38p over
+declaration** - the same route the owner's hauler-over-spawn directive
+flagged, and the only negative-net source in the P&L (-14.29 var, hauler
+-16.36 on 10.00 gross). X6/E5/X5 all clean since hold-to-fund, so the
+remaining question is whether cd94's standing excess ages out by TTL or keeps
+being re-bought - F2 next cycle answers it without a hypothesis. Upgrader
+-35p is the ramp toward the raised allocation (GOAL 113.6p vs 79p fielded),
+not a leak; same story as the bridge's -27.89 "bank draw budgeted but not
+performed" - the NOW plan walking toward the new GOAL equilibrium.
+
+**F1 1.44x FAIL is transition-loaded again** (12t post-deploy blackbox ring,
+rebuild burst: "haulers 3.000 vs 0.229" is the recovery double-order, not
+steady state). Steady-state F1 verdict still owed a clean window - two
+deploys this cycle kept resetting the ring. R1 at 16x continues accumulating
+toward the >=10-window constant swap. builder-buffer-feed floor recalibrated
+0.9 -> 0.85 (verified green standalone: workUtil 90% this draw vs 89.77%
+boundary draw; the collapse class this cell pins sits at 73%).
+
+Verdict: **fixed + verified + instrumented** - the funded-set prediction
+table is the program's cleanest verification to date, and the per-commission
+attribution the owner asked for ("good for accounting too") is live.
