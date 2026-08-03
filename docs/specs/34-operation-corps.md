@@ -243,6 +243,35 @@ measurements.
    (stand-down, drain valve, tanker pinning, upgrader damping) per the
    measured 2026-07-28 retirement attempt.
 
+   **IMPLEMENTATION MAP (2026-08-03, pre-cut survey — code sites verified):**
+   the four legs today all switch on `room.memory.dedicatedBuildSourceId`,
+   written by `ConstructionCorp.updateDedicatedSource` (nearest source to
+   the first site, when building && >=2 sources):
+   1. *stand-down* — `CarryCorp.yieldsToBuild` (haulers of the dedicated
+      source yield unless the valve opens);
+   2. *drain valve* — `shouldDrainDedicatedSource(containerEnergy, cap,
+      groundPile)` (corps/regimes.ts), read inside yieldsToBuild;
+   3. *tanker pinning* — `ConstructionCorp.tankerSource` (all tankers draw
+      from the reserved source while dedicated);
+   4. *upgrader damping* — `UpgradingCorp.effectiveAllocated` ((n-1)/n) +
+      `flagExcessForRecycling` (dedication-gated).
+   The pre-pass slots into `planColony`'s fill order AFTER the spec-38
+   sink-reserve pre-pass (the floor stays guaranteed), BEFORE value greed:
+   claim the nearest source to the construction sink, allocate min(rate,
+   construction demand) from THAT source, publish the claim on the build
+   commission (the sink allocation's `sources` list already carries
+   {sourceId, amount} — the claim is its first entry, marked), route only
+   the residual through the ladder. Re-provision by DERIVATION, not
+   deletion: `updateDedicatedSource` sets room memory FROM the published
+   claim (plan-authored, runtime-mirrored) so all four legs keep their
+   current readers during the transition; the phantom ("solver routes the
+   dedicated output to ordinary sinks") dies because the claim precedes
+   greed, and the double-represented supply leg collapses to the tanker
+   vector alone (the operation's home routes carry only the residual).
+   Gates: the fid pair (fid-t4-synthetic, fid-t5-real-maze — the
+   accepted-red residual IS this), the integration trio, and the grid
+   ratchet in the same commit.
+
 ## The thesis (owner, 2026-07-27)
 
 > "Corps are useful abstractions that have simple interfaces and faithfully,
