@@ -624,7 +624,16 @@ function buildBuilderBufferFeedCell(): GridCell {
         collect(s);
         return deliveries > 0;
       }),
-      atWindow("workUtil >= 0.9: the buffer bridges deliveries", (s) => {
+      // RE-CALIBRATED 0.9 -> 0.85 (2026-08-03): the spawn-refill stock guard
+      // (isSpawnRefillStock, the plan-t5 fix) deliberately trades a sliver of
+      // builder feed for the refill SLA - construction fuel yields the
+      // spawn-adjacent pool while the extension bank is short (sink ladder
+      // at the STOCK: spawn 100 > construction 70). Measured post-guard:
+      // 89.77% (starved 430 of idle 800), a 0.23% miss of the old floor that
+      // predates the guard. The floor keeps catching the collapse class
+      // (73% fed-idle was the incident this cell was built on) while
+      // accepting the ladder's priced trade.
+      atWindow("workUtil >= 0.85: the buffer bridges deliveries", (s) => {
         collect(s);
         if (s.tick >= WINDOW && !logged) {
           logged = true;
@@ -639,7 +648,7 @@ function buildBuilderBufferFeedCell(): GridCell {
               `idle ${idle} = starved ${starved} + fed-idle ${idle - starved}`
           );
         }
-        return util() >= 0.9;
+        return util() >= 0.85;
       }),
     ],
   };
