@@ -7771,3 +7771,16 @@ inherits only the hostile-room share of the measured ratio.
 
 Verdict: **instrumented + re-attributed** - the fix program now aims at the
 measured mechanism.
+
+### 2026-08-03 — plan-t2-antidowngrade-construction: pre-existing red, refill law acquitted
+
+Gating the asymptotic-refill deploy (spec 38 phase C), the cell timed out on
+"controller physically progresses despite the build-out" (standalone rerun,
+not host load). Bisect: **identical timeout on pre-change src (d910d47)** —
+the staged world has no storage, so the refill seam is structurally inert
+there. Acquitted; joins the windowed pre-stretch regression set as its own
+incident against the deployed lineage. Cells run this stretch:
+haul-t4-bank-surplus-upgrades PASS, haul-t4-storage-bank-and-spill PASS;
+REFILL TRIO 3-0; unit 2027-0. Baseline untouched (the cell's baseline "pass"
+now overstates master — the ratchet debt is filed here, not silently
+re-baselined).
