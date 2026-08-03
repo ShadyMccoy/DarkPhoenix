@@ -321,8 +321,15 @@ function fidelityCell(spec: {
     assertions: [
       // The refill SLA rides every fidelity world (horizontal enforcement,
       // owner directive 2026-07-10): staged and organically-grown extension
-      // banks alike must beat each draining spawn's build time.
-      makeRefillSla(undefined, 10),
+      // banks alike must beat each draining spawn's build time. Grace =
+      // measureFrom + one spawn-and-walk (~100t): a RESTORED journey world
+      // re-shapes its fleet to the current doctrine first (probe-measured
+      // 2026-08-03 on the preramped world: the outpost rotation partner the
+      // fleet floor fields lands ~t140 and walks 16 tiles, covering from
+      // ~t171; the last pre-coverage drain wave violated at t169). The SLA
+      // then binds for the whole measured window, same exemption logic as
+      // the fidelity thresholds' own measureFrom.
+      makeRefillSla(undefined, Math.max(10, spec.measureFrom + 100)),
       // Listed first so every sample is collected before any other check
       // reads the accumulator (including the atWindow boundary re-check).
       always(
@@ -409,8 +416,7 @@ function buildPreRampedCell(): GridCell[] {
   } catch {
     return []; // snapshot not captured yet - re-run npm run journey:capture
   }
-  return [
-    fidelityCell({
+  const cell = fidelityCell({
       id: "fid-t4-preramped-steady-state",
       tier: 4,
       window: 400,
@@ -433,8 +439,8 @@ function buildPreRampedCell(): GridCell[] {
       // (the plan's small controller budget swings between re-solves), so
       // its floor keeps extra headroom; carry floors just under measured.
       thresholds: { gross: 0.85, controller: 0.15, carry: 0.6 },
-    }),
-  ];
+    });
+  return [cell];
 }
 
 /**

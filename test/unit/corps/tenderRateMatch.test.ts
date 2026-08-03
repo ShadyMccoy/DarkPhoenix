@@ -151,6 +151,26 @@ describe("tender rate-matching (spawn appetite, not bank size)", () => {
         expect(tenderFleetTarget({ ...t5, maxCarry: 1, extensionCapacityTotal: 1000 })).to.be.at.most(3);
       });
     });
+
+    describe("OUTPOST rotation partners (fid-t4-preramped t=164)", () => {
+      // A cluster 16 tiles from the reload point: its courier's away window
+      // (~2x the leg) exceeds the ~18-27-tick refill deadlines, so a drain
+      // landing mid-reload structurally loses. Each outpost cluster adds ONE
+      // partner - parked loaded while the courier reloads.
+      const twoClusters = { spawnCount: 1, extensionCapacity: 50, maxCarry: 8, walkTicks: 2, clusters: 2 };
+
+      it("an outpost cluster fields a rotation partner (2 clusters + 1 outpost -> 3)", () => {
+        expect(tenderFleetTarget({ ...twoClusters, outpostClusters: 1 })).to.equal(3);
+      });
+
+      it("near clusters stay single-covered (no outposts -> the cluster floor alone)", () => {
+        expect(tenderFleetTarget({ ...twoClusters, outpostClusters: 0 })).to.equal(2);
+      });
+
+      it("the fleet cap binds over outpost partners too", () => {
+        expect(tenderFleetTarget({ ...twoClusters, clusters: 3, outpostClusters: 3 })).to.equal(3);
+      });
+    });
   });
 });
 

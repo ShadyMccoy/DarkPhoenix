@@ -187,6 +187,18 @@ export function tenderFleetTarget(opts: {
   extensionCapacityTotal?: number;
   /** A core depot (storage or spawn-adjacent container) stands. */
   hasDepot?: boolean;
+  /**
+   * Clusters whose reload round-trip exceeds the refill deadline (anchor
+   * farther than OUTPOST_CLUSTER_RANGE from the reload point). Each needs a
+   * ROTATION PARTNER: while its courier is away reloading (~2x the leg), a
+   * drain's deadline (3t/part - ~18-27t on #148 route-share bodies) expires
+   * unserved. Measured (fid-t4-preramped t=164): the west courier ran its
+   * 16-tile circuit correctly, was mid-service with 150 aboard, and lost
+   * the SLA by ~4 ticks - the drain landed inside its 44-tick away window.
+   * Two tenders alternate: one parked loaded at the outpost while the
+   * other reloads.
+   */
+  outpostClusters?: number;
 }): number {
   const need = spawnConsumptionCeiling(opts.spawnCount);
   const perTender = tenderDeliveryRate(opts.maxCarry, opts.extensionCapacity, opts.walkTicks);
@@ -196,8 +208,18 @@ export function tenderFleetTarget(opts: {
     !opts.hasDepot && (opts.extensionCapacityTotal ?? 0) > 0
       ? Math.ceil(opts.extensionCapacityTotal! / carried)
       : 1;
-  return Math.min(TENDER_FLEET_CAP, Math.max(1, opts.clusters, forRate, forWave));
+  const forOutposts = opts.clusters + (opts.outpostClusters ?? 0);
+  return Math.min(TENDER_FLEET_CAP, Math.max(1, opts.clusters, forRate, forWave, forOutposts));
 }
+
+/**
+ * A cluster this far (Chebyshev) from the reload point is an OUTPOST: its
+ * courier's reload round-trip (2x the leg) exceeds the shortest refill
+ * deadlines, so single coverage structurally loses drains that land during
+ * the away window. At 10 the round trip is >= 20 ticks against ~18-27-tick
+ * build windows; nearer clusters resolve within a deadline and stay single.
+ */
+export const OUTPOST_CLUSTER_RANGE = 10;
 
 /**
  * A stocked depot this abundant means the network is not merely bootstrapping
@@ -323,7 +345,27 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
     // across 20-tile-separated groups (measured on the legacy-layout
     // snapshot). Stable by name order so assignments survive across ticks;
     // extra tenders (clusters shrank) share cluster 0 until they expire.
-    const clusters = extensionClusters(room) as FillTarget[][];
+    //
+    // OUTPOST-FIRST cluster order (fid-t4-preramped t=164, second probe):
+    // index-mod hands every EXTRA tender to cluster 0, so the rotation
+    // partner the outpost fleet floor fielded landed on the NEAR cluster
+    // while the 16-tile outpost stayed single-covered and lost the SLA by
+    // its courier's away window. Outposts sort first: the i%len wrap
+    // doubles them before near clusters. Same distance lens as the fleet
+    // floor (OUTPOST_CLUSTER_RANGE from the reload point).
+    const reloadPos = depot?.pos ?? spawn?.pos;
+    const clusters = (extensionClusters(room) as FillTarget[][])
+      .map(c => ({
+        c,
+        outpost:
+          !!c[0] && !!reloadPos && typeof reloadPos.getRangeTo === "function"
+            ? reloadPos.getRangeTo(c[0].pos) > OUTPOST_CLUSTER_RANGE
+              ? 1
+              : 0
+            : 0
+      }))
+      .sort((a, b) => b.outpost - a.outpost)
+      .map(e => e.c);
     const byName = [...tenders].sort((a, b) => a.name.localeCompare(b.name));
 
     // RELOAD STAGGER (the pipeline-world SLA breach, spec 08 known-red #39):
@@ -673,7 +715,18 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
         (sum, e) => sum + ((e as FillTarget).store.getCapacity(RESOURCE_ENERGY) ?? 0),
         0
       ),
-      hasDepot: !!coreDepot(room)
+      hasDepot: !!coreDepot(room),
+      // Outpost rotation (fid-t4-preramped t=164): clusters whose anchor
+      // sits beyond OUTPOST_CLUSTER_RANGE of the reload point each add a
+      // partner, so one courier is parked loaded while the other reloads.
+      outpostClusters: clusters.filter(c => {
+        const anchor = c[0] as FillTarget | undefined;
+        return (
+          !!anchor &&
+          typeof depotPos?.getRangeTo === "function" &&
+          depotPos.getRangeTo(anchor.pos) > OUTPOST_CLUSTER_RANGE
+        );
+      }).length
     });
     // FLEET OF 3 SMALL (owner 2026-07-22, revising the cap-2 ratchet for
     // the legacy scattered layout: "split the same amount of body parts
