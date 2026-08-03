@@ -2782,6 +2782,42 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
           "    Tombstone energy is LOST BY DEFAULT: booked when first seen, credited back only where a\n    withdrawal was actually witnessed. Every recovery path needs a creep already beside it."
         ]
       : []),
+    // BALANCE SHEET (spec 42 section 2b - the owner's target layout): the
+    // account's STOCK side at close. Measured lines only; a line the captures
+    // cannot measure prints as a NAMED gap, never a fabricated number and
+    // never silently absent - the target layout's "--" rows made visible
+    // debt. NET WORTH is therefore a measured FLOOR: it can only understate.
+    ...(() => {
+      const storage = ((cap.data.core.rooms ?? []) as any[]).reduce(
+        (n: number, r: any) => n + (+r.storageEnergy || 0),
+        0
+      );
+      const reserve = resolveReserve(cap);
+      const byPart = (cap.data.core.bodyParts?.byPart ?? {}) as Record<string, number>;
+      const costs = BODY_COSTS as unknown as Record<string, number>;
+      const standing = Object.keys(byPart).reduce((n, p) => n + byPart[p] * (costs[p.toUpperCase()] ?? 0), 0);
+      const piles = Object.values((cap.data.core.sourceDropped ?? {}) as Record<string, number>).reduce(
+        (a: number, b) => a + (+b || 0),
+        0
+      );
+      const tombStock = meter?.tombstoneStock ?? 0;
+      const committed = tombStock + piles;
+      const fmt = (n: number): string => Math.round(n).toLocaleString("en-US");
+      const free = Math.max(0, storage - reserve);
+      const floor = free + reserve + committed + standing;
+      return [
+        "",
+        "  BALANCE SHEET (energy stocks at close - measured lines only, gaps NAMED)",
+        `    free        storage above the reserve            ${fmt(free)}`,
+        `    reserved    warchest/reserve target              ${fmt(reserve)}`,
+        `    committed   in-flight: ${meter ? `tombstones ${fmt(tombStock)} + ` : ""}ground piles ${fmt(piles)} = ${fmt(committed)}   (${meter ? "" : "tombstones and "}creep cargo not measured)`,
+        `    standing    fleet at replacement body cost       ${fmt(standing)}`,
+        `    fixed       structures at rebuild cost           not measured (no structure inventory in captures)`,
+        `    = NET WORTH (measured floor)                     ${fmt(floor)}`,
+        "    The floor omits the NAMED gaps (creep cargo, fixed assets, accrued decay) - it can only",
+        "    understate. A line joins when its meter lands; nothing here is ever inferred."
+      ];
+    })(),
     ""
   ].join("\n");
 }

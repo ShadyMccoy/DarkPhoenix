@@ -1683,6 +1683,52 @@ describe("spec 42 stage A: every loss line has a BUDGET (methodology #9)", () =>
 });
 
 /**
+ * BALANCE SHEET (spec 42 section 2b - the owner's target layout): the
+ * account's STOCK side at close. Measured lines only; a line the captures
+ * cannot measure prints as a NAMED gap ("not measured"), never a fabricated
+ * number and never silently absent - the "--" rows of the target layout made
+ * visible debt. NET WORTH is therefore labeled a measured FLOOR.
+ */
+describe("BALANCE SHEET (spec 42: energy stocks at close, measured floor)", () => {
+  it("prints free/reserved/committed/standing from capture stocks, names the unmeasured lines", async () => {
+    const { BODY_COSTS } = (await import("../../../src/economy/primitives")) as any;
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    // Known stocks: one room with 90k banked; a 12-part colony body census;
+    // tombstones holding 500e; 1200e staged on the ground.
+    cap.data.core.rooms = [{ name: "W1N1", storageEnergy: 90000, controllerStock: 0 }];
+    cap.data.core.bodyParts = { total: 12, byPart: { work: 4, carry: 4, move: 4 } };
+    cap.data.core.losses = {
+      windowTicks: 5, pileDecay: 0, structureDecay: 0, repairSpend: 0,
+      tombstoneLost: 0, tombstoneRecovered: 0, tombstoneStock: 500,
+      cumulative: { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 }
+    };
+    cap.data.core.sourceDropped = { s1: 700, s2: 500 };
+
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    expect(text).to.include("BALANCE SHEET");
+    const line = (label: string): string => text.split("\n").find(l => l.includes(label)) ?? "";
+    // free = storage above the reserve; reserved = the target itself. Labels
+    // matched on the sheet's own distinctive substrings ("reserved" alone
+    // collides with the revenue line's "(reserved rate)").
+    const reserved = Number((line("warchest/reserve target").match(/-?\d[\d,]*/g) ?? ["0"]).slice(-1)[0].replace(/,/g, ""));
+    expect(reserved).to.be.greaterThan(0);
+    const free = Number((line("storage above the reserve").match(/-?\d[\d,]*/g) ?? ["0"]).slice(-1)[0].replace(/,/g, ""));
+    expect(free).to.be.closeTo(90000 - reserved, 1);
+    // committed in-flight: tombstone stock + ground piles, creep cargo NAMED.
+    expect(line("committed")).to.include("1,700");
+    expect(line("committed"), "creep cargo is a NAMED gap, not silence").to.include("cargo not measured");
+    // standing fleet at replacement cost: 4w+4c+4m at BODY_COSTS (keys are
+    // UPPERCASE; the census byPart keys are the engine's lowercase names).
+    const expectStanding = 4 * BODY_COSTS.WORK + 4 * BODY_COSTS.CARRY + 4 * BODY_COSTS.MOVE;
+    expect(line("standing").replace(/,/g, "")).to.include(String(expectStanding));
+    // fixed assets: named unmeasured, never fabricated.
+    expect(line("fixed")).to.include("not measured");
+    expect(text).to.include("NET WORTH (measured floor)");
+  });
+});
+
+/**
  * SPAWN COSTS SPAN THE FULL CAPTURE WINDOW (methodology #7).
  *
  * After #5 made the loss lines cumulative, the blackbox ring was the account's
