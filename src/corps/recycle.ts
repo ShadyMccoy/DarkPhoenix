@@ -13,7 +13,7 @@
  * @module corps/recycle
  */
 
-import { CARRY_MOVE_PAIR_COST } from "../economy/primitives";
+import { HaulerBodyRatio, haulerBodyCost } from "../economy/primitives";
 
 /**
  * Is the room maxed out (spawn + extensions full) with the spawn idle? Only then
@@ -57,8 +57,17 @@ export function pickRuntToRecycle(partCounts: number[], partsNeeded: number, max
  * ladder. Bootstrap keeps the +1-CARRY crank: escape velocity beats waiting
  * when nothing guarantees the bank refills.
  */
-export function runtUpsizeThreshold(minCarry: number, maxCarry: number, storageBacked: boolean): number {
-  return (storageBacked ? maxCarry : minCarry + 1) * CARRY_MOVE_PAIR_COST;
+export function runtUpsizeThreshold(
+  minCarry: number,
+  maxCarry: number,
+  storageBacked: boolean,
+  ratio: HaulerBodyRatio = "1:1"
+): number {
+  // Priced AT THE ROUTE RATIO (review 2026-08-03): the pair-cost basis
+  // under-priced 1:2 swamp bodies (150e/CARRY), so the mature pounce fired
+  // before the full body was affordable and the ladder survived exactly on
+  // the dearest routes.
+  return haulerBodyCost(storageBacked ? maxCarry : minCarry + 1, ratio);
 }
 
 /**
@@ -80,7 +89,11 @@ export function runtUpsizeThreshold(minCarry: number, maxCarry: number, storageB
  */
 export function driveRecycle(creep: Creep, spawn: StructureSpawn): void {
   if (creep.store[RESOURCE_ENERGY] > 0) {
-    const bank: AnyStoreStructure | StructureSpawn = creep.room.storage ?? spawn;
+    // OWN storage only (review 2026-08-03): a foreign storage returns
+    // ERR_INVALID_TARGET - not NOT_IN_RANGE - so the old expression
+    // livelocked a loaded recycler walking through someone else's room.
+    const bank: AnyStoreStructure | StructureSpawn =
+      creep.room.storage?.my === true ? creep.room.storage : spawn;
     if (creep.transfer(bank, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
       creep.moveTo(bank, { visualizePathStyle: { stroke: "#888888" } });
     }

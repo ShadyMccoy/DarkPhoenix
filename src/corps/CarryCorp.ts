@@ -396,7 +396,8 @@ export class CarryCorp extends Corp {
     // five stepping-stones because this gate fired at +1 CARRY while each
     // purchase drained the bank the next buy scaled to). Bootstrap keeps the
     // +1 crank: escape velocity beats waiting when nothing guarantees refill.
-    if (room.energyAvailable < runtUpsizeThreshold(minCarry, maxCarry, room.storage?.my === true)) return;
+    const runtRatio = this.getHaulerAssignments()[0]?.haulerRatio ?? "1:1";
+    if (room.energyAvailable < runtUpsizeThreshold(minCarry, maxCarry, room.storage?.my === true, runtRatio)) return;
 
     creeps[carry.indexOf(minCarry)].memory.recycling = true;
     creeps[carry.indexOf(minCarry)].memory.recycleReason = "runt-upsize";

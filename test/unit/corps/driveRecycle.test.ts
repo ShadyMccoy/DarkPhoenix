@@ -67,7 +67,7 @@ describe("driveRecycle (cargo delivers; refund lands in a store)", () => {
       store: { energy: over.store ?? 0, [`${"energy"}`]: over.store ?? 0 },
       room: {
         name: "W1N1",
-        storage: over.storage ? { structureType: "storage", pos: pos(20, 20) } : undefined
+        storage: over.storage ? { structureType: "storage", my: true, pos: pos(20, 20) } : undefined
       },
       transfer: (target: any) => {
         calls.push(`transfer:${target.structureType ?? "spawn"}`);
@@ -127,10 +127,38 @@ describe("driveRecycle (cargo delivers; refund lands in a store)", () => {
  * (escape velocity beats waiting when nothing guarantees refill).
  */
 describe("runtUpsizeThreshold (mature rooms pounce only at full size)", () => {
-  it("mature: the full-size body's cost; bootstrap: the +1 crank", async () => {
+  it("mature: the full-size body's cost AT THE ROUTE RATIO; bootstrap: the +1 crank", async () => {
     const { runtUpsizeThreshold } = (await import("../../../src/corps/recycle")) as any;
-    const { CARRY_MOVE_PAIR_COST } = await import("../../../src/economy/primitives");
-    expect(runtUpsizeThreshold(3, 15, true)).to.equal(15 * CARRY_MOVE_PAIR_COST);
-    expect(runtUpsizeThreshold(3, 15, false)).to.equal(4 * CARRY_MOVE_PAIR_COST);
+    const { haulerBodyCost } = await import("../../../src/economy/primitives");
+    expect(runtUpsizeThreshold(3, 15, true, "1:1")).to.equal(haulerBodyCost(15, "1:1"));
+    expect(runtUpsizeThreshold(3, 15, false, "1:1")).to.equal(haulerBodyCost(4, "1:1"));
+    // Review finding 2026-08-03: the pair-cost basis under-priced 1:2 swamp
+    // bodies (150e/CARRY), so the mature pounce fired BEFORE the full body
+    // was affordable and the ladder survived exactly on the dearest routes.
+    expect(runtUpsizeThreshold(3, 15, true, "1:2")).to.equal(haulerBodyCost(15, "1:2"));
+    expect(runtUpsizeThreshold(3, 15, true, "1:2")).to.be.greaterThan(runtUpsizeThreshold(3, 15, true, "1:1"));
+  });
+});
+
+describe("driveRecycle: a FOREIGN storage is never the bank (review finding)", () => {
+  beforeEach(() => setupGlobals());
+  it("a loaded recycler in a room with someone ELSE'S storage dumps to the spawn instead", async () => {
+    const { driveRecycle } = await import("../../../src/corps/recycle");
+    const calls: string[] = [];
+    const mk = (x: number, y: number): any => ({
+      x, y, roomName: "W9N9",
+      isNearTo: () => true, isEqualTo: () => false, findInRange: () => [], lookFor: () => []
+    });
+    const spawn: any = { pos: mk(25, 25), recycleCreep: () => 0 };
+    const creep: any = {
+      name: "r9", pos: mk(24, 25),
+      store: { energy: 200 },
+      room: { name: "W9N9", storage: { structureType: "storage", my: false, pos: mk(10, 10) } },
+      transfer: (t: any) => { calls.push(`transfer:${t.structureType ?? "spawn"}:${t.my ?? "spawn"}`); return 0; },
+      moveTo: () => 0
+    };
+    creep.store[RESOURCE_ENERGY] = 200;
+    driveRecycle(creep, spawn);
+    expect(calls[0], "ERR_INVALID_TARGET livelock avoided: foreign storage skipped").to.equal("transfer:spawn:spawn");
   });
 });
