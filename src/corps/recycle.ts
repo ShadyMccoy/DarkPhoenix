@@ -13,6 +13,8 @@
  * @module corps/recycle
  */
 
+import { CARRY_MOVE_PAIR_COST } from "../economy/primitives";
+
 /**
  * Is the room maxed out (spawn + extensions full) with the spawn idle? Only then
  * is recycling free: the surplus energy and the empty spawn tick would otherwise
@@ -44,6 +46,19 @@ export function pickRuntToRecycle(partCounts: number[], partsNeeded: number, max
     }
   });
   return idx;
+}
+
+/**
+ * The runt-upsize POUNCE threshold (owner 2026-08-03, the cee0 ladder:
+ * 3->6->9->12->15->30 parts, five stepping-stone bodies for one 1500e body).
+ * A MATURE (storage-backed) room replaces a runt only when the full-size body
+ * is affordable - one recycle, one buy; each intermediate purchase drained
+ * the bank the next buy affordability-scaled to, which is what cranked the
+ * ladder. Bootstrap keeps the +1-CARRY crank: escape velocity beats waiting
+ * when nothing guarantees the bank refills.
+ */
+export function runtUpsizeThreshold(minCarry: number, maxCarry: number, storageBacked: boolean): number {
+  return (storageBacked ? maxCarry : minCarry + 1) * CARRY_MOVE_PAIR_COST;
 }
 
 /**

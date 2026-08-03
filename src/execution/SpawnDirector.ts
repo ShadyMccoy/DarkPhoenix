@@ -91,7 +91,8 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
     const roomSpawnIds = new Set<string>(spawns.map(s => s.id as string));
     const demands = collectDemandsMatching(id => roomSpawnIds.has(id), {
       energyCapacity: room.energyCapacityAvailable,
-      tick: Game.time
+      tick: Game.time,
+      storageBacked: room.storage?.my === true
     });
     stampDemandAges(demands, firstSeen, seenThisTick, Game.time);
     allDemands.push(...demands);

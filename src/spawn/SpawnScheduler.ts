@@ -342,6 +342,15 @@ export interface SpawnDemandContext {
   energyCapacity: number;
   /** Current game tick. */
   tick: number;
+  /**
+   * The anchor room has an owned STORAGE (owner 2026-08-03: runts are "a
+   * colony upstart mechanism... plenty of energy so it doesn't really want
+   * or need runts at all"). Cold-start floor bodies defend against spawn
+   * deadlock - impossible once the tender refills the bank from the
+   * warchest - so a storage-backed room's dark routes hold for full bodies
+   * and the cee0 runt ladder (3->6->9->12->15->30 parts) never starts.
+   */
+  storageBacked?: boolean;
 }
 
 /** Live spawn/economy state the scheduler needs to make a decision. */

@@ -119,3 +119,18 @@ describe("driveRecycle (cargo delivers; refund lands in a store)", () => {
     expect(calls[0]).to.equal("recycle:r1");
   });
 });
+
+/**
+ * THE POUNCE THRESHOLD (owner 2026-08-03, the cee0 ladder): in a
+ * storage-backed room a runt is replaced ONLY when its FULL-SIZE body is
+ * affordable - one recycle, one buy. Bootstrap keeps the +1-CARRY crank
+ * (escape velocity beats waiting when nothing guarantees refill).
+ */
+describe("runtUpsizeThreshold (mature rooms pounce only at full size)", () => {
+  it("mature: the full-size body's cost; bootstrap: the +1 crank", async () => {
+    const { runtUpsizeThreshold } = (await import("../../../src/corps/recycle")) as any;
+    const { CARRY_MOVE_PAIR_COST } = await import("../../../src/economy/primitives");
+    expect(runtUpsizeThreshold(3, 15, true)).to.equal(15 * CARRY_MOVE_PAIR_COST);
+    expect(runtUpsizeThreshold(3, 15, false)).to.equal(4 * CARRY_MOVE_PAIR_COST);
+  });
+});

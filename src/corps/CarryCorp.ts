@@ -19,7 +19,7 @@ import { isTenderCreep } from "./censusLens";
 import { tenderOwnsExtensions } from "./regimes";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelToLane, travelToQueued } from "./movement";
-import { driveRecycle } from "./recycle";
+import { driveRecycle, runtUpsizeThreshold } from "./recycle";
 import {
   CARRY_MOVE_PAIR_COST,
   CREEP_LIFETIME,
@@ -391,9 +391,12 @@ export class CarryCorp extends Corp {
     const maxCarry = this.maxCarryPerHauler(room);
     if (minCarry >= maxCarry) return; // nothing under-built to heal
 
-    // Conditions ready: the spawn can immediately build a hauler with at least one
-    // more CARRY than the smallest runt (1 CARRY + 1 MOVE = 100 energy per step).
-    if (room.energyAvailable < (minCarry + 1) * CARRY_MOVE_PAIR_COST) return;
+    // Replacement affordability: in a STORAGE-BACKED room the pounce waits
+    // for the FULL-SIZE body - one recycle, one buy (the cee0 ladder bought
+    // five stepping-stones because this gate fired at +1 CARRY while each
+    // purchase drained the bank the next buy scaled to). Bootstrap keeps the
+    // +1 crank: escape velocity beats waiting when nothing guarantees refill.
+    if (room.energyAvailable < runtUpsizeThreshold(minCarry, maxCarry, room.storage?.my === true)) return;
 
     creeps[carry.indexOf(minCarry)].memory.recycling = true;
     creeps[carry.indexOf(minCarry)].memory.recycleReason = "runt-upsize";
@@ -1461,8 +1464,13 @@ export class CarryCorp extends Corp {
     const HAULER_MIN_CARRY = 3;
     // Same basis as desiredCost: the floor body's TRUE cost at this route's
     // ratio, never above the full ask.
+    // STORAGE-BACKED rooms hold to fund even on a DARK route (owner
+    // 2026-08-03: the floor is an upstart mechanism; the tender refills the
+    // bank from the warchest regardless of this route's income, so the
+    // deadlock the floor defends against cannot occur - and the floor body
+    // is what STARTS the cee0 runt ladder).
     const minCost =
-      this.getCreepCount() >= 1
+      this.getCreepCount() >= 1 || ctx.storageBacked === true
         ? desiredCost
         : Math.min(haulerBodyCost(Math.min(desiredCarry, HAULER_MIN_CARRY), ratio), desiredCost);
 

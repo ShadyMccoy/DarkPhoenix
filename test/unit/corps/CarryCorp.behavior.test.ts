@@ -432,6 +432,29 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       expect(d.minCost, "a served route's heal waits for the full share body").to.equal(d.desiredCost);
     });
 
+    /**
+     * THE RUNT LADDER (owner 2026-08-03: "runt upsizing should be investigated
+     * thoroughly. That's a colony upstart mechanism. Our colony has plenty of
+     * energy so it doesn't really want or need runts at all"). Caught on the
+     * ring (cee0, t72758490+): a dark route bought the 3-CARRY floor, the
+     * +1-CARRY pounce recycled it, the replacement bought at the part-refilled
+     * bank, and the crank stepped 3 -> 6 -> 9 -> 12 -> 15 -> 30 parts - five
+     * stepping-stone bodies (~2250e + five spawn slots) for a 1500e body. The
+     * floor's own docstring defends it ONLY where deadlock is possible; a
+     * STORAGE-BACKED room's tender refills the bank from the warchest
+     * regardless of this route's income, so the dark route holds for the full
+     * body and the ladder never starts. Bootstrap rooms keep the floor.
+     */
+    it("a dark route in a STORAGE-BACKED room holds for the FULL body - no ladder", () => {
+      const nodeId = "W1N1-hauling-dark-mature";
+      const corp = carryCorp(nodeId);
+      corp.setHaulerAssignments([route("controller-cccc", 20, 11.9)]);
+
+      setFleet(nodeId, 0);
+      const d = corp.getSpawnDemand({ ...ctx, storageBacked: true })[0];
+      expect(d.minCost, "storage-backed: the deadlock defense is void; hold to fund").to.equal(d.desiredCost);
+    });
+
     it("a DARK route still buys the cheap floor - restart speed beats body size", () => {
       const nodeId = "W1N1-hauling-dark";
       const corp = carryCorp(nodeId);
