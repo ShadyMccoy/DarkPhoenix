@@ -23,7 +23,6 @@ import { driveRecycle, runtUpsizeThreshold } from "./recycle";
 import {
   CARRY_MOVE_PAIR_COST,
   CREEP_LIFETIME,
-  bufferDrainCarry,
   carryPartsFor,
   haulerBodyCarry,
   haulerBodyCost,
@@ -1539,40 +1538,23 @@ export class CarryCorp extends Corp {
   private haulCarryNeeded(): number {
     const routes = this.haulerAssignments.filter(a => !(a.toId ?? "").startsWith("construction-"));
     if (routes.length === 0) return 0; // construction-only: the tankers own this energy, pile or no pile
-    const sustained = routes.reduce((sum, a) => sum + a.carryParts, 0);
 
-    // BUFFER-DRAIN TERM (owner 2026-07-29, the E6 work item; pre-registered by
-    // the 2026-07-26 pileup instrument: "staged high, NO link => the fleet is
-    // under-sized - the missing drain term is the fix"). Sized to sustained
-    // inflow ALONE, a standing pile is invisible to this decision: whatever
-    // opened the gap (raid embargo, spawn scarcity, a churned hauler)
-    // ratchets the buffer up permanently and the plan never asks for the
-    // carry to clear it (measured t72654979: cd8e staged 3874 and growing,
-    // the miner gate held 512t at 100% of window, this route stamped
-    // carryNeeded 1 with zero haulers and no source link).
-    //
-    // The term is the codebase's ONE drain law - sustainableConsumptionRate's
-    // stock/CREEP_LIFETIME, the same law the bank surplus and consumer sizing
-    // use: clear the standing buffer over one creep generation ON TOP of the
-    // sustained rate. Gentle by construction (3874 adds 2.6 e/t ~ 4 CARRY on
-    // a 36-tile route, never a swarm) and self-extinguishing as the pile
-    // drains. FAILS OPEN on fog: an unmeasurable buffer (no vision) adds
-    // nothing, so demand is never fabricated from a read we do not have.
-    const staged = this.readPickupBuffer().staged;
-    if (staged === null || staged <= 0) return Math.ceil(sustained);
-
-    // Amortize across the routes by their share of the sustained carry (a
-    // single-route corp takes it all); distance comes from the route the
-    // energy actually travels, so the drain is priced at its real cost.
-    // bufferDrainCarry IS the one drain law (primitives) - the PLANNER now
-    // prices the same term into its routes from the adapter's staged read,
-    // so plan and fleet size from the same two terms (phase 1; X6's
-    // drain-blind judgement dies with it).
-    const drain = routes.reduce((sum, a) => {
-      const share = sustained > 0 ? a.carryParts / sustained : 1 / routes.length;
-      return sum + bufferDrainCarry(staged * share, a.distance ?? 0);
-    }, 0);
-    return Math.ceil(sustained + drain);
+    // ONE VALVE (the double-drain, F1 ask-gap t72760734): the ask IS the sum
+    // of the plan-priced routes, nothing added. The corp's own
+    // bufferDrainCarry(staged, d) re-add - born 2026-07-29 when the plan was
+    // drain-blind (cd8e staged 3874, carryNeeded 1, t72654979) - became a
+    // DOUBLE-COUNT the day the phase-1 repricing priced the same law into
+    // the routes themselves: staged mining routes carry it in carryParts
+    // (CorpPlanner `h.carryParts += drainCarry`), scavenge routes carry it
+    // in their very rate (scavengeRate = amount/2 / effectiveLife), and the
+    // bank's is bankSurplusRate. Measured live: cbd8 plan 37.5 CARRY, corp
+    // ask 45 = 37.5 + its own ~7.5 drain again - every staged route
+    // over-asked by exactly its drain term. If a pile grows between solves,
+    // the replan reprices the routes (spec 36 event triggers); if the plan
+    // under-asks, FIX THE PLAN - one number that can be audited beats two
+    // that disagree quietly. The pile read itself survives as the sizing
+    // stamp (readPickupBuffer -> staged/srcLink), an instrument, not a term.
+    return Math.ceil(routes.reduce((sum, a) => sum + a.carryParts, 0));
   }
 
   /**

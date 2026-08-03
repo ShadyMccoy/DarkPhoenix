@@ -346,6 +346,40 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
     });
 
     /**
+     * THE DOUBLE-DRAIN (F1 ask-gap, measured t72760734). Since the phase-1
+     * route repricing the PLAN prices bufferDrainCarry INTO each staged
+     * route's carryParts (CorpPlanner: `h.carryParts += drainCarry`), and the
+     * commission hands those inflated routes to the corp - which then
+     * RE-ADDED its own bufferDrainCarry(staged, d) on top of a sum that
+     * already contained it. Measured live: cbd8's plan route 37.5 CARRY
+     * (inflow ~30 + drain ~7.5), corp ask 45 = 37.5 + the same ~7.5 again -
+     * every staged route over-asks by exactly its drain term, which is the
+     * F1 hauler breach's ask-side mechanism (built 0.449 p/t vs planned
+     * 0.218). The scavenge class double-counted the same way: scavengeRate
+     * IS the pile's drain law (amount/2 / effectiveLife), priced by the plan
+     * into the transient route's rate, so the corp's re-add taxed it twice.
+     * ONE VALVE (owner doctrine): the corp sizes to its plan-priced
+     * assignments and NOTHING else - if the plan under-asks, fix the plan.
+     */
+    it("never re-adds the drain the plan already priced into its routes (the double-drain, t72760734)", () => {
+      const nodeId = "W1N1-hauling-staged";
+      const corp = carryCorp(nodeId);
+      const a = route("storage-ssss", 20, 6); // plan-priced: drain already inside carryParts
+      const b = route("spawn1", 10, 1.75);
+      corp.setHaulerAssignments([a, b]);
+      // A 3000-energy pile stands at the mouth - the exact input the old
+      // re-add fed to bufferDrainCarry (adding ~2 CARRY here).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (corp as any).readPickupBuffer = () => ({ staged: 3000, srcLinkEnergy: null, srcLinkCap: null });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const asked = (corp as any).haulCarryNeeded() as number;
+      expect(asked).to.equal(
+        Math.ceil(a.carryParts + b.carryParts),
+        "the ask IS the plan's routes - the drain lives in the plan, once"
+      );
+    });
+
+    /**
      * THE CARRY GAP, ISOLATED (2026-08-02). All three plan-fidelity grid cells
      * field 53-74% of the planned CARRY while the spawn sits 54-82% IDLE, and
      * the controller shortfall tracks the carry shortfall across all three

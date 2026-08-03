@@ -1,28 +1,34 @@
 import { expect } from "chai";
 import { CarryCorp } from "../../../src/corps/CarryCorp";
 import { HaulerAssignment } from "../../../src/flow/FlowTypes";
-import { CREEP_LIFETIME, carryPartsFor } from "../../../src/economy/primitives";
+import { carryPartsFor } from "../../../src/economy/primitives";
 
 /**
- * The BUFFER-DRAIN TERM (owner 2026-07-29, the E6 work item; the fix the
- * 2026-07-26 pileup instrument pre-registered - "staged high, NO link => the
- * fleet is under-sized (the missing drain term is the fix)").
+ * THE DRAIN LIVES IN THE PLAN, ONCE (the double-drain fix, t72760734).
  *
- * haulCarryNeeded sized to SUSTAINED INFLOW only, so a standing pile was
- * invisible to the decision: whatever gap opened (raid embargo, spawn
- * scarcity, a churned hauler) ratcheted the buffer up permanently and the
- * plan never asked for the carry to clear it. Measured live t72654979:
- * cd8e staged 3874 and GROWING, gate held 512t at 100% of window, while its
- * drain route stamped carryNeeded 1 with zero haulers fielded and no source
- * link.
+ * History, because this file has now pinned BOTH sides of the law:
+ * - 2026-07-29 (the E6 work item): haulCarryNeeded sized to sustained inflow
+ *   only, so a standing pile was invisible (cd8e staged 3874, carryNeeded 1,
+ *   t72654979). The corp grew its own bufferDrainCarry(staged, d) re-add and
+ *   this file pinned it.
+ * - 2026-08-02 (phase-1 route repricing): the PLAN began pricing the same
+ *   drain law into the routes themselves - staged mining routes inside
+ *   carryParts (CorpPlanner `h.carryParts += drainCarry`), scavenge routes
+ *   inside their very rate (scavengeRate = amount/2 / effectiveLife), the
+ *   bank via bankSurplusRate.
+ * - 2026-08-03 (measured t72760734): both sides applying one law = twice.
+ *   cbd8's plan route said 37.5 CARRY (inflow ~30 + drain ~7.5); the corp
+ *   asked 45 = 37.5 + its own ~7.5 again. Every staged route over-asked by
+ *   exactly its drain term - the ask-side mechanism of F1's hauler breach
+ *   (built 0.449 p/t vs planned 0.218).
  *
- * The term is the codebase's ONE drain law - sustainableConsumptionRate's
- * stock/CREEP_LIFETIME, the same law the bank surplus (SURPLUS_DRAIN_TICKS)
- * and consumer sizing use: clear the standing buffer over one creep
- * generation, on top of the sustained rate. Gentle by construction (a 3874
- * pile adds 2.6 e/t, not a swarm) and self-extinguishing as the pile drains.
+ * ONE VALVE (owner doctrine, the upgrader-valve lesson): the corp sizes to
+ * its plan-priced assignments and nothing else. If a pile grows between
+ * solves the replan reprices the routes (spec 36); if the plan under-asks,
+ * fix the plan. The pile read survives as the sizing STAMP (an instrument),
+ * never a sizing term.
  */
-describe("CarryCorp buffer-drain term (haulCarryNeeded reads the standing pile)", () => {
+describe("CarryCorp haulCarryNeeded: the ask IS the plan's routes (double-drain retired)", () => {
   const G: any = global;
 
   const container = (x: number, y: number, energy: number) => ({
@@ -69,33 +75,23 @@ describe("CarryCorp buffer-drain term (haulCarryNeeded reads the standing pile)"
     G.Game = { rooms: {} as any, getObjectById: () => null };
   });
 
-  it("adds the standing pile amortized over one creep lifetime", () => {
-    const staged = 3874; // the measured cd8e pile
+  it("a standing pile adds NOTHING the plan's routes don't already carry (the t72760734 pin)", () => {
+    // The measured cd8e pile. Under the retired re-add this asked
+    // carryPartsFor(10 + 3874/1500, 36); the plan already prices that drain
+    // into carryParts, so the corp asking it again bought ~20% extra fleet.
     const sustained = Math.ceil(carryPartsFor(10, 36));
-    const withDrain = mkCorp(staged).haulCarryNeeded();
-    expect(withDrain).to.be.greaterThan(sustained);
-    // rate = 10 + 3874/1500; carry = rate * roundTrip / 50, rounded up
-    expect(withDrain).to.equal(Math.ceil(carryPartsFor(10 + staged / CREEP_LIFETIME, 36)));
+    expect(mkCorp(3874).haulCarryNeeded()).to.equal(sustained);
   });
 
-  it("is GENTLE - a big pile adds a few CARRY, never a swarm", () => {
-    // 3874 staged over a lifetime is 2.6 e/t: ~4 CARRY on this route, not 4x.
-    const sustained = Math.ceil(carryPartsFor(10, 36));
-    expect(mkCorp(3874).haulCarryNeeded()).to.be.lessThan(sustained * 2);
-  });
-
-  it("self-extinguishes: a drained buffer asks for exactly the sustained carry", () => {
+  it("a drained buffer asks the same (the ask never depended on the pile)", () => {
     expect(mkCorp(0).haulCarryNeeded()).to.equal(Math.ceil(carryPartsFor(10, 36)));
   });
 
-  it("FAILS OPEN on fog (staged null): unmeasurable adds no drain term", () => {
-    // A remote source with no vision must not fabricate demand from a stale
-    // or absent read - null is a different fact from zero (the stranded-
-    // reserver polarity).
+  it("fog (staged null) asks the same - no read, no term, nothing fabricated", () => {
     expect(mkCorp(null).haulCarryNeeded()).to.equal(Math.ceil(carryPartsFor(10, 36)));
   });
 
-  it("never drains through a CONSTRUCTION-only route (the tankers own that energy)", () => {
+  it("never hauls a CONSTRUCTION-only route (the tankers own that energy)", () => {
     const corp = new CarryCorp("W43N24-hauling-build", "spawn-1") as any;
     corp.pickupPos = { x: 37, y: 38, roomName: "W43N24" };
     corp.setHaulerAssignments([
