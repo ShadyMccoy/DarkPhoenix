@@ -8227,6 +8227,7 @@ class. Next instrument (task #9): death-watch stamps hostile-presence
 within intel TTL bounds at the kill tick; the swap follows on clean
 post-stamp windows only.
 
-Gate at commit: unit 2,060 green (admission-net red-first test +
-hand-derived reserverRoomEnergy pin); storage-depot PASS; flow-handoff and
-runt-economy in flight - deploy gated on them.
+Gate: unit 2,060 green (admission-net red-first test + hand-derived
+reserverRoomEnergy pin); trio 3-0 - deployed. The next capture reads three
+stacked predictions: the 36-3 admission, the remote plan-net drop, the
+incumbents holding.
