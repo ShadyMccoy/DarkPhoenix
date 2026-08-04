@@ -9,7 +9,7 @@ import {
   resolveReserveTarget,
   spendableBankSurplus,
   bankSurplusRate,
-  bankRefillRate,
+  bankFedControllerRate,
   feederRelayRate,
   bankSourceId,
   bankToTransientSource,
@@ -113,34 +113,51 @@ describe("economy/bank - the surplus spend primitives", () => {
     });
   });
 
-  describe("bankRefillRate (owner 2026-08-03: 'It should approach the equilibrium asymptotically')", () => {
-    // The FILLING half of the same law. The old refill was a regime SWITCH:
-    // below target the controller capped hard at STORAGE_UPGRADE_TARGET and
-    // the storage soaked everything else, so crossing the target swung the
-    // published controller allocation 85 -> 15 in one solve. The refill is
-    // now the drain's mirror - claim deficit / SURPLUS_DRAIN_TICKS - so the
-    // bank approaches the reserve target asymptotically from BOTH sides and
-    // the controller allocation is continuous through it.
-    it("claims nothing at or above the target (the drain side owns that half)", () => {
-      expect(bankRefillRate(BASE_RESERVE, BASE_RESERVE)).to.equal(0);
-      expect(bankRefillRate(BASE_RESERVE + 5000, BASE_RESERVE)).to.equal(0);
+  describe("bankFedControllerRate (owner 2026-08-04: 'The bank should be the income mop up not the upgrade')", () => {
+    // THE INVERSION, one formula, no branches: in a storage-backed room the
+    // controller's allocation is floor + surplus/SURPLUS_DRAIN_TICKS and
+    // NOTHING else - upgrade is proportional to surplus (plus its guaranteed
+    // floor), and the BANK is the residual claimant on income. This
+    // composes the owner's two rulings: the allocation follows the BANK
+    // LEVEL, which moves slowly, so it is continuous through the target
+    // (2026-08-03 "approach the equilibrium asymptotically" - no 85 -> 15
+    // regime cliff) while every income shock lands in the bank first
+    // (2026-08-04). It retires phase C's refill claim same-day: a bounded
+    // controller leaves the residual to storage by construction, so the
+    // bank no longer needs to CLAIM anything.
+    it("below the target: the floor alone (income residual banks)", () => {
+      expect(bankFedControllerRate(BASE_RESERVE - 20_000, BASE_RESERVE)).to.equal(
+        controllerFloorRate(BASE_RESERVE - 20_000)
+      );
     });
-    it("refills the deficit over the SAME horizon the drain uses", () => {
-      expect(bankRefillRate(BASE_RESERVE - 1500, BASE_RESERVE)).to.be.closeTo(1500 / SURPLUS_DRAIN_TICKS, 1e-9);
-      expect(bankRefillRate(0, 30_000)).to.be.closeTo(30_000 / SURPLUS_DRAIN_TICKS, 1e-9);
+    it("above the target: floor + the ONE drain law", () => {
+      const banked = BASE_RESERVE + 30_000;
+      expect(bankFedControllerRate(banked, BASE_RESERVE)).to.be.closeTo(
+        controllerFloorRate(banked) + bankSurplusRate(banked, BASE_RESERVE),
+        1e-9
+      );
+      expect(bankFedControllerRate(banked, BASE_RESERVE)).to.be.closeTo(
+        STORAGE_UPGRADE_TARGET + 30_000 / SURPLUS_DRAIN_TICKS,
+        1e-9
+      );
     });
-    it("caps at MAX_SURPLUS_DRAW exactly like the drain (degenerate-deficit guard)", () => {
-      const runawayDeficit = MAX_SURPLUS_DRAW * SURPLUS_DRAIN_TICKS + 50_000;
-      expect(bankRefillRate(0, runawayDeficit)).to.equal(MAX_SURPLUS_DRAW);
+    it("CONTINUOUS through the target crossing (no regime cliff)", () => {
+      const eps = 1;
+      const below = bankFedControllerRate(BASE_RESERVE - eps, BASE_RESERVE);
+      const at = bankFedControllerRate(BASE_RESERVE, BASE_RESERVE);
+      const above = bankFedControllerRate(BASE_RESERVE + eps, BASE_RESERVE);
+      expect(Math.abs(at - below)).to.be.lessThan(0.01);
+      expect(Math.abs(above - at)).to.be.lessThan(0.01);
     });
-    it("MIRROR SYMMETRY: refill at deficit d === drain at surplus d - ONE law on both sides of the target", () => {
-      for (const d of [0, 1, 1500, 30_000, 200_000]) {
-        expect(bankRefillRate(BASE_RESERVE - d, BASE_RESERVE)).to.be.closeTo(
-          bankSurplusRate(BASE_RESERVE + d, BASE_RESERVE),
-          1e-9,
-          `asymmetric at d=${d}`
-        );
-      }
+    it("a drained bank still floors at the anti-downgrade trickle (never zero)", () => {
+      expect(bankFedControllerRate(0, BASE_RESERVE)).to.equal(controllerFloorRate(0));
+      expect(bankFedControllerRate(0, BASE_RESERVE)).to.be.greaterThan(0);
+    });
+    it("the runaway guard still bounds the drain half", () => {
+      const runaway = MAX_SURPLUS_DRAW * SURPLUS_DRAIN_TICKS + 500_000;
+      expect(bankFedControllerRate(BASE_RESERVE + runaway, BASE_RESERVE)).to.equal(
+        controllerFloorRate(BASE_RESERVE + runaway) + MAX_SURPLUS_DRAW
+      );
     });
   });
 

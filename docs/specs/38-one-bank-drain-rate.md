@@ -308,3 +308,44 @@ at target−ε the claim is ε/1500, and the mined mop-up term is identical on
 both sides — the published allocation is continuous through the crossing, and
 the bank approaches the target exponentially (τ = `SURPLUS_DRAIN_TICKS`) from
 either side.
+
+## PHASE D (2026-08-04) — the residual claimant inverted: the bank is the income mop-up
+
+Owner (verbatim): *"The bank should be the income mop up not the upgrade."*
+
+Phase C assigned the two 08-03 rulings one way: controller mops up income,
+bank claims deficit/`SURPLUS_DRAIN_TICKS` via a sink reserve. Measured M10
+(76k → 27.5k THROUGH the target): every unbudgeted burn — fleet churn −12.9,
+raid surge ~−6, decay+repair −15.3 — ate the claim before the bank saw it;
+the bank budget line read +28.04 planned vs −10.97 actual. The claim
+mechanism protected nothing because the residual claimant was still the
+controller.
+
+**The phase-D law** (one formula, no branches):
+
+- `bank.bankFedControllerRate(banked, target) = controllerFloorRate(banked)
+  + bankSurplusRate(banked, target)` — upgrade is proportional to surplus
+  plus its guaranteed floor, nothing else.
+- `controllerRoutingCapacity` takes it as the cap whenever the room has a
+  live owned storage (`storageBankFedAllocation`, same guards as
+  `detectBankSources`); rooms without a bank keep the mop-up (nothing to
+  absorb the residual there). Wartime relegation outranks it, unchanged.
+- The BANK is the residual claimant by construction: a bounded controller
+  leaves income − costs − allocation to the storage sink. Phase C's claim
+  machinery (`bankRefillRate`, `storageRefillReserve`, the planColony hub
+  draw-out shrink) is retired.
+
+Both rulings hold simultaneously: the allocation is CONTINUOUS in the bank
+level (asymptotic, no 85→15 cliff — the bank level moves with τ =
+`SURPLUS_DRAIN_TICKS`), and the bank absorbs every income shock first.
+Equilibrium: bank ≈ target + residual × τ, allocation ≈ floor + residual.
+
+Predictions registered at deploy (bank 27.5k, 42.5k under target):
+1. Controller allocation drops to ~floor (≈15) immediately; published
+   allocations follow the bank up smoothly as it refills.
+2. Bank rebuild rate ≈ delivered − spawn − construction − floor ≈ 30–35 e/t
+   → target regained in ~1,200–1,500t, then allocation climbs asymptotically.
+3. Score dips for ~1–2 fiscal months (accepted: the codebase is the
+   deliverable), G1's sustainable line converges toward delivered as the
+   bank draw goes honest.
+4. No allocation cliff at the crossing (the swing signature stays dead).

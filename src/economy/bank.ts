@@ -151,22 +151,34 @@ export function bankSurplusRate(banked: number, reserveTarget: number): number {
 }
 
 /**
- * The FILLING half of the same law (owner 2026-08-03: "I don't think it
- * should swing hard from 85 to 15 and go into banking mode in the first
- * place. It should approach the equilibrium asymptotically"): energy/tick the
- * bank claims toward its reserve target, the exact mirror of bankSurplusRate
- * - refill the deficit over SURPLUS_DRAIN_TICKS, capped at MAX_SURPLUS_DRAW,
- * zero at/above the target. Wired as the storage sink's RESERVE in the
- * adapter (storageRefillReserve), so the pre-pass wins the claim ahead of
- * value greed and the controller mops up the rest in EVERY regime - the old
- * save-regime controller cap (hard 15 while filling, lifted in surplus) is
- * retired; it was the step that swung the published allocation 85 -> 15 in
- * one solve at the target crossing. With both halves linear over the same
- * horizon, the bank approaches the target asymptotically from either side
- * and the controller allocation is continuous through it.
+ * THE BANK IS THE INCOME MOP-UP (owner 2026-08-04: "The bank should be the
+ * income mop up not the upgrade"): a storage-backed room's controller
+ * allocation is this - its guaranteed floor plus the ONE drain law over the
+ * standing surplus - and NOTHING else. Upgrade is proportional to surplus
+ * (plus floor); the BANK is the residual claimant on income by construction,
+ * because a bounded controller leaves everything above this rate to the
+ * storage sink.
+ *
+ * One formula, no regime branch, continuous in the bank level - which is
+ * what makes it honor the 2026-08-03 asymptotic ruling ("I don't think it
+ * should swing hard from 85 to 15... approach the equilibrium
+ * asymptotically"): the allocation follows the SLOW-MOVING bank stock, never
+ * instantaneous income, so the bank is the low-pass filter for every income
+ * shock and the published number cannot cliff. Equilibrium sits where the
+ * draw equals the income residual (bank ~ target + residual x
+ * SURPLUS_DRAIN_TICKS), and approaches from either side with tau =
+ * SURPLUS_DRAIN_TICKS.
+ *
+ * HISTORY: phase C (2026-08-03) tried the other assignment of the same two
+ * rulings - controller mops up income, bank claims deficit/1500 via a sink
+ * reserve. Measured M10: every unbudgeted burn (fleet churn, raids, decay)
+ * ate the claim before the bank saw it, 76k -> 27.5k through the target.
+ * The owner inverted the residual claimant same-day; the claim machinery
+ * (bankRefillRate / storageRefillReserve / the hub draw-out shrink) is
+ * retired with it.
  */
-export function bankRefillRate(banked: number, reserveTarget: number): number {
-  return Math.min(MAX_SURPLUS_DRAW, Math.max(0, reserveTarget - banked) / SURPLUS_DRAIN_TICKS);
+export function bankFedControllerRate(banked: number, reserveTarget: number): number {
+  return controllerFloorRate(banked) + bankSurplusRate(banked, reserveTarget);
 }
 
 /**

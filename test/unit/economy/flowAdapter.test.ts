@@ -186,17 +186,21 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
 // fleet that could field ~4 upgraders - infeasible (P4), and it out-competed
 // remote mined production for the bank. The cap makes the surplus that exceeds
 // what upgraders can burn overflow into STORAGE instead.
-describe("economy/flowAdapter - controllerRoutingCapacity physical cap (#21)", () => {
+describe("economy/flowAdapter - controllerRoutingCapacity (#21 + the bank-fed inversion)", () => {
   const ctrlSink = { position: { x: 0, y: 0, roomName: "W0N0" } };
 
-  it("NO save-regime cap: the controller mops up in EVERY bank regime (owner 2026-08-03: asymptotic, not a switch)", () => {
-    // The old law capped a FILLING room's controller at 15 and lifted the cap
-    // in surplus - the 85 -> 15 allocation swing at the target crossing. The
-    // save side now lives in the storage sink's refill RESERVE
-    // (deficit / SURPLUS_DRAIN_TICKS, the drain's mirror), so the controller
-    // mops up identically on both sides of the target and the allocation is
-    // continuous through it.
+  it("WITHOUT a bank the controller mops up (pre-storage behavior, unchanged forever)", () => {
     expect(controllerRoutingCapacity(ctrlSink, 200)).to.equal(200);
+  });
+
+  it("WITH a bank the allocation IS the bank-fed rate: floor + surplus draw, never the income mop-up (owner 2026-08-04)", () => {
+    // "The bank should be the income mop up not the upgrade": the call site
+    // passes bankFedControllerRate(stock, target); income above it banks by
+    // construction. Continuous in the bank level - the 2026-08-03 asymptotic
+    // ruling holds because the bank level moves slowly.
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, new Set(), 37.5)).to.equal(37.5);
+    // ...still bounded by the fleet's physical burn rate (#21)
+    expect(controllerRoutingCapacity(ctrlSink, 200, 30, new Set(), 37.5)).to.equal(30);
   });
 
   it("the PHYSICAL cap binds so the excess overflows to storage (#21)", () => {
@@ -210,11 +214,11 @@ describe("economy/flowAdapter - controllerRoutingCapacity physical cap (#21)", (
   it("WARTIME: a construction backlog in the room RELEGATES the controller to its floor (spec 33)", () => {
     // Owner 2026-07-27: "surplus ... normally for upgrading, but now for
     // building." A room with a standing build backlog caps the controller at
-    // its floor (15) so the surplus flows to construction - even though the
-    // mop-up (200) would otherwise apply. This is deliberate DOCTRINE, not the
-    // retired save-regime switch: it keys to a real backlog, not a bank level.
+    // its floor (15) so the surplus flows to construction - even over the
+    // bank-fed rate. Doctrine keyed to a real backlog, not a bank level.
     const wartime = new Set(["W0N0"]);
     expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime)).to.equal(15);
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80)).to.equal(15);
     // A room NOT in the wartime set still mops up (relegation is per-room).
     expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, new Set())).to.equal(200);
   });
@@ -352,13 +356,16 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
     expect(banks[0].maxMiners).to.equal(0);
   });
 
-  // The FILLING half of the one drain law (owner 2026-08-03: "I don't think it
-  // should swing hard from 85 to 15 and go into banking mode in the first
-  // place. It should approach the equilibrium asymptotically"). Saving is no
-  // longer a controller cap - it is the storage sink's RESERVE claim of
-  // deficit / SURPLUS_DRAIN_TICKS, won in the pre-pass ahead of value greed,
-  // so the controller allocation is continuous through the reserve target.
-  describe("the asymptotic refill claim (the drain's mirror)", () => {
+  // THE INVERSION (owner 2026-08-04: "The bank should be the income mop up
+  // not the upgrade"): in a storage-backed room the controller's CAPACITY is
+  // floor + surplus/SURPLUS_DRAIN_TICKS - one formula, no regime branch -
+  // and the BANK absorbs the income residual by construction. Continuous
+  // through the target (the 2026-08-03 asymptotic ruling holds: the
+  // allocation follows the slow-moving bank level, never instantaneous
+  // income), and phase C's refill claim is retired same-day: a bounded
+  // controller leaves the residual to storage without claiming anything.
+  // Rooms WITHOUT a storage keep the mop-up (there is no bank to absorb).
+  describe("the bank is the income mop-up (bank-fed controller allocation)", () => {
     const stagedStorage = (roomName: string, energy: number) => ({
       // pos stubs findInRange for the deposit-port/link detectors that
       // buildColonyProblem's live defaults walk over Game.rooms.
@@ -376,45 +383,46 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
       find: () => []
     });
 
-    it("buildColonyProblem stamps the storage sink's reserve with bankRefillRate(stock, target)", async () => {
+    it("buildColonyProblem caps the controller at floor + drain in a storage-backed room; the storage carries NO claim", async () => {
       const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
-      const { bankRefillRate } = await import("../../../src/economy/bank");
+      const { bankFedControllerRate } = await import("../../../src/economy/bank");
       const reserveTarget = 30_000;
       g.Memory.warchestTarget = reserveTarget;
       g.Game.rooms = { W0N0: stagedStorage("W0N0", reserveTarget - 15_000) };
 
       const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
       const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+      const ctrl = problem.sinks.find(s => s.kind === "controller")!;
       const store = problem.sinks.find(s => s.kind === "storage")!;
-      expect(store.reserve).to.be.closeTo(bankRefillRate(reserveTarget - 15_000, reserveTarget), 1e-9);
-      expect(store.reserve).to.be.closeTo(10, 1e-9); // 15000 deficit / 1500 ticks
+      expect(ctrl.capacity).to.be.closeTo(bankFedControllerRate(reserveTarget - 15_000, reserveTarget), 1e-9);
+      expect(store.reserve ?? 0, "phase C's refill claim is retired").to.equal(0);
     });
 
-    it("at or above the target the claim is zero - the drain side (bank source) owns that half", async () => {
+    it("above the target the cap is floor + the surplus draw (one formula, both sides)", async () => {
       const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+      const { bankFedControllerRate } = await import("../../../src/economy/bank");
       const reserveTarget = 30_000;
       g.Memory.warchestTarget = reserveTarget;
-      g.Game.rooms = { W0N0: stagedStorage("W0N0", reserveTarget + 3000) };
+      g.Game.rooms = { W0N0: stagedStorage("W0N0", reserveTarget + 15_000) };
 
       const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
       const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
-      const store = problem.sinks.find(s => s.kind === "storage")!;
-      expect(store.reserve ?? 0).to.equal(0);
+      const ctrl = problem.sinks.find(s => s.kind === "controller")!;
+      expect(ctrl.capacity).to.be.closeTo(bankFedControllerRate(reserveTarget + 15_000, reserveTarget), 1e-9);
     });
 
-    it("without a live storage to read (harness), the claim is 0 - unit paths keep old behavior", async () => {
+    it("without a live storage to read (harness), the mop-up is unchanged - unit paths keep old behavior", async () => {
       const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
       const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
       const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
-      const store = problem.sinks.find(s => s.kind === "storage")!;
-      expect(store.reserve ?? 0).to.equal(0);
+      const ctrl = problem.sinks.find(s => s.kind === "controller")!;
+      expect(ctrl.capacity).to.be.greaterThan(15); // mop-up, not the floor
     });
 
-    it("END-TO-END: the refill claim comes OUT of the controller's mop-up, asymptotically", async () => {
-      // 4 sources = 40 e/t. Spawn takes its ~10 overhead; the staged deficit
-      // (15k against a 30k target) claims 10 e/t for the bank; the controller
-      // mops up the remaining 20. Halve the deficit and the claim halves - the
-      // allocation moves 5, not 70: no regime cliff anywhere in the path.
+    it("END-TO-END: below target the controller takes its FLOOR and the residual BANKS", async () => {
+      // 4 sources = 40 e/t, bank 15k under a 30k target. Upgrade is
+      // proportional to surplus (zero here) plus its floor; the spawn takes
+      // ~10; everything else is the bank's - the income mop-up inverted.
       const reserveTarget = 30_000;
       g.Memory.warchestTarget = reserveTarget;
       g.Game.rooms = { W0N0: stagedStorage("W0N0", reserveTarget - 15_000) };
@@ -425,14 +433,13 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
         sourceNode("s3", 35),
         sourceNode("s4", 45)
       ]);
+      const { bankFedControllerRate } = await import("../../../src/economy/bank");
+      const floorOnly = bankFedControllerRate(reserveTarget - 15_000, reserveTarget);
       const sol = solveWithCorpPlanner(graph, 0, manhattan, [], []);
       const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
-      expect(ctrl.allocated).to.be.closeTo(20, 1e-9);
-
-      g.Game.rooms = { W0N0: stagedStorage("W0N0", reserveTarget - 7_500) };
-      const sol2 = solveWithCorpPlanner(graph, 0, manhattan, [], []);
-      const ctrl2 = sol2.sinkAllocations.find(a => a.sinkType === "controller")!;
-      expect(ctrl2.allocated).to.be.closeTo(25, 1e-9);
+      const store = sol.sinkAllocations.find(a => a.sinkType === "storage")!;
+      expect(ctrl.allocated).to.be.closeTo(floorOnly, 1e-9);
+      expect(store.allocated, "ALL mined still banks to the hub (gross)").to.be.closeTo(40, 1e-9);
     });
   });
 

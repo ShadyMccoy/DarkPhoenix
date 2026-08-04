@@ -87,7 +87,7 @@ export { ANTI_DOWNGRADE_RESERVE };
 export { STORAGE_UPGRADE_TARGET } from "./bank";
 import {
   STORAGE_UPGRADE_TARGET,
-  bankRefillRate,
+  bankFedControllerRate,
   bankToTransientSource,
   bankSourceId,
   controllerFloorRate,
@@ -314,43 +314,44 @@ export class FlowGraph {
 }
 
 /**
- * Routing capacity for a controller sink: mop up the remainder, bounded by the
- * upgrader fleet's PHYSICAL burn rate, in EVERY bank regime. The old
- * save-regime cap (hard {@link STORAGE_UPGRADE_TARGET} while the warchest
- * filled, lifted once it passed the target) is retired (owner 2026-08-03: "I
- * don't think it should swing hard from 85 to 15 and go into banking mode in
- * the first place. It should approach the equilibrium asymptotically") - it
- * was a step function at the target crossing, and crossing it swung the
- * published controller allocation 85 -> 15 in one solve. Saving now happens
- * through the storage sink's refill RESERVE (bank.bankRefillRate via
- * storageRefillReserve: deficit / SURPLUS_DRAIN_TICKS, the exact mirror of
- * the surplus drain), claimed in the pre-pass ahead of value greed - so the
- * bank approaches its target asymptotically from both sides and the
- * controller allocation is continuous through it.
+ * Routing capacity for a controller sink.
+ *
+ * THE BANK-FED INVERSION (owner 2026-08-04: "The bank should be the income
+ * mop up not the upgrade"): when the room has a live bank, the caller passes
+ * `bankFedAllocation` (= bank.bankFedControllerRate: floor + surplus/
+ * SURPLUS_DRAIN_TICKS) and that IS the allocation - upgrade proportional to
+ * surplus plus its floor, the BANK the residual claimant on income by
+ * construction. One formula, continuous in the (slow-moving) bank level, so
+ * the 2026-08-03 asymptotic ruling holds with no regime branch anywhere.
+ * Phase C's refill-claim machinery is retired with this. Rooms WITHOUT a
+ * bank keep the mop-up: there is no storage to absorb the residual.
  */
 export function controllerRoutingCapacity(
   sink: { position: Position },
   totalSupply: number,
   physicalUpgradeCap: number = Infinity,
-  wartimeRooms: ReadonlySet<string> = new Set()
+  wartimeRooms: ReadonlySet<string> = new Set(),
+  bankFedAllocation?: number
 ): number {
   // WARTIME (spec 33, owner 2026-07-27 "surplus ... normally for upgrading,
   // but now for building"): a MEANINGFUL construction backlog stands in this
   // room, so upgrading RELEGATES to the floor and the surplus flows to
-  // construction (value 70) instead of the controller's mop-up. Relegated
-  // != off - the anti-downgrade floor still holds; the mode exits (mop-up
-  // resumes) the moment the backlog drains, no isolated-sink nudge. This is
-  // deliberate doctrine keyed to a real backlog, NOT the retired bank-level
-  // regime switch.
+  // construction (value 70) instead. Relegated != off - the anti-downgrade
+  // floor still holds; the mode exits the moment the backlog drains.
+  // Doctrine keyed to a real backlog, NOT a bank level; it outranks the
+  // bank-fed rate.
   if (wartimeRooms.has(sink.position.roomName)) {
     return Math.max(STORAGE_UPGRADE_TARGET, ANTI_DOWNGRADE_RESERVE);
   }
-  // #21 (owner 2026-07-19): the controller mops up, but no faster than the
-  // upgrader fleet can PHYSICALLY burn it (parking tiles x affordable WORK -
-  // see controllerUpgradeCap). Surplus beyond the cap has no upgrader to
-  // consume it, so it overflows into the storage sink instead of publishing
-  // an infeasible upgrade plan that out-competes remote mining (live
-  // t72429680: uncapped 137 e/t against a ~4-upgrader fleet).
+  // #21 (owner 2026-07-19): never faster than the upgrader fleet can
+  // PHYSICALLY burn (parking tiles x affordable WORK - see
+  // controllerUpgradeCap). Surplus beyond the cap has no upgrader to consume
+  // it, so it overflows into the storage sink instead of publishing an
+  // infeasible upgrade plan that out-competes remote mining (live t72429680:
+  // uncapped 137 e/t against a ~4-upgrader fleet).
+  if (bankFedAllocation !== undefined) {
+    return Math.min(bankFedAllocation, physicalUpgradeCap);
+  }
   return Math.min(Math.max(totalSupply, 1), physicalUpgradeCap);
 }
 
@@ -699,22 +700,22 @@ export function storageRoomStock(roomName: string): number {
 }
 
 /**
- * The storage sink's refill RESERVE claim (energy/tick): bank.bankRefillRate
- * over the room's LIVE stock and the plan-persisted reserve target - the
- * filling mirror of detectBankSources' surplus emission, same guards, same
- * resolveReserveTarget, so the two halves of the one drain law read the same
- * numbers and can never both be nonzero (surplus emits above the target,
- * refill claims below it, both zero exactly at it). Requires a real OWNED
- * storage to read: harness/unit paths without one claim 0, keeping staged
- * problems unchanged unless the test stages a stock deliberately.
+ * The bank-fed controller allocation for a room (energy/tick), or undefined
+ * when there is no live OWNED storage to read - the discriminator
+ * controllerRoutingCapacity branches on (owner 2026-08-04: "The bank should
+ * be the income mop up not the upgrade"). Same guards and the same
+ * resolveReserveTarget as detectBankSources, so the allocation and the
+ * surplus emission read the same stock and target and cannot drift.
+ * Harness/unit paths without a staged storage get undefined, keeping the
+ * pre-storage mop-up unchanged there.
  */
-export function storageRefillReserve(roomName: string): number {
-  if (typeof Game === "undefined" || !Game.rooms) return 0;
+export function storageBankFedAllocation(roomName: string): number | undefined {
+  if (typeof Game === "undefined" || !Game.rooms) return undefined;
   const storage = Game.rooms[roomName]?.storage;
-  if (!storage || !storage.my) return 0;
+  if (!storage || !storage.my) return undefined;
   const banked = storage.store?.[RESOURCE_ENERGY] ?? 0;
   const reserveTarget = resolveReserveTarget(typeof Memory !== "undefined" ? Memory.warchestTarget : undefined);
-  return bankRefillRate(banked, reserveTarget);
+  return bankFedControllerRate(banked, reserveTarget);
 }
 
 /**
@@ -1160,8 +1161,13 @@ export function buildColonyProblem(
               sink,
               totalSupply,
               controllerUpgradeCap(sink.position.roomName),
-              wartimeRooms
-            ), // controller: mops up the remainder up to the fleet's physical upgrade rate (#21); the excess banks to storage
+              wartimeRooms,
+              // THE BANK-FED INVERSION (owner 2026-08-04): with a live bank,
+              // the controller's cap IS floor + surplus draw and the bank
+              // absorbs the income residual by construction. Undefined
+              // (no storage / harness) keeps the mop-up.
+              storageBankFedAllocation(sink.position.roomName)
+            ),
       // SPEC 38 PHASE A (2026-08-02): the controller's floor moves INSIDE the
       // plan. controllerFloorRate = the save-regime target as fast as the
       // standing bank can sustain it (the ONE drain law), floored at the
@@ -1169,15 +1175,10 @@ export function buildColonyProblem(
       // feederRelayRate's +STORAGE_UPGRADE_TARGET side-channel guaranteed
       // outside the plan (P12's measured 3.30x non-bank divergence), and a
       // cold storage room's spawn is never out-reserved by its controller.
-      // THE REFILL CLAIM (owner 2026-08-03, asymptotic equilibrium): a
-      // filling bank claims deficit / SURPLUS_DRAIN_TICKS here - the drain's
-      // mirror - instead of capping the controller; see storageRefillReserve.
+      // (Phase D 2026-08-04: the storage sink carries NO reserve - the bank
+      // is the residual claimant by construction, nothing to claim.)
       reserve:
-        kind === "controller"
-          ? controllerFloorRate(storageRoomStock(sink.position.roomName))
-          : kind === "storage"
-          ? storageRefillReserve(sink.position.roomName)
-          : undefined
+        kind === "controller" ? controllerFloorRate(storageRoomStock(sink.position.roomName)) : undefined
     });
   }
 

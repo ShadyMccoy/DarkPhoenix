@@ -901,27 +901,18 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
     fundedByHubRoom.set(best.pos.roomName, (fundedByHubRoom.get(best.pos.roomName) ?? 0) + m.rate);
   }
   // Supply = staffed sources + scavengeable transient stocks (no miner needed);
-  // each hub's bank source additionally carries the funded mined income banking
-  // there, LESS the hub's refill claim (owner 2026-08-03 "approach the
-  // equilibrium asymptotically"): the storage sink's reserve - stamped by the
-  // adapter as bankRefillRate, deficit/SURPLUS_DRAIN_TICKS, the surplus
-  // drain's mirror - is income the bank RETAINS, so consumers can only draw
-  // what the claim leaves. Deposits stay gross (all mined banks to the hub);
-  // retention happens by shrinking the draw-back-out, which is what makes the
-  // controller allocation continuous through the reserve target instead of
-  // the retired 85 -> 15 regime step. A surplus hub's claim is 0 by
-  // construction (refill is nonzero only below the target, where no bank
-  // source is emitted), so the surplus draw is never shrunk.
-  const refillByHubRoom = new Map(storageSinks.map(s => [s.pos.roomName, s.reserve ?? 0]));
+  // each hub's bank source additionally carries the funded mined income
+  // banking there. (Phase D 2026-08-04: phase C's refill shrink is retired -
+  // the controller sink's CAPACITY is now the bank-fed rate, so the bank
+  // retains the income residual by construction and the hub's draw-out needs
+  // no trimming; consumers can only take what the bounded sinks admit.)
   const supply: SupplyPoint[] = [
     ...miners.map(m => ({ sourceId: m.sourceId, rate: m.rate, spawnId: m.spawnId })),
-    ...selectTransientSupply(problem).map(t => {
-      if (!isBankSourceId(t.sourceId)) return t;
-      const hubRoom = bankRoomFromId(t.sourceId);
-      const funded = fundedByHubRoom.get(hubRoom) ?? 0;
-      const refillClaim = refillByHubRoom.get(hubRoom) ?? 0;
-      return { ...t, rate: Math.max(0, t.rate + funded - refillClaim) };
-    })
+    ...selectTransientSupply(problem).map(t =>
+      isBankSourceId(t.sourceId)
+        ? { ...t, rate: t.rate + (fundedByHubRoom.get(bankRoomFromId(t.sourceId)) ?? 0) }
+        : t
+    )
   ];
   // The spawn-parts ledger for the sink fill: PLANNABLE build-rate (90% of
   // physical - SPAWN_PLAN_FRACTION, the execution-slack margin) minus the
