@@ -8108,3 +8108,46 @@ we don't need it").
 queue-depth blocking (the t72676360 saturation shape), X5 home churn > 10%,
 or P4 ≥ 1.0x. Then the margin was still needed - and the right value
 between 0.9 and 1.0 gets MEASURED (instrument before pricing), not argued.
+
+## Cycle t72780703 — handicap-lift window 1: the admission prediction FALSIFIED, and the attribution is exact
+
+FY4851-M10 closed (YEAR END, 144%). Treatment window vs the three-window
+control: score 47.13 (control band 42.18-53.77 - inside it), evacuation
++0.07 F (fourth consecutive window at/under budget), residual -1.50, F1
+0.83x WARN (the cohort wave, still recovering as predicted).
+
+**Prediction 1 (admission event): FALSIFIED, by arithmetic that was
+available pre-deploy and not run.** The lift is live (partsLedger.plannable
+0.6667 confirmed) and grew the routing budget 0.482 → 0.548 (which had
+slack at both values - routing null too). But the ADMISSION gate reads
+`miningBudgetPerSpawn()` = plannable(1) x MINING_BUDGET_FRACTION, applied
+PER SPAWN: the lift moved each spawn's tranche 0.178 → 0.200 (+0.022),
+while the cheapest rejected candidate (36-3, net 7.13) costs 0.0525 p/t.
+**The lift is smaller than the marginal source's quantum - the predicted
+event cannot occur at 1.0.** Same 10 funded, same 28 over-budget, capacity
+flat at 100.
+
+**Two structural findings from the same read:**
+1. **Per-spawn partition mis-ranking:** candidate 36-3 has BETTER net/part
+   (136) than the funded d01f (130), but is rejected because its
+   nearest-spawn's tranche is full while d01f's spawn had room. The
+   admission partition (nearest-spawn grouping, CorpPlanner ~460) makes a
+   worse source beat a better one across spawns - the global-spawn-pool
+   work (#141) never reached the admission loop.
+2. **The binding constant is MINING_BUDGET_FRACTION (0.6), not
+   SPAWN_PLAN_FRACTION** - funded 0.3214 + marginal 0.0525 = 0.374 fits the
+   GLOBAL tranche (0.400 at 1.0) and would fit comfortably at 0.45-0.5
+   fraction... another never-audited constant, now with a measured incident
+   against it.
+
+**Standing prediction for the remaining window:** null throughout - no
+admission, no throughput delta vs control (window 1: 47.13, inside band).
+Per the owner's rule ("if it doesn't do anything maybe we don't need it"),
+the fraction is DELETE-candidate at window close - and the real follow-up
+program is the admission seam itself: global (un-partitioned) candidate
+ranking + an audited mining tranche, which the quantum arithmetic above
+prices exactly (admitting 36-3 costs 0.0525 p/t of spawn time for +7.13
+e/t net - the colony has 46% spawn headroom and 75k of free cash).
+
+Verdict: **falsified + attributed** - the best kind of failed prediction:
+it named the two real seams (partition, tranche) and priced the next win.
