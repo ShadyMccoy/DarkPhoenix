@@ -7896,8 +7896,8 @@ own identity: bank should have been +21.10).
 
 **Gate:** red-first (11 new spawnSinkDemand/ceiling pins, 4 new audit pins;
 methodology stamp test moved to #11); unit 2,055 green; typecheck clean;
-trio at commit time: storage-depot PASS, flow-handoff and runt-economy IN
-FLIGHT (verdicts recorded in the deploy commit). Deploy
+trio: storage-depot PASS, flow-handoff PASS (4m), runt-economy PASS (4m)
+- 3-0, recorded 913c8aa+1. Deploy
 SEQUENCED AFTER the treadmill check-in verdict so each change verifies
 against a clean window.
 
