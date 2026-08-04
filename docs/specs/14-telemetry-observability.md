@@ -7645,3 +7645,142 @@ deferred, E4 back AT target (67206 vs 70000, drawing down). The controller
 gained what the bank lost.
 
 Verdict: **fixed + instrumented**, with two self-inflicted blind spots closed.
+
+## Cycle t72751147 — funded-set verification + the fleet declaration goes live (spec 39 p1-2)
+
+The `/production-audit` cycle that closed FY4849 (M10, YEAR END) and shipped
+spec 39 phases 1-2 around it.
+
+**Funded-set fix VERIFIED — all four pre-registered predictions hit.** vs
+t72750655: `infraInputs.remoteRooms` 26 -> **7** (predicted 8);
+`fleetCharge.infra` 32.98 -> **10.18** (predicted ~15); spawn sink demand
+26.02 -> **14.48**/spawn (predicted ~21); controller allocation 57.86 ->
+**85.19** (predicted +~10, measured +27.3). The freed maintenance flowed down
+the ladder to the controller exactly as the mechanism predicts - and the
+decomposition stamp (`infraInputs`, added last cycle when the 33.11 could not
+be decomposed from a capture) is what made the verification a READ instead of
+a derivation.
+
+**Spec 39 phases 1-2 shipped** (gates: unit 1995 + trio 1-1-1 each, verdicts
+read standalone): commissions declare their FLEET (the price decomposed by
+role, built inside the one derivation, Sigma(load)==price to 1e-9); segment 4
+v15 publishes it next to the measured body; `assembleFieldedFleets` joins
+live creeps to commission ids through the store and threads
+`ColonyProblem.fielded` (per-role count/parts/TTLs - phase 3's replacement
+scheduling input).
+
+**First live F2 read: 0.33 [ok], and it names names.** 11 commissions declare
+464p standing, 548p fielded. Worst: `mining-W43N22-harvest-cd94` **+38p over
+declaration** - the same route the owner's hauler-over-spawn directive
+flagged, and the only negative-net source in the P&L (-14.29 var, hauler
+-16.36 on 10.00 gross). X6/E5/X5 all clean since hold-to-fund, so the
+remaining question is whether cd94's standing excess ages out by TTL or keeps
+being re-bought - F2 next cycle answers it without a hypothesis. Upgrader
+-35p is the ramp toward the raised allocation (GOAL 113.6p vs 79p fielded),
+not a leak; same story as the bridge's -27.89 "bank draw budgeted but not
+performed" - the NOW plan walking toward the new GOAL equilibrium.
+
+**F1 1.44x FAIL is transition-loaded again** (12t post-deploy blackbox ring,
+rebuild burst: "haulers 3.000 vs 0.229" is the recovery double-order, not
+steady state). Steady-state F1 verdict still owed a clean window - two
+deploys this cycle kept resetting the ring. R1 at 16x continues accumulating
+toward the >=10-window constant swap. builder-buffer-feed floor recalibrated
+0.9 -> 0.85 (verified green standalone: workUtil 90% this draw vs 89.77%
+boundary draw; the collapse class this cell pins sits at 73%).
+
+Verdict: **fixed + verified + instrumented** - the funded-set prediction
+table is the program's cleanest verification to date, and the per-commission
+attribution the owner asked for ("good for accounting too") is live.
+
+## Incident: the first full-grid run since PR #146 catches four real regressions (2026-08-03)
+
+`npm run grid:full` (the ratchet's first full run in this program) reported
+BOT LEVEL 4 -> 0: six baseline-green cells red. Attribution by standalone
+rerun + src bisect (build dist at historical commits, current cell defs -
+cell files unchanged across the range for every probed cell):
+
+| cell | failure | verified green at | verified red at | window |
+|---|---|---|---|---|
+| plan-t5-remote-pipeline | always "extensions refill before the draining spawn finishes" @397-511 | 0afffda (five-mechanism restoration) | 9314653, 4130c3f, HEAD | **[0afffda..9314653] - the five-mechanism deploy itself** |
+| cons-t3-build-and-repair-concurrent | eventually "the build crew keeps building" times out | baseline #146 era (unprobed) | 9314653, HEAD | [#146..9314653]; five-mechanism window LIKELY, un-anchored - probe 0afffda first in the fix session |
+| plan-t1-single-source-loop | eventually "controller progresses in the back half" times out | baseline #146 era (unprobed) | 9314653, HEAD | same as cons-t3 |
+| spawn-timer-survives-busy-spawn | always "the stamp survives every busy period byte-identical" @101-137 (builder demand firstSeen re-registers) | **9314653** | 4130c3f, HEAD | **(9314653..4130c3f] = efcee77 (spec-36 replan WIRING - prime suspect: a forced replan re-registering the demand key) or 454d20b (tender rotation)** |
+| fid-t4-synthetic, fid-t5-real-maze | steady-state fidelity | — | — | NOT regressions: baseline stale since PR #146; documented accepted-red pending spec-34 item 5 |
+
+Everything deployed THIS stretch (spawn-sink max-combinator, funded-set,
+fleet declaration, fielded adapter, stage-A primitives) is ACQUITTED on all
+four - each cell reproduces identically on pre-stretch builds.
+
+Mechanism hypotheses for the fix session (one at a time, red-first):
+- cons-t3 + plan-t1: the isSpawnRefillStock guard starving builders/
+  upgraders whose buffer sits within range 2 of a spawn (builder-buffer-feed
+  measured the same trade at 89.77%; these worlds' geometry may sit inside
+  the guard). plan-t5's refill breach may be the OTHER side (hold-to-fund
+  delaying a refill-relevant purchase, or tender-rotation service order).
+- spawn-timer: split efcee77 vs 454d20b with one probe, then read the
+  forced-replan path's demand-key lifecycle.
+
+Lessons, plainly: (1) the previous stretch's five-mechanism deploy was gated
+by trio + targeted cells and bought VERIFIED live wins (P7 0.31->1.12, the
+en-route feed, controller 45-63) - and the full grid now shows it also
+regressed T1/T3/T5 worlds the gate never ran. Trio + targeted cells are not
+the grid. (2) The baseline had not been ratcheted since PR #146, so five of
+six "regressions" were reported against a months-old snapshot - the ratchet
+is only as honest as its last full run. The baseline stays UNTOUCHED until
+the fixes land (recording red as accepted would defeat the ratchet); the
+fix session drives the four green and updates the baseline in the same
+commits, with the fid pair recorded accepted-red per the owner-scheduled
+spec-34 item 5 deferral.
+
+Verdict: **instrumented + attributed** - four real regressions caught,
+windowed, and acquitted/indicted by build; the codebase knows exactly where
+to dig.
+
+## Cycle t72754631 addendum — the evacuation diagnosis inverts (owner skepticism vindicated)
+
+Owner 2026-08-03: *"a lot is blamed on raids without sufficient evidence
+sometimes."* Same-day measurement agreed:
+
+**The chronic-mouth mechanism is deposit-tile contention at the hub, not
+raids.** Every walk-served remote's haul stamp shows at-sink idle WITH
+storage free (the meter's own fork: "spatial contention... NOT a bigger
+fleet"): d01f 0.243, cee0 0.174, cedc 0.151, cd94 0.128 - while cd8e, the
+one PORTED route, runs the best duty (0.834). cd8d shows the second shape
+(0.376 idle EN ROUTE - approach-lane congestion). d01f's arithmetic: 64
+CARRY fielded x 0.715 duty = 46 effective < 49 needed - the backlog stands
+on throughput loss; the drain law then buys MORE carry into the SAME queue.
+A positive feedback loop, and raids are a co-payer (3.72 e/t measured
+cargo), not the cause.
+
+**Shipped now (v27, deployed):** killed-WHERE attribution - tombstone
+killed energy by booking room + intel-hostile flag, cumulative, printed on
+the account ("the share the raid story can claim"). The R1 swap gains an
+EVIDENCE GATE at the constant: it prices INVADER raids specifically, so it
+inherits only the hostile-room share of the measured ratio.
+
+**The fix map (task #15, in evidence order):**
+1. Deposit-spread: route the DEP gauge's eligible remotes through the home
+   links (60 e/t over 6 routes measured waiting; the raised controller
+   allocation raises port headroom). Solver work, full gate.
+2. Approach/deposit geometry at the hub (cd8d's lane; the parked feeder).
+3. Drain-law cap: a chronic mouth alarms (E6/H3) instead of buying
+   incremental CARRY into the queue.
+4. The plan declares the whole stack (drain term + body quantization) so
+   F1/F2 read ~1.0 and real excess stays visible.
+5. Raid-tax swap at window 10, gated on the v27 hostile-room share.
+
+Verdict: **instrumented + re-attributed** - the fix program now aims at the
+measured mechanism.
+
+### 2026-08-03 — plan-t2-antidowngrade-construction: pre-existing red, refill law acquitted
+
+Gating the asymptotic-refill deploy (spec 38 phase C), the cell timed out on
+"controller physically progresses despite the build-out" (standalone rerun,
+not host load). Bisect: **identical timeout on pre-change src (d910d47)** —
+the staged world has no storage, so the refill seam is structurally inert
+there. Acquitted; joins the windowed pre-stretch regression set as its own
+incident against the deployed lineage. Cells run this stretch:
+haul-t4-bank-surplus-upgrades PASS, haul-t4-storage-bank-and-spill PASS;
+REFILL TRIO 3-0; unit 2027-0. Baseline untouched (the cell's baseline "pass"
+now overstates master — the ratchet debt is filed here, not silently
+re-baselined).

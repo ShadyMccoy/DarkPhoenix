@@ -86,12 +86,28 @@ const COVERAGE_MAX = 1.75;
  * (from captures taken with `--segments 0,6` during a deploy cycle) and, the
  * record being append-only, it stays wrong forever.
  *
- * So a capture is measurable only with a NON-EMPTY ring. A missing close is a
- * gap; a close full of confident zeros is a lie in a permanent record.
+ * So a capture is measurable only with spawn-cost EVIDENCE: the cumulative
+ * spawn ledger (core v25 `spawnSpend`, methodology #7 - the preferred source,
+ * full-window by construction) or, for older captures, a NON-EMPTY ring. A
+ * missing close is a gap; a close full of confident zeros is a lie in a
+ * permanent record.
  */
 export function closeIsMeasurable(data: any): boolean {
   if (!data?.core || !data?.flow) return false;
-  return (data.blackbox?.rows?.length ?? 0) > 0;
+  return data.core.spawnSpend !== undefined || (data.blackbox?.rows?.length ?? 0) > 0;
+}
+
+/**
+ * The PAIR-level spawn-cost check (methodology #7). The account differences
+ * cumulative totals only when BOTH captures carry `spawnSpend`; otherwise it
+ * falls back to the CLOSING capture's ring. A v25 closing capture with an
+ * empty ring against a legacy baseline would fall to that empty ring and file
+ * the FY4847-M09 all-zeros lie one methodology later - so a pair is closeable
+ * only when the source the account will actually use carries data.
+ */
+export function pairSpawnMeasurable(capData: any, baseData: any): boolean {
+  const both = capData?.core?.spawnSpend !== undefined && baseData?.core?.spawnSpend !== undefined;
+  return both || (capData?.blackbox?.rows?.length ?? 0) > 0;
 }
 
 function read(c: Capture): any {
@@ -122,6 +138,9 @@ function closeOne(caps: Capture[], boundary: number, dry: boolean): string | nul
   // Belt and braces: `measurable` already filtered the candidates, but the
   // check is cheap and this is an append-only record.
   if (!closeIsMeasurable(cap?.data) || !closeIsMeasurable(base?.data)) return null;
+  // The PAIR must be jointly measurable: a mixed pair can pass both
+  // per-capture checks and still leave the account reading an empty ring.
+  if (!pairSpawnMeasurable(cap?.data, base?.data)) return null;
   const rows = computeLedger(cap, base);
   const coverage = cov * 100;
 

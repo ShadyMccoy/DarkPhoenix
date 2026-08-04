@@ -1,7 +1,40 @@
 # Spec 39 — The plan owns the fleet (corps receive creeps, they don't request them)
 
-**Status: BACKLOG (owner 2026-07-30).** Unlike spec 37 (problems-first), the
-owner asked for design thinking here: *"Think about how this would work."*
+**Status: PHASES 0-2 SHIPPED 2026-08-03; phases 3-5 BACKLOG (owner 2026-07-30).**
+Phase 0 (the cop) landed first, per the migration table:
+`test/unit/framework/spawnAuthority.test.ts` pins `.spawnCreep(` to the
+executor + bootstrap allowlist and ratchets the `getSpawnDemand` CODE surface
+(comment-stripped) at **11 files** - the ten demand-side corp classes plus
+SpawnDirector; the spec's earlier "16 files" figure counted docstring-only
+mentions. Both lists are shrink-only from here. Unlike spec 37
+(problems-first), the owner asked for design thinking here: *"Think about how
+this would work."*
+
+**Phase 2 (2026-08-03): the adapter carries the fielded fleet into the plan.**
+`CommissionHost.assembleFieldedFleets` joins live creeps to commission corpIds
+through the store (the runtime-id -> commission-id mapping only the store
+has), inverts each kind's `roles` table (workType -> role; undeclared
+workTypes bucket under themselves - measured, never dropped), and returns
+per-role `FieldedRole { count, parts, ttls }` (TTLs ascending; spawning
+creeps count full life; unclaimed creeps are X3's orphans, not fleet). Inner
+squads need no special casing - they stamp the OPERATION's id
+(HarvestCorp.setHaulRoutes). main threads it as an ARGUMENT
+(`economy.update(tick, assembleFieldedFleets())`) - a live snapshot owned by
+the execution layer, not Memory-persisted history - through `solveColony`
+into `ColonyProblem.fielded`. Unread until phase 3's replacement scheduling;
+pinned by `test/unit/execution/fieldedFleets.test.ts`.
+
+**Phase 1 (2026-08-03): solver-backed commissions declare their FLEET.**
+`Commission.fleet` (`FleetRole { parts, load, workingParts?, count? }`) on
+harvest/carry/upgrade/build envelopes - the same price decomposed by role,
+built INSIDE the one derivation (`haulerFleetRole` from the planner's own
+routed spawnParts; `consumerSpawnLoad` now returns its decomposition), so the
+declaration cannot drift from the price: per commission,
+`Sigma(fleet[role].load) == consumes.spawnPartsPerTick` pinned to 1e-9 by
+`test/unit/economy/commissionFleet.test.ts`. Role keys are the kind's declared
+`roles` keys - the join key per-commission plan-vs-actual will use. Auxiliary
+commissions stay fleet-absent by design (off-budget; they join per-kind in
+phase 4).
 
 ## The owner's ask (verbatim)
 

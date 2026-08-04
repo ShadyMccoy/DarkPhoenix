@@ -14,16 +14,19 @@
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { isIntelId, isScavengeId, parsePositionalId, stripSourcePrefix } from "../economy/ids";
+import { SCAVENGE_THRESHOLD } from "../economy/scavenge";
 import { isTenderCreep } from "./censusLens";
 import { tenderOwnsExtensions } from "./regimes";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelToLane, travelToQueued } from "./movement";
-import { driveRecycle } from "./recycle";
+import { driveRecycle, runtUpsizeThreshold } from "./recycle";
 import {
   CARRY_MOVE_PAIR_COST,
   CREEP_LIFETIME,
+  bufferDrainCarry,
   carryPartsFor,
   haulerBodyCarry,
+  haulerBodyCost,
   maxCarryPairs,
   roundTripTicks,
   staffsPost
@@ -191,11 +194,12 @@ export class CarryCorp extends Corp {
       routes: this.getHaulerAssignments().length,
       creeps: creeps.length,
       loaded: creeps.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0).length,
-      // Source-pileup instrument (2026-07-26): the ACTUAL pickup buffer vs the
-      // sustained-inflow carry the fleet is sized to (haulCarryNeeded, no
-      // drain term), plus the source link state - so the next capture names
-      // whether a standing pile is hauler under-sizing or a link backlog.
-      carryNeeded: this.haulCarryNeeded(),
+      // Source-pileup instrument (2026-07-26): the ACTUAL pickup buffer vs
+      // the carry the fleet is sized to (haulCarryNeeded - plan routes only
+      // when mature, +drain in bootstrap), plus the source link state - so
+      // the next capture names whether a standing pile is hauler
+      // under-sizing or a link backlog.
+      carryNeeded: this.haulCarryNeeded(this.homeStorageBacked()),
       ...(this.lastExit ? { exit: this.lastExit } : {}),
       staged: pickup.staged,
       srcLinkEnergy: pickup.srcLinkEnergy,
@@ -337,6 +341,7 @@ export class CarryCorp extends Corp {
       if (creep.memory.recycling || creep.spawning) continue;
       if ((creep.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) === 0) {
         creep.memory.recycling = true;
+        creep.memory.recycleReason = "retiring-demob";
       }
     }
   }
@@ -350,6 +355,7 @@ export class CarryCorp extends Corp {
       if ((creep.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0) continue;
       if (creep.ticksToLive !== undefined && creep.ticksToLive < minRoundTrip) {
         creep.memory.recycling = true;
+        creep.memory.recycleReason = "eol-tail";
       }
     }
   }
@@ -361,7 +367,7 @@ export class CarryCorp extends Corp {
    * made a body that fully covered a short route read as a runt forever.
    */
   private maxCarryPerHauler(room: Room): number {
-    return haulerBodyCarry(room.energyCapacityAvailable, this.haulCarryNeeded());
+    return haulerBodyCarry(room.energyCapacityAvailable, this.haulCarryNeeded(room.storage?.my === true));
   }
 
   /**
@@ -380,17 +386,32 @@ export class CarryCorp extends Corp {
     if (spawn.spawning) return; // a body is already mid-build; don't pile on
     if (creeps.some(c => c.memory.recycling)) return; // one at a time
     if (creeps.length < 2) return; // never strand the source
+    // STANDING ROUTES ONLY (M08 t72762132): upsizing exists to heal a fleet
+    // that will work its route for generations. A TRANSIENT (scavenge) corp's
+    // body is sized to a DECAYING stock - its "full size" is tiny, so the
+    // mature affordability gate below passes trivially, and a pile
+    // flickering around one CARRY of need churned a 100e body every ~125t
+    // (hauling-W43N23-hauling-1-22: four buys in 370t, each recycle stamped
+    // runt-upsize - 71% of M08's recycled line after the dark-route ladder
+    // died). Transient bodies ride to route end; retiring-demob owns cleanup.
+    const assignments = this.getHaulerAssignments();
+    if (assignments.length > 0 && assignments.every(a => isScavengeId(a.fromId))) return;
 
     const carry = creeps.map(c => c.getActiveBodyparts(CARRY));
     const minCarry = Math.min(...carry);
     const maxCarry = this.maxCarryPerHauler(room);
     if (minCarry >= maxCarry) return; // nothing under-built to heal
 
-    // Conditions ready: the spawn can immediately build a hauler with at least one
-    // more CARRY than the smallest runt (1 CARRY + 1 MOVE = 100 energy per step).
-    if (room.energyAvailable < (minCarry + 1) * CARRY_MOVE_PAIR_COST) return;
+    // Replacement affordability: in a STORAGE-BACKED room the pounce waits
+    // for the FULL-SIZE body - one recycle, one buy (the cee0 ladder bought
+    // five stepping-stones because this gate fired at +1 CARRY while each
+    // purchase drained the bank the next buy scaled to). Bootstrap keeps the
+    // +1 crank: escape velocity beats waiting when nothing guarantees refill.
+    const runtRatio = this.getHaulerAssignments()[0]?.haulerRatio ?? "1:1";
+    if (room.energyAvailable < runtUpsizeThreshold(minCarry, maxCarry, room.storage?.my === true, runtRatio)) return;
 
     creeps[carry.indexOf(minCarry)].memory.recycling = true;
+    creeps[carry.indexOf(minCarry)].memory.recycleReason = "runt-upsize";
   }
 
   /**
@@ -411,11 +432,70 @@ export class CarryCorp extends Corp {
     // (that energy belongs to its own source's bus). The state flips above only on
     // full and on empty, so the hauler waits at each stop until the transaction is
     // done rather than leaving with a partial load.
+    //
+    // The EN-ROUTE LOOT GRAB below is not an exception to the bus doctrine -
+    // it recovers energy that belongs to NO bus (tombstones, ruins, unclaimed
+    // dust piles), same-tick with the walk, zero detour. See grabAdjacentLoot.
+    this.grabAdjacentLoot(creep);
     if (creep.memory.working) {
       this.deliverEnergy(creep, room, spawn);
     } else {
       this.pickupEnergy(creep, room);
     }
+  }
+
+  /**
+   * EN-ROUTE LOOT GRAB (owner 2026-08-03: "cleaning out some of the decay and
+   * tombstones would be a huge boost - that's bottom-line energy that we paid
+   * the claiming, mining and at least half the hauling cost for").
+   *
+   * Measured t72744219: 11.95 e/t pile decay + 5.73 e/t net tombstone loss,
+   * 1103e standing in tombstones, 1.0 e/t recovered - and 87% of tombstone
+   * cargo is haul-role, killed ON the corridors the surviving haulers walk
+   * every trip. The planner cannot recover this class: sub-threshold stocks
+   * are priced out by design (a spawned body costs more than a small pile
+   * repays - the micro-route floor) and tombstones decay faster than a
+   * scavenger can arrive. "Every recovery path needs a creep already beside
+   * it" - so the creeps already beside it do it: pickup/withdraw are a
+   * DIFFERENT ACTION GROUP from movement, so an adjacent grab mid-walk costs
+   * zero ticks and zero detour.
+   *
+   * Bus-doctrine boundaries, explicit:
+   *  - tombstones and ruins belong to NO bus - always fair game;
+   *  - dropped piles only UNDER the scavenge threshold (unclaimed dust that
+   *    rots to zero) - a bigger pile is some route's staged stock (its drain
+   *    term prices it) and stays on its own bus;
+   *  - the feeder-managed controller bucket is DELIVERED energy - grabbing
+   *    it would un-deliver (the scavenge scanner's same exclusion).
+   */
+  private grabAdjacentLoot(creep: Creep): void {
+    if ((creep.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0) <= 0) return;
+    const tomb = creep.pos.findInRange(FIND_TOMBSTONES, 1, {
+      filter: t => (t.store[RESOURCE_ENERGY] ?? 0) > 0
+    })[0];
+    if (tomb) {
+      creep.withdraw(tomb, RESOURCE_ENERGY);
+      return;
+    }
+    const ruin = creep.pos.findInRange(FIND_RUINS, 1, {
+      filter: r => (r.store[RESOURCE_ENERGY] ?? 0) > 0
+    })[0];
+    if (ruin) {
+      creep.withdraw(ruin, RESOURCE_ENERGY);
+      return;
+    }
+    const ctrl = creep.room.controller;
+    const feederManaged = !!ctrl && ctrl.my && !!creep.room.memory?.controllerFeederActive;
+    const pile = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
+      filter: r => {
+        if (r.resourceType !== RESOURCE_ENERGY) return false;
+        if (r.amount <= 20 || r.amount >= SCAVENGE_THRESHOLD) return false;
+        if (feederManaged && ctrl && r.pos && Math.max(Math.abs(r.pos.x - ctrl.pos.x), Math.abs(r.pos.y - ctrl.pos.y)) <= 3)
+          return false;
+        return true;
+      }
+    })[0];
+    if (pile) creep.pickup(pile);
   }
 
   /**
@@ -548,7 +628,16 @@ export class CarryCorp extends Corp {
   private pickupEnergy(creep: Creep, room: Room): void {
     // Our source is reserved for the builder: don't draw from it. Stand by (idle
     // until the build finishes) so the construction tankers get its full output.
-    if (this.yieldsToBuild()) return;
+    // STAND-DOWN NEVER FREEZES CARGO (fid-t4-synthetic probe, t800-1100): a
+    // controller-circuit hauler entered pickup at 99/100, its source was
+    // dedicated to the build, and this return froze it LOADED for 300+ ticks
+    // while the upgrader one tile away starved at 0 - the cell's controller
+    // line read 0.0 of a 2.0 plan. Yielding means no NEW pickups; anything
+    // already aboard delivers first, then the empty creep stands by.
+    if (this.yieldsToBuild()) {
+      if (creep.store[RESOURCE_ENERGY] > 0) this.depart(creep, room);
+      return;
+    }
 
     // Resolve this hauler's ONE pickup stop first: both the degraded-refill
     // locality check below and the normal pickup leg need it, and getAssignedSource
@@ -637,10 +726,35 @@ export class CarryCorp extends Corp {
         // beside the dead stock for the rest of its ~1500-tick life, the parked
         // runt the "fewer creeps" goal is about. driveRecycle refunds the body.
         creep.memory.recycling = true;
+        creep.memory.recycleReason = "scavenge-drained";
       }
       return;
     }
-    workSpot(creep, sourcePickupSpot(targetPos), "collect");
+    // DEPART ON DRY, ordinary haulers too (fid-t4-synthetic probe, t800-1100):
+    // the scavenger branch above has ALWAYS departed a drained stock with a
+    // partial load, but a regular hauler waited at its pickup for the full-load
+    // flip - and a pickup that yields nothing (a phantom assignedSourcePos from
+    // a long-gone transient stock, or a source at its regen gap with no pile)
+    // froze one at (23,13) holding 99 of 100 for 300+ ticks while the upgrader
+    // one tile away starved at 0 and the cell's controller line read 0.0 of
+    // 2.0. Carrying SOMETHING at a dry stop: deliver it and come back - the
+    // regen-gap case is also just correct economics (the 99 beats waiting out
+    // a 300-tick regen for the last 1). Empty-handed at a dry REAL source
+    // still waits (it regenerates); the phantom-pos case falls to the
+    // orphan/retire machinery as before.
+    const spot = sourcePickupSpot(targetPos);
+    const spotStocked =
+      (spot.structure && ((spot.structure as StructureContainer).store?.[RESOURCE_ENERGY] ?? 0) > 0) ||
+      (typeof spot.pos?.findInRange === "function" &&
+        spot.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
+          filter: (r: Resource) => r.resourceType === RESOURCE_ENERGY && r.amount > 0
+        }).length > 0) ||
+      (assignedSource ? (assignedSource.energy ?? 0) > 0 : false);
+    if (!spotStocked && creep.store[RESOURCE_ENERGY] > 0 && creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+      this.depart(creep, room);
+      return;
+    }
+    workSpot(creep, spot, "collect");
   }
 
   /** True when this corp serves a transient ground stock rather than a source. */
@@ -1248,7 +1362,7 @@ export class CarryCorp extends Corp {
     // belongs to the construction tankers.
     if (this.yieldsToBuild()) return [];
 
-    const carryNeeded = this.haulCarryNeeded();
+    const carryNeeded = this.haulCarryNeeded(ctx.storageBacked === true);
     if (carryNeeded <= 0) return [];
 
     const maxCarryPerHauler = maxCarryPairs(ctx.energyCapacity);
@@ -1335,21 +1449,42 @@ export class CarryCorp extends Corp {
       desiredCarry = haulerBodyCarry(ctx.energyCapacity, carryNeeded);
     }
     desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, desiredCarry));
-    const desiredCost = desiredCarry * CARRY_MOVE_PAIR_COST;
+    // The grant IS the debit (methodology #8): price the body this demand
+    // actually elicits at its route's ratio, not a flat 100e/CARRY. The flat
+    // price over-granted 2:1 road bodies ~33% (75e/CARRY built) - and the
+    // scheduler debits st.energyLeft by the GRANT, so the over-ask also
+    // suppressed same-tick purchases further down the agenda - while 1:2
+    // swamp bodies (150e/CARRY) were under-granted and built short.
+    const ratio = assignments[0].haulerRatio ?? "1:1";
+    const desiredCost = haulerBodyCost(desiredCarry, ratio);
 
-    // Don't let the scheduler spawn a 1-CARRY runt under energy pressure: it
-    // moves only 50 energy per round trip - useless on a real route - yet it
-    // occupies one of the fleet's few slots for its whole 1500-tick life, so
-    // realized throughput falls far below the planned fleet. Floor every hauler
-    // at a useful minimum body. We deliberately do NOT hold out for the full
-    // desired body: the first hauler is what refills the spawn, so requiring a
-    // full-size body before the spawn is full would deadlock the bootstrap. The
-    // floor is cheap enough that a partly-drained spawn can still afford it, the
-    // scheduler scales up toward desiredCost whenever more energy is on hand, and
-    // any undersized survivors are recycled and replaced once we are maxed out
-    // and the spawn would otherwise idle.
+    // HOLD TO FUND on served routes (owner 2026-08-03: "we have basically
+    // over-spawned the haulers... choosing to spawn an extra creep"). The
+    // cheap floor below let EVERY purchase execute at whatever the bank held,
+    // and the blackbox ring caught the consequence: cd94 bought three haulers
+    // in 325 ticks sized 18 -> 30 -> 33 parts - each affordability-scaled,
+    // each shortfall then legitimately HEALED with another body, every small
+    // body persisting its full 1500 ticks. Raid-route fleets measured 2.2x
+    // their route need (cbd5 50/22, cd94 42/19) while single-body routes sat
+    // at 1.0-1.3x. So the upgraders' holdToFund doctrine applies here too:
+    // with a body already DRIVING the route (physical count, nothing
+    // stranded), a heal/replacement WAITS for the full even-share body. The
+    // floor survives only where its own defense holds - the FIRST hauler on
+    // a dark route, where income is stranded and restart speed beats body
+    // size (requiring a full-size body before the spawn is full would
+    // deadlock the bootstrap).
     const HAULER_MIN_CARRY = 3;
-    const minCost = Math.min(desiredCarry, HAULER_MIN_CARRY) * CARRY_MOVE_PAIR_COST;
+    // Same basis as desiredCost: the floor body's TRUE cost at this route's
+    // ratio, never above the full ask.
+    // STORAGE-BACKED rooms hold to fund even on a DARK route (owner
+    // 2026-08-03: the floor is an upstart mechanism; the tender refills the
+    // bank from the warchest regardless of this route's income, so the
+    // deadlock the floor defends against cannot occur - and the floor body
+    // is what STARTS the cee0 runt ladder).
+    const minCost =
+      this.getCreepCount() >= 1 || ctx.storageBacked === true
+        ? desiredCost
+        : Math.min(haulerBodyCost(Math.min(desiredCarry, HAULER_MIN_CARRY), ratio), desiredCost);
 
     return [
       {
@@ -1412,39 +1547,58 @@ export class CarryCorp extends Corp {
    * entirely to construction yields zero here, so it fields no haulers and its
    * energy is left for the tankers.
    */
-  private haulCarryNeeded(): number {
+  private haulCarryNeeded(storageBacked: boolean): number {
     const routes = this.haulerAssignments.filter(a => !(a.toId ?? "").startsWith("construction-"));
     if (routes.length === 0) return 0; // construction-only: the tankers own this energy, pile or no pile
     const sustained = routes.reduce((sum, a) => sum + a.carryParts, 0);
 
-    // BUFFER-DRAIN TERM (owner 2026-07-29, the E6 work item; pre-registered by
-    // the 2026-07-26 pileup instrument: "staged high, NO link => the fleet is
-    // under-sized - the missing drain term is the fix"). Sized to sustained
-    // inflow ALONE, a standing pile is invisible to this decision: whatever
-    // opened the gap (raid embargo, spawn scarcity, a churned hauler)
-    // ratchets the buffer up permanently and the plan never asks for the
-    // carry to clear it (measured t72654979: cd8e staged 3874 and growing,
-    // the miner gate held 512t at 100% of window, this route stamped
-    // carryNeeded 1 with zero haulers and no source link).
-    //
-    // The term is the codebase's ONE drain law - sustainableConsumptionRate's
-    // stock/CREEP_LIFETIME, the same law the bank surplus and consumer sizing
-    // use: clear the standing buffer over one creep generation ON TOP of the
-    // sustained rate. Gentle by construction (3874 adds 2.6 e/t ~ 4 CARRY on
-    // a 36-tile route, never a swarm) and self-extinguishing as the pile
-    // drains. FAILS OPEN on fog: an unmeasurable buffer (no vision) adds
-    // nothing, so demand is never fabricated from a read we do not have.
+    // MATURE (storage-backed): ONE VALVE - the ask IS the sum of the
+    // plan-priced routes, nothing added (the double-drain, F1 ask-gap
+    // t72760734). The corp's own bufferDrainCarry(staged, d) re-add - born
+    // 2026-07-29 when the plan was drain-blind (cd8e staged 3874,
+    // carryNeeded 1, t72654979) - became a DOUBLE-COUNT the day the phase-1
+    // repricing priced the same law into the routes themselves: staged
+    // mining routes in carryParts (CorpPlanner `h.carryParts +=
+    // drainCarry`), scavenge routes in their very rate (scavengeRate =
+    // amount/2 / effectiveLife), the bank in bankSurplusRate. Measured
+    // live: cbd8 plan 37.5 CARRY, corp ask 45 = 37.5 + its own ~7.5 again.
+    // If a pile grows between solves the replan reprices the routes (spec
+    // 36); if the plan under-asks, FIX THE PLAN.
+    if (storageBacked) return Math.ceil(sustained);
+
+    // BOOTSTRAP keeps the belt-and-suspenders drain (the same doctrine that
+    // keeps runtUpsizeThreshold's +1 crank: escape velocity beats waiting
+    // when nothing guarantees refill). Here the pile-clearance margin IS the
+    // ramp - measured 2026-08-03: with this term removed the runt-economy
+    // world plateaued at 300/550 for 900 ticks and the recycled miner's
+    // full-size successor never afforded (the plan's once-per-solve drain
+    // was too slow for a cold economy living solve-to-solve). A cold room
+    // over-asking by one drain share buys its escape; a mature room doing
+    // the same buys F1's breach - the regimes genuinely differ.
     const staged = this.readPickupBuffer().staged;
     if (staged === null || staged <= 0) return Math.ceil(sustained);
-
-    // Amortize across the routes by their share of the sustained carry (a
-    // single-route corp takes it all); distance comes from the route the
-    // energy actually travels, so the drain is priced at its real cost.
     const drain = routes.reduce((sum, a) => {
       const share = sustained > 0 ? a.carryParts / sustained : 1 / routes.length;
-      return sum + carryPartsFor((staged * share) / CREEP_LIFETIME, a.distance ?? 0);
+      return sum + bufferDrainCarry(staged * share, a.distance ?? 0);
     }, 0);
     return Math.ceil(sustained + drain);
+  }
+
+  /**
+   * The bootstrap/mature discriminator at call sites that carry no
+   * SpawnDemandContext: is this corp's HOME (spawn) room storage-backed?
+   * Same `.my === true` shape the SpawnDirector stamps into
+   * ctx.storageBacked, so the two paths cannot disagree. False on any
+   * harness gap - degrading keeps the bootstrap (belt-and-suspenders) path
+   * and never fabricates maturity from a read we do not have.
+   */
+  private homeStorageBacked(): boolean {
+    try {
+      const sp = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+      return sp?.room?.storage?.my === true;
+    } catch {
+      return false;
+    }
   }
 
   /**

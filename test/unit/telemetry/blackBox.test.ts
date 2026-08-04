@@ -108,17 +108,20 @@ describe("blackbox spawn row carries the body part count (F1 decomposition)", ()
       }
     });
     const corp = new SpawningCorp("W1N1-spawning", "spawn1", "W1N1");
-    const parts = corp.executeSpawn("harvest", "miner", "mining-W1N1-harvest-s1", 700, 100);
+    const purchase = corp.executeSpawn("harvest", "miner", "mining-W1N1-harvest-s1", 700, 100);
     expect(body.length).to.be.greaterThan(0);
-    expect(parts).to.equal(body.length);
+    // Methodology #8: the executor reports the whole PURCHASE - parts for
+    // F1's decomposition AND the energy actually debited for the receipt.
+    expect(purchase && purchase.parts).to.equal(body.length);
+    expect(purchase && purchase.cost).to.equal(650); // 5W3M miner body under a 700 grant
   });
 
-  it("returns 0 (falsy, so callers are unchanged) when the spawn does not happen", () => {
+  it("returns null (falsy, so truthiness callers are unchanged) when the spawn does not happen", () => {
     setupGlobals();
     if (!getCorpKind("harvest")) registerCorpKind(harvestKind as any);
     (global as any).FIND_MY_STRUCTURES = (global as any).FIND_MY_STRUCTURES ?? 107;
     (Game as any).getObjectById = () => ({ id: "spawn1", spawning: {} }); // already busy
     const corp = new SpawningCorp("W1N1-spawning", "spawn1", "W1N1");
-    expect(corp.executeSpawn("harvest", "miner", "mining-W1N1-harvest-s1", 700, 100)).to.equal(0);
+    expect(corp.executeSpawn("harvest", "miner", "mining-W1N1-harvest-s1", 700, 100)).to.equal(null);
   });
 });

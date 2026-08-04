@@ -151,7 +151,8 @@ export function tenderDeliveryRate(carry: number, extensionCapacity: number, wal
 
 /**
  * Tenders to field: RATE-MATCHED to the spawn network's appetite, floored by
- * cluster coverage, capped at TENDER_FLEET_CAP.
+ * cluster coverage AND (depot-less rooms only) by one-wave carry, capped at
+ * TENDER_FLEET_CAP.
  *
  * Replaces `forCoverage = bankCapacity / (maxCarry*50)` - "refill the whole
  * network in one trip" - which grew with the bank and ignored the only
@@ -163,6 +164,18 @@ export function tenderDeliveryRate(carry: number, extensionCapacity: number, wal
  * cannot be served inside their drain deadlines by one creep however fast it
  * is (the legacy scattered-layout rationale), so geometry can still demand
  * more than the rate does.
+ *
+ * The DEPOT-LESS ONE-WAVE FLOOR (grid plan-t5, t=554 after the fuel fixes):
+ * with no depot the reload leg is pile-dependent, so a fleet whose combined
+ * carry is under one full extension wave loses the refill SLA by exactly the
+ * mid-sweep reload round-trip - measured three draws running, a loaded
+ * 7-carry tender 2 tiles from the LAST short extension of a 400e wave, 1-2
+ * ticks late. The floor is the v1 rule REDISCOVERED at its correct scope:
+ * extension capacity only (never the bank), and depot-less rooms only - a
+ * storage-adjacent tender multi-trips legally (instant reload, long high-RCL
+ * builds), which is exactly the t72663189 over-provision the rate-match
+ * fixed. Omitting the new fields keeps the pure rate-match (harness
+ * compatibility).
  */
 export function tenderFleetTarget(opts: {
   spawnCount: number;
@@ -170,12 +183,43 @@ export function tenderFleetTarget(opts: {
   maxCarry: number;
   walkTicks: number;
   clusters: number;
+  /** Σ extension energy capacity - the SLA's own deficit unit (one wave). */
+  extensionCapacityTotal?: number;
+  /** A core depot (storage or spawn-adjacent container) stands. */
+  hasDepot?: boolean;
+  /**
+   * Clusters whose reload round-trip exceeds the refill deadline (anchor
+   * farther than OUTPOST_CLUSTER_RANGE from the reload point). Each needs a
+   * ROTATION PARTNER: while its courier is away reloading (~2x the leg), a
+   * drain's deadline (3t/part - ~18-27t on #148 route-share bodies) expires
+   * unserved. Measured (fid-t4-preramped t=164): the west courier ran its
+   * 16-tile circuit correctly, was mid-service with 150 aboard, and lost
+   * the SLA by ~4 ticks - the drain landed inside its 44-tick away window.
+   * Two tenders alternate: one parked loaded at the outpost while the
+   * other reloads.
+   */
+  outpostClusters?: number;
 }): number {
   const need = spawnConsumptionCeiling(opts.spawnCount);
   const perTender = tenderDeliveryRate(opts.maxCarry, opts.extensionCapacity, opts.walkTicks);
   const forRate = Math.max(1, Math.ceil(need / Math.max(1e-9, perTender)));
-  return Math.min(TENDER_FLEET_CAP, Math.max(1, opts.clusters, forRate));
+  const carried = Math.max(1, opts.maxCarry) * CARRY_CAPACITY;
+  const forWave =
+    !opts.hasDepot && (opts.extensionCapacityTotal ?? 0) > 0
+      ? Math.ceil(opts.extensionCapacityTotal! / carried)
+      : 1;
+  const forOutposts = opts.clusters + (opts.outpostClusters ?? 0);
+  return Math.min(TENDER_FLEET_CAP, Math.max(1, opts.clusters, forRate, forWave, forOutposts));
 }
+
+/**
+ * A cluster this far (Chebyshev) from the reload point is an OUTPOST: its
+ * courier's reload round-trip (2x the leg) exceeds the shortest refill
+ * deadlines, so single coverage structurally loses drains that land during
+ * the away window. At 10 the round trip is >= 20 ticks against ~18-27-tick
+ * build windows; nearer clusters resolve within a deadline and stay single.
+ */
+export const OUTPOST_CLUSTER_RANGE = 10;
 
 /**
  * A stocked depot this abundant means the network is not merely bootstrapping
@@ -301,7 +345,27 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
     // across 20-tile-separated groups (measured on the legacy-layout
     // snapshot). Stable by name order so assignments survive across ticks;
     // extra tenders (clusters shrank) share cluster 0 until they expire.
-    const clusters = extensionClusters(room) as FillTarget[][];
+    //
+    // OUTPOST-FIRST cluster order (fid-t4-preramped t=164, second probe):
+    // index-mod hands every EXTRA tender to cluster 0, so the rotation
+    // partner the outpost fleet floor fielded landed on the NEAR cluster
+    // while the 16-tile outpost stayed single-covered and lost the SLA by
+    // its courier's away window. Outposts sort first: the i%len wrap
+    // doubles them before near clusters. Same distance lens as the fleet
+    // floor (OUTPOST_CLUSTER_RANGE from the reload point).
+    const reloadPos = depot?.pos ?? spawn?.pos;
+    const clusters = (extensionClusters(room) as FillTarget[][])
+      .map(c => ({
+        c,
+        outpost:
+          !!c[0] && !!reloadPos && typeof reloadPos.getRangeTo === "function"
+            ? reloadPos.getRangeTo(c[0].pos) > OUTPOST_CLUSTER_RANGE
+              ? 1
+              : 0
+            : 0
+      }))
+      .sort((a, b) => b.outpost - a.outpost)
+      .map(e => e.c);
     const byName = [...tenders].sort((a, b) => a.name.localeCompare(b.name));
 
     // RELOAD STAGGER (the pipeline-world SLA breach, spec 08 known-red #39):
@@ -442,6 +506,20 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
       // drains in the same order (SpawningCorp energyStructures), so holes
       // appear as a contiguous run the bus sweeps.
       const circuit = roomCircuit(room);
+      // ANTI-BUNCHING SEED (grid plan-t5, t=509): a multi-tender fleet on ONE
+      // shared circuit converges onto the same arc - measured, both loaded
+      // tenders east of the spawn while three west-ring extensions ran the
+      // SLA out. Seed each tender's FIRST tour start an even share apart
+      // (half a tour for two), so the fleet sweeps complementary arcs.
+      // One-time per creep: the offset persists in memory and the normal
+      // stop-advance keeps the spacing thereafter.
+      if (creep.memory.circuitIdx === undefined && circuit.length > 0) {
+        const tanks = this.creepsOfWorkType("tank", { includeSpawning: false })
+          .map(c => c.name)
+          .sort();
+        const idx = Math.max(0, tanks.indexOf(creep.name));
+        creep.memory.circuitIdx = Math.floor((idx * circuit.length) / Math.max(1, tanks.length)) % circuit.length;
+      }
       const needySet = new Set<string>(adjacentPool.map(t => t.id as string));
       const stopIdx = nextStop(circuit, creep.memory.circuitIdx ?? 0, id => needySet.has(id));
       if (stopIdx === null) return; // every stop full
@@ -460,8 +538,9 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
       return;
     }
 
-    // Reloading: depot first, then any stocked container, then a drop pile -
-    // a depot-less room's tender is still a real apparatus (refill SLA).
+    // Reloading: depot first, then any stocked container, then the SPAWN
+    // STORE, then a drop pile - a depot-less room's tender is still a real
+    // apparatus (refill SLA).
     if (depot && depot.store[RESOURCE_ENERGY] > 0) {
       if (creep.withdraw(depot, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
         travelTo(creep, depot, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
@@ -474,6 +553,27 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
         travelTo(creep, container, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
       }
       return;
+    }
+    // SPAWN STORE above the room-wide pile walk (the depot-less gap, grid
+    // plan-t5 t=522): the spawn's own 300-cap store is the cluster's built-in
+    // buffer - shuffling it into extensions is capacity-neutral the tick it
+    // happens (energyAvailable counts both) and net-POSITIVE over time (the
+    // store regenerates +1/t), while the pile walk is a 15-tile round trip
+    // the deadline cannot afford. Only while extensions are actually short,
+    // and only a MEANINGFUL load (>= one extension's worth): a near-drained
+    // spawn's regen trickle must not trap the ladder - measured (probe run,
+    // t472-496) a tender siphoned +1/t off a store pinned at 1-2 for 24
+    // ticks while three piles stood in reach and the bank sat 185 short.
+    if (room.energyAvailable < room.energyCapacityAvailable) {
+      const stockedSpawn = creep.pos.findClosestByRange(FIND_MY_SPAWNS, {
+        filter: s => (s.store[RESOURCE_ENERGY] ?? 0) >= 50
+      });
+      if (stockedSpawn) {
+        if (creep.withdraw(stockedSpawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+          travelTo(creep, stockedSpawn, { range: 1, visualizePathStyle: { stroke: "#ffff88" } });
+        }
+        return;
+      }
     }
     const pile = creep.pos.findClosestByRange(FIND_DROPPED_RESOURCES, {
       filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0
@@ -609,7 +709,24 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
       extensionCapacity,
       maxCarry,
       walkTicks,
-      clusters: clusters.length
+      clusters: clusters.length,
+      // One-wave inputs (depot-less floor): the SLA's own deficit unit.
+      extensionCapacityTotal: extensions.reduce(
+        (sum, e) => sum + ((e as FillTarget).store.getCapacity(RESOURCE_ENERGY) ?? 0),
+        0
+      ),
+      hasDepot: !!coreDepot(room),
+      // Outpost rotation (fid-t4-preramped t=164): clusters whose anchor
+      // sits beyond OUTPOST_CLUSTER_RANGE of the reload point each add a
+      // partner, so one courier is parked loaded while the other reloads.
+      outpostClusters: clusters.filter(c => {
+        const anchor = c[0] as FillTarget | undefined;
+        return (
+          !!anchor &&
+          typeof depotPos?.getRangeTo === "function" &&
+          depotPos.getRangeTo(anchor.pos) > OUTPOST_CLUSTER_RANGE
+        );
+      }).length
     });
     // FLEET OF 3 SMALL (owner 2026-07-22, revising the cap-2 ratchet for
     // the legacy scattered layout: "split the same amount of body parts

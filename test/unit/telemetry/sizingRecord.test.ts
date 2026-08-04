@@ -51,7 +51,7 @@ describe("Telemetry sizing records (segment 4, spec 14 phase 2)", () => {
     new Telemetry().update(undefined, [sized, unsized], undefined);
     const corps = JSON.parse(RawMemory.segments[4]);
 
-    expect(corps.version).to.equal(13); // v13: upgrader fieldedWork stamp (2026-08-01)
+    expect(corps.version).to.equal(15); // v15: planned fleet per commission, spec 39 phase 1 (2026-08-03)
     const u = corps.corps.find((c: any) => c.id === "upgrading-W1N1");
     expect(u.sizing).to.deep.equal({ tick: 99, planAllocated: 9, stock: 120, banked: 200000, inflow: 2, allocated: 2, targetCount: 1 });
     const h = corps.corps.find((c: any) => c.id === "harvest-s1");

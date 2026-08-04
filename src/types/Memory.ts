@@ -272,7 +272,14 @@ declare global {
      * this window.
      */
     upgradeMeter?: {
-      [roomName: string]: { t0: number; ticks: number; fired: number; dry: number };
+      [roomName: string]: {
+        t0: number;
+        ticks: number;
+        fired: number;
+        dry: number;
+        /** Spec 40-B percentile duty histogram; survives the window roll. */
+        hist?: { buckets: number[]; windows: number; openTicks: number; openDuty: number };
+      };
     };
 
     /**
@@ -376,7 +383,39 @@ declare global {
       repairSpend: number;
       tombstoneGross: number;
       tombstoneRecovered: number;
+      /** Additive attribution keys (2026-08-02); absent on older ledgers. */
+      tombstoneByRole?: Record<string, number>;
+      tombstoneExpired?: number;
+      tombstoneKilled?: number;
+      tombstoneCauseUnknown?: number;
+      tombstoneTtlSum?: number;
+      tombstoneTtlKnown?: number;
     };
+
+    /**
+     * CUMULATIVE spawn spend by role (telemetry/spawnLedger), monotonic and
+     * surviving global resets - the blackbox ring's account-side replacement.
+     * The ring is heap state bounded by VM lifetime (~480t after a deploy),
+     * so every "measured at the spawn" account line was short-windowed and
+     * the account's coherence guard fired on essentially every fiscal close.
+     * The account differences these totals between two captures instead,
+     * exactly as it does gcl.progress, storage, and lossLedger.
+     */
+    spawnLedger?: {
+      energyByRole: Record<string, number>;
+      partsByRole: Record<string, number>;
+    };
+
+    /**
+     * Death watch (telemetry/LossMeter): each own creep's last-seen TTL as
+     * `[ttl, tick]`, sampled on the loss stride. A dead creep's object has no
+     * ticksToLive, so tombstone cause (expired vs killed) is resolvable only
+     * from a record made while the creep lived: lastSeenTtl - (deathTime -
+     * lastSeenTick) is exact whenever the creep survived to its recorded
+     * deathTime. Entries are pruned once no tombstone for them could still be
+     * standing.
+     */
+    creepDeathWatch?: Record<string, [number, number]>;
 
     /**
      * The current liquidity reserve target (economy/bank.warchestTarget of the
@@ -387,6 +426,44 @@ declare global {
      * first solve publishes one.
      */
     warchestTarget?: number;
+
+    /**
+     * The plan's routed controller allocation per room (energy/tick), from the
+     * last solve's sink allocations (spec 38 phase B - the plan allocation is
+     * the valve). Written by FlowEconomy.update; resolved through the pure
+     * lens bank.plannedControllerFlow(Memory.controllerAllocations, room).
+     * Runtime readers that ask "how fast does energy reach this controller"
+     * (the feeder trunk's road-payback judge) resolve THIS instead of
+     * re-deriving a rate from the bank - the feederRelayRate side-channel
+     * spec 38 retires.
+     */
+    controllerAllocations?: Record<string, number>;
+
+    /**
+     * Event-triggered replanning state (spec 36 item 1): the previous
+     * durable-signal snapshot and the last forced-solve tick, persisted so a
+     * global reset re-seeds the baseline instead of misreading the fresh
+     * heap as a world transition. Written and read only by
+     * execution/planTriggers.checkPlanTriggers.
+     */
+    planTriggerState?: {
+      snap: {
+        hostileRooms: string[];
+        expansionState?: string;
+        rclByRoom: Record<string, number>;
+        spawnCount: number;
+      };
+      lastForced?: number;
+    };
+
+    /**
+     * Remote rooms the last solve FUNDED miners in (FlowSolution
+     * .fundedRemoteRooms). Threaded back into the next solve so infra's
+     * reserver upkeep prices the worked set, not every scouted candidate
+     * (t72750467: 26 candidates vs 8 funded, ~10 e/t phantom charge).
+     * Written by FlowEconomy.update, same lifetime as lastBankDraw.
+     */
+    fundedRemoteRooms?: string[];
 
     /**
      * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so
@@ -670,6 +747,16 @@ declare global {
      * itself once the room is maxed out and the spawn would otherwise idle.
      */
     recycling?: boolean;
+
+    /**
+     * WHY the recycle flag was set (owner 2026-08-03: "I wanna make sure
+     * those are legit - what's actually the cause and does it hold up to
+     * scrutiny"). Stamped at the SAME site as `recycling` (a ratchet test
+     * pins every flag site), carried by the death watch into the loss
+     * meter's tombstoneRecycledByReason - so the account attributes each
+     * recycle to its trigger class instead of one opaque bucket.
+     */
+    recycleReason?: string;
 
     /**
      * Tick a raid guard lost its room assignment (no targeted room left for

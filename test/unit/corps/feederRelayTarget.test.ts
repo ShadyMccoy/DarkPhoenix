@@ -1,31 +1,4 @@
 import { expect } from "chai";
-import { feederBodyRate } from "../../../src/corps/ControllerFeederCorp";
-
-/**
- * The feeder BODY sizes to consumer burn, not the surplus valve (owner
- * 2026-07-22: "the feeder seems way too large" - live: relay 110 e/t sized
- * an 11-carry 22-part body at DISTANCE 1 while the upgraders burned ~40).
- * The relay TARGET (pacing) is untouched; the body just makes more trips.
- */
-describe("feederBodyRate (body from actuals, valve for pacing - SURPLUS regime only)", () => {
-  const SURPLUS_BANK = 200_000;
-  it("caps the live shape: relay 110, 40 standing WORK -> body sized to 60", () => {
-    expect(feederBodyRate(110, 21, 40, SURPLUS_BANK, BASE_RESERVE)).to.equal(60);
-  });
-  it("floors at the plan flow during an upgrader resize dip", () => {
-    expect(feederBodyRate(110, 21, 0, SURPLUS_BANK, BASE_RESERVE)).to.equal(21);
-  });
-  it("a small relay passes through unchanged (never upsizes)", () => {
-    expect(feederBodyRate(15, 21, 40, SURPLUS_BANK, BASE_RESERVE)).to.equal(15);
-  });
-  it("no plan and no fleet: falls back to the relay (bootstrap rooms)", () => {
-    expect(feederBodyRate(30, undefined, 0, SURPLUS_BANK, BASE_RESERVE)).to.equal(30);
-  });
-  it("SAVE regime: untouched (a filling reserve sees no behavior change - the pinned contract)", () => {
-    expect(feederBodyRate(15, 10, 0, 5000, BASE_RESERVE)).to.equal(15);
-  });
-});
-
 import { parkedRelayCarry, carryPartsFor } from "../../../src/economy/primitives";
 
 /**
@@ -44,96 +17,61 @@ describe("parkedRelayCarry (the stationary relay cycle - no phantom travel)", ()
     expect(Math.ceil(carryPartsFor(60, 1) * 1.2)).to.equal(6); // the model this replaces
   });
 });
+
 import "../../../src/types/Memory";
-import { feederRelayTarget } from "../../../src/corps/ControllerFeederCorp";
-import { BASE_RESERVE, bankSurplusRate, feederRelayRate } from "../../../src/economy/bank";
+import { feederRelayTarget, FEEDER_STOCK_HEADROOM } from "../../../src/corps/ControllerFeederCorp";
+import { bankFedControllerRate, BASE_RESERVE } from "../../../src/economy/bank";
 
 /**
- * The feeder's relay sizing across the two bank regimes (prod t72455355).
+ * THE PLAN ALLOCATION IS THE VALVE - the feeder half (spec 38 phase B; owner
+ * 2026-07-31: "incorporate the actual into the plan ... a single consistent
+ * framework", and 2026-08-02 for the upgrader half: "the plan allocation IS
+ * the valve").
  *
- * SURPLUS: consumers size from ACTUALS, never the goal plan (macro doctrine -
- * the upgrader half landed at daec503; this is its SUPPLY LINE). Live shape:
- * 340k banked, plan controller allocation 2 (partsLeft exhausted before the
- * controller sink), feeder clamped to relay 7 while the upgraders' sizing
- * assumed the surplus 115 - stock drained 1520 -> 60 and burn ran 11 of a
- * possible 115. In surplus the plan is NOT a cap on the relay.
+ * What died here: the SURPLUS-REGIME OVERRIDE ("consumers size from actuals,
+ * never the goal plan") that returned the raw surplus formula and ignored the
+ * plan's controller allocation. It was born at prod t72455355 - the plan's
+ * parts ledger exhausted before the controller sink (allocated 2) while 340k
+ * stood banked, and obeying that artifact starved the relay to 7 e/t against
+ * upgraders sized to 115. Spec 38 phase A moved that floor INSIDE the plan
+ * (controllerFloorRate as the controller SINK RESERVE, won by the reserve
+ * pre-pass before value greed or ledger exhaustion), so the override's
+ * precondition - a full bank behind a starved allocation - can no longer
+ * occur. The staged solve proving it lives in test/unit/economy/bank.test.ts
+ * ("spec 38 acceptance: the staged t72455355 state").
  *
- * NON-SURPLUS: the plan clamp STAYS (owner t72421124: while construction
- * preempts the bank the controller legitimately floors at ~2 e/t, and a
- * feeder sized to the raw surplus formula is 90+ wasted parts). The regimes
- * are discriminated by bankSurplusRate, the same primitive the upgraders and
- * the bank draw use - one lens, no drift.
+ * The constructionAbsorb clamp died WITH the override: it existed to net
+ * construction's claim out of the raw surplus formula, but the plan's
+ * controller allocation is already the post-construction residual - the
+ * solver routes construction as a competing sink in the SAME solve (the
+ * ladder ranks them), so netting it again would double-count.
+ *
+ * Measured shape this closes (t72681617, P12's 3.30x): plan controller 50.02,
+ * runtime relay 89.69 - the feeder fielded a fleet the plan never priced.
  */
-describe("feederRelayTarget (the relay serves actuals in surplus, the plan otherwise)", () => {
-  const PLAN_FLOOR = 2; // the exhausted-ledger controller allocation, live shape
-
-  it("SURPLUS: ignores the plan clamp - the relay delivers the inflow the upgraders assume", () => {
-    const banked = BASE_RESERVE + 312_715; // prod t72455355
-    expect(bankSurplusRate(banked, BASE_RESERVE), "precondition: this IS the surplus regime").to.be.greaterThan(0);
-    const surplusRate = feederRelayRate(banked, BASE_RESERVE);
-    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, BASE_RESERVE)).to.equal(surplusRate);
+describe("feederRelayTarget (the plan allocation is the valve - spec 38 phase B)", () => {
+  it("SURPLUS regime: relays the plan's controller allocation + stock headroom, NOT the raw surplus formula (t72681617: plan 50.02, formula 94.69)", () => {
+    const surplusFormula = 94.694; // 15 + bankSurplusRate live at t72681617
+    const planFlow = 50.02;
+    expect(feederRelayTarget(surplusFormula, planFlow)).to.be.closeTo(planFlow + FEEDER_STOCK_HEADROOM, 1e-9);
   });
 
-  it("SURPLUS + a build-out that absorbs the whole draw: the plan clamp returns (owner 2026-07-21: upgrading is secondary to construction)", () => {
-    // "When construction is around ... funnel energy to construction.
-    // Upgrading is secondary" - with sites standing that can genuinely EAT
-    // the surplus (constructionAbsorb >= the draw), the plan's controller
-    // allocation IS the post-construction residual and the relay serves
-    // exactly that. The plan already ranks construction (70) above the
-    // mid-grind controller (~44 at RCL6), so honoring planFlow is the
-    // aggressive-construction doctrine end to end.
-    const banked = BASE_RESERVE + 312_715;
-    const surplusRate = feederRelayRate(banked, BASE_RESERVE);
-    const absorbsEverything = surplusRate + 10;
-    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, BASE_RESERVE, absorbsEverything)).to.equal(
-      Math.min(surplusRate, PLAN_FLOOR + 5)
-    );
+  it("NON-SURPLUS regime: same law (t72421124 pin - plan floors at ~2, no 90-part feeder into a full stock)", () => {
+    expect(feederRelayTarget(15, 2)).to.equal(2 + FEEDER_STOCK_HEADROOM);
   });
 
-  it("SURPLUS + construction that absorbs only a trickle: the relay serves the REST of the surplus (prod t72478939)", () => {
-    // The boolean form of this clamp treated 12 road sites (pool absorb ~5
-    // e/t) exactly like a 100k build-out: relay clamped to planFlow+5 = 7
-    // while surplus 115 stood - burn collapsed to 1 e/t, build ran 0.47
-    // e/t, and the difference BANKED (+20.18/t at 474k, 17x target).
-    // Construction-first means the build set eats what it CAN absorb
-    // (projectAbsorbRate - the same lens that sizes the crew and the
-    // plan's construction sink); the controller side gets the remainder,
-    // floored at the plan residual. It never means the remainder banks.
-    const banked = BASE_RESERVE + 446_493; // prod t72478939
-    const surplusRate = feederRelayRate(banked, BASE_RESERVE); // 115
-    const poolAbsorb = 5; // 12 road sites, 3225 work remaining, ~2-room travel
-    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, BASE_RESERVE, poolAbsorb)).to.equal(
-      surplusRate - poolAbsorb
-    );
-    // the plan residual is the floor, not the ceiling:
-    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, BASE_RESERVE, poolAbsorb)).to.be.greaterThan(
-      PLAN_FLOOR + 5
-    );
+  it("ONE law, no regime branch: the result reads the plan, not the bank", () => {
+    // The old contract branched on bankSurplusRate(banked) and returned
+    // different rates for the same allocation. Now the surplus formula is
+    // dead weight whenever an allocation is known - any formula value, same
+    // relay.
+    expect(feederRelayTarget(115, 50)).to.equal(feederRelayTarget(15, 50));
   });
 
-  it("SURPLUS + construction, no known allocation (old commission): stays unclamped, exactly as before", () => {
-    const banked = BASE_RESERVE + 446_493;
-    const surplusRate = feederRelayRate(banked, BASE_RESERVE);
-    expect(feederRelayTarget(surplusRate, undefined, banked, BASE_RESERVE, 5)).to.equal(surplusRate);
-  });
-
-  it("NON-SURPLUS: keeps the plan clamp (t72421124 - no 90-part feeder into a full stock)", () => {
-    const banked = 10_000; // below the reserve target: save regime
-    expect(bankSurplusRate(banked, BASE_RESERVE), "precondition: not surplus").to.equal(0);
-    const surplusRate = feederRelayRate(banked, BASE_RESERVE);
-    // planFlow + FEEDER_STOCK_HEADROOM (5) clamps the relay
-    expect(feederRelayTarget(surplusRate, PLAN_FLOOR, banked, BASE_RESERVE)).to.equal(
-      Math.min(surplusRate, PLAN_FLOOR + 5)
-    );
-  });
-
-  it("no known allocation (old commission): unclamped in either regime", () => {
-    expect(feederRelayTarget(feederRelayRate(10_000, BASE_RESERVE), undefined, 10_000, BASE_RESERVE)).to.equal(
-      feederRelayRate(10_000, BASE_RESERVE)
-    );
-    const banked = BASE_RESERVE + 100_000;
-    expect(feederRelayTarget(feederRelayRate(banked, BASE_RESERVE), undefined, banked, BASE_RESERVE)).to.equal(
-      feederRelayRate(banked, BASE_RESERVE)
-    );
+  it("no known allocation (old commission, pre-first-solve): the surplus formula stands as the fallback", () => {
+    const filling = bankFedControllerRate(10_000, BASE_RESERVE);
+    expect(feederRelayTarget(filling, undefined)).to.equal(filling);
+    const surplus = bankFedControllerRate(BASE_RESERVE + 100_000, BASE_RESERVE);
+    expect(feederRelayTarget(surplus, undefined)).to.equal(surplus);
   });
 });

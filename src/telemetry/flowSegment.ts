@@ -19,7 +19,7 @@ import { coreLink, controllerLink } from "../corps/nodeEnergy";
 import { computeDepositSavings, DepositSource, DepositLink, DepositSavingsReport } from "../economy/depositSavings";
 import { Position } from "../types/Position";
 import { pathDistance } from "../nodes/NodeNavigator";
-import { feederRelayRate, resolveReserveTarget } from "../economy/bank";
+import { bankFedControllerRate, resolveReserveTarget } from "../economy/bank";
 import { FlowSolution } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
@@ -275,7 +275,7 @@ function buildDepositInstrumentUnsafe(
     // the terminal link fills. Surface the cap so the DEP line never over-
     // counts controller-bound deposit flow.
     report.controllerLinkId = ctrl.id;
-    report.controllerCapacity = feederRelayRate(banked, resolveReserveTarget(Memory.warchestTarget));
+    report.controllerCapacity = bankFedControllerRate(banked, resolveReserveTarget(Memory.warchestTarget));
   }
   return report;
 }

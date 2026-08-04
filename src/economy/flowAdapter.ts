@@ -35,7 +35,14 @@ import { Node, getResourcesByType } from "../nodes/Node";
 import { countMiningSpots } from "../analysis/SourceAnalysis";
 import { pathDistance, pathSwampFraction } from "../nodes/NodeNavigator";
 import { Position } from "../types/Position";
-import { controllerLink, coreLink, sourceLink, controllerInputSpot, controllerParkingTiles } from "../corps/nodeEnergy";
+import {
+  controllerLink,
+  coreLink,
+  sourceLink,
+  sourceBufferStock,
+  controllerInputSpot,
+  controllerParkingTiles
+} from "../corps/nodeEnergy";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import {
   BUILD_ENERGY_PER_WORK,
@@ -62,7 +69,7 @@ import {
   SinkKind,
   planColony
 } from "./CorpPlanner";
-import { Commission } from "./Commission";
+import { Commission, FieldedFleet } from "./Commission";
 import { isBankSourceId, isMinedIncomeId, stripSourcePrefix, stripSpawnPrefix } from "./ids";
 import { DEFAULT_VALUATION, Goal, SinkValuation, compileGoal } from "./goals";
 import { searchStructure } from "./strategy";
@@ -77,11 +84,11 @@ export { ANTI_DOWNGRADE_RESERVE };
  * warchest primitives (the feeder and upgrader sizing derive from the same
  * module); re-exported here for the existing import sites.
  */
-export { STORAGE_UPGRADE_TARGET } from "./bank";
 import {
-  STORAGE_UPGRADE_TARGET,
+  bankFedControllerRate,
   bankToTransientSource,
   bankSourceId,
+  controllerFloorRate,
   resolveReserveTarget,
   warchestTarget
 } from "./bank";
@@ -305,42 +312,47 @@ export class FlowGraph {
 }
 
 /**
- * Routing capacity for a controller sink. Uncapped (mops up the remainder) until
- * the controller's room has a storage bank that is still FILLING, then bounded to
- * {@link STORAGE_UPGRADE_TARGET} so the surplus banks in storage. Once the bank
- * passes the warchest target (the room appears in `surplusRooms` because a bank
- * source was emitted for it - see detectBankSources), the cap lifts and the
- * controller reverts to mopping up: the warchest is full, so there is nothing
- * left to save for and the surplus draw needs somewhere to land. Pure over the
- * two room sets so it is unit-testable without Game.
+ * Routing capacity for a controller sink.
+ *
+ * THE BANK-FED INVERSION (owner 2026-08-04: "The bank should be the income
+ * mop up not the upgrade"): when the room has a live bank, the caller passes
+ * `bankFedAllocation` (= bank.bankFedControllerRate: floor + surplus/
+ * SURPLUS_DRAIN_TICKS) and that IS the allocation - upgrade proportional to
+ * surplus plus its floor, the BANK the residual claimant on income by
+ * construction. One formula, continuous in the (slow-moving) bank level, so
+ * the 2026-08-03 asymptotic ruling holds with no regime branch anywhere.
+ * Phase C's refill-claim machinery is retired with this. Rooms WITHOUT a
+ * bank keep the mop-up: there is no storage to absorb the residual.
  */
 export function controllerRoutingCapacity(
   sink: { position: Position },
   totalSupply: number,
-  roomsWithStorage: ReadonlySet<string>,
-  surplusRooms: ReadonlySet<string> = new Set(),
   physicalUpgradeCap: number = Infinity,
-  wartimeRooms: ReadonlySet<string> = new Set()
+  wartimeRooms: ReadonlySet<string> = new Set(),
+  bankFedAllocation?: number,
+  /** The danger-gated floor (0 unless the downgrade timer is low) - what
+   * wartime relegates TO. */
+  controllerFloor: number = 0
 ): number {
-  // Two cases cap the controller at the save-regime floor so the surplus does
-  // NOT mop up here:
-  //  - FILLING warchest: the surplus banks toward the reserve (unchanged).
-  //  - WARTIME (spec 33, owner 2026-07-27 "surplus ... normally for upgrading,
-  //    but now for building"): a MEANINGFUL construction backlog stands in this
-  //    room, so upgrading RELEGATES to the floor and the surplus flows to
-  //    construction (value 70) instead of the controller's mop-up. Relegated
-  //    != off - the anti-downgrade floor still holds; the mode exits (mop-up
-  //    resumes) the moment the backlog drains, no isolated-sink nudge.
-  const filling = roomsWithStorage.has(sink.position.roomName) && !surplusRooms.has(sink.position.roomName);
-  if (filling || wartimeRooms.has(sink.position.roomName)) {
-    return Math.max(STORAGE_UPGRADE_TARGET, ANTI_DOWNGRADE_RESERVE);
+  // WARTIME (spec 33, owner 2026-07-27 "surplus ... normally for upgrading,
+  // but now for building"): a MEANINGFUL construction backlog stands in this
+  // room, so upgrading RELEGATES to the floor and the surplus flows to
+  // construction (value 70) instead. Relegated != off - the anti-downgrade
+  // floor still holds; the mode exits the moment the backlog drains.
+  // Doctrine keyed to a real backlog, NOT a bank level; it outranks the
+  // bank-fed rate.
+  if (wartimeRooms.has(sink.position.roomName)) {
+    return controllerFloor;
   }
-  // #21 (owner 2026-07-19): in surplus the controller mops up the warchest, but
-  // no faster than the upgrader fleet can PHYSICALLY burn it (parking tiles x
-  // affordable WORK - see controllerUpgradeCap). Surplus beyond the cap has no
-  // upgrader to consume it, so it overflows into the storage sink instead of
-  // publishing an infeasible upgrade plan that out-competes remote mining
-  // (live t72429680: uncapped 137 e/t against a ~4-upgrader fleet).
+  // #21 (owner 2026-07-19): never faster than the upgrader fleet can
+  // PHYSICALLY burn (parking tiles x affordable WORK - see
+  // controllerUpgradeCap). Surplus beyond the cap has no upgrader to consume
+  // it, so it overflows into the storage sink instead of publishing an
+  // infeasible upgrade plan that out-competes remote mining (live t72429680:
+  // uncapped 137 e/t against a ~4-upgrader fleet).
+  if (bankFedAllocation !== undefined) {
+    return Math.min(bankFedAllocation, physicalUpgradeCap);
+  }
   return Math.min(Math.max(totalSupply, 1), physicalUpgradeCap);
 }
 
@@ -390,6 +402,25 @@ export function agendaFundingRate(sinkId: string): number {
   const entry = Memory.spawnAgenda?.[spawnId];
   if (!entry || Game.time - entry.tick > 100) return 0;
   return entry.fundingNeed / FUND_HORIZON;
+}
+
+/**
+ * The spawn sink's demand: ONE upkeep estimate, never a sum (t72749493).
+ * The fleet charge (steady-state upkeep of the plan's fleet) and the agenda
+ * funding rate (queued must-fund bodies amortized over FUND_HORIZON) both
+ * estimate "energy/tick the spawn must receive" - the queued bodies ARE the
+ * replacements the charge prices, seen as cash-flow timing. Summing them
+ * double-claimed the flow; dribble-sized while minCost-300 entries kept
+ * fundingNeed small, 58 e/t once hold-to-fund queued full-share bodies:
+ * measured t72749493, spawn sinks routed 108.25 (charge 50.29 + funding
+ * 57.96) against 41.5 actually spent, and the controller allocation sat at
+ * 16.56 for 1500+ ticks while the standing 75-WORK fleet decayed toward it.
+ * MAX is the honest combinator: a banking wave claims the funding rate
+ * exactly when it exceeds the steady charge; steady state claims the
+ * charge; the flow is never claimed twice.
+ */
+export function spawnSinkDemand(baseDemand: number, maintenance: number, fundingRate: number): number {
+  return Math.max(baseDemand, 1, maintenance, fundingRate);
 }
 
 /**
@@ -625,8 +656,8 @@ export function detectLinkDepositPorts(): DepositPort[] {
  * Detect SURPLUS storage banks across visible owned rooms and turn each into a
  * transient bank source at its storage position (spec 03 withdrawal, surplus
  * half - see economy/bank.ts). A bank still filling its warchest emits nothing:
- * the deposit half (STORAGE_UPGRADE_TARGET cap) keeps accumulating it. Live
- * default for buildColonyProblem; injectable for tests.
+ * the deposit half (storageRefillReserve's asymptotic claim) keeps
+ * accumulating it. Live default for buildColonyProblem; injectable for tests.
  */
 export function detectBankSources(): PlannerSource[] {
   if (typeof Game === "undefined" || !Game.rooms) return [];
@@ -661,6 +692,38 @@ export function storageRoomRemaining(roomName: string): number {
   const storage = Game.rooms[roomName]?.storage;
   if (!storage) return Infinity;
   return storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? Infinity;
+}
+
+/** Energy standing in a room's storage (0 without one; harness-safe 0). */
+export function storageRoomStock(roomName: string): number {
+  if (typeof Game === "undefined" || !Game.rooms) return 0;
+  return Game.rooms[roomName]?.storage?.store?.[RESOURCE_ENERGY] ?? 0;
+}
+
+/**
+ * The bank-fed controller allocation for a room (energy/tick), or undefined
+ * when there is no live OWNED storage to read - the discriminator
+ * controllerRoutingCapacity branches on (owner 2026-08-04: "The bank should
+ * be the income mop up not the upgrade"). Same guards and the same
+ * resolveReserveTarget as detectBankSources, so the allocation and the
+ * surplus emission read the same stock and target and cannot drift.
+ * Harness/unit paths without a staged storage get undefined, keeping the
+ * pre-storage mop-up unchanged there.
+ */
+export function storageBankFedAllocation(roomName: string): number | undefined {
+  if (typeof Game === "undefined" || !Game.rooms) return undefined;
+  const storage = Game.rooms[roomName]?.storage;
+  if (!storage || !storage.my) return undefined;
+  const banked = storage.store?.[RESOURCE_ENERGY] ?? 0;
+  const reserveTarget = resolveReserveTarget(typeof Memory !== "undefined" ? Memory.warchestTarget : undefined);
+  return bankFedControllerRate(banked, reserveTarget, controllerDowngradeTicks(roomName));
+}
+
+/** Live ticksToDowngrade for a room's controller (undefined without vision -
+ * the danger-gated floor's input; owned rooms always have vision live). */
+export function controllerDowngradeTicks(roomName: string): number | undefined {
+  if (typeof Game === "undefined" || !Game.rooms) return undefined;
+  return Game.rooms[roomName]?.controller?.ticksToDowngrade;
 }
 
 /**
@@ -775,7 +838,21 @@ export function buildColonyProblem(
    * pass 1 behaves exactly as before and the pass-2 problem is the only one
    * that differs. See solveColony.
    */
-  spawnMaintenance = 0
+  spawnMaintenance = 0,
+  /**
+   * The previous solve's FUNDED remote rooms (Memory.fundedRemoteRooms,
+   * threaded by the execution layer like prevBankDraw). Prices the standing
+   * reserver upkeep from the rooms actually worked instead of every scouted
+   * candidate - see the remoteRooms derivation.
+   */
+  prevFundedRemoteRooms?: readonly string[],
+  /**
+   * FIELDED-fleet actuals per commission (spec 39 phase 2), assembled by the
+   * host (CommissionHost.assembleFieldedFleets) and threaded by main - the
+   * per-post actuals the plan incorporates. Carried as data; phase 3's
+   * replacement scheduling is the reader.
+   */
+  fielded?: Record<string, FieldedFleet>
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -815,7 +892,21 @@ export function buildColonyProblem(
         return frac > 0 ? { swampFraction: frac } : {};
       })(),
       ...(pave && pave.ratio === "2:1" ? { paved: true, pavedFraction: pave.fraction } : {}),
-      ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax })
+      ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax }),
+      // STAGED MOUTH STOCK (phase 1 of the income-statement program): the
+      // SAME sourceBufferStock lens the corp's drain term and E6's gate read,
+      // so the plan prices the drain fleet the corp will actually field.
+      // Walk-served mouths only - a link-served source's stock is the link
+      // network's business, and pricing haulers for it would re-open the
+      // haul-of-zero contract. No vision => absent, never a fabricated zero.
+      ...(() => {
+        if (linkHaulPos.get(s.id) !== undefined) return {};
+        if (typeof Game === "undefined" || !Game.getObjectById) return {};
+        const live = Game.getObjectById(stripSourcePrefix(s.id) as Id<Source>);
+        if (!live) return {};
+        const staged = sourceBufferStock(live);
+        return staged !== null && staged > 0 ? { staged } : {};
+      })()
     };
   });
   // Sustained income only: what mined sources yield per tick. Transient
@@ -855,22 +946,21 @@ export function buildColonyProblem(
   // controller 50, so opening the capacity valve is the whole change).
   const bankRate = bankSources.reduce((sum, b) => sum + b.rate, 0);
 
-  // Rooms whose bank is built: their controller stops mopping up the surplus so
-  // the storage can soak it (see controllerRoutingCapacity / STORAGE_UPGRADE_TARGET).
+  // Rooms whose bank is built (storage-hub rooms): used for infra pricing and
+  // remote-site exclusion below. The storage sink STAYS open in every regime
+  // (owner 2026-07-19: consumers draw from storage, so it is a valid home for
+  // remote surplus - keeping it lets excess production bank instead of rotting
+  // at remote containers, #19). The anti-pump is structural in routeToSinks:
+  // bank sources never fill the storage sink, so a solve can never both
+  // withdraw the warchest AND deposit to it - and the refill claim
+  // (storageRefillReserve) is nonzero only BELOW the target, where no bank
+  // source exists, so claim-and-drain can never coexist either. The storage
+  // sink's capacity is its physical room remaining, so a topped-out bank
+  // presents zero room and the surplus mining is defunded rather than rotted.
   const roomsWithStorage = new Set<string>();
   for (const sink of graph.getSinks()) {
     if (sink.type === "storage") roomsWithStorage.add(sink.position.roomName);
   }
-  // Rooms whose bank is in SURPLUS (a bank source was emitted): the warchest is
-  // over its target, so the controller cap lifts. The storage sink STAYS (owner
-  // 2026-07-19: consumers draw from storage, so it is a valid home for remote
-  // surplus - keeping it lets excess production bank instead of rotting at remote
-  // containers, #19). The anti-pump is now structural in routeToSinks: bank
-  // sources never fill the storage sink, so a solve can never both withdraw the
-  // warchest AND deposit to it. The storage sink's capacity is its physical room
-  // remaining, so a topped-out bank presents zero room and the surplus mining is
-  // defunded rather than rotted.
-  const surplusRooms = new Set(bankSources.map(b => b.pos.roomName));
 
   // HUB-AND-SPOKE (owner 2026-07-19): the storage is the hub - mined income banks
   // to it and consumers draw it back. The bank/hub SOURCE that routeToSinks spends
@@ -1026,8 +1116,10 @@ export function buildColonyProblem(
             // a fleet costing ~42 e/t. The spawn is the TOP of the value ladder,
             // so the shortfall was freed down it and the controller absorbed it
             // (measured t72714129: controller allocated 108.87 of ~100 net
-            // mining). Pass 2 supplies the fleet's real standing cost here.
-            Math.max(sink.demand, 1, spawnMaintenance) + agendaFundingRate(sink.id)
+            // mining). Pass 2 supplies the fleet's real standing cost here -
+            // combined with the agenda's funding rate by MAX, never sum (the
+            // t72749493 double-claim lock; see spawnSinkDemand).
+            spawnSinkDemand(sink.demand, spawnMaintenance, agendaFundingRate(sink.id))
           : kind === "construction"
           ? // Build-out is an INVESTMENT: extensions raise energyCapacity, which
             // raises every body size and the whole colony's energy-per-spawn-part
@@ -1076,12 +1168,28 @@ export function buildColonyProblem(
           : controllerRoutingCapacity(
               sink,
               totalSupply,
-              roomsWithStorage,
-              surplusRooms,
               controllerUpgradeCap(sink.position.roomName),
-              wartimeRooms
-            ), // controller: mops up the remainder up to the fleet's physical upgrade rate (#21); the excess banks to storage
-      reserve: kind === "controller" ? ANTI_DOWNGRADE_RESERVE : undefined
+              wartimeRooms,
+              // THE BANK-FED INVERSION (owner 2026-08-04): with a live bank,
+              // the controller's cap IS floor + surplus draw and the bank
+              // absorbs the income residual by construction. Undefined
+              // (no storage / harness) keeps the mop-up.
+              storageBankFedAllocation(sink.position.roomName),
+              controllerFloorRate(controllerDowngradeTicks(sink.position.roomName))
+            ),
+      // SPEC 38 PHASE A (2026-08-02): the controller's floor moves INSIDE the
+      // plan. controllerFloorRate = the save-regime target as fast as the
+      // standing bank can sustain it (the ONE drain law), floored at the
+      // anti-downgrade trickle - so the reserve pre-pass guarantees what
+      // feederRelayRate's +STORAGE_UPGRADE_TARGET side-channel guaranteed
+      // outside the plan (P12's measured 3.30x non-bank divergence), and a
+      // cold storage room's spawn is never out-reserved by its controller.
+      // (Phase D 2026-08-04: the storage sink carries NO reserve - the bank
+      // is the residual claimant by construction, nothing to claim.)
+      reserve:
+        kind === "controller"
+          ? controllerFloorRate(controllerDowngradeTicks(sink.position.roomName))
+          : undefined
     });
   }
 
@@ -1090,8 +1198,20 @@ export function buildColonyProblem(
   // bodies the plan implies but never commissions through routeToSinks.
   // Deducted from the planner's spawn-parts ledger so the sink fill spends
   // only what the spawn can truly still build.
+  // The remote set for infra pricing is the FUNDED rooms of the previous
+  // solve when history exists (Memory.fundedRemoteRooms, threaded by the
+  // execution layer like prevBankDraw) - the candidate derivation below
+  // counts every scouted room holding a source, and the reserver upkeep
+  // priced from it charged for rooms the colony never works (measured
+  // t72750467, the first infraInputs stamp: remoteRooms 26 against 8
+  // funded - ~10+ e/t of phantom standing charge inside the fleet charge,
+  // routed to the spawn sinks at the controller's expense). No history
+  // (first solve, harness) keeps the candidate set: over-priced for ONE
+  // solve, then the published funded set converges it - the pricedRelay
+  // ratchet pattern exactly.
   const remoteRooms = new Set(
-    sources.filter(s => !s.transient && !spawnRooms.has(s.pos.roomName)).map(s => s.pos.roomName)
+    prevFundedRemoteRooms ??
+      sources.filter(s => !s.transient && !spawnRooms.has(s.pos.roomName)).map(s => s.pos.roomName)
   );
   // FEEDER PRICED AT THE REALIZED DRAW (prod t72447444, the starvation
   // loop): pricing the relay at the FULL surplus (15 + bankRate = 115 live)
@@ -1103,10 +1223,17 @@ export function buildColonyProblem(
   // bigger consumer allocation -> next solve prices the feeder for it;
   // converges in <=2 solves both directions). No history (first solve,
   // harness, golden master) keeps the old full-surplus pricing.
+  // KNOWN DRIFT (2026-08-03, deferred deliberately): with the save-regime
+  // controller cap retired, a FILLING room's published allocation can exceed
+  // this price's 15-floor while bankRate is 0, so the feeder's infra charge
+  // under-states the relay it will field. Measured scale: the whole feeder
+  // term is ~0.005 p/t (P4) - a ~25 e/t relay mispricing is ~0.003 p/t
+  // against F1's 0.244 p/t breach. Fix belongs with P12's unification (price
+  // the PREVIOUS solve's published allocation), not here.
   const pricedRelay =
     prevBankDraw !== undefined
-      ? Math.min(STORAGE_UPGRADE_TARGET + bankRate, Math.max(STORAGE_UPGRADE_TARGET, prevBankDraw))
-      : STORAGE_UPGRADE_TARGET + bankRate;
+      ? Math.min(controllerFloorRate() + bankRate, Math.max(controllerFloorRate(), prevBankDraw))
+      : controllerFloorRate() + bankRate;
   // Link-fed depots price the feeder at the storage->core-link leg (spec 24
   // rung 3) - the SAME controllerLink lens the corp's sizing reads.
   let linkFedRooms = 0;
@@ -1120,11 +1247,18 @@ export function buildColonyProblem(
   // Same three details, priced in ENERGY - the second currency the spawn sink
   // needs (see the two-pass solve in solveColony).
   const infraEnergyPerTick = infraSpawnEnergy(pricedRelay, roomsWithStorage.size, remoteRooms.size, linkFedRooms);
+  const infraInputs = {
+    pricedRelay,
+    depotRooms: roomsWithStorage.size,
+    remoteRooms: remoteRooms.size,
+    linkFedRooms
+  };
 
   return {
     assembly,
     spawns,
-    sources, sinks, dist, infraPartsPerTick, infraEnergyPerTick, depositPorts };
+    sources, sinks, dist, infraPartsPerTick, infraEnergyPerTick, infraInputs, depositPorts,
+    ...(fielded ? { fielded } : {}) };
 }
 
 /**
@@ -1230,7 +1364,15 @@ export function solveColony(
    * layer never reads it itself. Seeds the fixed-point iteration below, which
    * is what lets a steady-state replan converge without an extra search.
    */
-  prevFleetCharge?: number
+  prevFleetCharge?: number,
+  /**
+   * The previous solve's funded remote rooms (Memory.fundedRemoteRooms) -
+   * threaded exactly like prevBankDraw; prices infra's reserver term from
+   * the worked set, not the scouted candidates (t72750467: 26 vs 8).
+   */
+  prevFundedRemoteRooms?: readonly string[],
+  /** Fielded-fleet actuals (spec 39 phase 2), host-assembled - see buildColonyProblem. */
+  fielded?: Record<string, FieldedFleet>
 ): { solution: FlowSolution; commissions: Commission[]; adopted: { sourceId: string; spawnId: string; gain: number }[] } {
   const seedCharge = Math.max(0, prevFleetCharge ?? 0);
   const baseProblem = buildColonyProblem(
@@ -1244,7 +1386,9 @@ export function solveColony(
     compileGoal(goal),
     prevBankDraw,
     detectLinkDepositPorts(),
-    seedCharge
+    seedCharge,
+    prevFundedRemoteRooms,
+    fielded
   );
   // THE STRATEGIC SEARCH (spec 18 P1, live from day one): planColony is the
   // evaluator; the searcher may pin budget-dropped sources to spawns with
@@ -1288,7 +1432,7 @@ export function solveColony(
       buildColonyProblem(
         graph, dist, transientSources, detectLinkHaulPositions(graph), detectPavedSources(),
         bankSources, INVADER_TAX_PER_ENERGY, compileGoal(goal), prevBankDraw,
-        detectLinkDepositPorts(), perSpawn
+        detectLinkDepositPorts(), perSpawn, prevFundedRemoteRooms, fielded
       )
     );
 
@@ -1310,7 +1454,8 @@ export function solveColony(
     production: searched.plan.totalOverhead,
     infra: baseProblem.infraEnergyPerTick ?? 0,
     spawnCount,
-    passes: converged.passes
+    passes: converged.passes,
+    ...(baseProblem.infraInputs ? { infraInputs: baseProblem.infraInputs } : {})
   };
   const problem = searched.problem;
   const plan = searched.plan;
@@ -1355,9 +1500,11 @@ export function solveColony(
     // (the v8 hauler-spawnParts pattern). Construction only: the controller
     // line's ledger model deliberately stays plan-side workParts.
     const charge = k.kind === "construction" ? consumerSpawnLoad(problem, k, sinkPosById.get(k.sinkId)) : null;
+    const roomName = sinkPosById.get(k.sinkId)?.roomName;
     return {
       sinkId: k.sinkId,
       sinkType: sinkTypeById.get(k.sinkId) ?? "controller",
+      ...(roomName ? { roomName } : {}),
       allocated: k.allocated,
       demand: k.demand,
       unmet: Math.max(0, k.demand - k.allocated),
@@ -1389,6 +1536,19 @@ export function solveColony(
     totalOverhead,
     spawnMaintenance: spawnMaintenanceStamp,
     ...(fleetChargeStamp ? { fleetCharge: fleetChargeStamp } : {}),
+    // The funded remote set this solve actually worked - persisted by the
+    // execution layer (Memory.fundedRemoteRooms) to price the NEXT solve's
+    // reserver upkeep from reality (see buildColonyProblem.remoteRooms).
+    fundedRemoteRooms: (() => {
+      const spawnRoomSet = new Set(problem.spawns.map(s => s.pos.roomName));
+      const srcById = new Map(problem.sources.map(s => [s.id, s]));
+      const rooms = new Set<string>();
+      for (const m of plan.miners) {
+        const rn = srcById.get(m.sourceId)?.pos.roomName;
+        if (rn && !spawnRoomSet.has(rn)) rooms.add(rn);
+      }
+      return [...rooms].sort();
+    })(),
     netEnergy: netEnergyTotal,
     efficiency: totalHarvest > 0 ? (netEnergyTotal / totalHarvest) * 100 : 0,
     unmetDemand,
@@ -1443,9 +1603,12 @@ export class FlowEconomy {
    * governor's solve interval and the bootstrap eager-solve gate - so this
    * always solves when called.
    */
-  public update(tick: number): void {
+  public update(tick: number, fielded?: Record<string, FieldedFleet>): void {
     // The goal is EXECUTION-owned state (Memory.goal, set by the operator via
     // global.setGoal); the pure layers only ever receive it as an argument.
+    // `fielded` (spec 39 phase 2) arrives as an ARGUMENT, not via Memory: it
+    // is a live snapshot owned by the execution layer's commission store
+    // (CommissionHost.assembleFieldedFleets), not persisted history.
     const goal: Goal | undefined = typeof Memory !== "undefined" ? Memory.goal : undefined;
     // The previous solve's realized bank draw (consumer allocations drawn
     // from the hub) - the feeder-pricing signal that breaks the starvation
@@ -1459,12 +1622,34 @@ export class FlowEconomy {
     // solve's fixed-point iteration so a steady-state replan spends no extra
     // searches re-deriving it.
     const prevFleetCharge = typeof Memory !== "undefined" ? Memory.lastFleetCharge : undefined;
-    const result = solveColony(this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw, prevFleetCharge);
+    // Same lifetime and rationale as the two above: the funded remote set
+    // prices the next solve's reserver upkeep from the rooms actually worked.
+    const prevFundedRemoteRooms = typeof Memory !== "undefined" ? Memory.fundedRemoteRooms : undefined;
+    const result = solveColony(
+      this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw, prevFleetCharge, prevFundedRemoteRooms,
+      fielded
+    );
     if (typeof Memory !== "undefined") {
       Memory.lastFleetCharge = result.solution.spawnMaintenance;
+      Memory.fundedRemoteRooms = result.solution.fundedRemoteRooms;
       Memory.lastBankDraw = result.solution.sinkAllocations
         .filter(a => a.sinkType === "controller" || a.sinkType === "construction")
         .reduce((sum, a) => sum + a.allocated, 0);
+      // Publish the plan's routed controller allocation PER ROOM (spec 38
+      // phase B) - the ONE number every runtime reader that asks "how fast
+      // does energy reach this controller" resolves through
+      // bank.plannedControllerFlow: the feeder trunk's road-payback flow
+      // (ConstructionCorp), and any future reader. The feeder corp itself
+      // receives the same solve's number through its commission
+      // (controllerFeederKind), so the two channels cannot disagree by more
+      // than one solve's staleness. Same publish-don't-rederive pattern as
+      // warchestTarget above.
+      const ctrlByRoom: Record<string, number> = {};
+      for (const a of result.solution.sinkAllocations) {
+        if (a.sinkType !== "controller" || !a.roomName) continue;
+        ctrlByRoom[a.roomName] = (ctrlByRoom[a.roomName] ?? 0) + a.allocated;
+      }
+      Memory.controllerAllocations = ctrlByRoom;
       // Publish the liquidity reserve target for next solve's bank-surplus
       // emission and every consumer that sizes off it (bank.resolveReserveTarget).
       // Income is the colony's sustained mined rate - the SAME set and rule as

@@ -93,3 +93,43 @@ describe("loss primitives - pricing decay in energy", () => {
     });
   });
 });
+
+/**
+ * SPEC 42 STAGE A: every loss line gets a BUDGET, priced by a primitive.
+ *
+ * - Pile decay: the plan's own gate (SOURCE_BUFFER_DEFER_THRESHOLD) holds a
+ *   mouth AT the container cap, so the level the plan INTENDS carries zero
+ *   ground share - the budget is zero, and every measured e/t of ground decay
+ *   is priced unfavorable variance pointing at the haul deficit (E6), never
+ *   silently absorbed. The budget composes the SAME pileDecayRate the meter
+ *   integrates (one formula home, pinned here to 1e-9).
+ * - Tombstones: the plan already prices raid attrition at admission - the
+ *   invader tax. The budget IS that term (INVADER_TAX_PER_ENERGY x taxed
+ *   capacity), so the account's tombstone variance and R1's calibration read
+ *   the same constant, and the >=10-window swap moves both together.
+ */
+describe("loss budgets (spec 42 stage A: every loss has a budget)", () => {
+  it("pileDecayBudget prices the GROUND share above the container cap via the meter's own rate", async () => {
+    const { pileDecayBudget, pileDecayRate, CONTAINER_CAP, SOURCE_BUFFER_DEFER_THRESHOLD } = (await import(
+      "../../../src/economy/primitives"
+    )) as any;
+    expect(CONTAINER_CAP).to.equal(2000); // engine CONTAINER_CAPACITY
+    // The gate's design point: mouth AT the threshold = container full, ground 0.
+    expect(pileDecayBudget(SOURCE_BUFFER_DEFER_THRESHOLD)).to.equal(0);
+    expect(pileDecayBudget(2000)).to.equal(0);
+    // Overshoot prices at the engine law on the ground share - EXACTLY the
+    // meter's rate (one home, 1e-9).
+    expect(pileDecayBudget(3375)).to.be.closeTo(pileDecayRate(3375 - 2000), 1e-9);
+    expect(pileDecayBudget(3375)).to.equal(2);
+    expect(pileDecayBudget(0)).to.equal(0);
+    expect(pileDecayBudget(-5)).to.equal(0);
+  });
+
+  it("tombstoneLossBudget is the invader tax on the taxed capacity - the R1 constant, one home", async () => {
+    const { tombstoneLossBudget, INVADER_TAX_PER_ENERGY } = (await import(
+      "../../../src/economy/primitives"
+    )) as any;
+    expect(tombstoneLossBudget(80)).to.be.closeTo(INVADER_TAX_PER_ENERGY * 80, 1e-9);
+    expect(tombstoneLossBudget(0)).to.equal(0);
+  });
+});

@@ -22,19 +22,24 @@ import {
   CARRY_MOVE_PAIR_COST,
   CLAIM_LIFETIME,
   CREEP_LIFETIME,
+  INVADER_TAX_PER_ENERGY,
   LINK_TRANSFER_LOSS,
   MINER_COST,
   MINER_PARTS,
   RESERVER_DUTY,
+  SOURCE_BUFFER_DEFER_THRESHOLD,
   SOURCE_RATE,
   SOURCE_REGEN_TIME,
   SPAWN_PARTS_PER_TICK,
   carryPartsFor,
   effectiveLife,
   haulerOverhead,
-  minerOverhead
+  minerOverhead,
+  pileDecayBudget,
+  reserverSpawnLoad,
+  tombstoneLossBudget
 } from "../src/economy/primitives";
-import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } from "../src/economy/bank";
+import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerRate } from "../src/economy/bank";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -53,6 +58,50 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  * 1: energy account (revenue / direct / overhead / appropriations / residual),
  *    budget-vs-actual-vs-variance, source P&L, controller variance bridge,
  *    ground rot split, capital vs operating, reserving as COGS.
+ * 9: EVERY LOSS HAS A BUDGET (spec 42 stage A). The MEASURED LOSSES block
+ *    gains a BUDGET column priced by primitives: pile decay budgets ZERO
+ *    (pileDecayBudget at the gate's own design point - the plan intends every
+ *    mouth AT the container cap, so all measured ground decay is priced
+ *    UNFAVORABLE variance pointing at the haul deficit, no longer a neutral
+ *    memo); tombstones budget the invader tax on R1's capacity basis
+ *    (tombstoneLossBudget - one constant home, both rows move at the
+ *    >=10-window swap); repair budgets the structure-decay ACCRUAL (the
+ *    depreciation memo's shortfall becomes a priced variance). The L1 gauge
+ *    FAILs any line breaching 25% of budget (0.25 e/t noise floor). A #8
+ *    losses block has no budget side; #9 variances are new information, not
+ *    a change in the measured actuals.
+ * 8: BUDGETS PRICE THE SHIPPED BEHAVIOR, RECEIPTS BOOK THE DEBIT. Three
+ *    second-implementation lies die at once, so #7-vs-#8 variances shift by
+ *    their sum (~12 e/t of the #7 surface was these, not economics):
+ *    (a) the reserver budget prices RESERVER_DUTY 0.5 via the new
+ *    primitives.reserverSpawnLoad (the whole +8.02 F reservation variance was
+ *    this script re-pricing continuous duty 1.0 - measured 8.83 = 0.524x
+ *    budget, the duty ratio); (b) the evacuation budget converts the plan's
+ *    OWN paved-aware parts (spawnParts x 50e exactly) instead of
+ *    haulerOverhead's flat 1:1 100e/CARRY (which carried -2.82 e/t of slack
+ *    that MASKED breach; the plan's energy side keeps the 1:1 price until the
+ *    phase-1 repricing and the footer prints the internal gap); (c) the
+ *    blackbox spawn receipt's `cost` becomes the energy actually DEBITED for
+ *    the body - the demand now prices the body it elicits per route ratio
+ *    (2:1 road = 75e/CARRY, 1:2 swamp = 150e/CARRY) and executeSpawn returns
+ *    {parts, cost} - where #4-#7 receipts booked the GRANT (+3.99 e/t of
+ *    phantom evacuation spend, 63-65 e/part observed against a physical 50).
+ *    A #7 spawn line and an #8 spawn line differ by booking bias; do not
+ *    read the drop as a behavior change.
+ * 7: SPAWN COSTS are differenced from CUMULATIVE role totals (core v25,
+ *    Memory.spawnLedger) instead of read off the blackbox ring, completing what
+ *    #5 did for losses: every account side now spans the capture window and the
+ *    WINDOW INCOHERENCE guard goes structurally quiet on modern capture pairs.
+ *    Two changes of meaning: (a) a #6 spawn line is a post-deploy ring sample
+ *    (480t live) while a #7 line is the full window - NOT comparable across the
+ *    bump; (b) the cumulative side accrues the energy actually DEBITED for the
+ *    body where the ring records the budget GRANTED, so #7 spawn lines read
+ *    slightly lower on the same colony, and scout/bootstrap purchases (which
+ *    bypass the director's receipt) are counted for the first time. Tombstone
+ *    CAUSE also becomes evidence-based here: killed/expired come from the death
+ *    watch (last-seen TTL vs deathTime), an unresolvable death lands in an
+ *    honest UNKNOWN bucket, and the #4-#6 "expired 100%" readings (a misread
+ *    constant field, flagged SUSPECT by their own audit line) are voided.
  * 6: the LINK TRANSFER TAX moves from LOSSES into DIRECT COST OF MINING, beside
  *    evacuation (owner 2026-08-02: "link tax is similar to haul body"). Both are
  *    per-source costs scaling with the flow they move; only the currency differs
@@ -86,7 +135,7 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
  *    the newly-attributed losses.
  */
-export const METHODOLOGY = 6;
+export const METHODOLOGY = 10;
 
 export interface LedgerRow {
   id: string;
@@ -230,7 +279,7 @@ export function planSpawnLoad(cap: any): {
     const parts = ctrl.workParts * upgraderPartsPerWork(corps);
     lines.push(["upgraders (plan WORK)", parts, parts / effectiveLife(10)]);
   }
-  const relay = feederRelayRate(banked, BASE_RESERVE);
+  const relay = bankFedControllerRate(banked, BASE_RESERVE);
   // LINK-FED feeder charges at distance 1, not the nominal 6 (owner
   // 2026-07-22 "the feeder seems way too large": this line overcharged 64p
   // vs the true ~18-22p link-fed body all week, inflating P4 ~0.03
@@ -270,8 +319,25 @@ export function planSpawnLoad(cap: any): {
       const body = c.creepCount > 0 ? c.bodyParts / c.creepCount : resFallback;
       return sum + targets * body;
     }, 0);
-  const resLoad = resParts / Math.max(1, CLAIM_LIFETIME - 60);
+  // Amortized by the ONE home (methodology #8): reserverSpawnLoad prices the
+  // SHIPPED duty cycle (RESERVER_DUTY stints over the walk-adjusted claim
+  // life). This script's own continuous-duty recompute was the entire +8.02 F
+  // "favorable" reservation variance - measured spend 8.83 e/t was 0.524x a
+  // 16.85 budget, i.e. exactly the duty ratio the audit refused to price.
+  const resLoad = reserverSpawnLoad(resParts);
   lines.push(["reservers (claim life)", resParts, resLoad]);
+
+  // DEFENSE (phase 1): raidGuard was F1's one standing UNPRICED class (0.027
+  // p/t live, 1.73 e/t of spend with a "-" budget on the account's defense
+  // line). Priced at the STANDING fleet's replacement cadence - per-corp
+  // summed like reservation (the per-room trap), each corp's own measured
+  // body, guards replaced over a creep lifetime. A colony with no standing
+  // guards prices zero - the raid-driven surge is exactly what the invader
+  // tax (phase-1's other defense seam) prices at ADMISSION, not here.
+  const guardParts = corps
+    .filter(c => c.kind === "raidGuard")
+    .reduce((sum, c) => sum + (c.creepCount > 0 ? c.bodyParts : 0), 0);
+  if (guardParts > 0) lines.push(["defense (guards)", guardParts, guardParts / 1500]);
 
   const total = lines.reduce((s, [, , x]) => s + x, 0);
 
@@ -295,7 +361,13 @@ export function planSpawnLoad(cap: any): {
   const energy: Record<string, number> = {};
   for (const [name, , load] of lines) {
     const flat = ENERGY_PER_PART[name] ?? (name.startsWith("feeder") ? CARRY_MOVE_PAIR_COST / 2 : undefined);
-    const rate = flat ?? (name.startsWith("upgraders") ? mixedRate("upgrade", 85) : mixedRate("construction", 65));
+    const rate =
+      flat ??
+      (name.startsWith("upgraders")
+        ? mixedRate("upgrade", 85)
+        : name.startsWith("defense")
+          ? mixedRate("raidGuard", 80)
+          : mixedRate("construction", 65));
     energy[name] = load * rate;
   }
   return { total, lines, energy };
@@ -447,7 +519,11 @@ export const F1_CLASS_OF_KIND: Record<string, string> = {
   tender: "tenders",
   controllerFeeder: "feeder",
   reservation: "reservers",
-  upgrade: "upgraders"
+  upgrade: "upgraders",
+  // Priced since phase 1 (standing-fleet replacement cadence in
+  // planSpawnLoad) - raidGuard was the one class F1 flagged UNPRICED on
+  // every live cycle (0.027 p/t / 1.73 e/t of real defense spend).
+  raidGuard: "defense (guards)"
 };
 
 /** Plan-line prefix that each actual class settles against. */
@@ -458,7 +534,8 @@ export const F1_PLAN_PREFIX: Record<string, string[]> = {
   tenders: ["tenders"],
   feeder: ["feeder"],
   reservers: ["reservers"],
-  upgraders: ["upgraders"]
+  upgraders: ["upgraders"],
+  "defense (guards)": ["defense (guards)"]
 };
 
 /**
@@ -601,6 +678,105 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       });
     }
   }
+  // ---- F2 per-commission fleet fidelity (spec 39 phase 1) ----
+  // F1 answers "does the colony build what the plan prices" at CLASS grain;
+  // F2 joins each commission's own declared fleet (segment 4 v15 `fleet` -
+  // the envelope's role decomposition, Sigma(load) == its price by
+  // construction) against the SAME row's measured bodyParts. The leak lands
+  // with a commission id attached instead of a class name. Two-sided like F1.
+  // Basis honesty: declared `parts` is the steady-state standing target;
+  // measured bodyParts includes replacement overlap and walk-in time, so
+  // per-row noise is expected - the gauge aggregates and names only the worst
+  // offenders. Rows without a declaration (aux kinds until spec 39 phase 4,
+  // pre-v15 captures) are excluded from the basis; none at all -> no row,
+  // never a fake zero.
+  {
+    const corpsRows: any[] = cap.data?.corps?.corps ?? [];
+    const declaring = corpsRows.filter(c => c.fleet && typeof c.fleet === "object");
+    if (declaring.length > 0) {
+      const perRow = declaring.map(c => {
+        const planned = Object.keys(c.fleet).reduce((s, role) => s + (+c.fleet[role]?.parts || 0), 0);
+        const actual = +c.bodyParts || 0;
+        return { id: String(c.id), planned, actual, gap: actual - planned };
+      });
+      const plannedSum = perRow.reduce((s, r) => s + r.planned, 0);
+      const absGapSum = perRow.reduce((s, r) => s + Math.abs(r.gap), 0);
+      if (plannedSum > 0) {
+        const frac = absGapSum / plannedSum;
+        const worst = [...perRow].sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap)).slice(0, 3)
+          .filter(r => Math.abs(r.gap) > 0.5);
+        rows.push({
+          id: "F2",
+          name: "per-commission fleet fidelity (fielded vs declared parts)",
+          value: +frac.toFixed(3),
+          unit: "frac of declared",
+          // >1.0: the misallocation exceeds the entire declared basis -
+          // structurally wrong, not lifecycle noise. 0.5 starts the warning
+          // band wide (replacement overlap double-counts briefly); ratchet
+          // as measured steady-state arrives.
+          verdict: frac > 1.0 ? "FAIL" : frac >= 0.5 ? "WARN" : "ok",
+          detail:
+            `${declaring.length} commissions declare ${plannedSum.toFixed(0)}p standing; ` +
+            `fielded ${perRow.reduce((s, r) => s + r.actual, 0)}p; |gap| ${absGapSum.toFixed(0)}p` +
+            (worst.length
+              ? `; worst: ` + worst.map(r => `${r.id} ${r.actual}p vs ${r.planned.toFixed(0)}p (${r.gap > 0 ? "+" : "-"}${Math.abs(r.gap).toFixed(0)})`).join(", ")
+              : "")
+        });
+      }
+    }
+  }
+
+  // ---- F3 output fidelity (spec 40-A's contract OUTPUT term, commission grain) ----
+  // F1/F2 audit the PRICE term; F3 audits what each mining commission
+  // PRODUCED against the plan's own per-source rate: the v14 cumulative
+  // `produced` counter differenced across the capture pair, joined to flow
+  // sources by the P&L's corp-id construction. Two-sided. A negative delta is
+  // a corp REBUILT mid-window (the counter rides the store serialize) -
+  // skipped and counted, never booked as output.
+  {
+    const capCorpsF3 = new Map(((cap.data?.corps?.corps ?? []) as any[]).map(c => [c.id, c]));
+    const baseCorpsF3 = new Map(((base.data?.corps?.corps ?? []) as any[]).map(c => [c.id, c]));
+    const roomOfF3 = (nodeId: string): string => String(nodeId).split("-")[0];
+    const joined: { id: string; declared: number; actual: number }[] = [];
+    let resets = 0;
+    for (const src of (cap.data?.flow?.sources ?? []) as any[]) {
+      const corpId = `mining-${roomOfF3(src.nodeId)}-harvest-${String(src.id).slice(-4)}`;
+      const a = capCorpsF3.get(corpId);
+      const b = baseCorpsF3.get(corpId);
+      if (!a || !b || a.produced === undefined || b.produced === undefined || dt <= 0) continue;
+      const delta = (+a.produced || 0) - (+b.produced || 0);
+      if (delta < 0) {
+        resets += 1;
+        continue;
+      }
+      joined.push({ id: corpId, declared: +src.harvestRate || 0, actual: delta / dt });
+    }
+    const declaredSum = joined.reduce((s, r) => s + r.declared, 0);
+    if (joined.length > 0 && declaredSum > 0) {
+      const gapSum = joined.reduce((s, r) => s + Math.abs(r.actual - r.declared), 0);
+      const frac = gapSum / declaredSum;
+      const worst = [...joined].sort((a, b) => Math.abs(b.actual - b.declared) - Math.abs(a.actual - a.declared))
+        .slice(0, 3)
+        .filter(r => Math.abs(r.actual - r.declared) > 0.5);
+      rows.push({
+        id: "F3",
+        name: "output fidelity (produced vs declared, per mining commission)",
+        value: +frac.toFixed(3),
+        unit: "frac of declared",
+        verdict: frac > 0.5 ? "FAIL" : frac >= 0.25 ? "WARN" : "ok",
+        detail:
+          `${joined.length} commissions declare ${declaredSum.toFixed(0)} e/t; |gap| ${gapSum.toFixed(1)} e/t` +
+          (resets > 0 ? `; ${resets} reset (rebuilt mid-window, excluded)` : "") +
+          (worst.length
+            ? `; worst: ` +
+              worst
+                .map(r => `${r.id} ${r.actual.toFixed(1)} vs ${r.declared.toFixed(1)} (${r.actual >= r.declared ? "+" : "-"}${Math.abs(r.actual - r.declared).toFixed(1)})`)
+                .join(", ")
+            : "")
+      });
+    }
+  }
+
   rows.push({
     id: "P4",
     name: "plan spawn-infeasibility",
@@ -1064,6 +1240,34 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     });
   }
 
+  // ---- S5 spawn-throughput headroom: the replacement treadmill's ceiling ----
+  // Measured saturation vs the physical build rate, with the PLAN's own need
+  // beside it. The colony ran at 90% of ceiling on the t72734018 pair with a
+  // plan needing only 0.51x - the difference is unplanned replacement (churn),
+  // and it is the colony's surge margin: a second simultaneous raid wave
+  // arrives ON TOP of a saturated pipe (buffers back up -> miners held ->
+  // income falls exactly while replacement demand peaks). A booked ledger row
+  // so the risk is visible BEFORE the cascade, not diagnosed after it.
+  {
+    const spawns = (core.spawns ?? []) as { partsPerTick?: number }[];
+    const measured = spawns.reduce((s, x) => s + (+(x.partsPerTick ?? 0) || 0), 0);
+    const physical = spawns.length * SPAWN_PARTS_PER_TICK;
+    if (spawns.some(s => s.partsPerTick !== undefined) && physical > 0) {
+      const saturation = measured / physical;
+      rows.push({
+        id: "S5",
+        name: "spawn-throughput headroom (surge margin)",
+        value: +saturation.toFixed(2),
+        unit: "x physical ceiling",
+        verdict: saturation > 0.92 ? "FAIL" : saturation > 0.85 ? "WARN" : "ok",
+        detail:
+          `building ${measured.toFixed(3)} p/t of ${physical.toFixed(3)} physical - ` +
+          `${((1 - saturation) * 100).toFixed(0)}% surge margin for raids/recovery; ` +
+          `plan-implied is the P4 row - the gap between them is unplanned replacement (churn)`
+      });
+    }
+  }
+
   // ---- H1 hauler execution duty: are fielded haulers working or waiting? ----
   // The (a) vs (c) disambiguator (owner 2026-07-25). Reads the v?/segment-4
   // CarryCorp duty stamp (active vs idle-empty vs idle-loaded, realized). High
@@ -1071,12 +1275,27 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   // is inflow-sized, no drain term) - a plan fix. Low duty / high idleSource
   // => execution loss (energy standing, haulers idle/blocked) - a behavior fix.
   // idleSink => sink backpressure (storage/port full). Absent pre-instrument.
+  //
+  // BASIS = top-level carry corps PLUS the operations' inner haul engines
+  // (innerSizing type "hauling", corps v13/spec 34 D5 - published precisely
+  // because the biggest hauling spend rides INSIDE harvest operations).
+  // Until phase 3 of the income-statement program H1 read only the former,
+  // so its duty basis was the 0-3 standalone survivors while 8+ operation
+  // engines went uncounted (t72743103: 8 inner stamps, 0 carry corps, H1
+  // silently absent). Inner stamps weight by their OWN fielded creeps (the
+  // stamp's `creeps`), never the operation's creepCount (that counts miners).
   {
-    const haulers = corps.filter(c => c.kind === "carry" && c.sizing && c.sizing.duty !== undefined);
-    const creeps = haulers.reduce((s, c) => s + (c.creepCount || 0), 0);
+    const haulers: { sizing: any; weight: number }[] = [];
+    for (const c of corps) {
+      if (c.kind === "carry" && c.sizing && c.sizing.duty !== undefined)
+        haulers.push({ sizing: c.sizing, weight: c.creepCount || 0 });
+      for (const i of c.innerSizing ?? [])
+        if (i.type === "hauling" && i.sizing && i.sizing.duty !== undefined)
+          haulers.push({ sizing: i.sizing, weight: i.sizing.creeps || 0 });
+    }
+    const creeps = haulers.reduce((s, c) => s + c.weight, 0);
     if (haulers.length > 0 && creeps > 0) {
-      const wavg = (f: string): number =>
-        haulers.reduce((s, c) => s + (c.sizing[f] || 0) * (c.creepCount || 0), 0) / creeps;
+      const wavg = (f: string): number => haulers.reduce((s, c) => s + (c.sizing[f] || 0) * c.weight, 0) / creeps;
       const duty = wavg("duty");
       const idleSource = wavg("idleSourceFrac");
       const idleSink = wavg("idleSinkFrac");
@@ -1112,6 +1331,54 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
               ? `- idleSink AT-SINK, storage HAD ROOM (${atSinkStorageRoom.toFixed(2)}) => SPATIAL contention at the deposit (queue / parked mover), not saturation => geometry/deposit-spread fix`
               : "- idleSink AT-SINK, storage FULL => sink saturation (spill the load / open the drain)"
             : "- buffers near cap, no leak")
+      });
+    }
+  }
+
+  // ---- H3 chronic mouth: buffer full at BOTH ends, zero drain fielded ----
+  // The t72654979 cd8e signature as a STANDING gauge: a source buffer over
+  // the container cap at BOTH captures whose haul stamp fields ZERO drain
+  // creeps at the capture end - cd8e grew 2649 -> 3874 across a whole window
+  // with creeps 0, chronic for 512t, found only by hand in the E6 audit.
+  // Reads the same merged haul-stamp basis as H1 (top-level carry corps +
+  // inner "hauling" engines), matched per corp/engine across the pair.
+  // GROWING is the disease (FAIL); flat-but-full with no drain is a WARN
+  // (could be a just-retired route scavenging down). A fielded drain creep,
+  // an under-cap mouth, or captures predating the stamps stay silent.
+  {
+    const CONTAINER_CAP = 2000;
+    const haulStampsOf = (arr: any[]): Map<string, any> => {
+      const m = new Map<string, any>();
+      for (const c of arr ?? []) {
+        if (c.kind === "carry" && c.sizing && c.sizing.staged !== undefined) m.set(c.id, c.sizing);
+        for (const i of c.innerSizing ?? [])
+          if (i.type === "hauling" && i.sizing && i.sizing.staged !== undefined) m.set(`${c.id}/${i.nodeId}`, i.sizing);
+      }
+      return m;
+    };
+    const capStamps = haulStampsOf(cap.data.corps?.corps ?? []);
+    const baseStamps = haulStampsOf(base.data.corps?.corps ?? []);
+    const chronic: { id: string; from: number; to: number; growing: boolean }[] = [];
+    for (const [id, s] of capStamps) {
+      const b = baseStamps.get(id);
+      if (!b) continue;
+      const to = s.staged ?? 0;
+      const from = b.staged ?? 0;
+      if (to <= CONTAINER_CAP || from <= CONTAINER_CAP) continue; // full at BOTH ends or it's just staging
+      if ((s.creeps ?? 0) > 0) continue; // a drain IS fielded - the route works the pile
+      chronic.push({ id, from, to, growing: to > from + 1 });
+    }
+    if (chronic.length > 0) {
+      const growing = chronic.filter(c => c.growing);
+      rows.push({
+        id: "H3",
+        name: "chronic mouth (buffer full, no drain fielded)",
+        value: chronic.length,
+        unit: "mouths over cap with zero drain creeps at both captures",
+        verdict: growing.length > 0 ? "FAIL" : "WARN",
+        detail:
+          chronic.map(c => `${c.id} ${Math.round(c.from)}->${Math.round(c.to)}${c.growing ? " GROWING" : ""}`).join("; ") +
+          " - the cd8e class: order the drain (the plan's bufferDrainCarry term should have caught this - check the route's carryNeeded vs fielded)"
       });
     }
   }
@@ -1588,10 +1855,101 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         // fix removed. Any excess at all is worth a WARN once it is measurable.
         verdict: worstRatio >= 2.5 ? "FAIL" : pt > 0 ? "WARN" : "ok",
         detail:
-          `${stamped}/${judged} judged against the corp's OWN carryNeeded stamp (rest against the plan route, drain-blind) - ` +
+          `${stamped}/${judged} judged against the corp's OWN carryNeeded stamp (rest against the plan route, drain-priced since #8) - ` +
           (worstRatio > 0
             ? `worst ${worst}; ${overParts.toFixed(0)} parts over ${window}t`
             : `every hauler body within ${OVERBUILD_TOLERANCE}x its route's need`)
+      });
+    }
+  }
+
+  // ---- R1 raid-tax calibration (measured attrition vs the priced tax) ----
+  //
+  // The invader tax's 750e constant prices ONE GUARD BODY per expected raid -
+  // its own doc calls it "a DERIVED starting point" awaiting measured
+  // replacement at >= 10 fiscal windows (the multi-draw rule). Until the
+  // constant swaps, THIS row accumulates the evidence at every close: what
+  // raids actually cost (killed-cargo from the death watch, capture-window
+  // cumulative + early-death body churn from the ring, its own window
+  // stated) against what the plan charges. FY4849-M03's first read: kills at
+  // mean ttl 621 with the tax covering a small fraction - the plan admits
+  // remotes at margins the raid reality does not deliver.
+  {
+    const cc = cap.data.core?.losses?.cumulative as Record<string, number> | undefined;
+    const cb = base.data.core?.losses?.cumulative as Record<string, number> | undefined;
+    const killedCargo =
+      cc?.tombstoneKilled !== undefined && cb?.tombstoneKilled !== undefined
+        ? Math.max(0, (cc.tombstoneKilled ?? 0) - (cb.tombstoneKilled ?? 0)) / dt
+        : null;
+    const churnR1 = computeChurn(cap);
+    const bodyChurn =
+      churnR1 && churnR1.windowTicks > 0 ? churnR1.remoteChurn / churnR1.windowTicks : null;
+    const grossCap = ((cap.data.flow?.sources ?? []) as any[]).reduce(
+      (n: number, s: any) => n + (+s.harvestRate || 0),
+      0
+    );
+    const priced = INVADER_TAX_PER_ENERGY * grossCap;
+    if (killedCargo !== null && priced > 0) {
+      const measured = killedCargo + (bodyChurn ?? 0);
+      const ratio = measured / priced;
+      rows.push({
+        id: "R1",
+        name: "raid-tax calibration (measured attrition vs priced)",
+        value: +ratio.toFixed(1),
+        unit: "x the priced tax",
+        // The constant is KNOWN provisional; the row is a gauge, so it never
+        // FAILs - it accumulates toward the >=10-window calibration bar.
+        verdict: ratio > 3 || ratio < 1 / 3 ? "WARN" : "ok",
+        detail:
+          `measured ${measured.toFixed(2)} e/t (killed cargo ${killedCargo.toFixed(2)} full-window` +
+          (bodyChurn !== null ? ` + remote churn bodies ${bodyChurn.toFixed(2)} over ${churnR1!.windowTicks}t ring` : "") +
+          `) vs priced ${priced.toFixed(2)} (${INVADER_TAX_PER_ENERGY.toFixed(4)}/e x ${grossCap.toFixed(0)} e/t capacity); ` +
+          `swap EXPECTED_RAID_DEFENSE_COST only at >=10 accumulated fiscal windows`
+      });
+    }
+  }
+
+  // ---- L1 loss-budget adherence (spec 42 stage A: every loss has a budget) ----
+  //
+  // The MEASURED LOSSES block prices each line from a primitive (never "-"):
+  // pile decay budgets ZERO (pileDecayBudget at the gate's own design point -
+  // the plan intends every mouth held AT the container cap, so all measured
+  // ground decay is priced unfavorable variance pointing at the haul deficit);
+  // tombstones budget the invader tax on R1's capacity basis (one constant
+  // home - the two rows move together at the >=10-window swap); repair budgets
+  // the structure-decay ACCRUAL (service what decays - the depreciation memo's
+  // shortfall becomes priced variance). FAIL when any line breaches 25% of its
+  // budget, with a 0.25 e/t noise floor so a zero budget never FAILs on dust.
+  {
+    const cc = cap.data.core?.losses?.cumulative as Record<string, number> | undefined;
+    const cb = base.data.core?.losses?.cumulative as Record<string, number> | undefined;
+    if (cc && cb && dt > 0) {
+      const d = (k: string): number => Math.max(0, (cc[k] ?? 0) - (cb[k] ?? 0)) / dt;
+      const sources = (cap.data.flow?.sources ?? []) as any[];
+      const grossCapL1 = sources.reduce((n: number, s: any) => n + (+s.harvestRate || 0), 0);
+      const NOISE_FLOOR = 0.25; // e/t - dust under this never breaches a zero budget
+      const lines = [
+        // Every mouth at the gate's design point carries zero ground share.
+        { name: "pile decay", actual: d("pileDecay"), budget: sources.length * pileDecayBudget(SOURCE_BUFFER_DEFER_THRESHOLD) },
+        { name: "tombstones", actual: Math.max(0, d("tombstoneGross") - d("tombstoneRecovered")), budget: tombstoneLossBudget(grossCapL1) },
+        { name: "repair", actual: d("repairSpend"), budget: d("structureDecay") }
+      ].map(l => {
+        const tolerance = Math.max(0.25 * l.budget, NOISE_FLOOR);
+        const gap = l.actual - l.budget;
+        return { ...l, gap, ratio: Math.abs(gap) / Math.max(l.budget, NOISE_FLOOR), breach: Math.abs(gap) > tolerance };
+      });
+      const breached = lines.filter(l => l.breach);
+      const worst = [...lines].sort((a, b) => b.ratio - a.ratio)[0];
+      rows.push({
+        id: "L1",
+        name: "loss-budget adherence (every loss priced, spec 42-A)",
+        value: +worst.ratio.toFixed(2),
+        unit: "x budget |gap| (worst line)",
+        verdict: breached.length > 0 ? "FAIL" : "ok",
+        detail:
+          lines
+            .map(l => `${l.breach ? "BREACH " : ""}${l.name} ${l.actual.toFixed(2)} vs budget ${l.budget.toFixed(2)} (${l.gap >= 0 ? "+" : ""}${l.gap.toFixed(2)})`)
+            .join("; ") + `; tolerance 25% of budget, floor ${NOISE_FLOOR} e/t`
       });
     }
   }
@@ -1896,17 +2254,53 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const ring = rows0.length > 1 ? rows0[rows0.length - 1].t - rows0[0].t : 0;
   const spawnRows = rows0.filter(r => r.k === "spawn" && r.d?.cost);
 
+  // SPAWN COSTS OVER THE CAPTURE WINDOW (methodology #7). The blackbox ring is
+  // heap state: a deploy restarts it, so every "measured at the spawn" line
+  // sampled a post-deploy window (480t live) against a 1500-tick fiscal month
+  // and the coherence guard fired on essentially every close. The spawn ledger
+  // (core v25) publishes CUMULATIVE energy-by-role totals; when BOTH captures
+  // carry them the account differences those - the same shape as gcl.progress,
+  // storage and the loss lines - and the ring remains only the forensic
+  // fallback for older captures, stated as such in the header.
+  const spendOf = (c: any): { energyByRole: Record<string, number> } | undefined => c.data.core?.spawnSpend;
+  const spendCap = spendOf(cap);
+  const spendBase = spendOf(base);
+  const spawnSpanned = spendCap !== undefined && spendBase !== undefined;
+
   const cost: Record<string, number> = {
     extraction: 0, evacuation: 0, reservation: 0,
     infra: 0, defense: 0, consumers: 0, expansion: 0, incursion: 0, other: 0
   };
   const unknownRoles = new Set<string>();
-  for (const r of spawnRows) {
-    const cls = ACCOUNT_CLASS_OF_ROLE[r.d.role];
-    if (!cls) unknownRoles.add(r.d.role);
-    cost[cls ?? "other"] += r.d.cost;
+  if (spawnSpanned) {
+    const roles = new Set([...Object.keys(spendCap.energyByRole ?? {}), ...Object.keys(spendBase.energyByRole ?? {})]);
+    for (const role of roles) {
+      const spent = Math.max(0, (spendCap.energyByRole?.[role] ?? 0) - (spendBase.energyByRole?.[role] ?? 0));
+      if (spent <= 0) continue;
+      const cls = ACCOUNT_CLASS_OF_ROLE[role];
+      if (!cls) unknownRoles.add(role);
+      cost[cls ?? "other"] += spent;
+    }
+  } else {
+    for (const r of spawnRows) {
+      const cls = ACCOUNT_CLASS_OF_ROLE[r.d.role];
+      if (!cls) unknownRoles.add(r.d.role);
+      cost[cls ?? "other"] += r.d.cost;
+    }
   }
-  const perTick = (n: number) => (ring > 0 ? n / ring : 0);
+  const perTick = (n: number) => (spawnSpanned ? n / dt : ring > 0 ? n / ring : 0);
+  // THE CURE'S COST (methodology #10, owner 2026-08-04 "what if the cure is
+  // worse than the illness"): the recovery fleet's spend, split OUT of the
+  // evacuation line for display and priced against the witnessed-recovered
+  // credit in the RECOVERY P&L memo. Known only when BOTH captures carry the
+  // v30 sub-counter - a one-sided read would difference a lifetime total
+  // against nothing and print fiction.
+  const scavOf = (s: { energyByRole: Record<string, number> } | undefined): number | undefined =>
+    (s as { scavengeEnergy?: number } | undefined)?.scavengeEnergy;
+  const scavSpend =
+    spawnSpanned && scavOf(spendCap) !== undefined && scavOf(spendBase) !== undefined
+      ? Math.max(0, (scavOf(spendCap) ?? 0) - (scavOf(spendBase) ?? 0))
+      : undefined;
   const direct = cost.extraction + cost.evacuation + cost.reservation;
   const overhead = cost.infra + cost.defense + cost.consumers + cost.other;
   const capital = cost.expansion + cost.incursion;
@@ -1934,7 +2328,36 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const sourceRate = harvestCorps.length > 0 ? grossCapacity / harvestCorps.length : 0;
   const forgone = heldFracSum * sourceRate;
   const forgoneKnown = harvestCorps.some(c => c.sizing?.heldFrac !== undefined);
-  const grossPlan = Math.max(0, grossCapacity - (forgoneKnown ? forgone : 0));
+  // MEASURED MINED (phase 2, corps segment v14): difference each harvest
+  // corp's cumulative `produced` (harvested energy, reset-surviving via the
+  // commission store) between the two captures. This RE-BOOKS the revenue
+  // contra from measurement: the heldFrac forgone above is an INFERENCE from
+  // a spawn de-pricing stamp - the harvester's own loop harvests
+  // unconditionally, so the stamp can both over-count (harvest continued
+  // while "held") and under-count (unstaffed mouths, unreserved downgrades -
+  // the two contras spec 42 section 2b lists as missing). capacity - mined
+  // measures ALL of them at once; heldFrac demotes to a diagnostic
+  // decoration naming the share the pile gate explains. Requires `produced`
+  // on BOTH sides - differencing a cumulative against a pre-v14 baseline
+  // would book a corp's whole lifetime as one window.
+  const producedOf = (c: any): Map<string, number> =>
+    new Map(
+      ((c.data.corps?.corps ?? []) as any[])
+        .filter((x: any) => x.kind === "harvest" && x.produced !== undefined)
+        .map((x: any) => [x.id, +x.produced])
+    );
+  const prodCap = producedOf(cap);
+  const prodBase = producedOf(base);
+  const minedKnown = prodCap.size > 0 && prodBase.size > 0;
+  // A corp in cap but not base was commissioned mid-window: its counter began
+  // at 0, so `?? 0` is exact. A corp in base but not cap retired mid-window:
+  // its window production is lost - an honest UNDER-count, bounded by one
+  // source-window.
+  let minedRate = 0;
+  if (minedKnown) for (const [id, p] of prodCap) minedRate += Math.max(0, p - (prodBase.get(id) ?? 0)) / dt;
+  const grossPlan = minedKnown
+    ? Math.min(grossCapacity, minedRate)
+    : Math.max(0, grossCapacity - (forgoneKnown ? forgone : 0));
   // GROUND ROT (v19): dropped energy loses ceil(amount/1000) per tick; container
   // energy keeps. Averaged across the window's two endpoints - the piles move
   // slowly relative to the window, and the endpoints are all we sample.
@@ -1957,6 +2380,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
         tombstoneByRole?: Record<string, number>;
         tombstoneExpired?: number;
         tombstoneKilled?: number;
+        tombstoneCauseUnknown?: number;
         tombstoneTtlMean?: number;
         tombstoneTtlMax?: number;
         tombstoneStock: number;
@@ -1982,6 +2406,20 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     ? Math.max(0, cumRate("tombstoneGross") - cumRate("tombstoneRecovered"))
     : meter?.tombstoneLost ?? 0;
   const repairSpend = spanned ? cumRate("repairSpend") : meter?.repairSpend ?? 0;
+  // LOSS BUDGETS (spec 42 stage A, methodology #9): every loss line priced by
+  // a primitive, never "-". Pile decay budgets ZERO by construction - the
+  // gate's design point (SOURCE_BUFFER_DEFER_THRESHOLD == container cap)
+  // holds every mouth with no ground share, so all measured ground decay is
+  // priced UNFAVORABLE variance pointing at the haul deficit (E6's verdict).
+  // Tombstones budget the invader tax on R1's capacity basis (one constant
+  // home). Repair budgets the structure-decay ACCRUAL from the same meter -
+  // the depreciation memo's shortfall, now a priced variance on the account.
+  const lossBudgetSources = (cap.data.flow?.sources ?? []) as any[];
+  const bPileDecay = lossBudgetSources.length * pileDecayBudget(SOURCE_BUFFER_DEFER_THRESHOLD);
+  const bTombstone = tombstoneLossBudget(
+    lossBudgetSources.reduce((n: number, s: any) => n + (+s.harvestRate || 0), 0)
+  );
+  const bRepair = spanned ? cumRate("structureDecay") : meter?.structureDecay ?? 0;
   // LINK TRANSFER TAX: the engine destroys 3% of every link hop, and the
   // LinkMeter already measures it per room. It is a genuine destruction of
   // delivered energy - exactly like pile rot - so it belongs in MEASURED
@@ -1990,12 +2428,31 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   // measured figure runs above 3% of any single leg.
   const linkTax = ((core.links ?? []) as any[]).reduce((n, l) => n + (+l.taxRate || 0), 0);
   const linkTaxKnown = core.links !== undefined;
-  // BUDGET for the line: the planner charges each LINK-SERVED source one hop
-  // (CorpPlanner's per-source tax term). Read off the flow segment's
-  // `linkServed` flag rather than inferring link service from a short haul
-  // distance - inference is exactly how link haulage came to read as free.
+  // BUDGET for the line: EVERY link-borne leg the plan routes, one hop each
+  // (owner 2026-08-03: "there's more sources that deliver to the link, not
+  // just the ones it was built for - account for that and the tax will be
+  // more in line with actual"). Three legs, all read off the plan's own
+  // publications, never inferred from haul distance:
+  //   1. LINK-SERVED sources (the sources the link was built for): their
+  //      harvest enters at the source link - one hop.
+  //   2. DEPOSIT-PORT flows (spec 26): remote routes whose haulers turn
+  //      around at a link port - the flow segment stamps `port` on those
+  //      routes; their flowRate crosses one hop the old budget never priced
+  //      (measured M05: ~60 e/t of port flow, the bulk of the -2.48 U gap).
+  //   3. The HUB -> CONTROLLER link leg in link-fed rooms: the controller
+  //      allocation relayed through the controller link pays a second hop
+  //      (the feeder's linkFed stamp is the room lens).
   const linkSources = ((cap.data.flow?.sources ?? []) as any[]).filter(s => s.linkServed);
-  const bLinkTax = linkSources.reduce((n, s) => n + (+s.harvestRate || 0) * LINK_TRANSFER_LOSS, 0);
+  const bLinkSourceTax = linkSources.reduce((n, s) => n + (+s.harvestRate || 0) * LINK_TRANSFER_LOSS, 0);
+  const bPortTax = ((cap.data.flow?.haulers ?? []) as any[])
+    .filter(h => h.port)
+    .reduce((n, h) => n + (+h.flowRate || 0) * LINK_TRANSFER_LOSS, 0);
+  const feederStamp = ((cap.data.corps?.corps ?? []) as any[]).find((c: any) => c.kind === "controllerFeeder")?.sizing;
+  const bCtrlLinkTax =
+    feederStamp?.linkFed && typeof feederStamp.planFlow === "number"
+      ? feederStamp.planFlow * LINK_TRANSFER_LOSS
+      : 0;
+  const bLinkTax = bLinkSourceTax + bPortTax + bCtrlLinkTax;
   const linkBudgetKnown = ((cap.data.flow?.sources ?? []) as any[]).some(s => s.linkServed !== undefined);
   // The link tax is TRANSPORT, not a loss (owner 2026-08-02: "link tax is
   // similar to haul body"). Both are per-source costs that scale with the flow
@@ -2014,7 +2471,24 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const planSources = (cap.data.flow?.sources ?? []) as any[];
   const planHaulers = (cap.data.flow?.haulers ?? []) as any[];
   const bExtract = planSources.reduce((n, src) => n + minerOverhead(+src.spawnDistance || 0), 0);
-  const bEvac = planHaulers.reduce((n, h) => n + haulerOverhead(+h.carryParts || 0, +h.distance || 0), 0);
+  // EVACUATION BUDGET on the plan's OWN parts basis (methodology #8). Every
+  // CARRY/MOVE part costs exactly 50e, so the planner's paved-aware
+  // `spawnParts` (1.5p/CARRY on roads, 2p/CARRY off them) converts to energy
+  // exactly. haulerOverhead prices every route at the 1:1 body - the plan's
+  // internal parts-vs-energy disagreement, worth -2.82 e/t of slack that
+  // MASKED real breach - and stays only as the fallback for older captures.
+  const bEvacLegacy = planHaulers.reduce((n, h) => n + haulerOverhead(+h.carryParts || 0, +h.distance || 0), 0);
+  const haulersHaveParts = planHaulers.some(h => h.spawnParts !== undefined);
+  const bEvac = haulersHaveParts
+    ? planHaulers.reduce(
+        (n, h) =>
+          n +
+          (h.spawnParts !== undefined
+            ? (+h.spawnParts || 0) * (CARRY_MOVE_PAIR_COST / 2)
+            : haulerOverhead(+h.carryParts || 0, +h.distance || 0)),
+        0
+      )
+    : bEvacLegacy;
   const planOverhead = cap.data.flow?.summary?.totalOverhead;
   const sinks = (cap.data.flow?.sinks ?? []) as any[];
   const sinkAlloc = (type: string): number =>
@@ -2045,6 +2519,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     names.reduce((n, key) => n + Object.keys(planEnergy).filter(k => k.startsWith(key)).reduce((m, k) => m + planEnergy[k], 0), 0);
   const bReserve = pe("reservers");
   const bInfra = pe("feeder", "tenders");
+  const bDefense = pe("defense");
   const bConsumers = pe("upgraders", "construction (all-in)");
   const bFleetEnergy = Object.keys(planEnergy).reduce((n, k) => n + planEnergy[k], 0);
   const pileDelta = (piles(cap) - piles(base)) / dt;
@@ -2095,7 +2570,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     return `${" ".repeat(indent)}${label.padEnd(38 - indent)}${b.padStart(9)}${actual.toFixed(2).padStart(10)}${v.padStart(11)}`;
   };
   return [
-    `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ring ${ring}t${
+    `ENERGY ACCOUNT  e/tick  (window ${dt}t; spawn ${spawnSpanned ? `${dt}t cumulative` : `ring ${ring}t`}${
       meter ? `; losses ${spanned ? `${dt}t cumulative` : `${meter.windowTicks}t since-reset`}` : ""
     })  [methodology #${METHODOLOGY}]`,
     // WINDOW COHERENCE (methodology #3). The residual is a DIFFERENCE of rates,
@@ -2111,9 +2586,11 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     // 4.3x - and the residual came out at -25.10, i.e. 25% of gross mining
     // OVER-attributed. That is what prompted this check.
     ...(() => {
-      // Cumulative loss totals span the capture window by construction, so
-      // only the spawn ring can still be short.
-      const shortest = Math.min(ring || dt, spanned || !meter ? dt : meter.windowTicks);
+      // Every side that reads CUMULATIVE totals spans the capture window by
+      // construction; only a side still on its legacy short window (the ring
+      // for old captures, the since-reset meter for pre-v22 ones) can drag
+      // the residual into incoherence.
+      const shortest = Math.min(spawnSpanned ? dt : ring || dt, spanned || !meter ? dt : meter.windowTicks);
       const spread = shortest > 0 ? dt / shortest : Infinity;
       if (spread <= 2) return [];
       return [
@@ -2126,17 +2603,32 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     `${" ".repeat(38)}${"BUDGET".padStart(9)}${"ACTUAL".padStart(10)}${"VARIANCE".padStart(11)}`,
     "  REVENUE",
     L("mining capacity (reserved rate)", grossCapacity, 4, grossCapacity),
-    ...(forgoneKnown
+    ...(minedKnown
       ? [
-          L("- forgone (miners held, buffer full)", -forgone, 4, 0, "cost"),
-          L("= gross mining", grossPlan, 4, grossCapacity)
+          // MEASURED (phase 2): capacity less what the harvest corps' own
+          // cumulative counters say was mined - covers held mouths, unstaffed
+          // sources and unreserved downgrades alike. The heldFrac stamp
+          // becomes the diagnostic naming the share the pile gate explains.
+          L("- forgone (measured: capacity - mined)", -(grossCapacity - grossPlan), 4, 0, "cost"),
+          ...(forgoneKnown
+            ? [`      of which the miners' pile-gate stamps explain ${forgone.toFixed(2)} e/t (heldFrac)`]
+            : []),
+          L("= gross mining (measured mined)", grossPlan, 4, grossCapacity)
         ]
-      : []),
+      : forgoneKnown
+        ? [
+            L("- forgone (miners held, buffer full)", -forgone, 4, 0, "cost"),
+            L("= gross mining", grossPlan, 4, grossCapacity)
+          ]
+        : []),
     L("+ pile drawdown / (build-up)", -pileDelta, 4),
     L("= delivered into the economy", delivered, 4, grossCapacity),
     "  DIRECT COST OF MINING (measured at the spawn)",
     L("extraction  (miner)", -perTick(cost.extraction), 4, -bExtract, "cost"),
     L("evacuation  (hauler)", -perTick(cost.evacuation), 4, -bEvac, "cost"),
+    ...(scavSpend !== undefined
+      ? [`      of which recovery fleet (scavenge corps) ${(-perTick(scavSpend)).toFixed(2)} - the cure's body bill, see RECOVERY P&L`]
+      : []),
     L("reservation (reserver)", -perTick(cost.reservation), 4, -bReserve, "cost"),
     ...(linkTaxKnown
       ? [
@@ -2152,12 +2644,16 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     L("= NET MINING MARGIN", delivered - perTick(direct) - linkTax, 4, grossPlan - bExtract - bEvac - bReserve - bLinkTax),
     "  OVERHEAD (measured at the spawn)",
     L("infra      (tanker, feeder, scout)", -perTick(cost.infra), 4, -bInfra, "cost"),
-    L("defense    (guard)", -perTick(cost.defense), 4),
+    // Budgeted since phase 1: the standing guard fleet's replacement cadence.
+    // A zero budget with real spend is an HONEST unfavorable read (defense is
+    // running above its standing plan - the raid-surge share the invader tax
+    // prices at admission, not here).
+    L("defense    (guard)", -perTick(cost.defense), 4, -bDefense, "cost"),
     L("consumers  (upgrader, builder)", -perTick(cost.consumers), 4, -bConsumers, "cost"),
     ...(cost.other > 0
       ? [L(`UNCLASSIFIED [${[...unknownRoles].join(", ")}]`, -perTick(cost.other), 4)]
       : []),
-    L("= total overhead", -perTick(overhead), 4, -(bInfra + bConsumers), "cost"),
+    L("= total overhead", -perTick(overhead), 4, -(bInfra + bDefense + bConsumers), "cost"),
     L("= TOTAL SPAWN (plan fleet, priced)", -perTick(spawnTotal), 2, -bFleetEnergy, "cost"),
     ...(bFleetEnergy >= bSpawn
       ? [
@@ -2179,41 +2675,202 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     ...(rotKnown
       ? [
           `  MEASURED LOSSES${meter ? (spanned ? "  (cumulative, full window)" : `  (meter window ${meter.windowTicks}t)`) : ""}`,
-          L(meter ? "ground pile decay (engine ceil rule)" : "ground rot (dropped energy, 0.1%/t)", -rot, 4),
+          // Budgeted since #9 (spec 42 stage A): a zero pile budget is the
+          // gate's own design point - the variance IS the haul-deficit price.
+          L(
+            meter ? "ground pile decay (engine ceil rule)" : "ground rot (dropped energy, 0.1%/t)",
+            -rot,
+            4,
+            meter ? -bPileDecay : undefined,
+            "cost"
+          ),
+          // THE CEIL-FLOOR CENSUS (spec 44 leg 1, owner 2026-08-04: "piles
+          // lose a minimum of 1 e/t not always 1/1000"): the floor's share of
+          // the decay line and the standing pile count. A high floor share =
+          // many small piles each paying 1 e/t - the regime where focus-fire
+          // (drain one to zero, retire its whole floor) beats skimming, and
+          // the census the standing-scavenger fleet will be sized on.
+          ...(spanned && cumRate("pileDecayCeilPenalty") > 0
+            ? [
+                `      of which the ceil FLOOR adds ${cumRate("pileDecayCeilPenalty").toFixed(2)} (avg ${cumRate(
+                  "pileTicks"
+                ).toFixed(1)} piles standing, ${cumRate("pileTicksSmall").toFixed(1)} small) - spec 44 focus-fire census`
+              ]
+            : []),
           ...(meter
             ? [
-                L("tombstone losses (creeps died carrying)", -tombLoss, 4),
+                L("tombstone losses (creeps died carrying)", -tombLoss, 4, -bTombstone, "cost"),
+                // GROSS AND CREDIT, published (methodology #10): the line
+                // above is NET of witnessed recoveries - before this detail
+                // the recovery machinery's whole return was an invisible
+                // netting credit, unanswerable against its cost.
+                ...(spanned && cumRate("tombstoneGross") > 0
+                  ? [
+                      `      gross entombed ${cumRate("tombstoneGross").toFixed(2)}, recovered back ${cumRate(
+                        "tombstoneRecovered"
+                      ).toFixed(2)} (pad + loot-grab + scavenge witnessed returns)`
+                    ]
+                  : []),
                 // WHOSE energy, and HOW they died. A tombstone line the account
                 // cannot attribute is not actionable: haulers expiring mid-route
                 // fold into the carry deficit, anything KILLED is a defense
                 // question, and those are different work items.
+                //
+                // Cause is a VERDICT from the death watch (methodology #7):
+                // expired/killed carry evidence, and a death the watch never
+                // saw prints as UNKNOWN instead of being defaulted - the #4-#6
+                // rule read a field that is 0 on every dead creep and called
+                // 100% of deaths "expired", which its own audit line flagged
+                // SUSPECT on every close. Attribution prefers the CUMULATIVE
+                // keys (same capture-bounded window as the loss line itself);
+                // the meter's since-reset view is the stated fallback.
                 ...(() => {
-                  const byRole = meter?.tombstoneByRole;
-                  if (!byRole || Object.keys(byRole).length === 0) return [];
-                  const gross = Object.values(byRole).reduce((a, b) => a + b, 0) || 1;
-                  const roles = Object.entries(byRole)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([r, e]) => `${r} ${((e / gross) * 100).toFixed(0)}%`)
-                    .join("  ");
-                  const killed = meter?.tombstoneKilled ?? 0;
-                  const expired = meter?.tombstoneExpired ?? 0;
-                  const cause = killed + expired > 0
-                    ? `expired ${((expired / (killed + expired)) * 100).toFixed(0)}%  killed ${((killed / (killed + expired)) * 100).toFixed(0)}%`
-                    : "cause unknown";
-                  // The cause split is only as good as the field behind it, so
-                  // print the raw TTL distribution beside it. 0%/100% with a
-                  // CONSTANT ttl is a misread field; a spread is a real answer.
-                  const mean = meter?.tombstoneTtlMean ?? 0;
-                  const max = meter?.tombstoneTtlMax ?? 0;
-                  const suspect = (killed === 0 || expired === 0) && mean === max;
-                  return [
-                    `      by role: ${roles}`,
-                    `      by cause: ${cause}   (ttl at death mean ${mean.toFixed(0)} max ${max.toFixed(0)})` +
-                      (suspect ? "  <- SUSPECT: one-sided split on a constant ttl, read the field not the %" : "")
-                  ];
+                  const cc = cumCap as any;
+                  const cb = cumBase as any;
+                  const attSpanned = spanned && cc?.tombstoneExpired !== undefined && cb?.tombstoneExpired !== undefined;
+                  const attDiff = (key: string): number => Math.max(0, (cc?.[key] ?? 0) - (cb?.[key] ?? 0));
+                  const byRole: Record<string, number> = attSpanned
+                    ? (() => {
+                        const out: Record<string, number> = {};
+                        const keys = new Set([
+                          ...Object.keys(cc.tombstoneByRole ?? {}),
+                          ...Object.keys(cb.tombstoneByRole ?? {})
+                        ]);
+                        for (const k of keys) {
+                          const d = Math.max(0, (cc.tombstoneByRole?.[k] ?? 0) - (cb.tombstoneByRole?.[k] ?? 0));
+                          if (d > 0) out[k] = d;
+                        }
+                        return out;
+                      })()
+                    : meter?.tombstoneByRole ?? {};
+                  // A capture WITHOUT the v25 unknown bucket predates the death
+                  // watch: its expired/killed figures came off the dead field
+                  // and are VOIDED (#7) - live archaeology has the v23 deploy
+                  // booking 100% killed and the v24 one 100% expired off the
+                  // SAME field. Role attribution never depended on that field
+                  // and stays; cause degrades to unknown, honestly.
+                  const v25 = attSpanned || meter?.tombstoneCauseUnknown !== undefined;
+                  const expired = attSpanned ? attDiff("tombstoneExpired") : v25 ? meter?.tombstoneExpired ?? 0 : 0;
+                  const killed = attSpanned ? attDiff("tombstoneKilled") : v25 ? meter?.tombstoneKilled ?? 0 : 0;
+                  // v28: deliberate spawn-side refunds, split OUT of killed so
+                  // the raid story reads only combat (t72755898: 4,844e of
+                  // recycle cargo booked "killed" at home).
+                  const recycled = attSpanned ? attDiff("tombstoneRecycled") : (meter as any)?.tombstoneRecycled ?? 0;
+                  const unknown = attSpanned
+                    ? attDiff("tombstoneCauseUnknown")
+                    : v25
+                      ? meter?.tombstoneCauseUnknown ?? 0
+                      : Object.values(byRole).reduce((a, b) => a + b, 0);
+                  const causeTotal = expired + killed + recycled + unknown;
+                  const out: string[] = [];
+                  if (Object.keys(byRole).length > 0) {
+                    const gross = Object.values(byRole).reduce((a, b) => a + b, 0) || 1;
+                    out.push(
+                      `      by role: ` +
+                        Object.entries(byRole)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([r, e]) => `${r} ${((e / gross) * 100).toFixed(0)}%`)
+                          .join("  ")
+                    );
+                  }
+                  if (causeTotal > 0) {
+                    const pct = (n: number): string => `${((n / causeTotal) * 100).toFixed(0)}%`;
+                    // TTL context rides along where any death was resolved: for
+                    // known deaths the ttl IS the verdict's evidence (expired =
+                    // 0 by definition, killed = the life cut short).
+                    const ttlKnown = attSpanned ? attDiff("tombstoneTtlKnown") : 0;
+                    const ttlMean = attSpanned
+                      ? ttlKnown > 0
+                        ? attDiff("tombstoneTtlSum") / ttlKnown
+                        : 0
+                      : meter?.tombstoneTtlMean ?? 0;
+                    const ttl =
+                      expired + killed > 0 ? `   (ttl at death mean ${ttlMean.toFixed(0)} over known deaths)` : "";
+                    out.push(
+                      `      by cause: expired ${pct(expired)}  killed ${pct(killed)}${recycled > 0 ? `  recycled ${pct(recycled)}` : ""}  unknown ${pct(unknown)}${ttl}` +
+                        (unknown === causeTotal ? "  <- no death-watch coverage this window" : "")
+                    );
+                  }
+                  // The WHY of recycles (v29): the flag site's stamped
+                  // trigger class - "are these legit" as a read, not a story.
+                  if (attSpanned && recycled > 0 && (cc?.tombstoneRecycledByReason || cb?.tombstoneRecycledByReason)) {
+                    const byReason: Record<string, number> = {};
+                    const rk = new Set([
+                      ...Object.keys(cc?.tombstoneRecycledByReason ?? {}),
+                      ...Object.keys(cb?.tombstoneRecycledByReason ?? {})
+                    ]);
+                    for (const k of rk) {
+                      const d = Math.max(0, (cc?.tombstoneRecycledByReason?.[k] ?? 0) - (cb?.tombstoneRecycledByReason?.[k] ?? 0));
+                      if (d > 0) byReason[k] = d;
+                    }
+                    const total = Object.values(byReason).reduce((a, b) => a + b, 0);
+                    if (total > 0) {
+                      out.push(
+                        `      recycled why: ` +
+                          Object.entries(byReason)
+                            .sort((a, b) => b[1] - a[1])
+                            .map(([r, e]) => `${r} ${((e / total) * 100).toFixed(0)}%`)
+                            .join("  ")
+                      );
+                    }
+                  }
+                  // The WHERE (v27, owner 2026-08-03): killed energy by room
+                  // and the share intel can actually attribute to hostiles.
+                  // Kills in quiet rooms are NOT raid evidence - this line is
+                  // what the R1 constant swap must read before it fires.
+                  if (attSpanned && cc?.tombstoneKilledByRoom !== undefined && cb?.tombstoneKilledByRoom !== undefined) {
+                    const byRoom: Record<string, number> = {};
+                    const roomKeys = new Set([
+                      ...Object.keys(cc.tombstoneKilledByRoom ?? {}),
+                      ...Object.keys(cb.tombstoneKilledByRoom ?? {})
+                    ]);
+                    for (const k of roomKeys) {
+                      const d = Math.max(0, (cc.tombstoneKilledByRoom?.[k] ?? 0) - (cb.tombstoneKilledByRoom?.[k] ?? 0));
+                      if (d > 0) byRoom[k] = d;
+                    }
+                    const killedTotal = Object.values(byRoom).reduce((a, b) => a + b, 0);
+                    if (killedTotal > 0) {
+                      const hostileShare = attDiff("tombstoneKilledHostileRoom");
+                      out.push(
+                        `      killed where: ` +
+                          Object.entries(byRoom)
+                            .sort((a, b) => b[1] - a[1])
+                            .slice(0, 4)
+                            .map(([r, e]) => `${r} ${((e / killedTotal) * 100).toFixed(0)}%`)
+                            .join("  ") +
+                          `   (${((hostileShare / killedTotal) * 100).toFixed(0)}% in intel-hostile rooms - the share the raid story can claim)`
+                      );
+                    }
+                  }
+                  return out;
                 })(),
-                L("repair (energy spent holding hits)", -repairSpend, 4),
-                L("= measured losses", -meteredLosses, 4)
+                L("repair (energy spent holding hits)", -repairSpend, 4, -bRepair, "cost"),
+                L("= measured losses", -meteredLosses, 4, -(bPileDecay + bTombstone + bRepair), "cost"),
+                // CURE VS ILLNESS (methodology #10, owner 2026-08-04): the
+                // recovery machinery priced as a P&L of its own - the
+                // witnessed tombstone returns against the fleet bought to
+                // chase them. Scavenged PILES are deliberately NOT credited
+                // here (they enter as pile drawdown in REVENUE); recovered
+                // tombstone energy is deliberately NOT revenue (it was
+                // counted as mined once already - grossing the existing
+                // credit is what avoids the double-count).
+                ...(spanned
+                  ? [
+                      "  RECOVERY P&L (the cure vs the illness)",
+                      `    witnessed recovered (tombstones back into stores)   +${cumRate("tombstoneRecovered").toFixed(2)}`,
+                      ...(scavSpend !== undefined
+                        ? [
+                            `    recovery-fleet bodies (scavenge corps)              -${perTick(scavSpend).toFixed(2)}`,
+                            `    = recovery net ${
+                              cumRate("tombstoneRecovered") - perTick(scavSpend) >= 0 ? "+" : ""
+                            }${(cumRate("tombstoneRecovered") - perTick(scavSpend)).toFixed(2)} e/t   (the illness left standing: pile decay ${rot.toFixed(2)})`
+                          ]
+                        : [
+                            "    recovery-fleet bodies: not yet measured (a capture side predates the v30 sub-counter)",
+                            `    = recovery net: recovered ${cumRate("tombstoneRecovered").toFixed(2)} less an unmeasured body bill`
+                          ])
+                    ]
+                  : [])
               ]
             : [])
         ]
@@ -2251,11 +2908,17 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
         "    the plan's fleet pricing is accurate to ~4%."
       ];
     })(),
-    `  BUDGET CHECK: extraction+evacuation ${(bExtract + bEvac).toFixed(2)} vs the plan's own totalOverhead ` +
+    `  BUDGET CHECK: extraction+evacuation(1:1 energy basis) ${(bExtract + bEvacLegacy).toFixed(2)} vs the plan's own totalOverhead ` +
       `${typeof planOverhead === "number" ? planOverhead.toFixed(2) : "n/a"}` +
-      `${typeof planOverhead === "number" && Math.abs(bExtract + bEvac - planOverhead) > 0.05 ? " <- DOES NOT RECONCILE" : " (reconciles)"}` +
-      `. Lines with a "-" budget are ones the plan does not state in ENERGY (reservation, infra, defense,` +
-      ` consumers) - left blank rather than converted from parts, which is biased across classes.`,
+      `${typeof planOverhead === "number" && Math.abs(bExtract + bEvacLegacy - planOverhead) > 0.05 ? " <- DOES NOT RECONCILE" : " (reconciles)"}` +
+      `. Lines with a "-" budget are ones the plan does not state in ENERGY.`,
+    ...(Math.abs(bEvac - bEvacLegacy) > 0.05
+      ? [
+          `  NOTE: the evacuation BUDGET above is the plan's PARTS basis (spawnParts x 50e); its energy side` +
+            ` (totalOverhead/netEnergy) still prices every route 1:1 - a ${(bEvacLegacy - bEvac).toFixed(2)} e/t` +
+            ` internal gap the planner's admission pricing carries until the phase-1 ratio-aware repricing.`
+        ]
+      : []),
     `  reservation buys ~${reserveUplift.toFixed(0)} e/t of the revenue line (${remoteSources} remote sources x ` +
       `${(SOURCE_RATE / 2).toFixed(0)} e/t uplift, reserved ${SOURCE_RATE} vs unreserved ${(SOURCE_RATE / 2).toFixed(0)})` +
       ` for ${perTick(cost.reservation).toFixed(2)} e/t of bodies.`,
@@ -2289,6 +2952,42 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
           "    Tombstone energy is LOST BY DEFAULT: booked when first seen, credited back only where a\n    withdrawal was actually witnessed. Every recovery path needs a creep already beside it."
         ]
       : []),
+    // BALANCE SHEET (spec 42 section 2b - the owner's target layout): the
+    // account's STOCK side at close. Measured lines only; a line the captures
+    // cannot measure prints as a NAMED gap, never a fabricated number and
+    // never silently absent - the target layout's "--" rows made visible
+    // debt. NET WORTH is therefore a measured FLOOR: it can only understate.
+    ...(() => {
+      const storage = ((cap.data.core.rooms ?? []) as any[]).reduce(
+        (n: number, r: any) => n + (+r.storageEnergy || 0),
+        0
+      );
+      const reserve = resolveReserve(cap);
+      const byPart = (cap.data.core.bodyParts?.byPart ?? {}) as Record<string, number>;
+      const costs = BODY_COSTS as unknown as Record<string, number>;
+      const standing = Object.keys(byPart).reduce((n, p) => n + byPart[p] * (costs[p.toUpperCase()] ?? 0), 0);
+      const piles = Object.values((cap.data.core.sourceDropped ?? {}) as Record<string, number>).reduce(
+        (a: number, b) => a + (+b || 0),
+        0
+      );
+      const tombStock = meter?.tombstoneStock ?? 0;
+      const committed = tombStock + piles;
+      const fmt = (n: number): string => Math.round(n).toLocaleString("en-US");
+      const free = Math.max(0, storage - reserve);
+      const floor = free + reserve + committed + standing;
+      return [
+        "",
+        "  BALANCE SHEET (energy stocks at close - measured lines only, gaps NAMED)",
+        `    free        storage above the reserve            ${fmt(free)}`,
+        `    reserved    warchest/reserve target              ${fmt(reserve)}`,
+        `    committed   in-flight: ${meter ? `tombstones ${fmt(tombStock)} + ` : ""}ground piles ${fmt(piles)} = ${fmt(committed)}   (${meter ? "" : "tombstones and "}creep cargo not measured)`,
+        `    standing    fleet at replacement body cost       ${fmt(standing)}`,
+        `    fixed       structures at rebuild cost           not measured (no structure inventory in captures)`,
+        `    = NET WORTH (measured floor)                     ${fmt(floor)}`,
+        "    The floor omits the NAMED gaps (creep cargo, fixed assets, accrued decay) - it can only",
+        "    understate. A line joins when its meter lands; nothing here is ever inferred."
+      ];
+    })(),
     ""
   ].join("\n");
 }

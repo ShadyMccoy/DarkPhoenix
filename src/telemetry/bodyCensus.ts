@@ -14,16 +14,24 @@
  */
 
 import { Corp } from "../corps/Corp";
+import { CommissionFleet } from "../economy/Commission";
 
 /**
  * One corp in the complete census (structurally compatible with
  * CommissionHost.CorpCensusEntry - the caller passes that array here). Kept
- * local so telemetry does not depend on the execution layer.
+ * local so telemetry does not depend on the execution layer (Commission is
+ * economy-layer, fine to reference).
  */
 export interface CorpCensusEntry {
   corpId: string;
   kind: string;
   corp: Corp;
+  /**
+   * The commission's PLANNED fleet (spec 39 phase 1), read off the envelope
+   * by the host. Published verbatim on the corps segment next to the ACTUAL
+   * body so per-commission plan-vs-actual is a single-segment read.
+   */
+  fleet?: CommissionFleet;
 }
 
 /** Live creep count for any corp that exposes the accessor. */

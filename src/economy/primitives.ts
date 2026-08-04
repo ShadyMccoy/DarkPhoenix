@@ -95,6 +95,13 @@ export const CARRY_CAPACITY = 50;
  */
 export const CARRY_MOVE_PAIR_COST = BODY_COSTS.CARRY + BODY_COSTS.MOVE; // 100
 
+/** The tanker's CARRY:MOVE ratios - one constant, every reader (the body
+ * builder, the fleet sizing, and since phase 1 the commission's all-in
+ * price). A tanker is mostly PARKED, so it runs CARRY-heavy: 1 MOVE per 3
+ * CARRY on plain, 1 per 5 where roads halve fatigue. */
+export const TANKER_CARRY_PER_MOVE_PLAIN = 3;
+export const TANKER_CARRY_PER_MOVE_ROAD = 5;
+
 /** Source energy capacity in claimed rooms (Screeps constant) */
 export const SOURCE_ENERGY_CAPACITY = 3000;
 
@@ -272,7 +279,11 @@ export function refuelIntervalTicks(distance: number, haulerCount: number): numb
 /**
  * Standing body parts of a dedicated supply vector `(fuel, site, rate)`:
  * carriers at 1:1 CARRY:MOVE (laden both ways is the worst case; the vector
- * IS carryPartsFor - no third formula).
+ * IS carryPartsFor - no third formula). The GAIT-AWARE form - the 3C:1M body
+ * the construction runtime actually fields over its route's real paving -
+ * lives in roadEconomics.vectorSupplyPartsGait (it needs the road gait lens,
+ * which imports this module); operationSpawnLoad accepts its output through
+ * the vector's optional `parts` field.
  */
 export function vectorSupplyParts(rate: number, distance: number): number {
   return 2 * carryPartsFor(rate, distance);
@@ -355,11 +366,18 @@ export function supplyMethod(
  * effective life at ITS distance. This is the `spawnPartsPerTick` a corp's
  * commission must declare - an operation that fields carriers its price
  * omits is lying to the parts ledger (P4's measured "unbudgeted" class).
+ *
+ * A vector may carry precomputed `parts` (the gait-aware body from
+ * roadEconomics.vectorSupplyPartsGait - spec 34's follow-up B); absent, the
+ * 1:1 vectorSupplyParts model prices it as before.
  */
-export function operationSpawnLoad(nodeLoad: number, vectors: { rate: number; distance: number }[]): number {
+export function operationSpawnLoad(
+  nodeLoad: number,
+  vectors: { rate: number; distance: number; parts?: number }[]
+): number {
   let load = nodeLoad;
   for (const v of vectors) {
-    load += vectorSupplyParts(v.rate, v.distance) / effectiveLife(v.distance);
+    load += (v.parts ?? vectorSupplyParts(v.rate, v.distance)) / effectiveLife(v.distance);
   }
   return load;
 }
@@ -454,6 +472,19 @@ export const WARTIME_BACKLOG_THRESHOLD = 3000;
  * upgrader fleet both floor here, so relegation is a coherent ladder shift.
  */
 export const ANTI_DOWNGRADE_RESERVE = 2;
+
+/**
+ * When the anti-downgrade floor ARMS (owner 2026-08-04: "We don't need it
+ * UNLESS the controller is in danger of downgrading, which often is not for
+ * many thousands of ticks. Not the constant trickle"): the sip applies only
+ * below this many ticksToDowngrade. Engine context: each upgrading tick
+ * restores 100 ticks of timer (CONTROLLER_DOWNGRADE_RESTORE), and RCL 6-8
+ * timers max at 120k-200k - so a 10k threshold leaves thousands of ticks of
+ * margin while the sip-rate burst (~1 upgrade tick per 1) restores ~100x
+ * faster than the timer drains. Above the threshold the floor is ZERO and
+ * every joule follows the bank-fed law.
+ */
+export const ANTI_DOWNGRADE_DANGER_TICKS = 10_000;
 
 /** The sizing horizon for a crew working `travelDistance` from its spawn.
  * `accelerate` (a spendable surplus stands) shortens it to the wartime pace. */
@@ -562,14 +593,12 @@ export function infraSpawnLoad(
   const TENDER_FLEET_PARTS = 48;
   const tender = (depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME;
   const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE (the full-budget live body - see RESERVER_DUTY)
-  const RESERVER_WALK = 60; // nominal remote-controller walk
   // Priced at the SHIPPED duty cycle (P5, verified live 2026-07-18): the
   // corp coasts on the reservation bank, one stint per ~1080t. Holding this
   // at 1.0 after the fix shipped was pure phantom slack (owner: no standing
   // reserves - defense preempts via priority when needed, it does not
-  // reserve capacity).
-  const reservers =
-    (RESERVER_DUTY * (remoteRoomCount * RESERVER_PARTS_PER_ROOM)) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK);
+  // reserve capacity). Composed from reserverSpawnLoad - the ONE home.
+  const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM);
   return feeder + tender + reservers;
 }
 
@@ -604,11 +633,75 @@ export function infraSpawnEnergy(
   const TENDER_FLEET_PARTS = 48;
   const tender = ((depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME) * CARRY_MOVE_PER_PART;
   const RESERVER_PARTS_PER_ROOM = 4;
-  const RESERVER_WALK = 60;
-  const reservers =
-    ((RESERVER_DUTY * (remoteRoomCount * RESERVER_PARTS_PER_ROOM)) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK)) *
-    CLAIM_MOVE_PER_PART;
+  const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
   return feeder + tender + reservers;
+}
+
+/**
+ * Spawn build-time (parts/tick) of a reserver fleet of `parts` body parts,
+ * priced at the SHIPPED duty cycle: RESERVER_DUTY stints over the
+ * walk-adjusted claim life. THE one home for reserver amortization -
+ * infraSpawnLoad composes it, and the audit's planSpawnLoad reads it, so the
+ * two can never drift again (the +8.02 F "favorable" reservation variance of
+ * FY4848-M02 was exactly this drift: the audit re-priced continuous duty 1.0
+ * while primitives and the live gate both ran 0.5).
+ */
+export function reserverSpawnLoad(parts: number): number {
+  const RESERVER_WALK = 60; // nominal remote-controller walk
+  return (RESERVER_DUTY * parts) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK);
+}
+
+/**
+ * The ONE drain law applied to a source-mouth buffer: CARRY parts that clear
+ * `staged` energy over one creep generation at `distance` - the same
+ * stock/CREEP_LIFETIME law the bank surplus and consumer sizing use.
+ * CarryCorp's haulCarryNeeded and the planner's route sizing BOTH read this,
+ * so the fleet the corp fields and the fleet the plan prices size from the
+ * same two terms (sustained + drain) - X6 was previously judged "against the
+ * corp's OWN carryNeeded stamp (rest against the plan route, drain-blind)",
+ * ~1.0 e/t of real fleet standing permanently outside the budget.
+ */
+export function bufferDrainCarry(staged: number, distance: number): number {
+  if (!(staged > 0)) return 0;
+  return carryPartsFor(staged / CREEP_LIFETIME, distance);
+}
+
+/**
+ * Spawn parts/tick of the FLOOR hauler body amortized at `distance` - the
+ * minimum true cost of serving ANY walked route. CarryCorp floors every body
+ * at HAULER_MIN_CARRY 3 (a 1-CARRY runt moves 50 energy a round trip and
+ * squats a fleet slot for 1500t), so a transient route whose computed carry
+ * is a fraction of a part still buys a whole 3C+3M hauler. The plan priced
+ * the fraction (~0.0002 p/t colony-wide) while the fleet spent ~0.040 p/t -
+ * the account's "transient-route haulers (unbudgeted)" 2.0 e/t.
+ */
+export function scavengeFloorParts(distance: number): number {
+  const FLOOR_BODY_PARTS = 6; // 3 CARRY + 3 MOVE, the 1:1 runt floor
+  return FLOOR_BODY_PARTS / effectiveLife(distance);
+}
+
+/** CARRY:MOVE ratio hint (mirrors framework/EdgeVariant's HaulerRatio). */
+export type HaulerBodyRatio = "2:1" | "1:1" | "1:2";
+
+/** Engine cap on body size (MAX_CREEP_SIZE). */
+const MAX_BODY_PARTS = 50;
+
+/**
+ * TRUE energy cost of the hauler body a demand for `desiredCarry` CARRY at
+ * `ratio` elicits - whole CARRY:MOVE units, at least one, engine size cap -
+ * mirroring BodyBuilder.buildRatioHaulerBody's construction arithmetic
+ * exactly (pinned by the CarryCorp demand-pricing tests). Exists because the
+ * demand's price IS the debit: desiredCost at a flat 100e/CARRY over-granted
+ * 2:1 road bodies ~33% (75e/CARRY built) and under-granted 1:2 swamp bodies
+ * (150e/CARRY built), and the spawn receipt booked the grant - +3.99 e/t of
+ * phantom evacuation spend on the t72725767->t72734018 pair.
+ */
+export function haulerBodyCost(desiredCarry: number, ratio: HaulerBodyRatio = "1:1"): number {
+  const [carryRatio, moveRatio] = ratio === "2:1" ? [2, 1] : ratio === "1:2" ? [1, 2] : [1, 1];
+  const unitCost = carryRatio * BODY_COSTS.CARRY + moveRatio * BODY_COSTS.MOVE;
+  const maxBySize = Math.floor(MAX_BODY_PARTS / (carryRatio + moveRatio));
+  const units = Math.max(1, Math.min(Math.ceil(desiredCarry / carryRatio), maxBySize));
+  return units * unitCost;
 }
 
 /** Miner spawn overhead (energy/tick) for a source `distance` from its spawn. */
@@ -771,6 +864,33 @@ export const INVADER_TTL = 1_500;
  * tail (~10% of raids are 2-5 smalls) and the occasional lost trade. A
  * DERIVED starting point - phase 5 telemetry replaces it with the measured
  * number (calibration windows >= 10x1500 ticks per the multi-draw rule).
+ *
+ * CALIBRATION LEDGER (R1, one row per fiscal close; swap at >=10 windows):
+ * FY4849-M06 9.5x, M07 18x, M08 30.3x, M10 15x, FY4850-M01 13.8x,
+ * M02 12.3x, M03 15.4x - 7 windows filed, mean 16.3x, minimum 9.5x (the
+ * direction is settled; the BAR is not). At window 10 the swap is
+ * mean(ratios) x 750 - ~12,250e/raid at today's mean - applied HERE and
+ * nowhere else (tombstoneLossBudget and R1 read through this constant, so
+ * the account's budget and the gauge recalibrate in the same commit).
+ *
+ * EVIDENCE GATE (owner 2026-08-03: "a lot is blamed on raids without
+ * sufficient evidence"): before the swap fires, read the v27 killed-WHERE
+ * line (tombstoneKilledByRoom / tombstoneKilledHostileRoom, live from
+ * window 8). This constant prices INVADER raids specifically - if the
+ * killed share in intel-hostile rooms is low, the attrition belongs to a
+ * different mechanism (routing through danger, stale intel, players) and
+ * swapping THIS constant would price the wrong thing. The swap inherits
+ * only the hostile-room share of the measured ratio.
+ *
+ * GATE VERDICT SO FAR (two windows measured): killed-WHERE reads 99-100%
+ * HOME ROOM, 0-0.04% intel-hostile - and v28 shows the "killed" bucket was
+ * contaminated with EOL-recycle deaths (t72755898: 4,844e of recycle cargo
+ * booked as kills; the first partial v28 window already peels 16% into
+ * `recycled`). The pre-v28 ratio series above is therefore INVALID as raid
+ * evidence: the swap's accumulation RESTARTS on v28-clean windows, numerator
+ * = hostile-room killed cargo only. On current evidence the swap trends
+ * toward NO-OP (the 750e admission price may be roughly right for actual
+ * invader combat) - which is the gate working, not a disappointment.
  */
 export const EXPECTED_RAID_DEFENSE_COST = 750;
 
@@ -1014,6 +1134,37 @@ export const ENERGY_DECAY_DIVISOR = 1000;
  */
 export function pileDecayRate(amount: number): number {
   return amount > 0 ? Math.ceil(amount / ENERGY_DECAY_DIVISOR) : 0;
+}
+
+/** Container store capacity (Screeps CONTAINER_CAPACITY). */
+export const CONTAINER_CAP = 2000;
+
+/**
+ * The PLAN's pile-decay budget for one source mouth at `mouthLevel` total
+ * staged stock (spec 42 stage A). The mouth's first CONTAINER_CAP sits in the
+ * container (no decay); only the GROUND share above it rots, priced by the
+ * SAME pileDecayRate the loss meter integrates - one formula home, so budget
+ * and meter cannot drift (pinned to 1e-9 in lossPrimitives.test.ts).
+ *
+ * At the gate's own design point (SOURCE_BUFFER_DEFER_THRESHOLD ==
+ * CONTAINER_CAP) this is ZERO: the plan intends no ground decay at all, and
+ * every measured e/t of it is priced unfavorable variance pointing at the
+ * haul deficit (E6's verdict), never silently absorbed.
+ */
+export function pileDecayBudget(mouthLevel: number, containerCap: number = CONTAINER_CAP): number {
+  return pileDecayRate(Math.max(0, mouthLevel - containerCap));
+}
+
+/**
+ * The PLAN's tombstone-loss budget (spec 42 stage A): raid attrition is
+ * priced at ADMISSION by the invader tax, so the account's budget for
+ * creeps-died-carrying is that same term on the taxed (remote) capacity -
+ * INVADER_TAX_PER_ENERGY x remoteMinedRate. One constant home: R1's
+ * calibration gauge and this budget move together when the >=10-window
+ * evidence swaps EXPECTED_RAID_DEFENSE_COST.
+ */
+export function tombstoneLossBudget(remoteMinedRate: number): number {
+  return remoteMinedRate > 0 ? INVADER_TAX_PER_ENERGY * remoteMinedRate : 0;
 }
 
 /** Hits restored per energy of repair (Screeps REPAIR_POWER / REPAIR_COST). */

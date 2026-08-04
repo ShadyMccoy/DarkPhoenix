@@ -45,6 +45,63 @@ export interface CommissionOutputs {
 }
 
 /**
+ * One role's planned fleet within a commission (spec 39 phase 1). The plan's
+ * OWN terms, continuous - the executor rounds when it builds bodies. This is
+ * ONE FACT IN TWO UNITS with the envelope price, never a second book: per
+ * commission, the role loads sum to consumes.spawnPartsPerTick exactly
+ * (pinned to 1e-9 by commissionFleet.test.ts), so the fleet cannot drift
+ * from the price.
+ */
+export interface FleetRole {
+  /**
+   * Standing body-parts target for this role's whole fleet - what segment-4
+   * actual bodyParts compares against (the per-commission plan-vs-actual
+   * table spec 39 buys).
+   */
+  parts: number;
+  /**
+   * Amortized spawn load (parts/tick) of this role's share - the same
+   * amortization the envelope price paid (effectiveLife at each element's
+   * own distance, summed), so Sigma(load) == spawnPartsPerTick.
+   */
+  load: number;
+  /**
+   * Working-part total behind `parts` (WORK for miners/consumers, CARRY for
+   * vectors) - the kind's body() sizing parameter, aggregated.
+   */
+  workingParts?: number;
+  /**
+   * Bodies at steady state where the plan discretizes (miner: 1 full-size
+   * body per source). Absent = the executor splits `parts` into bodies under
+   * the spawn energy cap - a runtime fact the pure plan does not fix.
+   */
+  count?: number;
+}
+
+/** The planned fleet per role; keys are the kind's DECLARED role keys. */
+export type CommissionFleet = { [role: string]: FleetRole };
+
+/**
+ * One role's FIELDED actuals within a commission (spec 39 phase 2) - the
+ * measured counterpart of FleetRole, host-assembled from live creeps and
+ * carried into ColonyProblem so the plan incorporates what is already walking
+ * around (owner 2026-07-31: "Incorporate the actual into the plan... a single
+ * consistent framework"). Phase 3's replacement scheduling reads the TTLs.
+ */
+export interface FieldedRole {
+  /** Live bodies of this role. */
+  count: number;
+  /** Total body parts across them (measured, never a reconstruction). */
+  parts: number;
+  /** Remaining ticksToLive per body, ascending; spawning creeps count full life. */
+  ttls: number[];
+}
+
+/** The fielded fleet per role; keys match the kind's declared role keys
+ *  (an undeclared workType buckets under itself - measured, never dropped). */
+export type FieldedFleet = { [role: string]: FieldedRole };
+
+/**
  * One commissioned corp: the planner's reasoning (consumes/produces) plus the
  * kind-specific binding payload the runtime corp executes from.
  */
@@ -56,6 +113,13 @@ export interface Commission {
   shape: CommissionShape;
   consumes: CommissionInputs;
   produces: CommissionOutputs;
+  /**
+   * The fleet this commission intends fielded, per role (spec 39 phase 1).
+   * Declared by the solver-backed envelopes (harvest/carry/upgrade/build);
+   * auxiliary commissions are off-budget (the SpawnDirector prices them) and
+   * leave it absent until their kind migrates (spec 39 phase 4).
+   */
+  fleet?: CommissionFleet;
   /**
    * Kind-specific payload, OPAQUE to the planner and all plumbing (e.g. a
    * MinerAssignment, HaulerAssignment[], SinkAllocation). Only the kind's

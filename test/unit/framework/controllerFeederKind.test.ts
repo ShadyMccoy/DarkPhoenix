@@ -20,7 +20,7 @@ import {
   serializeStore
 } from "../../../src/economy/CorpKind";
 import { planCommissions } from "../../../src/economy/commissionPlan";
-import { ControllerFeederCorp } from "../../../src/corps/ControllerFeederCorp";
+import { ControllerFeederCorp, FEEDER_STOCK_HEADROOM } from "../../../src/corps/ControllerFeederCorp";
 import { controllerFeederKind } from "../../../src/corps/kinds/controllerFeederKind";
 import { describeCorpKindConformance } from "./conformance";
 
@@ -155,20 +155,31 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     expect(demands[0].producesIncome).to.equal(false);
   });
 
-  it("sizes the relay to the save-regime target while the warchest fills", async () => {
-    const { STORAGE_UPGRADE_TARGET } = await import("../../../src/economy/bank");
+  it("sizes the relay to the COMMISSION's plan allocation + headroom while the warchest fills", async () => {
+    // HISTORY: this test claimed to pin the no-allocation FALLBACK at the
+    // save-regime 15 - but its own staging threads the commission's plan
+    // allocation into the corp (rung 2), so the corp was never on the
+    // fallback path; the 15-based expectation coincidentally equaled the
+    // allocation-path result (~10 + 5 headroom). Dropping the 15 (owner
+    // 2026-08-04) exposed the coincidence. The pin now states the TRUE
+    // behavior: the feeder follows the plan's allocation (ONE VALVE); the
+    // pure fallback law is pinned in feederRelayTarget.test.ts.
     const { carryPartsFor } = await import("../../../src/economy/primitives");
     const store: CorpStore = new Map();
-    materializeCommissions(planCommissions(world).commissions, store);
+    const { commissions } = planCommissions(world);
+    materializeCommissions(commissions, store);
     const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+    const alloc = (commissions.find(c => c.kind === "controllerFeeder")!.assignment as {
+      controllerAllocation?: number;
+    }).controllerAllocation!;
 
     installRoom(true, true); // bank at 5000: well below the warchest target
     const demands = corp.getSpawnDemand({ energyCapacity: 1300 } as never);
     expect(demands).to.have.length(1);
-    // spawn (25,25) -> controller (40,25): range 15. Sized to sustain the
-    // save-regime 15 e/t over the round trip, exactly as before the surplus
-    // mechanism existed - a filling warchest must see NO behavior change.
-    const expected = Math.ceil(carryPartsFor(STORAGE_UPGRADE_TARGET, 15) * 1.2);
+    // spawn (25,25) -> controller (40,25): range 15. Sized to the plan's
+    // own allocation plus the stock headroom - never a bank-derived side
+    // channel.
+    const expected = Math.ceil(carryPartsFor(alloc + FEEDER_STOCK_HEADROOM, 15) * 1.2);
     expect(demands[0].bodyParam).to.equal(expected);
   });
 
@@ -209,7 +220,7 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
   });
 
   it("scales the relay (more feeders) once the bank is in surplus", async () => {
-    const { BASE_RESERVE, feederRelayRate } = await import("../../../src/economy/bank");
+    const { BASE_RESERVE, bankFedControllerRate } = await import("../../../src/economy/bank");
     const { carryPartsFor } = await import("../../../src/economy/primitives");
     const store: CorpStore = new Map();
     materializeCommissions(planCommissions(world).commissions, store);
@@ -224,12 +235,16 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     (Game.rooms[HOME] as { storage: { store: { energy: number } } }).storage.store.energy = banked;
     // Post-clamp contract: the feeder scales only for flow the PLAN sends to
     // the controller - state a surplus-era plan that allocates the full draw.
-    corp.setControllerAllocation(feederRelayRate(banked, reserveTarget));
+    corp.setControllerAllocation(bankFedControllerRate(banked, reserveTarget));
 
     // needed carry across the relay exceeds one max body (13 CARRY at 1300
     // capacity), so the corp fields a second (and third) feeder rather than
-    // pretending one shuttle can move 35 e/t.
-    const needed = Math.ceil(carryPartsFor(feederRelayRate(banked, reserveTarget), 15) * 1.2);
+    // pretending one shuttle can move 35 e/t. The relay the corp sizes is the
+    // PLAN's allocation + stock headroom (spec 38 phase B - one law, every
+    // regime), so the test derives from the same law.
+    const needed = Math.ceil(
+      carryPartsFor(bankFedControllerRate(banked, reserveTarget) + FEEDER_STOCK_HEADROOM, 15) * 1.2
+    );
     const maxCarry = 13;
     const wantedFeeders = Math.ceil(needed / maxCarry);
     expect(wantedFeeders).to.be.greaterThan(1); // the scenario actually exercises scaling

@@ -19,6 +19,7 @@
 import { Colony } from "../colony/Colony";
 import { controllerSideStock, sourceBufferStock, sourceDroppedStock } from "../corps/nodeEnergy";
 import { lossReport } from "./LossMeter";
+import { spawnSpendView } from "./spawnLedger";
 import { linkLedger } from "./LinkMeter";
 import { getCompletedLedger } from "./cpuLedgerCache";
 import { SPAWN_PARTS_PER_TICK } from "../economy/primitives";
@@ -253,8 +254,32 @@ export interface CoreTelemetry {
     tombstoneByRole?: Record<string, number>;
     tombstoneExpired?: number;
     tombstoneKilled?: number;
-    /** Mean/max TTL remaining at death (v24) - the AUDIT on the cause split.
-     *  A 0%/100% split is the signature of a misread field, not a finding. */
+    /**
+     * KILLED energy by booking room / by intel-hostile flag (v27, owner
+     * 2026-08-03: "a lot is blamed on raids without sufficient evidence").
+     * Kills clustering in intel-hostile rooms support the invader story and
+     * the R1 constant swap; kills in quiet rooms falsify both. Cumulative
+     * twins live in `cumulative` so capture pairs difference the WHERE.
+     */
+    tombstoneKilledByRoom?: Record<string, number>;
+    tombstoneKilledHostileRoom?: number;
+    /** v28: deliberate spawn-side refunds (memory.recycling at last sight),
+     *  split OUT of killed so the raid story reads only combat. */
+    tombstoneRecycled?: number;
+    /** v29: recycled energy by the flag site's stamped trigger class - the
+     *  "are these legit" attribution (owner 2026-08-03). */
+    tombstoneRecycledByReason?: Record<string, number>;
+    /**
+     * Energy whose cause of death could NOT be resolved (v25). v23 derived
+     * cause from `tombstone.creep.ticksToLive` - 0/undefined on every dead
+     * creep - so everything defaulted into "expired" and the v24 audit line
+     * read SUSPECT forever. Cause now comes from the death watch (last-seen
+     * TTL vs deathTime); no watch entry lands here, honestly, instead of in
+     * a fabricated bucket.
+     */
+    tombstoneCauseUnknown?: number;
+    /** Mean/max TTL remaining at death (v24) - over KNOWN deaths only since
+     *  v25 (an unresolvable ttl no longer drags the mean toward zero). */
     tombstoneTtlMean?: number;
     tombstoneTtlMax?: number;
     /**
@@ -263,15 +288,46 @@ export interface CoreTelemetry {
      * 480t against a 1251-tick capture window at t72722670, so a 1500-tick
      * fiscal month could never be measured. The account DIFFERENCES these
      * between captures instead, so the measured window equals the capture
-     * window for any length.
+     * window for any length. The tombstone attribution keys (v25, additive)
+     * make the by-role/by-cause decomposition differenceable the same way.
      */
     cumulative?: {
       pileDecay: number;
+      /** v31 (spec 44 leg 1): the ceil-floor share of pileDecay plus the
+       *  standing-pile census integrals (pile-ticks, sub-1000 subset). */
+      pileDecayCeilPenalty?: number;
+      pileTicks?: number;
+      pileTicksSmall?: number;
       structureDecay: number;
       repairSpend: number;
       tombstoneGross: number;
       tombstoneRecovered: number;
+      tombstoneByRole?: Record<string, number>;
+      tombstoneExpired?: number;
+      tombstoneKilled?: number;
+      tombstoneCauseUnknown?: number;
+      tombstoneTtlSum?: number;
+      tombstoneTtlKnown?: number;
     };
+  };
+  /**
+   * CUMULATIVE spawn spend by role (v25, telemetry/spawnLedger) - the
+   * account's LAST short-window side made capture-bounded. Every "measured at
+   * the spawn" account line was read off the blackbox ring (heap state, ~480t
+   * after a deploy), so a 1500-tick fiscal month printed WINDOW INCOHERENCE
+   * on essentially every close. The account differences these totals between
+   * two captures; the ring stays for forensics and per-corp P&L detail.
+   * Accrued at the SpawningCorp executor with the energy actually debited
+   * (the ring's `cost` is the budget GRANTED, which rounds high).
+   */
+  spawnSpend?: {
+    energyByRole: Record<string, number>;
+    partsByRole: Record<string, number>;
+    /** v30: recovery-fleet (scavenge-corp hauler) share, accrued beside the
+     * role totals - the account's evacuation split and RECOVERY P&L read
+     * these; absent on pre-v30 captures and the report degrades honestly. */
+    scavengeEnergy?: number;
+    scavengeParts?: number;
   };
   /** Owned rooms summary */
   rooms: {
@@ -497,7 +553,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 24, // v23 tombstone role+cause; v24 ttlAtDeath distribution (audits the cause split) 2026-08-02
+    version: 31, // v30 recovery sub-counter; v31 pile census (ceil-floor share, spec 44 leg 1) 2026-08-04
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
@@ -563,11 +619,37 @@ export function updateCoreTelemetry(
       const links = linkLedger(Game.time);
       return links.length > 0 ? { links } : {};
     })(),
-    // Omitted until a window exists, so a fresh reset publishes no zeros that
-    // would read as "nothing is decaying".
+    // Published UNCONDITIONALLY since v26 (the spawnSpend doctrine below,
+    // applied here after both immediate post-deploy captures t72743103 /
+    // t72743470 published NOTHING - the whole block, Memory-backed cumulative
+    // included, hid behind the in-heap meter's arming window and blinded any
+    // capture pair whose baseline lands right after a deploy, the natural
+    // capture moment). `windowTicks: 0` states the rates are unarmed
+    // self-describingly; the cumulative side survives resets precisely so
+    // pairs can difference it. Absence now means pre-instrument, nothing else.
     ...(() => {
-      const losses = lossReport(Game.time);
-      return losses.windowTicks > 0 ? { losses } : {};
+      return { losses: lossReport(Game.time) };
+    })(),
+    // Published even at zero: presence means "the ledger exists", so an
+    // account differencing two captures can trust an empty baseline as a real
+    // zero (a cold-start world genuinely bought nothing) and reserves absence
+    // for captures from before the ledger shipped - those fall back to the
+    // blackbox ring, stated as such.
+    ...(() => {
+      // The FULL view rides (v30 emission-seam lesson, t72763633): the
+      // recovery sub-counter accrued in Memory for a whole window while this
+      // publisher copied only the two role maps - core.version said 30,
+      // spawnSpend carried v26's shape, and the RECOVERY P&L stayed
+      // "not yet measured" against live code that WAS measuring.
+      const spend = spawnSpendView();
+      return {
+        spawnSpend: {
+          energyByRole: spend.energyByRole,
+          partsByRole: spend.partsByRole,
+          scavengeEnergy: spend.scavengeEnergy,
+          scavengeParts: spend.scavengeParts
+        }
+      };
     })(),
     rooms
   };

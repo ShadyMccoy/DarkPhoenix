@@ -16,6 +16,7 @@
  */
 
 import { CorpSizingRecord } from "../corps/Corp";
+import { CommissionFleet } from "../economy/Commission";
 import { BodyAggregate, CorpCensusEntry, corpCreepCount, corpRoomName, emptyBody } from "./bodyCensus";
 import { TELEMETRY_SEGMENTS } from "./segmentIds";
 
@@ -39,6 +40,14 @@ export interface CorpsTelemetry {
     /** ACTUAL body parts by type for this corp's live creeps; {} when it has none. */
     body: { [part: string]: number };
     /**
+     * The commission's PLANNED fleet per role (v15, spec 39 phase 1), verbatim
+     * from the envelope - the PLAN side of this row. Sits next to the measured
+     * `body`/`bodyParts` so per-commission plan-vs-actual (the F1
+     * decomposition) is a single-segment read. Absent when the commission
+     * declares none (aux kinds until spec 39 phase 4).
+     */
+    fleet?: CommissionFleet;
+    /**
      * Inputs of the corp's last sizing decision, exported verbatim from the
      * decision-site stamp (spec 14 phase 2). Absent for corps that don't stamp.
      */
@@ -59,6 +68,26 @@ export interface CorpsTelemetry {
      * churn loop had to be reconstructed from the blackbox ring instead of read.
      */
     innerSizing?: { type: string; nodeId: string; sizing: CorpSizingRecord }[];
+    /**
+     * CUMULATIVE units produced (v14, phase 2 of the income-statement
+     * program): Corp.unitsProduced verbatim - harvested energy for mining
+     * corps, upgrade points for upgrading, build progress for construction.
+     * Reset-surviving (it rides the commission store's serialize), so the
+     * ledger differences two captures per corp - measured PER-SOURCE inflow
+     * over exactly the capture window, the number the revenue line and the
+     * E6 haul-deficit diagnosis never had. Absent when the corp never
+     * counted (a zero would fabricate "measured nothing" on aux kinds).
+     */
+    produced?: number;
+    /**
+     * CUMULATIVE energy the corp's INTERNAL squads landed in sinks (v14):
+     * the summed unitsProduced of its inner CarryCorps, whose recording unit
+     * is "energy delivered". On a mining operation, `produced` is the
+     * miner's harvest and `delivered` its evacuation - the pair separates
+     * idle-fleet / wrong-route / insufficient-carry, spec 32's anti-sweep
+     * prerequisite. Absent for corps without counting inner squads.
+     */
+    delivered?: number;
     createdAt: number;
     lastActivityTick: number;
   }[];
@@ -79,7 +108,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   const corpsByKind: { [kind: string]: number } = {};
   let activeCorps = 0;
 
-  for (const { kind, corp } of census) {
+  for (const { kind, corp, fleet } of census) {
     const creepCount = corpCreepCount(corp);
     // ACTUAL body of this corp's live creeps (measured), or empty when it owns
     // none - never a reconstruction from planned rates.
@@ -89,6 +118,16 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
     const innerSizing = (corp.innerCorps?.() ?? [])
       .filter(inner => inner.lastSizing)
       .map(inner => ({ type: inner.type, nodeId: inner.nodeId || "", sizing: inner.lastSizing as CorpSizingRecord }));
+    // Delivery counter (v14): CarryCorp's recordProduction unit IS "energy
+    // delivered" (every transfer path records the moved amount), so a
+    // standalone carry corp's `produced` already carries its deliveries - no
+    // second counter exists or should (the second-implementation trap). What
+    // needs surfacing is the OPERATION shape (spec 34 D5): a mining corp's
+    // own unitsProduced is the miner's HARVEST, while its internal squads'
+    // unitsProduced is what actually LANDED in sinks - publish the inner sum
+    // as `delivered` so produced-vs-delivered splits the haul-deficit
+    // branches (idle fleet / wrong route / insufficient carry) per source.
+    const delivered = (corp.innerCorps?.() ?? []).reduce((s, inner) => s + (inner.unitsProduced ?? 0), 0);
     corps.push({
       id: corp.id,
       kind,
@@ -98,8 +137,11 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
       creepCount,
       bodyParts: body.total,
       body: body.byPart,
+      ...(fleet ? { fleet } : {}),
       sizing: corp.lastSizing,
       ...(innerSizing.length > 0 ? { innerSizing } : {}),
+      ...(corp.unitsProduced > 0 ? { produced: corp.unitsProduced } : {}),
+      ...(delivered > 0 ? { delivered } : {}),
       createdAt: corp.createdAt,
       lastActivityTick: corp.lastActivityTick
     });
@@ -108,7 +150,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   }
 
   const telemetry: CorpsTelemetry = {
-    version: 13, // Version 13: upgrader sizing stamps fieldedWork (the fleet's real burn capacity vs its headcount) 2026-08-01
+    version: 15, // v14 produced/delivered counters; v15 planned fleet per commission (spec 39 phase 1) 2026-08-03
     tick: Game.time,
     corps,
     summary: {

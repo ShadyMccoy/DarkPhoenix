@@ -158,9 +158,12 @@ left.
 | construction | ✅ | all-in commission price (spec 34 D4) |
 | bank accumulation | ⚠️ | three drain rates disagree — **spec 38** |
 | **ground pile decay** | ❌ | measured 15.67 e/t, priced nowhere |
-| **tombstone losses** | ❌ | measured 12.21 e/t, priced nowhere |
+| **tombstone losses** | ❌ | measured 12.21 e/t, priced nowhere — but the death watch (2026-08-02) now splits cause: first live read **killed 100%, mean ttl-at-death 725** — a defense-economics number, not an aging number |
 | **structure decay** | ❌ | accrues 4.26 e/t; repair 3.99 e/t is spent but unbudgeted |
-| **forgone mining** | ❌ | 30.28 e/t of capacity never harvested; now *reported*, still unpriced |
+| **forgone mining** | ✅ 2026-08-02 | **MEASURED, not inferred**: harvest corps' cumulative `produced` (corps v14) differences per capture pair — capacity − mined covers held, unstaffed and unreserved mouths at once; heldFrac demoted to diagnostic |
+| **buffer-drain fleet** | ✅ 2026-08-02 | the ONE drain law (`bufferDrainCarry`) priced into plan routes from the adapter's `staged` read — plan and corp size from the same two terms |
+| **transient/scavenge routes** | ✅ 2026-08-02 | floor-body pricing (`scavengeFloorParts`) — the literal "(unbudgeted)" line is budgeted |
+| **defense (standing guards)** | ✅ 2026-08-02 | replacement-cadence line in planSpawnLoad; the raid SURGE stays with the invader tax, whose recalibration (measured ~11x under-priced) waits on a fiscal-month soak |
 | **link throughput ceiling** | ❌ | 58% of hub fires clamped; the plan assumes full flow |
 
 The unpriced rows sum to roughly **60 e/t against 100 e/t of capacity.** That is
@@ -181,7 +184,13 @@ score have never agreed.
   next to the repair that services it — that double-counts the same wear.
   ✅ methodology #2.
 - **Window coherence.** The residual is a difference of rates; rates from
-  different windows may not be differenced. ✅ methodology #3 guard.
+  different windows may not be differenced. ✅ methodology #3 guard — and
+  STRUCTURALLY satisfied since #7 (2026-08-02): every account side now
+  differences CUMULATIVE Memory-persisted totals between the capture pair
+  (gcl/storage always did; losses since #5 / core v22; spawn costs since #7 /
+  core v25 `spawnSpend`), so on modern capture pairs the guard is quiet by
+  construction and fires only on pre-#7 baselines, where the ring fallback
+  still applies.
 - **One formula, one home.** Every economic formula lives in
   `economy/primitives.ts`. The link tax living only in `telemetry/LinkMeter` is
   exactly how the plan came to treat link haulage as free for months.
@@ -192,19 +201,32 @@ score have never agreed.
 
 Ordered so each stage is independently shippable and independently useful.
 
-### Stage A — every loss has a budget *(next)*
+### Stage A — every loss has a budget *(SHIPPED 2026-08-03, methodology #9)*
 `MEASURED LOSSES` prints a BUDGET column. The planner prices pile decay from the
 buffer levels its own gate creates, tombstone loss from fleet turnover, repair
 from the decay it must service, and link tax from routed link flow.
 
-- **Test:** for each loss line, `budget` is a number, never `-`.
+- **Test:** for each loss line, `budget` is a number, never `-`. ✅
 - **Test:** each budget is computed from a `primitives` function, and the
-  kind-conformance suite pins meter and planner to the same one (1e-9).
-- **Ledger:** a row FAILS when any loss line's |variance| exceeds 25% of budget.
+  kind-conformance suite pins meter and planner to the same one (1e-9). ✅
+  (`pileDecayBudget` composes the meter's own `pileDecayRate`;
+  `tombstoneLossBudget` is the R1 invader-tax constant - both pinned in
+  `lossPrimitives.test.ts`; repair budgets the meter's own accrual; link tax
+  shipped budgeted at #6.)
+- **Ledger:** a row FAILS when any loss line's |variance| exceeds 25% of
+  budget. ✅ (**L1**, 0.25 e/t noise floor so a zero budget never FAILs on
+  dust.)
+- **First live read (t72751306 vs t72751147):** pile decay 6.23 vs budget 0
+  → BREACH (the haul deficit, priced at last - the zero budget is the gate's
+  own design point, so this line IS the E6 chronic-mouth leak in energy);
+  tombstones 0.00 vs 0.71 → favorable breach on a quiet 159t window (the
+  two-sided read working; R1's long-window 16x runs the other way); repair
+  4.80 vs accrual 4.08 (+17%, inside tolerance).
 
 ### Stage B — the residual closes
 `|residual| ≤ 5% of gross mining` on a window-coherent capture, sustained across
-two consecutive fiscal months.
+two consecutive fiscal months. *(Window-coherent captures exist by construction
+since #7 — any v25+ capture pair qualifies, so this stage is unblocked.)*
 
 - **Test:** a grid cell asserting the identity closes on a synthetic world where
   every loss is stageable and therefore exactly known.

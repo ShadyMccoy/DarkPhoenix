@@ -54,8 +54,16 @@ describe("upgrader relegation follows the PLAN (no second lever)", () => {
     expect(upgraderSizing(64, { bankedBehindFeeder: null, reserveTarget: BASE_RESERVE }).allocated).to.equal(64);
   });
 
-  it("controller floor inviolable: a zeroed plan still keeps the sip", () => {
-    expect(upgraderSizing(0).allocated).to.equal(SIP);
-    expect(upgraderSizing(-5).allocated).to.equal(SIP);
+  it("a zeroed plan fields ZERO - the anti-downgrade response is the PLAN's danger-gated floor, not a runtime clamp (owner 2026-08-04)", () => {
+    // The old pin ("a zeroed plan still keeps the sip") encoded the constant
+    // trickle the owner retired: "We don't need it UNLESS the controller is
+    // in danger of downgrading... Not the constant trickle." The fleet
+    // follows the plan exactly (ONE VALVE); when the downgrade timer runs
+    // low the PLAN's floor arms (bank.controllerFloorRate(ticks)) and the
+    // allocation - and therefore this sizing - rises to the sip through the
+    // normal chain.
+    expect(upgraderSizing(0).allocated).to.equal(0);
+    expect(upgraderSizing(-5).allocated).to.equal(0); // clamped at zero, never negative
+    expect(upgraderSizing(SIP).allocated).to.equal(SIP); // a danger-armed plan flows through unchanged
   });
 });

@@ -122,7 +122,11 @@ describe("solver bridge: commissions reconstruct the FlowSolution's assignments"
   });
 
   it("the consume commission carries the room's serving spawn (flow sink id); the kind strips it to the real id", () => {
-    const { commissions } = solveColony(graphOf([homeNode(5), sourceNode("s1", 15)]), 0, manhattan);
+    // Two sources: with the danger-gated floor (2026-08-04) a single-source
+    // world's spawn takes all 10 e/t and no upgrade commission exists at all
+    // (the old pre-pass sip manufactured one); the mop-up remainder here
+    // creates the consume commission this pin threads its spawnId through.
+    const { commissions } = solveColony(graphOf([homeNode(5), sourceNode("s1", 15), sourceNode("s2", 25)]), 0, manhattan);
     const consume = commissions.filter(c => c.shape === "consume");
     expect(consume.length).to.be.greaterThan(0);
     for (const c of consume) {

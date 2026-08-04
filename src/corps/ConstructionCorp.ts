@@ -48,9 +48,15 @@ import {
   sustainableConsumptionRate,
   workPartsForEnergyRate
 } from "../economy/primitives";
-import { feederRelayRate, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
-import { declinedVerdictStands, effectiveOneWayTiles, evaluateRoadRoute, RoadRouteSpec } from "../economy/roadEconomics";
-import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { bankFedControllerRate, plannedControllerFlow, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
+import {
+  declinedVerdictStands,
+  effectiveOneWayTiles,
+  evaluateRoadRoute,
+  tankerCarryNeededFor,
+  RoadRouteSpec
+} from "../economy/roadEconomics";
+import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, isSpawnRefillStock, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { buildPool, buildPoolAbsorbRate, buildPoolBacklog, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
 import {
@@ -99,24 +105,15 @@ export interface SerializedConstructionCorp extends SerializedCorp {
 const TANKER_FLOOR = 2;
 
 /**
- * CARRY parts in flight to sustain `consumption` over the REAL refuel round
- * trip (owner 2026-07-28: "the sizing formula should be made to be correct
- * regardless of the carry:move ratio. Also, it should be road-aware."). The
- * gait lens is roadEconomics.effectiveOneWayTiles - empty leg full speed,
- * loaded leg per-tile for the body's ACTUAL ratio over the route's paved
- * fraction - so a 3C:1M fleet on plain is sized to its true 4d+2 trip, not
- * the 1:1 body's 2d+2 the old formula assumed (spec 34 item 3's measured
- * under-delivery). 1.5x margin for the transfer/withdraw ticks, as before.
- * Pure; exported for the unit suite.
+ * The tanker sizing formula MOVED to the economy formula home
+ * (roadEconomics.tankerCarryNeededFor, 2026-08-02 - phase 1 of the
+ * income-statement program): living here, outside economy/, was exactly how
+ * the commission's all-in price kept the 1:1 vector model while this corp
+ * fielded the gait-aware 3:1 fleet - F1 booked the difference as breach on
+ * every build campaign. Re-exported so existing imports (the unit suite)
+ * keep working; the arithmetic is byte-identical.
  */
-export function tankerCarryNeededFor(
-  consumption: number,
-  dist: number,
-  pavedFraction: number,
-  carryPerMove: number
-): number {
-  return Math.ceil(carryPartsFor(consumption, effectiveOneWayTiles(dist, pavedFraction, carryPerMove)) * 1.5);
-}
+export { tankerCarryNeededFor } from "../economy/roadEconomics";
 
 /**
  * ConstructionCorp manages builder creeps that construct extensions.
@@ -348,6 +345,7 @@ export class ConstructionCorp extends Corp {
     this.releaseExcessBuilders();
     for (const tanker of this.tankers.members()) {
       tanker.memory.recycling = true; // corp-driven: walk out, bank cargo, refund
+      tanker.memory.recycleReason = "tanker-demob";
     }
   }
 
@@ -820,7 +818,10 @@ export class ConstructionCorp extends Corp {
     if (room.energyAvailable < plan.desiredCost) return;
 
     const runt = builders.find(b => b.getActiveBodyparts(WORK) < (plan.maxPartsPerMember ?? 1));
-    if (runt) runt.memory.recycling = true;
+    if (runt) {
+      runt.memory.recycling = true;
+      runt.memory.recycleReason = "builder-runt";
+    }
   }
 
   /**
@@ -1268,6 +1269,25 @@ export class ConstructionCorp extends Corp {
       }
     }
 
+    // 1.8 Recycle pad (AFTER the surplus controller container - rung 1.7
+    //     keeps its pinned queue-jump, cons-ctrl-container-surplus-first) (owner 2026-08-03): a container beside each spawn in a
+    //     MATURE room. The depot rule (1.5) is storage-gated off, so mature
+    //     rooms had NO spawn-side container - and recycleCreep's body refund
+    //     decays in the tombstone onto a bare tile (measured t72757611:
+    //     13.07 e/t of refund flow against ~5 recovered, zero containers in
+    //     the live home room; the 5k container pays back in under half a
+    //     fiscal month). Storage-gated ON, so every bootstrap-era rung
+    //     ordering pin is untouched; driveRecycle seats the pad the moment
+    //     it stands.
+    if (containersOpen && room.storage?.my) {
+      const pad = this.findMissingRecyclePad(room);
+      if (pad) {
+        this.placeSite(room, pad.x, pad.y, STRUCTURE_CONTAINER);
+        return;
+      }
+    }
+
+
     // 1.8 Tower (RCL 3, spec 07 - owner directive 2026-07-17 "at home, we
     //     will build towers"): the room's entire NPC defense. Between the core
     //     depot and extensions: the engine's raid table only sends 50-part
@@ -1494,8 +1514,12 @@ export class ConstructionCorp extends Corp {
       if (!this.routeSettled(e, trunk.flow)) return true;
     }
     const feeder = room.memory.roadRoutes?.["feeder"];
+    // The trunk carries the PLAN's controller flow (spec 38 phase B - the
+    // relay is sized to it now); the raw relay formula survives only as the
+    // pre-first-solve fallback.
     const feederFlow = room.storage?.my
-      ? feederRelayRate(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
+      ? plannedControllerFlow(Memory.controllerAllocations, room.name) ??
+        bankFedControllerRate(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
       : 0;
     if (!this.routeSettled(feeder, feederFlow) && room.storage?.my) {
       const ctrl = room.controller;
@@ -1821,14 +1845,13 @@ export class ConstructionCorp extends Corp {
     };
     let entry: NonNullable<Room["memory"]["roadRoutes"]>[string] | undefined = routes["feeder"];
     const bank = room.storage;
-    if (
-      entry?.declined &&
-      bank?.my &&
-      !declinedVerdictStands(
-        entry.judgedFlow,
-        feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
-      )
-    ) {
+    // The judge flow is the PLAN's controller allocation (spec 38 phase B):
+    // what the relay is actually sized to move down this lane. Raw formula =
+    // pre-first-solve fallback only.
+    const trunkFlow = (): number =>
+      plannedControllerFlow(Memory.controllerAllocations, room.name) ??
+      bankFedControllerRate(bank?.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget));
+    if (entry?.declined && bank?.my && !declinedVerdictStands(entry.judgedFlow, trunkFlow())) {
       delete routes["feeder"]; // the relay rate outgrew the cached verdict - re-judge
       entry = undefined;
     }
@@ -1879,12 +1902,9 @@ export class ConstructionCorp extends Corp {
       return;
     }
     const tiles = result.path.map(p => ({ x: p.x, y: p.y }));
-    // Flow = the live relay rate: this lane moves the bank draw, not a source's 10.
-    const spec = this.roadRouteSpec(
-      room,
-      tiles,
-      feederRelayRate(bank.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
-    );
+    // Flow = the plan's controller allocation: this lane moves what the relay
+    // is sized to relay (spec 38 phase B), not a source's 10.
+    const spec = this.roadRouteSpec(room, tiles, trunkFlow());
     const verdict = evaluateRoadRoute(spec, ROAD_PAYBACK_HORIZON, ROAD_SPAWN_PART_VALUE);
     if (!verdict.worthPaving) {
       routes["feeder"] = { tiles: [], declined: true, judgedFlow: spec.flow };
@@ -2039,6 +2059,24 @@ export class ConstructionCorp extends Corp {
     if (this.hasContainerNear(room, spawn.pos, 1)) return null;
     const tile = bestAdjacentTile(room, spawn.pos, 1, spawn.pos, undefined, STRUCTURE_CONTAINER);
     return tile ? { x: tile.x, y: tile.y } : null;
+  }
+
+  /**
+   * The RECYCLE PAD (owner 2026-08-03): a container beside a spawn in a
+   * STORAGE room, so recycleCreep's refund - which the engine returns into
+   * the TOMBSTONE, whose decay then drops it on the recycler's tile - lands
+   * in a store instead of rotting on bare ground. The mature-era mirror of
+   * findMissingCoreDepot (whose storage gate is exactly why no pad existed).
+   * One pass per spawn lacking one; driveRecycle seats it once built.
+   */
+  private findMissingRecyclePad(room: Room): { x: number; y: number } | null {
+    if (this.containerBudgetFull(room)) return null;
+    for (const spawn of room.find(FIND_MY_SPAWNS)) {
+      if (this.hasContainerNear(room, spawn.pos, 1)) continue;
+      const tile = bestAdjacentTile(room, spawn.pos, 1, spawn.pos, undefined, STRUCTURE_CONTAINER);
+      if (tile) return { x: tile.x, y: tile.y };
+    }
+    return null;
   }
 
   /**
@@ -2471,8 +2509,10 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
+    // The spawn-refill stock guard applies here too (see refuelInPlace) -
+    // repair fuel must not raid a short bank's drop pool either.
     const drop = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
-      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20 && !isSpawnRefillStock(creep.room, r.pos)
     });
     if (drop) {
       if (creep.pickup(drop) === ERR_NOT_IN_RANGE) {
@@ -2483,7 +2523,8 @@ export class ConstructionCorp extends Corp {
 
     const store = creep.pos.findClosestByPath(FIND_STRUCTURES, {
       filter: s =>
-        (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) &&
+        (s.structureType === STRUCTURE_STORAGE ||
+          (s.structureType === STRUCTURE_CONTAINER && !isSpawnRefillStock(creep.room, s.pos))) &&
         (s as StructureContainer).store[RESOURCE_ENERGY] > 0
     }) as StructureContainer | StructureStorage | null;
     if (store) {
@@ -2603,10 +2644,18 @@ export class ConstructionCorp extends Corp {
    * Top up from energy immediately adjacent (range 1) without moving: a tanker's
    * delivery, a drop at our feet, or an adjacent container. Lets the builder
    * refuel while staying put and building.
+   *
+   * SPAWN-REFILL STOCK GUARD (isSpawnRefillStock): a builder parked beside the
+   * spawn drop tile must not hoover the refill apparatus's draw pool while the
+   * extension bank is short - the grid's plan-t5 refill-SLA regression (t=537,
+   * post-#148 route-share delivery quanta) measured exactly that. Storage is
+   * exempt by construction (the guard covers drops and CONTAINERS only): a
+   * bank draw is priced by the plan's construction allocation.
    */
   private refuelInPlace(creep: Creep): void {
     const drop = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 1, {
-      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0
+      filter: r =>
+        r.resourceType === RESOURCE_ENERGY && r.amount > 0 && !isSpawnRefillStock(creep.room, r.pos)
     })[0];
     if (drop) {
       creep.pickup(drop);
@@ -2614,7 +2663,8 @@ export class ConstructionCorp extends Corp {
     }
     const store = creep.pos.findInRange(FIND_STRUCTURES, 1, {
       filter: s =>
-        (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) &&
+        (s.structureType === STRUCTURE_STORAGE ||
+          (s.structureType === STRUCTURE_CONTAINER && !isSpawnRefillStock(creep.room, s.pos))) &&
         (s as StructureContainer).store[RESOURCE_ENERGY] > 0
     })[0] as StructureContainer | undefined;
     if (store) {
@@ -2703,9 +2753,10 @@ export class ConstructionCorp extends Corp {
     // ticks), so every moveTo repairs the road underfoot in the same tick -
     // repairRoadEnRoute no-ops when the store is empty, so a fully-drained
     // builder just walks (faster, unladen) and only a laden one maintains.
-    // Check for dropped energy within range
+    // Check for dropped energy within range - the spawn-refill stock guard
+    // applies (see refuelInPlace): a short bank's drop pool is not build fuel.
     const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, PICKUP_RANGE, {
-      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 20 && !isSpawnRefillStock(creep.room, r.pos)
     });
     if (dropped.length > 0) {
       const target = dropped[0];
@@ -2742,9 +2793,12 @@ export class ConstructionCorp extends Corp {
       return;
     }
 
-    // Check containers within range
+    // Check containers within range (same refill-stock guard as the drops)
     const containers = creep.pos.findInRange(FIND_STRUCTURES, PICKUP_RANGE, {
-      filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 50
+      filter: s =>
+        s.structureType === STRUCTURE_CONTAINER &&
+        (s as StructureContainer).store[RESOURCE_ENERGY] > 50 &&
+        !isSpawnRefillStock(creep.room, s.pos)
     }) as StructureContainer[];
     if (containers.length > 0) {
       const target = containers[0];

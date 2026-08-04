@@ -29,7 +29,7 @@ import "../types/Memory"; // Memory augmentation for the expansion import below
 import { Position } from "../types/Position";
 import { PlannerSource } from "./CorpPlanner";
 import { EXPANSION_CAPEX, EXPANSION_SAFETY_RESERVE } from "./expansion";
-import { CREEP_LIFETIME } from "./primitives";
+import { ANTI_DOWNGRADE_DANGER_TICKS, ANTI_DOWNGRADE_RESERVE, CREEP_LIFETIME, sustainableConsumptionRate } from "./primitives";
 
 /**
  * The colony's HARD liquidity floor: the expansion campaign's full CAPEX plus a
@@ -87,7 +87,7 @@ export function resolveReserveTarget(persisted: number | undefined): number {
  * CREEP_LIFETIME is the point (owner 2026-07-29: "drain the bank slightly
  * less aggressively, so upgraders are sized more to the equilibrium ...
  * avoid having to recycle upgraders"). Consumer fleets are SIZED to this
- * draw (bankSurplusRate -> feederRelayRate -> upgrader inflow), so the
+ * draw (bankSurplusRate -> bankFedControllerRate -> upgrader inflow), so the
  * horizon must cover the LIFETIME of the bodies it sizes. At 150 (measured
  * swing t72645498->t72652682): a ~21k surplus sized two 4350e upgraders to
  * a 100 e/t draw that self-extinguished in ~200t; the standing fleet then
@@ -114,30 +114,6 @@ export const SURPLUS_DRAIN_TICKS = CREEP_LIFETIME;
  */
 export const MAX_SURPLUS_DRAW = 100;
 
-/**
- * Energy/tick the planner keeps routing to the controller ONCE THE ROOM HAS A
- * STORAGE bank that is still FILLING; everything above this banks in the
- * storage instead of piling at the controller drop-off (owner 2026-07-11:
- * "once we have a storage, that should be a good destination for a lot of
- * drop-offs, and we deliver it locally from there"). This is the deposit half
- * of the storage bank: the durable storage - not the controller - soaks the
- * surplus, so it can accumulate the expansion CAPEX the capital trigger saves
- * toward. Once the bank passes the reserve target the cap lifts entirely (the
- * controller reverts to mopping up) and the surplus draws back out - see
- * bankSurplusRate.
- *
- * It is the tuning knob for the upgrade-vs-bank balance: raise it to favour
- * faster RCL, lower it to save harder. Below this rate the controller still
- * mops up ALL income (its capacity exceeds the supply, so nothing is left to
- * bank), so a lean single/2-source room upgrades exactly as before and only
- * genuine surplus banks. Comfortably above the anti-downgrade reserve so
- * upgrading always makes progress. Without a storage there is nowhere durable
- * to bank surplus, so the controller keeps absorbing the whole remainder
- * (pre-storage behaviour is unchanged). Lives here (not flowAdapter) so the
- * feeder and upgrader sizing derive from the same module without cycles.
- */
-export const STORAGE_UPGRADE_TARGET = 15;
-
 /** Banked energy above the reserve target - what the colony may spend. */
 export function spendableBankSurplus(banked: number, reserveTarget: number): number {
   return Math.max(0, banked - reserveTarget);
@@ -155,15 +131,77 @@ export function bankSurplusRate(banked: number, reserveTarget: number): number {
 }
 
 /**
- * Energy/tick the ControllerFeederCorp must relay storage -> controller input:
- * the save-regime upgrade target plus whatever surplus the plan is drawing.
- * The feeder sizes its shuttle fleet to this, and upgrader sizing uses it as
- * the inflow term while a feeder actively relays a surplus - all three
- * consumers of "how fast does bank energy reach the controller" read this one
- * function, so they cannot disagree.
+ * THE BANK IS THE INCOME MOP-UP (owner 2026-08-04: "The bank should be the
+ * income mop up not the upgrade"): a storage-backed room's controller
+ * allocation is this - its guaranteed floor plus the ONE drain law over the
+ * standing surplus - and NOTHING else. Upgrade is proportional to surplus
+ * (plus floor); the BANK is the residual claimant on income by construction,
+ * because a bounded controller leaves everything above this rate to the
+ * storage sink.
+ *
+ * One formula, no regime branch, continuous in the bank level - which is
+ * what makes it honor the 2026-08-03 asymptotic ruling ("I don't think it
+ * should swing hard from 85 to 15... approach the equilibrium
+ * asymptotically"): the allocation follows the SLOW-MOVING bank stock, never
+ * instantaneous income, so the bank is the low-pass filter for every income
+ * shock and the published number cannot cliff. Equilibrium sits where the
+ * draw equals the income residual (bank ~ target + residual x
+ * SURPLUS_DRAIN_TICKS), and approaches from either side with tau =
+ * SURPLUS_DRAIN_TICKS.
+ *
+ * HISTORY: phase C (2026-08-03) tried the other assignment of the same two
+ * rulings - controller mops up income, bank claims deficit/1500 via a sink
+ * reserve. Measured M10: every unbudgeted burn (fleet churn, raids, decay)
+ * ate the claim before the bank saw it, 76k -> 27.5k through the target.
+ * The owner inverted the residual claimant same-day; the claim machinery
+ * (bankRefillRate / storageRefillReserve / the hub draw-out shrink) is
+ * retired with it.
  */
-export function feederRelayRate(banked: number, reserveTarget: number): number {
-  return STORAGE_UPGRADE_TARGET + bankSurplusRate(banked, reserveTarget);
+export function bankFedControllerRate(
+  banked: number,
+  reserveTarget: number,
+  ticksToDowngrade?: number
+): number {
+  return controllerFloorRate(ticksToDowngrade) + bankSurplusRate(banked, reserveTarget);
+}
+
+
+/**
+ * The controller floor the PLAN guarantees: ZERO unless the controller is
+ * actually in danger of downgrading (owner 2026-08-04: "Even the anti
+ * downgrade. We don't need it UNLESS the controller is in danger of
+ * downgrading, which often is not for many thousands of ticks. Not the
+ * constant trickle"). The timer read arrives from the adapter's live lens;
+ * below ANTI_DOWNGRADE_DANGER_TICKS the sip arms (wired as the controller
+ * SINK RESERVE, won by the pre-pass, and the whole allocation in wartime),
+ * restoring ~100 timer ticks per upgrade tick until the danger clears.
+ * Undefined (harness, no read) means no evidence of danger - the floor
+ * stays 0; an owned room always has vision live, so the lens never fogs in
+ * production.
+ */
+export function controllerFloorRate(ticksToDowngrade?: number): number {
+  return ticksToDowngrade !== undefined && ticksToDowngrade < ANTI_DOWNGRADE_DANGER_TICKS
+    ? ANTI_DOWNGRADE_RESERVE
+    : 0;
+}
+
+/**
+ * The plan's routed controller allocation for a room (energy/tick), or
+ * undefined before the first solve publishes one (spec 38 phase B). THE
+ * runtime lens for "how fast does energy reach this controller": call sites
+ * pass Memory.controllerAllocations (published by FlowEconomy.update) - the
+ * feeder corp gets the same solve's number through its commission, and every
+ * other reader (the feeder trunk's road-payback flow in ConstructionCorp)
+ * resolves this instead of re-deriving a rate from the bank - the
+ * feederRelayRate consumer side-channel this spec retires. Pure, persisted
+ * value as argument: the exact resolveReserveTarget shape, keeping the
+ * planning core Memory-free (spec 17 purity).
+ */
+export function plannedControllerFlow(
+  published: Record<string, number> | undefined,
+  roomName: string
+): number | undefined {
+  return published?.[roomName];
 }
 
 /**

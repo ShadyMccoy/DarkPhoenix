@@ -91,7 +91,8 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
     const roomSpawnIds = new Set<string>(spawns.map(s => s.id as string));
     const demands = collectDemandsMatching(id => roomSpawnIds.has(id), {
       energyCapacity: room.energyCapacityAvailable,
-      tick: Game.time
+      tick: Game.time,
+      storageBacked: room.storage?.my === true
     });
     stampDemandAges(demands, firstSeen, seenThisTick, Game.time);
     allDemands.push(...demands);
@@ -215,17 +216,23 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
     if (spawned) {
       boughtAnything = true;
       const st = roomState.get(winner.pos.roomName)!;
-      st.energyLeft = Math.max(0, st.energyLeft - result.energyBudget);
+      // Debit what was actually PAID (methodology #8). Debiting the grant
+      // suppressed same-tick purchases further down the agenda whenever the
+      // built body rounded under it.
+      st.energyLeft = Math.max(0, st.energyLeft - spawned.cost);
       recordAgendaExecution(winner.id, chosen.role, chosen.buyerCorpId, result.energyBudget);
       // `parts` (not just cost) is F1's actual side: the fidelity comparison is
       // in parts/tick, and cost is biased across classes (600e/CLAIM part vs
       // 50e/CARRY part read reservers at 21% of spend against 4% of parts).
+      // `cost` is the energy DEBITED for the body (methodology #8) - the
+      // granted budget rounds high, and booking it put +3.99 e/t of phantom
+      // spend on the evacuation line (49% of the t72734018 variance).
       blackBox("spawn", {
         spawn: winner.id,
         role: chosen.role,
         corp: chosen.buyerCorpId,
-        cost: result.energyBudget,
-        parts: spawned
+        cost: spawned.cost,
+        parts: spawned.parts
       });
       resetDemandClock(firstSeen, chosen.buyerCorpId, chosen.role);
     }

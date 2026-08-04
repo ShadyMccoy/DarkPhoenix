@@ -386,6 +386,7 @@ export class HarvestCorp extends Corp {
       }
     });
     staffing[releaseIdx].memory.recycling = true;
+    staffing[releaseIdx].memory.recycleReason = "miner-release";
   }
 
   /** Miner count the plan wants - same math as getSpawnDemand's target. */

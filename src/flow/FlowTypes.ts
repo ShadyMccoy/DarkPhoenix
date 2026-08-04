@@ -255,6 +255,13 @@ export interface SinkAllocation {
   /** Type of sink */
   sinkType: SinkType;
 
+  /**
+   * Room the sink stands in (from the planner problem's sink position).
+   * Feeds the per-room Memory.controllerAllocations publish (spec 38 phase
+   * B) that runtime readers resolve through bank.plannedControllerFlow.
+   */
+  roomName?: string;
+
   /** Energy allocated per tick */
   allocated: number;
 
@@ -345,7 +352,24 @@ export interface FlowSolution {
     spawnCount: number;
     /** Damped iterations actually run (0 = converged on the seed). */
     passes: number;
+    /**
+     * The infra term's INPUTS (t72749493: infra published 33.11 while a
+     * hand-derivation from assumed inputs gave ~11 - the sum alone cannot be
+     * decomposed from a capture, the exact diagnosis failure the stamp
+     * exists to prevent). infraSpawnEnergy(pricedRelay, depotRooms,
+     * remoteRooms, linkFedRooms) is re-runnable from these four numbers.
+     */
+    infraInputs?: { pricedRelay: number; depotRooms: number; remoteRooms: number; linkFedRooms: number };
   };
+
+  /**
+   * Remote rooms whose sources the plan FUNDED this solve (miner commissions
+   * outside spawn rooms). Persisted by the execution layer as
+   * Memory.fundedRemoteRooms and threaded back into the next solve's infra
+   * pricing - the reserver upkeep charges for rooms actually worked, not
+   * every scouted candidate (t72750467: 26 candidates vs 8 funded).
+   */
+  fundedRemoteRooms?: string[];
 
   /** Net energy available for sinks */
   netEnergy: number;

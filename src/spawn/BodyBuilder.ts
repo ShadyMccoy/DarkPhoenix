@@ -249,11 +249,13 @@ export function buildBuilderBody(desiredWork: number, bufferCarry: number, energ
   return { body: [], cost: 0, workParts: 0, carryParts: 0 };
 }
 
-/** The tanker's CARRY:MOVE ratios, exported so the FLEET-SIZING formula reads
- * the same numbers the body is built with (owner 2026-07-28: sizing must be
- * correct regardless of the ratio - one constant, two readers, no drift). */
-export const TANKER_CARRY_PER_MOVE_PLAIN = 3;
-export const TANKER_CARRY_PER_MOVE_ROAD = 5;
+/** The tanker's CARRY:MOVE ratios - one constant, every reader (owner
+ * 2026-07-28: sizing must be correct regardless of the ratio). HOMED in
+ * primitives since phase 1 of the income-statement program (the commission's
+ * all-in price is a third reader and lives plan-side); re-exported here so
+ * body-building imports keep reading them beside the builder. */
+export { TANKER_CARRY_PER_MOVE_PLAIN, TANKER_CARRY_PER_MOVE_ROAD } from "../economy/primitives";
+import { TANKER_CARRY_PER_MOVE_PLAIN, TANKER_CARRY_PER_MOVE_ROAD } from "../economy/primitives";
 
 export function buildTankerBody(requiredCarry: number, energyCapacity: number, useRoads = true): TankerBodyResult {
   // Minimum viable tanker: 1 CARRY + 1 MOVE = 100 energy

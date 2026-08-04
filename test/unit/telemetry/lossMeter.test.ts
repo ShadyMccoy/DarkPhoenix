@@ -1,5 +1,13 @@
 import { expect } from "chai";
-import { resetLossMeter, sampleRoomLosses, recordRepair, lossReport } from "../../../src/telemetry/LossMeter";
+import {
+  resetLossMeter,
+  sampleRoomLosses,
+  recordRepair,
+  lossReport,
+  resolveDeathCause,
+  watchCreepTtls,
+  deathWatchEntry
+} from "../../../src/telemetry/LossMeter";
 
 /**
  * THE LOSS METER (owner 2026-08-01: "I'd like to see pile decay, tombstone and
@@ -38,6 +46,23 @@ describe("LossMeter (residual line items)", () => {
     // ceil(2500/1000)=3, ceil(1000/1000)=1 => 4 e/t, over 10 ticks.
     const r = lossReport(110);
     expect(r.pileDecay).to.be.closeTo(4, 1e-9);
+  });
+
+  it("splits the CEIL-FLOOR penalty and the pile census out of the decay (spec 44 leg 1)", () => {
+    // Owner 2026-08-04: "energy piles lose a minimum of 1 e/t not always
+    // 1/1000. So better to focus one down so it stops decaying than lots of
+    // small piles." The meter already prices the ceil rule; this instrument
+    // publishes HOW MUCH of the decay is the floor's doing and how many
+    // piles stand (small = sub-1000, the floor-bound class) - the census the
+    // standing-scavenger sizing and focus-fire dispatch will be designed on.
+    sampleRoomLosses(census({ piles: [100, 100, 2500] }), 100);
+    sampleRoomLosses(census({ piles: [100, 100, 2500] }), 110);
+    // decay = 1+1+3 = 5 e/t; proportional would be 0.1+0.1+2.5 = 2.7;
+    // the ceil FLOOR adds 2.3 e/t. 3 piles standing, 2 of them small.
+    const r = lossReport(110);
+    expect(r.cumulative!.pileDecayCeilPenalty).to.be.closeTo(2.3 * 10, 1e-9);
+    expect(r.cumulative!.pileTicks).to.be.closeTo(3 * 10, 1e-9);
+    expect(r.cumulative!.pileTicksSmall).to.be.closeTo(2 * 10, 1e-9);
   });
 
   it("prices structure decay as the cost of HOLDING hits, remote containers dearer", () => {
@@ -193,6 +218,215 @@ describe("LossMeter (residual line items)", () => {
       const r = lossReport(100);
       const total = Object.values(r.tombstoneByRole).reduce((a: number, b) => a + (b as number), 0);
       expect(total, "no energy vanishes from the split").to.equal(250);
+    });
+
+    /**
+     * NO EVIDENCE IS NOT "EXPIRED" (the v23 defect, flagged by v24's own audit
+     * line: "SUSPECT ttl mean 0 max 0 - misread field"). The collector read
+     * `tombstone.creep.ticksToLive`, which is 0/undefined on EVERY dead creep,
+     * so every death defaulted into "expired" and the split was a constant,
+     * not a measurement. A tombstone whose cause the meter cannot resolve must
+     * land in an UNKNOWN bucket - over-reporting old age hides a defense
+     * problem exactly as badly as over-reporting kills would invent one.
+     */
+    it("books a death with NO cause evidence as UNKNOWN, never as expired", () => {
+      sampleRoomLosses(census(), 90);
+      sampleRoomLosses(census({ tombstones: [tomb({ id: "a", energy: 250 })] }), 100);
+      const r = lossReport(100);
+      expect(r.tombstoneCauseUnknown).to.equal(250);
+      expect(r.tombstoneExpired).to.equal(0);
+      expect(r.tombstoneKilled).to.equal(0);
+    });
+
+    /**
+     * KILLED needs a WHERE (owner 2026-08-03: "a lot is blamed on raids
+     * without sufficient evidence sometimes"). "Killed" is solid evidence of
+     * DAMAGE (a creep with TTL left died), but the raid NARRATIVE - and the
+     * R1 constant swap it justifies - needs the kill's location and whether
+     * intel flagged the room hostile when it was booked. Kills clustering in
+     * intel-hostile rooms support the invader story; kills in quiet rooms
+     * falsify it (SK / player / stale intel - different fixes). The flag
+     * rides the CENSUS (host-assembled from the vision-free RoomDiscovery
+     * lens, per the trap list) so the fold stays pure.
+     */
+    it("books killed energy BY ROOM and by intel-hostile flag - evidence, not narrative", () => {
+      sampleRoomLosses(census({ room: "W41N23", hostileFlagged: true }), 90);
+      sampleRoomLosses(census({ room: "W43N23" }), 90);
+      sampleRoomLosses(
+        census({ room: "W41N23", hostileFlagged: true, tombstones: [tomb({ id: "a", energy: 300, killed: true })] }),
+        100
+      );
+      sampleRoomLosses(census({ room: "W43N23", tombstones: [tomb({ id: "b", energy: 200, killed: true })] }), 100);
+      const r = lossReport(100);
+      expect(r.tombstoneKilledByRoom).to.deep.equal({ W41N23: 300, W43N23: 200 });
+      expect(r.tombstoneKilledHostileRoom, "only the intel-flagged room's kill").to.equal(300);
+    });
+
+    it("expired and unknown deaths contribute NOTHING to the killed-location split", () => {
+      sampleRoomLosses(census({ room: "W41N23", hostileFlagged: true }), 90);
+      sampleRoomLosses(
+        census({
+          room: "W41N23",
+          hostileFlagged: true,
+          tombstones: [tomb({ id: "a", energy: 300, killed: false }), tomb({ id: "b", energy: 100 })]
+        }),
+        100
+      );
+      const r = lossReport(100);
+      expect(r.tombstoneKilledByRoom).to.deep.equal({});
+      expect(r.tombstoneKilledHostileRoom).to.equal(0);
+    });
+
+    /**
+     * RECYCLED IS NOT KILLED (the t72755898 finding, owner skepticism round
+     * two): 4,844e of "killed" cargo booked in the HOME room with no hostile
+     * mark in the ring - EOL recycling. A loaded hauler recycled at the spawn
+     * dies with TTL remaining and leaves its cargo in a home tombstone; the
+     * killed/expired discriminator read that as combat and fed the raid
+     * narrative. The recycle path flags memory.recycling BEFORE the death, so
+     * the watch records it at last sight and the verdict separates: recycled
+     * energy books its own bucket, stays OUT of killed and out of the
+     * killed-WHERE split (it is not combat evidence anywhere).
+     */
+    it("a RECYCLING creep's death books recycled, not killed - and stays out of the WHERE split", () => {
+      watchCreepTtls({ r1: { ticksToLive: 340, memory: { recycling: true } } } as any, 95);
+      const verdict = resolveDeathCause(deathWatchEntry("r1"), 98);
+      expect(verdict.recycled).to.equal(true);
+      expect(verdict.killed).to.not.equal(true);
+
+      sampleRoomLosses(census({ room: "W43N23", hostileFlagged: false }), 90);
+      sampleRoomLosses(
+        census({
+          room: "W43N23",
+          tombstones: [{ id: "a", energy: 400, ticksToDecay: 500, recycled: true, recycleReason: "eol-tail" }]
+        }),
+        100
+      );
+      const r = lossReport(100);
+      expect(r.tombstoneRecycled).to.equal(400);
+      expect(r.tombstoneKilled).to.equal(0);
+      expect(r.tombstoneKilledByRoom).to.deep.equal({});
+      expect(r.cumulative.tombstoneRecycled).to.equal(400);
+      // The WHY rides the booking (owner 2026-08-03: "make sure those are
+      // legit") - attributed to the flag site's stamped trigger class.
+      expect(r.tombstoneRecycledByReason).to.deep.equal({ "eol-tail": 400 });
+      expect(r.cumulative.tombstoneRecycledByReason).to.deep.equal({ "eol-tail": 400 });
+    });
+
+    it("the reason threads from the WATCH record; an unstamped recycle books 'unstamped', never vanishes", () => {
+      watchCreepTtls({ r2: { ticksToLive: 500, memory: { recycling: true, recycleReason: "runt-upsize" } } } as any, 95);
+      const v = resolveDeathCause(deathWatchEntry("r2"), 98);
+      expect(v.recycled).to.equal(true);
+      expect(v.recycleReason).to.equal("runt-upsize");
+
+      sampleRoomLosses(census(), 90);
+      sampleRoomLosses(
+        census({ tombstones: [{ id: "u", energy: 150, ticksToDecay: 500, recycled: true }] }),
+        100
+      );
+      expect(lossReport(100).tombstoneRecycledByReason).to.deep.equal({ unstamped: 150 });
+    });
+
+    it("a non-recycling record still resolves killed exactly as before", () => {
+      watchCreepTtls({ k1: { ticksToLive: 340, memory: {} } } as any, 95);
+      const verdict = resolveDeathCause(deathWatchEntry("k1"), 98);
+      expect(verdict.killed).to.equal(true);
+      expect(verdict.recycled).to.not.equal(true);
+    });
+
+    it("keeps the three cause buckets summing to the gross booking", () => {
+      sampleRoomLosses(census(), 90);
+      sampleRoomLosses(
+        census({
+          tombstones: [
+            tomb({ id: "a", energy: 300, killed: false, ttlAtDeath: 0 }),
+            tomb({ id: "b", energy: 200, killed: true, ttlAtDeath: 410 }),
+            tomb({ id: "c", energy: 100 }) // no evidence
+          ]
+        }),
+        100
+      );
+      const r = lossReport(100);
+      expect(r.tombstoneExpired + r.tombstoneKilled + r.tombstoneCauseUnknown).to.equal(600);
+      expect(r.tombstoneCauseUnknown).to.equal(100);
+    });
+
+    it("computes the ttl distribution over KNOWN deaths only", () => {
+      // A ttl the resolver could not establish must not drag the mean toward
+      // zero - that is how a constant-zero field masqueraded as data.
+      sampleRoomLosses(census(), 90);
+      sampleRoomLosses(
+        census({
+          tombstones: [
+            tomb({ id: "a", energy: 300, killed: true, ttlAtDeath: 400 }),
+            tomb({ id: "b", energy: 100 }) // unknown: contributes NO ttl sample
+          ]
+        }),
+        100
+      );
+      const r = lossReport(100);
+      expect(r.tombstoneTtlMean).to.equal(400);
+      expect(r.tombstoneTtlMax).to.equal(400);
+    });
+  });
+
+  /**
+   * THE DEATH WATCH - cause of death from the meter's OWN evidence.
+   *
+   * The trap list's doctrine ("room state from intel, never creep positions")
+   * wears one more costume here: a dead creep's object carries no ticksToLive,
+   * so cause must come from a durable record the bot itself keeps. The watch
+   * samples every live own creep's TTL on the loss stride; when a tombstone
+   * appears, `lastSeenTtl - (deathTime - lastSeenTick)` is the life it still
+   * had - TTL decrements exactly 1/tick, so the estimate is exact whenever the
+   * creep survived to its recorded deathTime. Zero left = expired; time left =
+   * killed; no watch entry (enemy creep, pre-deploy death) = unknown.
+   */
+  describe("death watch (last-seen TTL vs deathTime)", () => {
+    it("resolves KILLED when the creep still had life on the clock", () => {
+      const cause = resolveDeathCause([500, 1000], 1100);
+      expect(cause.killed).to.equal(true);
+      expect(cause.ttlAtDeath).to.equal(400);
+    });
+
+    it("resolves EXPIRED when the clock ran out exactly", () => {
+      const cause = resolveDeathCause([100, 1000], 1100);
+      expect(cause.killed).to.equal(false);
+      expect(cause.ttlAtDeath).to.equal(0);
+    });
+
+    it("clamps a late death to expired rather than a negative ttl", () => {
+      const cause = resolveDeathCause([50, 1000], 1200);
+      expect(cause.killed).to.equal(false);
+      expect(cause.ttlAtDeath).to.equal(0);
+    });
+
+    it("returns NO verdict without a watch entry or a deathTime", () => {
+      expect(resolveDeathCause(undefined, 1100)).to.deep.equal({});
+      expect(resolveDeathCause([500, 1000], undefined)).to.deep.equal({});
+    });
+
+    it("returns NO verdict when the watch entry postdates the death (name reuse)", () => {
+      expect(resolveDeathCause([500, 1200], 1100)).to.deep.equal({});
+    });
+
+    it("records live creeps and prunes the long-dead", () => {
+      watchCreepTtls({ h_1: { ticksToLive: 500 }, m_2: { ticksToLive: 30 } }, 1000);
+      expect(deathWatchEntry("h_1")).to.deep.equal([500, 1000]);
+      expect(deathWatchEntry("m_2")).to.deep.equal([30, 1000]);
+      // m_2 dies; its entry must SURVIVE long enough for its tombstone to be
+      // seen (a tombstone stands 5 ticks per body part)...
+      watchCreepTtls({ h_1: { ticksToLive: 400 } }, 1100);
+      expect(deathWatchEntry("m_2")).to.deep.equal([30, 1000]);
+      // ...and be pruned once no tombstone could still be standing.
+      watchCreepTtls({ h_1: { ticksToLive: 100 } }, 1500);
+      expect(deathWatchEntry("m_2")).to.equal(undefined);
+      expect(deathWatchEntry("h_1")).to.deep.equal([100, 1500]);
+    });
+
+    it("ignores a creep still spawning (no TTL yet) rather than recording garbage", () => {
+      watchCreepTtls({ baby: {} }, 1000);
+      expect(deathWatchEntry("baby")).to.equal(undefined);
     });
   });
 

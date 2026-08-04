@@ -7,6 +7,7 @@
  */
 
 import { Corp, SerializedCorp } from "./Corp";
+import { blankDutyHistogram, recordDutyTick } from "../telemetry/dutyHistogram";
 import { roomHasFlowHauler } from "./censusLens";
 import { controllerInputSpot, controllerParkingTiles, controllerSideStock } from "./nodeEnergy";
 import { travelToBypass } from "./movement";
@@ -22,7 +23,7 @@ import {
   ANTI_DOWNGRADE_RESERVE,
   WARTIME_BACKLOG_THRESHOLD
 } from "../economy/primitives";
-import { bankSurplusRate, feederRelayRate, resolveReserveTarget } from "../economy/bank";
+import { bankSurplusRate, resolveReserveTarget } from "../economy/bank";
 import { FEEDER_STOCK_HEADROOM } from "./ControllerFeederCorp";
 import { CONTROLLER_STARVE_FLOOR } from "./haulPolicy";
 import { buildPoolAbsorbRate, buildPoolBacklog } from "./constructionLedger";
@@ -35,10 +36,26 @@ const UPGRADER_COUNT_CAP = 8;
 export const UPGRADE_METER_WINDOW = 1500;
 
 /**
+ * Rooms whose meter this HEAP has already tallied. A fresh heap (global
+ * reset - every deploy) forces a window roll on each room's first tally:
+ * a Memory-persisted window SPANNING a deploy poisons every reader with
+ * pre-deploy weighting (measured t72744628: workUtil 0.999 / X1 0.10 read
+ * healthy across a window straddling the 4b deploy while the post-deploy
+ * truth was burn 18 of 57 standing WORK - the stale meter cost the whole
+ * acceptance read). The duty HISTOGRAM still survives the roll, as on any
+ * roll. Exported reset is a TEST HOOK only.
+ */
+let meterRoomsSeenThisHeap = new Set<string>();
+export function resetUpgradeMeterHeapMarker(): void {
+  meterRoomsSeenThisHeap = new Set();
+}
+
+/**
  * One creep-tick observation for the WORK-utilization meter (pure seam,
  * spawn-meter pattern): `fired` on OK, `dry` on ERR_NOT_ENOUGH_RESOURCES
  * (the starved-buffer tick an endpoint stock read hides). Windows roll
- * after UPGRADE_METER_WINDOW ticks.
+ * after UPGRADE_METER_WINDOW ticks, and on the first tally of a fresh heap
+ * (see meterRoomsSeenThisHeap).
  */
 export function tallyUpgradeAttempt(
   meter: NonNullable<Memory["upgradeMeter"]>,
@@ -47,12 +64,23 @@ export function tallyUpgradeAttempt(
   rc: number
 ): void {
   let w = meter[room];
-  if (!w || tick - w.t0 >= UPGRADE_METER_WINDOW) {
-    w = meter[room] = { t0: tick, ticks: 0, fired: 0, dry: 0 };
+  const freshHeap = !meterRoomsSeenThisHeap.has(room);
+  meterRoomsSeenThisHeap.add(room);
+  if (!w || freshHeap || tick - w.t0 >= UPGRADE_METER_WINDOW) {
+    // The duty HISTOGRAM survives the window roll (spec 40-B): percentiles
+    // need shape across regimes, and the roll is exactly when a mean resets
+    // its amnesia. Sub-windows keep closing into the same buckets.
+    const hist = w?.hist;
+    w = meter[room] = { t0: tick, ticks: 0, fired: 0, dry: 0, ...(hist ? { hist } : {}) };
   }
   w.ticks++;
   if (rc === OK) w.fired++;
   else if (rc === ERR_NOT_ENOUGH_RESOURCES) w.dry++;
+  // Spec 40-B: the same per-tick observation feeds the percentile histogram -
+  // a mean over bimodal duty hid the border-bounce 37x defect for hours; the
+  // buckets show mass at both ends where the mean shows 0.5.
+  if (!w.hist) w.hist = blankDutyHistogram();
+  recordDutyTick(w.hist, rc === OK);
 }
 
 /**
@@ -73,7 +101,7 @@ const RCL2_UPGRADER_CAP = 3;
  *                           ceiling, so allocation alone drives the count;
  *  - parkingTiles         - never field more upgraders than can ring the input
  *                           spot and actually work (0 is treated as "unknown").
- * Always at least 1 so the controller is never wholly abandoned.
+ * Zero allocation fields zero (danger-gated floor re-arms it via the plan).
  */
 export function upgraderTargetCount(
   allocated: number,
@@ -81,6 +109,12 @@ export function upgraderTargetCount(
   parkingTiles: number,
   controllerLevel: number | undefined
 ): number {
+  // ZERO allocation fields ZERO upgraders (owner 2026-08-04, the danger-gated
+  // floor): the old "always at least 1 so the controller is never wholly
+  // abandoned" was the count-side half of the constant trickle. When the
+  // downgrade timer runs low the PLAN's floor re-arms the allocation and the
+  // count follows - one valve, no runtime guard.
+  if (allocated <= 0) return 0;
   const rclCap = (controllerLevel ?? 99) <= 2 ? RCL2_UPGRADER_CAP : UPGRADER_COUNT_CAP;
   const byAllocation = Math.ceil(allocated / Math.max(1, affordableWork));
   return Math.max(1, Math.min(UPGRADER_COUNT_CAP, rclCap, parkingTiles || UPGRADER_COUNT_CAP, byAllocation));
@@ -163,7 +197,11 @@ export function upgraderSizing(
   planAllocated: number,
   financing: { bankedBehindFeeder: number | null; reserveTarget: number } | null = null
 ): { allocated: number; inflow: number; surplus: boolean } {
-  const allocated = Math.max(ANTI_DOWNGRADE_RESERVE, planAllocated);
+  // ONE VALVE (owner 2026-08-04, danger-gated floor): the fleet follows the
+  // plan's allocation exactly - the anti-downgrade response lives in the
+  // PLAN's floor (armed only when the downgrade timer is low), never as a
+  // runtime clamp that burns a constant trickle the plan didn't allocate.
+  const allocated = Math.max(0, planAllocated);
   const surplus =
     financing != null &&
     financing.bankedBehindFeeder !== null &&
@@ -285,7 +323,6 @@ export class UpgradingCorp extends Corp {
     if (!controller) return;
 
     const creeps = this.getActiveCreeps();
-    this.flagExcessForRecycling(creeps, spawn);
     for (const creep of creeps) {
       if (creep.memory.recycling) {
         driveRecycle(creep, spawn);
@@ -322,6 +359,16 @@ export class UpgradingCorp extends Corp {
       // travelToBypass so an upgrader can swap through an already-parked sibling on
       // the way to its own tile instead of stalling in the cramped controller ring.
       travelToBypass(creep, park, { range: 0, visualizePathStyle: { stroke: "#ffffff" } });
+      // EN-ROUTE FEED (P7, live t72744628+: a 39-WORK upgrader stood at range
+      // 1 of a 729-energy controller link with store 0 - this branch never
+      // drew, so a creep that hasn't won its exact tile STARVED BESIDE THE
+      // SUPPLY while bypass-shuffling for its park; burn ran 18 of 57
+      // standing WORK and the whole link relay sat in the matching low
+      // equilibrium, banking the plan's 58 e/t controller allocation
+      // instead). Withdraw is a different action group from movement, so
+      // drawing while repositioning costs nothing; drawFromInput no-ops
+      // out of range.
+      if (creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0) this.drawFromInput(creep, controller);
       // Upgrade en route if it has energy and is already in range - no idle WORK
       // ticks while repositioning.
       if (creep.store[RESOURCE_ENERGY] > 0 && creep.pos.getRangeTo(controller) <= 3) this.tryUpgrade(creep, controller);
@@ -731,41 +778,19 @@ export class UpgradingCorp extends Corp {
   }
 
   /**
-   * Shed the smallest upgrader when the fleet's total WORK over-shoots what the
-   * (build-aware) allocation can actually feed - the "recycle if needed" half of
-   * the rebalance. Only sheds when retiring the runt still leaves us at or above
-   * the target, so a correctly-sized fleet is never disturbed and we can't thrash
-   * below target. The retired creep walks to the spawn and recycles, returning
-   * its body energy to the economy that now needs it.
-   *
-   * Scoped to the dedicated-build rebalance only: without a reserved build source
-   * the upgrade target equals the full allocation (effectiveAllocated is a no-op),
-   * so this is exactly the situation the recycle is for. Firing it more broadly
-   * churned upgraders against the normal fallback target and stole spawn ticks
-   * from a second source's miner during the cold ramp.
+   * EXCESS-SHED RETIRED (owner 2026-08-03: "Do we really need the excess
+   * shed. I'm fine with just letting die out... it shouldn't happen too
+   * often. Our colony conditions are essentially unchanged"). Upgraders are
+   * ATTRITION-ONLY: an over-target fleet shrinks by natural EOL, never by
+   * mid-life cull. The shed was the revocation class the trap list warns
+   * about - it amplified PLAN swings (the 85->15 bank-refill flip; a pad
+   * build setting dedicatedBuildSourceId) into 980e/window of body churn
+   * while the world was unchanged. Scarcity still acts at the SPAWN: the
+   * plan-sized demand + effectiveAllocated damping buy no NEW bodies over
+   * target; standing WORK costs nothing to keep and burns stock into score
+   * until it dies. Pinned by recycleReasonRatchet ("upgraders are
+   * attrition-only").
    */
-  private flagExcessForRecycling(creeps: Creep[], spawn: StructureSpawn): void {
-    if (!spawn.room.memory.dedicatedBuildSourceId) return; // only rebalance during a dedicated build
-    if (spawn.spawning) return; // don't compete with an in-progress spawn
-    if (creeps.some(c => c.memory.recycling)) return; // one at a time
-    if (creeps.length === 0) return;
-
-    const base = this.sinkAllocation && this.sinkAllocation.allocated > 0 ? this.sinkAllocation.allocated : 2;
-    const target = this.effectiveAllocated(spawn.room, base);
-
-    let smallest: Creep | null = null;
-    let smallestWork = Infinity;
-    let totalWork = 0;
-    for (const c of creeps) {
-      const w = c.getActiveBodyparts(WORK);
-      totalWork += w;
-      if (w < smallestWork) {
-        smallestWork = w;
-        smallest = c;
-      }
-    }
-    if (smallest && totalWork - smallestWork >= target) smallest.memory.recycling = true;
-  }
 
   /**
    * Set the sink allocation from FlowEconomy.

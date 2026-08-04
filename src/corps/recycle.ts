@@ -13,6 +13,8 @@
  * @module corps/recycle
  */
 
+import { HaulerBodyRatio, haulerBodyCost } from "../economy/primitives";
+
 /**
  * Is the room maxed out (spawn + extensions full) with the spawn idle? Only then
  * is recycling free: the surplus energy and the empty spawn tick would otherwise
@@ -46,12 +48,65 @@ export function pickRuntToRecycle(partCounts: number[], partsNeeded: number, max
   return idx;
 }
 
-/** Walk a retired creep to the spawn, dumping any carried energy, then recycle it. */
+/**
+ * The runt-upsize POUNCE threshold (owner 2026-08-03, the cee0 ladder:
+ * 3->6->9->12->15->30 parts, five stepping-stone bodies for one 1500e body).
+ * A MATURE (storage-backed) room replaces a runt only when the full-size body
+ * is affordable - one recycle, one buy; each intermediate purchase drained
+ * the bank the next buy affordability-scaled to, which is what cranked the
+ * ladder. Bootstrap keeps the +1-CARRY crank: escape velocity beats waiting
+ * when nothing guarantees the bank refills.
+ */
+export function runtUpsizeThreshold(
+  minCarry: number,
+  maxCarry: number,
+  storageBacked: boolean,
+  ratio: HaulerBodyRatio = "1:1"
+): number {
+  // Priced AT THE ROUTE RATIO (review 2026-08-03): the pair-cost basis
+  // under-priced 1:2 swamp bodies (150e/CARRY), so the mature pounce fired
+  // before the full body was affordable and the ladder survived exactly on
+  // the dearest routes.
+  return haulerBodyCost(storageBacked ? maxCarry : minCarry + 1, ratio);
+}
+
+/**
+ * Walk a retired creep to the spawn, banking any carried energy, then recycle
+ * it - onto a container when one stands beside the spawn.
+ *
+ * Two mechanics fixes (owner 2026-08-03, on the t72755898 finding that
+ * recycle tombstones masqueraded as combat kills):
+ * - CARGO DELIVERS, NEVER ENTOMBS: the bank is storage-first. The old spawn
+ *   dump livelocked in any healthy room (the spawn buffer is pinned FULL, so
+ *   ERR_FULL forever) and the cargo eventually died into a tombstone the
+ *   death watch read as a kill. Rooms without storage keep the spawn dump.
+ * - THE REFUND LANDS IN A STORE: recycleCreep's body refund drops onto the
+ *   creep's tile, and the engine banks it into a container under the creep.
+ *   When a container stands beside the spawn the recycler seats it first;
+ *   occupied or absent falls back to the plain adjacent recycle - the pad is
+ *   an optimization, never a precondition. (Whether to BUILD such a pad is
+ *   priced by v28's tombstoneRecycled line; this only uses one that exists.)
+ */
 export function driveRecycle(creep: Creep, spawn: StructureSpawn): void {
   if (creep.store[RESOURCE_ENERGY] > 0) {
-    if (creep.transfer(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-      creep.moveTo(spawn, { visualizePathStyle: { stroke: "#888888" } });
+    // OWN storage only (review 2026-08-03): a foreign storage returns
+    // ERR_INVALID_TARGET - not NOT_IN_RANGE - so the old expression
+    // livelocked a loaded recycler walking through someone else's room.
+    const bank: AnyStoreStructure | StructureSpawn =
+      creep.room.storage?.my === true ? creep.room.storage : spawn;
+    if (creep.transfer(bank, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+      creep.moveTo(bank, { visualizePathStyle: { stroke: "#888888" } });
     }
+    return;
+  }
+  const pad = spawn.pos
+    .findInRange(FIND_STRUCTURES, 1, { filter: (s: AnyStructure) => s.structureType === STRUCTURE_CONTAINER })
+    .find(p => {
+      const others = typeof p.pos.lookFor === "function" ? p.pos.lookFor(LOOK_CREEPS) : [];
+      return !others.some((c: { name?: string }) => c.name !== creep.name);
+    });
+  if (pad && !creep.pos.isEqualTo(pad.pos)) {
+    creep.moveTo(pad.pos, { visualizePathStyle: { stroke: "#888888" } });
     return;
   }
   if (creep.pos.isNearTo(spawn)) {

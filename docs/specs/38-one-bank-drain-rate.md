@@ -1,11 +1,35 @@
 # Spec 38 — One bank-drain rate
 
-**Status: BACKLOG (owner 2026-07-30).** Raised by the owner during the audit
-loop: *"Can't the plan take into account the draining 300 K bank?"* The answer
-is **yes, and it already does** — but three different drain rates exist and
-the plan's *spawn-parts* budget is computed against the smallest while the
-*consumption chain* draws the largest. Problem inventory first (same shape as
-spec 37); the direction section is short and non-binding.
+**Status: PHASES A+B SHIPPED (2026-08-03); live acceptance measurement open.**
+Raised by the owner during the audit loop: *"Can't the plan take into account
+the draining 300 K bank?"* The answer is **yes, and it already does** — but
+three different drain rates existed and the plan's *spawn-parts* budget was
+computed against the smallest while the *consumption chain* drew the largest.
+
+**Phase A (2026-08-02, deployed t72743103):** the controller floor moved
+INSIDE the plan — `controllerFloorRate(banked)` (the ONE drain law, capped at
+the save target, floored at the anti-downgrade trickle) wired as the
+controller SINK RESERVE in the adapter, won by the reserve pre-pass before
+value greed or ledger exhaustion.
+
+**Phase B (2026-08-03):** the consumer override (P-C) died. `feederRelayTarget`
+relays the plan's controller allocation + stock headroom in EVERY regime (the
+surplus formula survives only as the no-allocation legacy fallback);
+`feederBodyRate` retired outright (relay target and consumer burn are one
+number now); the constructionAbsorb netting died with the override (the plan's
+allocation is already the post-construction residual). The solve publishes
+`Memory.controllerAllocations` per room, resolved through the pure lens
+`bank.plannedControllerFlow` — ConstructionCorp's feeder-trunk road-payback
+flow reads it instead of `feederRelayRate`. Acceptance 1+2 landed as the
+STAGED t72455355 conformance suite (test/unit/economy/bank.test.ts "spec 38
+acceptance": ledger genuinely dry + bank full → the floor holds, the chain
+agrees end to end; plus the healthy-ledger case: the full surplus drain flows
+THROUGH the plan). Remaining: acceptance 3+4 are LIVE measurements — P4
+plan-implied vs measured parts/tick converging, P12 → ~1.0x, no score loss —
+tracked by the fiscal-close loop; and the full-stack staged grid cell rides
+with the phase-3 grid work (blocked on the #148 plan-t5 regression).
+
+Original problem inventory below, kept for the record (same shape as spec 37).
 
 ## The plan is NOT blind to the bank (measured, t72681617)
 
@@ -202,8 +226,16 @@ same basis so plan and measurement cannot diverge on amortization convention.
    budget, so the override's precondition disappears? The `partsLedger.dry`
    flag (shipped v9) may already be that discriminator: t72455355 would have
    read `dry: true`, and t72681617 reads `dry: false` with 0.070 p/t unspent.
-   Unverified hypothesis — check `dry` against the two captures before
-   building on it.
+   **CHECKED 2026-08-02 (phase-0 hedge of the income-statement program):**
+   neither committed capture is dry — t72725767 (SURPLUS regime, bank 130,795,
+   controller allocated 77.6) reads partsLeft 0.133, and t72734018 (FILLING
+   regime, bank 67,206, allocation at the 15 floor) reads partsLeft 0.216. So
+   `dry` never fires in either live regime today and the t72455355 state
+   (bank full + ledger dry + allocation ~2) does not occur organically — the
+   acceptance-1 conformance test MUST STAGE it (grid cell, owned-schema
+   storage) rather than wait for a live capture. The outcome-level pin
+   already landed green in test/unit/economy/bank.test.ts ("t72455355 pin: a
+   full bank NEVER starves the relay").
 3. **Does the parts ledger need a transition term at all** (spec 11 GOAL vs
    NOW), or is the ramp cost small enough to leave in the headroom?
 
@@ -230,3 +262,120 @@ precondition narrowed to the parts-dry case it was born for. That is one
 candidate, not a decision; question 1 above must be answered with data first,
 because it determines whether this is a ledger-honesty fix or a real
 over-fleeting bug.
+
+## PHASE C (2026-08-03) — the FILLING half: asymptotic refill, regime switch retired
+
+Owner directive (verbatim): *"Like I don't think it should swing hard from 85
+to 15 and go into banking mode in the first place. It should approach the
+equilibrium asymptotically."*
+
+The drain side was already asymptotic (`bankSurplusRate` = surplus /
+`SURPLUS_DRAIN_TICKS`, "tapers smoothly to zero at the target instead of
+flapping a regime switch"). The FILLING side was not: a storage room below its
+reserve target hard-capped the controller at `STORAGE_UPGRADE_TARGET` (15)
+via `controllerRoutingCapacity`'s `filling` branch, and the cap lifted
+entirely in surplus — a step function at the target crossing that swung the
+published controller allocation 85 → 15 in one solve (the swing the retired
+excess-shed then amplified into recycles).
+
+**The law** (shipped this phase):
+
+- `bank.bankRefillRate(banked, target)` = min(`MAX_SURPLUS_DRAW`,
+  deficit / `SURPLUS_DRAIN_TICKS`) — the drain's exact mirror; unit-pinned
+  symmetric (refill at deficit d === drain at surplus d, ONE law both sides).
+- `flowAdapter.storageRefillReserve` stamps it on the storage sink's
+  `reserve` (same guards + `resolveReserveTarget` as `detectBankSources`, so
+  claim-and-drain can never both be nonzero; harness-safe 0 without a live
+  owned storage).
+- `CorpPlanner.planColony` shrinks each hub's bank-source draw-out by the
+  claim: consumers draw `funded mined + surplus − refill`; deposits stay
+  gross, so the bank RETAINS exactly the claim. End-to-end pin: halving the
+  staged deficit halves the claim and moves the allocation 5 e/t, not 70.
+- `controllerRoutingCapacity` loses the `filling` branch (and its two
+  room-set params): the controller mops up to its physical burn cap in EVERY
+  bank regime. Spec 33 WARTIME relegation is kept verbatim — that one keys to
+  a real construction backlog, not a bank level.
+
+`STORAGE_UPGRADE_TARGET` survives only as the floor/wartime level
+(`controllerFloorRate`) and the feeder price floor. KNOWN DEFERRED DRIFT:
+`pricedRelay` still floors the feeder's infra price at 15 while a filling
+room's published allocation can now exceed it — measured scale ~0.003 p/t
+against F1's 0.244 breach; the fix belongs with P12's unification (price the
+previous solve's published allocation).
+
+Continuity argument (why the swing is gone): at target+ε the draw is ε/1500,
+at target−ε the claim is ε/1500, and the mined mop-up term is identical on
+both sides — the published allocation is continuous through the crossing, and
+the bank approaches the target exponentially (τ = `SURPLUS_DRAIN_TICKS`) from
+either side.
+
+## PHASE D (2026-08-04) — the residual claimant inverted: the bank is the income mop-up
+
+Owner (verbatim): *"The bank should be the income mop up not the upgrade."*
+
+Phase C assigned the two 08-03 rulings one way: controller mops up income,
+bank claims deficit/`SURPLUS_DRAIN_TICKS` via a sink reserve. Measured M10
+(76k → 27.5k THROUGH the target): every unbudgeted burn — fleet churn −12.9,
+raid surge ~−6, decay+repair −15.3 — ate the claim before the bank saw it;
+the bank budget line read +28.04 planned vs −10.97 actual. The claim
+mechanism protected nothing because the residual claimant was still the
+controller.
+
+**The phase-D law** (one formula, no branches):
+
+- `bank.bankFedControllerRate(banked, target) = controllerFloorRate(banked)
+  + bankSurplusRate(banked, target)` — upgrade is proportional to surplus
+  plus its guaranteed floor, nothing else.
+- `controllerRoutingCapacity` takes it as the cap whenever the room has a
+  live owned storage (`storageBankFedAllocation`, same guards as
+  `detectBankSources`); rooms without a bank keep the mop-up (nothing to
+  absorb the residual there). Wartime relegation outranks it, unchanged.
+- The BANK is the residual claimant by construction: a bounded controller
+  leaves income − costs − allocation to the storage sink. Phase C's claim
+  machinery (`bankRefillRate`, `storageRefillReserve`, the planColony hub
+  draw-out shrink) is retired.
+
+Both rulings hold simultaneously: the allocation is CONTINUOUS in the bank
+level (asymptotic, no 85→15 cliff — the bank level moves with τ =
+`SURPLUS_DRAIN_TICKS`), and the bank absorbs every income shock first.
+Equilibrium: bank ≈ target + residual × τ, allocation ≈ floor + residual.
+
+Predictions registered at deploy (bank 27.5k, 42.5k under target):
+1. Controller allocation drops to ~floor (≈15) immediately; published
+   allocations follow the bank up smoothly as it refills.
+2. Bank rebuild rate ≈ delivered − spawn − construction − floor ≈ 30–35 e/t
+   → target regained in ~1,200–1,500t, then allocation climbs asymptotically.
+3. Score dips for ~1–2 fiscal months (accepted: the codebase is the
+   deliverable), G1's sustainable line converges toward delivered as the
+   bank draw goes honest.
+4. No allocation cliff at the crossing (the swing signature stays dead).
+
+### Phase D addendum (2026-08-04, same session): the floor's 15 clamp dropped
+
+Owner, on "Why is the controller floor 15?": *"Just drop that entirely."*
+
+`STORAGE_UPGRADE_TARGET` (15) was the last hand-tuned constant in the
+controller chain — born 2026-07-11 as the save-regime cap, surviving as the
+floor's clamp, the wartime relegation level, and the feeder price floor. Its
+only defensible piece was never the 15 but the engine-anchored sip
+(`ANTI_DOWNGRADE_RESERVE` = 2). Dropped everywhere:
+
+- `controllerFloorRate()` = the sip, no arguments, no stock scaling (the
+  min(15, banked/1500) clamp existed to keep the 15 honest; with the 15 gone
+  the law is a constant, kept as a named lens).
+- `bankFedControllerRate` = sip + surplus/τ — the complete allocation law is
+  now TWO terms, one engine-anchored, one owner-ruled.
+- Wartime relegation and the feeder's `pricedRelay` floor at the sip.
+- `feederRelayRate` retired outright (its four remaining readers — feeder
+  fallback, two ConstructionCorp trunk judgments, the flow-segment report —
+  now read `bankFedControllerRate`).
+
+Found in passing: the controllerFeeder kind's "fallback sizing" test had
+never exercised the fallback — its staging threads the commission's plan
+allocation, and the old 15-based expectation coincidentally equaled the
+allocation-path result. Re-pinned to the true (ONE VALVE) behavior.
+
+Consequence while under target: allocation ≈ 2 e/t, bank rebuild ≈ delivered
+− spawn − construction − 2 (~13 e/t faster than the 15-floor variant; target
+regained in ~900–1,100t at M10's flows). Score during rebuild ≈ the sip —
+the visible-progress preference is gone by owner ruling.

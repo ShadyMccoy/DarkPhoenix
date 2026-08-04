@@ -117,7 +117,7 @@
           "y": 0,
           "roomName": "W0N0"
         },
-        "spawnPartsPerTick": 0.00254
+        "spawnPartsPerTick": 0.003877
       },
       "produces": {
         "at": {

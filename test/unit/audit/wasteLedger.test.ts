@@ -12,6 +12,7 @@ import {
   planSpawnLoad
 } from "../../../scripts/waste-ledger";
 import { ALL_CORP_KINDS, ALL_SPAWN_ROLES } from "../../../src/execution/CommissionHost";
+import { haulerOverhead, reserverSpawnLoad } from "../../../src/economy/primitives";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -44,11 +45,23 @@ describe("waste ledger (spec 15 phase 1)", () => {
     // and tripped strict >1.0 - a false red that would persist at every
     // equilibrium. Within 0.5% of the ceiling is arithmetic, not a leak
     // (the smallest real fleet class is ~3% of ceiling).
+    //
+    // The capture ALSO fielded one 10-part raidGuard the audit was blind to
+    // until phase 1 priced the class; counting it, the plan genuinely stood
+    // ~2% OVER ceiling - a real reading, not noise. The pin's subject is the
+    // NOISE BAND, so the clone strips the guard to keep the original
+    // budget-dry boundary shape; the phase-1 pricing has its own coverage.
     const capBoundary = fixture("shard1-t72420007.json");
+    capBoundary.data.corps.corps = capBoundary.data.corps.corps.filter((c: any) => c.kind !== "raidGuard");
     const rows2 = computeLedger(capBoundary, fixture("shard1-t72419708.json"));
     const p4 = rows2.find(r => r.id === "P4")!;
-    expect(p4.value).to.be.greaterThan(0.99); // the boundary shape, not a slack plan
-    expect(p4.verdict).to.equal("WARN"); // hot, worth watching - but not a FAIL
+    // 2026-08-04: the recompute prices the feeder at the sip-floor law
+    // (STORAGE_UPGRADE_TARGET dropped), ~1.3% of ceiling below the era's own
+    // 15-based plan - the boundary fixture reads 0.987 now. The pin's
+    // subject is unchanged: AT the budget-dry boundary the ledger must not
+    // print a false RED on recompute drift.
+    expect(p4.value).to.be.greaterThan(0.98); // the boundary shape, not a slack plan
+    expect(p4.verdict).to.not.equal("FAIL"); // hot, worth watching - never a false red
   });
 
   it("P4's load table includes every fleet class, producers AND consumers", () => {
@@ -92,7 +105,12 @@ describe("waste ledger (spec 15 phase 1)", () => {
     const one = resLoad(mk([room("W42N22")]));
     const all = resLoad(mk(seven));
     expect(all, "seven rooms cost seven reservers, not one").to.be.closeTo(7 * one, 1e-9);
-    expect(all, "28 parts over the claim life, not 4").to.be.closeTo(28 / (600 - 60), 1e-9);
+    // 28 parts, amortized by the ONE home (duty-bearing since methodology #8 -
+    // the continuous-duty recompute this line used to pin was the +8.02 F lie).
+    expect(all, "28 parts at the shipped duty over the claim life, not 4").to.be.closeTo(
+      reserverSpawnLoad(28),
+      1e-9
+    );
   });
 
   it("P4's reserver line stays zero when no room is reserved", () => {
@@ -1106,20 +1124,42 @@ describe("F1 plan fidelity (waste ledger)", () => {
     expect(f1.detail).to.match(/breach|worst/i);
   });
 
-  it("surfaces a kind the plan prices at ZERO as UNPRICED (the raidGuard hole)", () => {
-    // raidGuard stood 10 parts and bought 0.020 p/t live while planSpawnLoad
-    // has no line for it at all. An unpriced CLASS is a different defect from
-    // a mispriced one: no amount of tuning an existing line can find it.
+  it("settles guard purchases against the PRICED defense line (the raidGuard hole is closed)", () => {
+    // Phase 1 of the income-statement program: raidGuard stood 10 parts and
+    // bought 0.020 p/t live while planSpawnLoad had no line for it - F1
+    // flagged it UNPRICED on every cycle. The standing fleet now prices at
+    // its replacement cadence, so guard spend settles against a plan line
+    // like every other class.
     const corps = [
       { id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } },
-      { id: "raidGuard-A-raidGuard", kind: "raidGuard", creepCount: 1, bodyParts: 10 }
+      { id: "raidGuard-A-raidGuard", kind: "raidGuard", creepCount: 1, bodyParts: 10, body: { attack: 5, move: 5 } }
     ];
     const probe = mk([], [0], corps);
     const cap = mk([], [planTotal(probe) * 2], corps);
     cap.data.blackbox = { rows: mkRing([{ role: "guard", corp: "raidGuard-A-raidGuard", cost: 3000, parts: 30 }]) };
     const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
+    expect(f1.detail).to.not.contain("UNPRICED");
+    expect(f1.detail, "guards settle against their own plan line").to.contain("defense (guards)");
+    const { lines } = planSpawnLoad(cap);
+    const guard = lines.find(([n]) => String(n).startsWith("defense"))!;
+    expect(guard, "the standing fleet is priced").to.not.equal(undefined);
+    expect(guard[2]).to.be.closeTo(10 / 1500, 1e-9);
+  });
+
+  it("still surfaces a kind with NO plan line as UNPRICED (the detector outlives the hole)", () => {
+    // An unpriced CLASS is a different defect from a mispriced one: no amount
+    // of tuning an existing line can find it. The detector must survive the
+    // raidGuard fix - pinned with a kind planSpawnLoad genuinely never prices.
+    const corps = [
+      { id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 1 } },
+      { id: "mystery-A-mystery", kind: "mystery", creepCount: 1, bodyParts: 10 }
+    ];
+    const probe = mk([], [0], corps);
+    const cap = mk([], [planTotal(probe) * 2], corps);
+    cap.data.blackbox = { rows: mkRing([{ role: "enigma", corp: "mystery-A-mystery", cost: 3000, parts: 30 }]) };
+    const f1 = computeLedger(cap, cap).find(r => r.id === "F1")!;
     expect(f1.detail).to.contain("UNPRICED");
-    expect(f1.detail).to.contain("raidGuard");
+    expect(f1.detail).to.contain("mystery");
   });
 
   it("prefers the recorded parts count over the cost estimate, and says which it used", () => {
@@ -1244,7 +1284,10 @@ describe("energy account: the residual's line items (core v20 loss meter)", () =
   const lineValue = (text: string, label: string): number => {
     const line = text.split("\n").find(l => l.includes(label));
     if (!line) throw new Error(`no line matching "${label}" in:\n${text}`);
-    return Number(/(-?\d+\.\d\d)/.exec(line.slice(line.indexOf(label) + label.length))![1]);
+    const nums = (line.slice(line.indexOf(label) + label.length).match(/-?\d+\.\d\d/g) ?? []).map(Number);
+    // Since methodology #9 a budgeted line reads BUDGET ACTUAL VARIANCE; the
+    // ACTUAL is the middle column. Unbudgeted lines still carry one number.
+    return nums.length >= 3 ? nums[1] : nums[0];
   };
 
   it("prints the three CASH loss lines and their total", () => {
@@ -1468,6 +1511,46 @@ describe("energy account: the link transfer tax is budgeted, not just measured",
     const line = t.split("\n").find(l => l.includes("link transfer"))!;
     expect(line.match(/-?\d+\.\d\d/g)!).to.have.length(1); // actual only
   });
+
+  /**
+   * Owner 2026-08-03: "there's more sources that deliver to the link, not
+   * just the ones it was built for - account for that and the tax will be
+   * more in line with actual." The old budget priced ONLY the link-served
+   * sources' hop (0.60 at M05) while the meter read 3.08 - the missing legs
+   * were the spec-26 DEPOSIT-PORT flows (~60 e/t of remote flow turning
+   * around at link ports) and the hub->controller link leg in link-fed rooms
+   * (~42 e/t relayed through the controller link). Every link-borne leg the
+   * plan routes now budgets its hop, read off the plan's own publications.
+   */
+  it("budgets the DEPOSIT-PORT flows - remote legs that cross a link port (owner 2026-08-03)", () => {
+    const c = withLinks({ linkServed: true });
+    // Append port routes to the fixture's real haulers (replacing them would
+    // starve planSpawnLoad's route scan of its expected fields).
+    c.data.flow.haulers.push(
+      { sourceId: "src-pa", sinkId: "sink-hub", carryParts: 4, flowRate: 40, distance: 10, spawnId: "s", port: { x: 10, y: 10, roomName: "W1N1" } },
+      { sourceId: "src-pb", sinkId: "sink-hub", carryParts: 2, flowRate: 20, distance: 10, spawnId: "s", port: { x: 12, y: 10, roomName: "W1N1" } }
+    );
+    const line = textOf(c).split("\n").find(l => l.includes("link transfer"))!;
+    const nums = line.match(/-?\d+\.\d\d/g)!;
+    // 2 link-served x 10 x 3% + (40+20) port flow x 3% = 0.60 + 1.80 = 2.40
+    expect(Number(nums[0])).to.be.closeTo(-2.4, 0.01);
+  });
+
+  it("budgets the hub->controller link leg in a link-fed room (the second hop)", () => {
+    const c = withLinks({ linkServed: true });
+    c.data.corps = { corps: [{ kind: "controllerFeeder", sizing: { linkFed: true, planFlow: 42 } }] };
+    const line = textOf(c).split("\n").find(l => l.includes("link transfer"))!;
+    const nums = line.match(/-?\d+\.\d\d/g)!;
+    // 0.60 + 42 x 3% = 0.60 + 1.26 = 1.86
+    expect(Number(nums[0])).to.be.closeTo(-1.86, 0.01);
+  });
+
+  it("a WALKING feeder room budgets no controller-link hop (linkFed absent)", () => {
+    const c = withLinks({ linkServed: true });
+    c.data.corps = { corps: [{ kind: "controllerFeeder", sizing: { planFlow: 42 } }] };
+    const line = textOf(c).split("\n").find(l => l.includes("link transfer"))!;
+    expect(Number(line.match(/-?\d+\.\d\d/g)![0])).to.be.closeTo(-0.6, 0.01);
+  });
 });
 
 /**
@@ -1494,8 +1577,12 @@ describe("energy account: loss lines span the FULL capture window (#5)", () => {
     const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
     const { cap, base } = withCumulative({ ...zero, pileDecay: 3 * dt, repairSpend: dt }, zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    const line = (label: string): number =>
-      Number(text.split("\n").find(l => l.includes(label))!.match(/-?\d+\.\d\d/g)!.slice(-1)[0]);
+    // Budgeted lines (methodology #9) read BUDGET ACTUAL VARIANCE - the
+    // ACTUAL is the middle of the three columns.
+    const line = (label: string): number => {
+      const nums = (text.split("\n").find(l => l.includes(label))!.match(/-?\d+\.\d\d/g) ?? []).map(Number);
+      return nums.length >= 3 ? nums[1] : nums[0];
+    };
     // 3 e/t and 1 e/t - NOT the 999 the since-reset shell carries.
     expect(line("ground pile decay")).to.be.closeTo(-3, 0.01);
     expect(line("repair (energy spent")).to.be.closeTo(-1, 0.01);
@@ -1509,8 +1596,8 @@ describe("energy account: loss lines span the FULL capture window (#5)", () => {
       zero
     );
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    const v = Number(text.split("\n").find(l => l.includes("tombstone losses"))!.match(/-?\d+\.\d\d/g)!.slice(-1)[0]);
-    expect(v).to.be.closeTo(-3, 0.01);
+    const nums = (text.split("\n").find(l => l.includes("tombstone losses"))!.match(/-?\d+\.\d\d/g) ?? []).map(Number);
+    expect(nums.length >= 3 ? nums[1] : nums[0], "the ACTUAL column (methodology #9 added budget+variance)").to.be.closeTo(-3, 0.01);
   });
 
   it("stops blaming the LOSS lines for window incoherence once they span the window", () => {
@@ -1518,5 +1605,898 @@ describe("energy account: loss lines span the FULL capture window (#5)", () => {
     const text = formatAccounts(cap, base, computeLedger(cap, base));
     // The 5-tick since-reset shell would have tripped the guard at ~1400x.
     expect(text).to.not.include("WINDOW INCOHERENCE");
+  });
+});
+
+/**
+ * SPEC 42 STAGE A: every loss has a budget (methodology #9).
+ *
+ * The MEASURED LOSSES block gains a BUDGET column priced by primitives:
+ * pile decay budgets ZERO (the gate's design point holds every mouth at the
+ * container cap - pileDecayBudget(SOURCE_BUFFER_DEFER_THRESHOLD) == 0, so
+ * every measured e/t is priced unfavorable variance pointing at the haul
+ * deficit); tombstones budget the invader tax on the same capacity basis R1
+ * prices (tombstoneLossBudget - one constant home, the two rows move
+ * together at the >=10-window swap); repair budgets the structure-decay
+ * ACCRUAL (service what decays - the depreciation memo's own shortfall
+ * becomes priced variance). L1 summarizes adherence: FAIL when any line
+ * breaches 25% of its budget (with a 0.25 e/t noise floor so a zero budget
+ * doesn't FAIL on dust); absent without cumulative meters - never fabricated.
+ */
+describe("spec 42 stage A: every loss line has a BUDGET (methodology #9)", () => {
+  const shell = { windowTicks: 5, pileDecay: 999, structureDecay: 999, repairSpend: 999, tombstoneLost: 999, tombstoneRecovered: 0, tombstoneStock: 0 };
+  const rig = (capTotals: any, baseTotals: any): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.core.losses = { ...shell, cumulative: capTotals };
+    base.data.core.losses = { ...shell, cumulative: baseTotals };
+    return { cap, base };
+  };
+  const zero = { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 };
+  const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+  const grossCap = (cap72411542.data.flow?.sources ?? []).reduce((n: number, s: any) => n + (+s.harvestRate || 0), 0);
+
+  it("the loss lines print BUDGETS, never '-' (pile 0 by design; tombstone the tax; repair the accrual)", async () => {
+    const { tombstoneLossBudget } = (await import("../../../src/economy/primitives")) as any;
+    const { cap, base } = rig(
+      { ...zero, pileDecay: 3 * dt, structureDecay: 4 * dt, repairSpend: 3.5 * dt, tombstoneGross: 2 * dt },
+      zero
+    );
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const cols = (label: string): number[] =>
+      (text.split("\n").find(l => l.includes(label))!.match(/-?\d+\.\d\d/g) ?? []).map(Number);
+    // Three numeric columns each: BUDGET ACTUAL VARIANCE (no '-' budget).
+    const pile = cols("ground pile decay");
+    expect(pile.length, "pile line carries budget+actual+variance").to.be.at.least(3);
+    expect(pile[0], "pile budget is ZERO - the gate's design point").to.be.closeTo(0, 0.005);
+    const tomb = cols("tombstone losses");
+    expect(tomb[0], "tombstone budget = the invader tax on R1's capacity basis").to.be.closeTo(
+      -tombstoneLossBudget(grossCap),
+      0.01
+    );
+    const rep = cols("repair (energy spent");
+    expect(rep[0], "repair budget = the decay accrual").to.be.closeTo(-4, 0.01);
+  });
+
+  it("L1 FAILS when a loss line breaches 25% of its budget (pile decay above the zero budget)", () => {
+    const { cap, base } = rig({ ...zero, pileDecay: 3 * dt }, zero);
+    const l1 = computeLedger(cap, base).find(r => r.id === "L1")!;
+    expect(l1, "the adherence row fields").to.not.equal(undefined);
+    expect(l1.verdict).to.equal("FAIL");
+    expect(l1.detail).to.include("pile");
+  });
+
+  it("L1 is ok when every line holds inside 25% (and dust under the noise floor never FAILs a zero budget)", async () => {
+    const { tombstoneLossBudget } = (await import("../../../src/economy/primitives")) as any;
+    const tombBudget = tombstoneLossBudget(grossCap);
+    const { cap, base } = rig(
+      { ...zero, pileDecay: 0.1 * dt, structureDecay: 4 * dt, repairSpend: 3.5 * dt, tombstoneGross: tombBudget * dt },
+      zero
+    );
+    const l1 = computeLedger(cap, base).find(r => r.id === "L1")!;
+    expect(l1).to.not.equal(undefined);
+    expect(l1.verdict).to.equal("ok");
+  });
+
+  it("no cumulative meters -> no L1 row (absence, never a fake zero)", () => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    delete cap.data.core.losses;
+    delete base.data.core.losses;
+    expect(computeLedger(cap, base).find(r => r.id === "L1")).to.equal(undefined);
+  });
+});
+
+/**
+ * F3 output fidelity (spec 40 part A's contract OUTPUT term, at spec 39's
+ * commission grain). F1/F2 audit the PRICE term (spawn parts); F3 audits what
+ * each mining commission PRODUCED against the plan's own per-source rate -
+ * the v14 cumulative `produced` counter differenced across the capture pair,
+ * joined to flow sources by the P&L's corp-id construction
+ * (mining-{room}-harvest-{last4 of source id}). Two-sided: an operation
+ * out-producing its declaration distorts the plan exactly as much as one
+ * under-delivering. A negative delta is a corp REBUILT mid-window (the
+ * counter rides the store serialize) - skipped and counted, never booked as
+ * output. No joinable rows -> no row.
+ */
+describe("F3 output fidelity (contract OUTPUT term per mining commission)", () => {
+  const dtF3 = cap72411542.data.core.tick - cap72404213.data.core.tick;
+  const rig = (rows: { suffix: string; rate: number; capProduced: number; baseProduced: number }[]): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.flow = cap.data.flow ?? {};
+    cap.data.flow.sources = rows.map(r => ({ id: `source-aaaa${r.suffix}`, nodeId: "W9N9-25-25", harvestRate: r.rate }));
+    const corpRow = (r: any, produced: number): any => ({
+      id: `mining-W9N9-harvest-${r.suffix}`,
+      kind: "harvest",
+      creepCount: 1,
+      bodyParts: 8,
+      produced
+    });
+    cap.data.corps.corps = (cap.data.corps.corps ?? []).concat(rows.map(r => corpRow(r, r.capProduced)));
+    base.data.corps.corps = (base.data.corps.corps ?? []).concat(rows.map(r => corpRow(r, r.baseProduced)));
+    return { cap, base };
+  };
+
+  it("differences the produced counter per commission against the plan's own rate; names the offender", () => {
+    const { cap, base } = rig([
+      { suffix: "good", rate: 10, capProduced: 100 + 10 * dtF3, baseProduced: 100 },
+      { suffix: "slow", rate: 10, capProduced: 5 * dtF3, baseProduced: 0 }
+    ]);
+    const f3 = computeLedger(cap, base).find(r => r.id === "F3")!;
+    expect(f3, "joinable produced counters field the row").to.not.equal(undefined);
+    // |10-10| + |5-10| = 5 over a declared basis of 20
+    expect(f3.value).to.be.closeTo(0.25, 1e-3);
+    expect(f3.verdict).to.equal("WARN");
+    expect(f3.detail).to.include("harvest-slow");
+    expect(f3.detail).to.include("-5.0");
+  });
+
+  it("a corp REBUILT mid-window (negative delta) is skipped and counted, never booked as output", () => {
+    const { cap, base } = rig([
+      { suffix: "good", rate: 10, capProduced: 100 + 10 * dtF3, baseProduced: 100 },
+      { suffix: "rebt", rate: 10, capProduced: 50, baseProduced: 900 }
+    ]);
+    const f3 = computeLedger(cap, base).find(r => r.id === "F3")!;
+    expect(f3.value, "only the faithful row is in the basis").to.be.closeTo(0, 1e-3);
+    expect(f3.verdict).to.equal("ok");
+    expect(f3.detail).to.include("1 reset");
+  });
+
+  it("no joinable rows -> no F3 (absence, never a fake zero)", () => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    for (const c of cap.data.corps.corps ?? []) delete c.produced;
+    for (const c of base.data.corps.corps ?? []) delete c.produced;
+    expect(computeLedger(cap, base).find(r => r.id === "F3")).to.equal(undefined);
+  });
+});
+
+/**
+ * BALANCE SHEET (spec 42 section 2b - the owner's target layout): the
+ * account's STOCK side at close. Measured lines only; a line the captures
+ * cannot measure prints as a NAMED gap ("not measured"), never a fabricated
+ * number and never silently absent - the "--" rows of the target layout made
+ * visible debt. NET WORTH is therefore labeled a measured FLOOR.
+ */
+describe("BALANCE SHEET (spec 42: energy stocks at close, measured floor)", () => {
+  it("prints free/reserved/committed/standing from capture stocks, names the unmeasured lines", async () => {
+    const { BODY_COSTS } = (await import("../../../src/economy/primitives")) as any;
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    // Known stocks: one room with 90k banked; a 12-part colony body census;
+    // tombstones holding 500e; 1200e staged on the ground.
+    cap.data.core.rooms = [{ name: "W1N1", storageEnergy: 90000, controllerStock: 0 }];
+    cap.data.core.bodyParts = { total: 12, byPart: { work: 4, carry: 4, move: 4 } };
+    cap.data.core.losses = {
+      windowTicks: 5, pileDecay: 0, structureDecay: 0, repairSpend: 0,
+      tombstoneLost: 0, tombstoneRecovered: 0, tombstoneStock: 500,
+      cumulative: { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 }
+    };
+    cap.data.core.sourceDropped = { s1: 700, s2: 500 };
+
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    expect(text).to.include("BALANCE SHEET");
+    const line = (label: string): string => text.split("\n").find(l => l.includes(label)) ?? "";
+    // free = storage above the reserve; reserved = the target itself. Labels
+    // matched on the sheet's own distinctive substrings ("reserved" alone
+    // collides with the revenue line's "(reserved rate)").
+    const reserved = Number((line("warchest/reserve target").match(/-?\d[\d,]*/g) ?? ["0"]).slice(-1)[0].replace(/,/g, ""));
+    expect(reserved).to.be.greaterThan(0);
+    const free = Number((line("storage above the reserve").match(/-?\d[\d,]*/g) ?? ["0"]).slice(-1)[0].replace(/,/g, ""));
+    expect(free).to.be.closeTo(90000 - reserved, 1);
+    // committed in-flight: tombstone stock + ground piles, creep cargo NAMED.
+    expect(line("committed")).to.include("1,700");
+    expect(line("committed"), "creep cargo is a NAMED gap, not silence").to.include("cargo not measured");
+    // standing fleet at replacement cost: 4w+4c+4m at BODY_COSTS (keys are
+    // UPPERCASE; the census byPart keys are the engine's lowercase names).
+    const expectStanding = 4 * BODY_COSTS.WORK + 4 * BODY_COSTS.CARRY + 4 * BODY_COSTS.MOVE;
+    expect(line("standing").replace(/,/g, "")).to.include(String(expectStanding));
+    // fixed assets: named unmeasured, never fabricated.
+    expect(line("fixed")).to.include("not measured");
+    expect(text).to.include("NET WORTH (measured floor)");
+  });
+});
+
+/**
+ * SPAWN COSTS SPAN THE FULL CAPTURE WINDOW (methodology #7).
+ *
+ * After #5 made the loss lines cumulative, the blackbox ring was the account's
+ * LAST short side: every "measured at the spawn" line sampled at most ~400
+ * heap-ring rows, so a 1500-tick fiscal month read spawn costs from a 480-tick
+ * post-deploy window and the guard printed WINDOW INCOHERENCE 3.1x - "the
+ * residual below is NOT trustworthy" - on every close that followed a deploy.
+ * The fix is the SAME shape as #5: the spawn director accrues every purchase
+ * into cumulative energy-by-role totals (Memory.spawnLedger -> core.spawnSpend),
+ * and the account differences two captures. The ring stays for forensics and
+ * the per-corp SOURCE P&L; the ACCOUNT's window equals the capture window by
+ * construction.
+ */
+describe("energy account: spawn costs span the FULL capture window (#7)", () => {
+  const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+  /** Both captures carry cumulative loss totals so losses never blur the test. */
+  const spannedLosses = {
+    windowTicks: 5,
+    pileDecay: 0,
+    structureDecay: 0,
+    repairSpend: 0,
+    tombstoneLost: 0,
+    tombstoneRecovered: 0,
+    tombstoneStock: 0,
+    cumulative: { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 }
+  };
+  const rig = (
+    capSpend: any,
+    baseSpend: any,
+    opts: { ring?: any[] } = {}
+  ): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.core.losses = JSON.parse(JSON.stringify(spannedLosses));
+    base.data.core.losses = JSON.parse(JSON.stringify(spannedLosses));
+    if (capSpend) cap.data.core.spawnSpend = capSpend;
+    if (baseSpend) base.data.core.spawnSpend = baseSpend;
+    if (opts.ring) cap.data.blackbox = { rows: opts.ring };
+    return { cap, base };
+  };
+  const textOf = (cap: any, base: any): string => formatAccounts(cap, base, computeLedger(cap, base));
+  const actualOf = (text: string, label: string): number => {
+    const line = text.split("\n").find(l => l.includes(label));
+    if (!line) throw new Error(`no line matching "${label}" in:\n${text}`);
+    return Number(line.match(/-?\d+\.\d\d/g)!.slice(-2)[0]);
+  };
+
+  it("differences the cumulative totals over the capture window, not the ring", () => {
+    // The ring says miners cost a fortune over its 5 ticks; the cumulative
+    // totals say 4.5 e/t over the full window. The account must read 4.5.
+    const shortRing = [
+      { t: 100, k: "spawn", d: { role: "miner", corp: "c1", cost: 9999 } },
+      { t: 105, k: "spawn", d: { role: "miner", corp: "c1", cost: 9999 } }
+    ];
+    const { cap, base } = rig(
+      { energyByRole: { miner: 10000 + 4.5 * dt, hauler: 500 }, partsByRole: { miner: 100, hauler: 10 } },
+      { energyByRole: { miner: 10000, hauler: 500 }, partsByRole: { miner: 50, hauler: 10 } },
+      { ring: shortRing }
+    );
+    const text = textOf(cap, base);
+    expect(actualOf(text, "extraction  (miner)")).to.be.closeTo(-4.5, 0.01);
+    // The hauler role bought nothing inside the window - zero, not the ring's view.
+    expect(actualOf(text, "evacuation  (hauler)")).to.be.closeTo(0, 0.01);
+    expect(text).to.match(/spawn \d+t cumulative/);
+  });
+
+  it("stops flagging WINDOW INCOHERENCE once every side spans the capture window", () => {
+    // A 5-tick ring against a multi-thousand-tick window: the guard fired at
+    // >1000x before, and it was RIGHT to - the ring was the account's source.
+    // With cumulative totals on both captures the ring is no longer load-
+    // bearing, so the residual is trustworthy and the guard must say nothing.
+    const shortRing = [
+      { t: 100, k: "spawn", d: { role: "miner", corp: "c1", cost: 9999 } },
+      { t: 105, k: "spawn", d: { role: "miner", corp: "c1", cost: 9999 } }
+    ];
+    const { cap, base } = rig(
+      { energyByRole: { miner: 1000 }, partsByRole: { miner: 10 } },
+      { energyByRole: {}, partsByRole: {} },
+      { ring: shortRing }
+    );
+    expect(textOf(cap, base)).to.not.include("WINDOW INCOHERENCE");
+  });
+
+  it("still fires the guard - and reads the ring - when the BASELINE predates the ledger", () => {
+    // A capture pair can only be differenced when BOTH sides carry the totals.
+    // With an old baseline the account falls back to the ring, and the guard
+    // must keep calling the mismatch out rather than trusting a hybrid.
+    const shortRing = [
+      { t: 100, k: "spawn", d: { role: "miner", corp: "c1", cost: 500 } },
+      { t: 105, k: "spawn", d: { role: "miner", corp: "c1", cost: 500 } }
+    ];
+    const { cap, base } = rig({ energyByRole: { miner: 1000 }, partsByRole: { miner: 10 } }, null, {
+      ring: shortRing
+    });
+    const text = textOf(cap, base);
+    expect(text).to.include("WINDOW INCOHERENCE");
+    expect(text).to.match(/spawn ring \d+t/);
+    // Ring arithmetic: 1000e over 5t = 200 e/t - the short-window figure, stated as such.
+    expect(actualOf(text, "extraction  (miner)")).to.be.closeTo(-200, 0.01);
+  });
+
+  it("prints a role with no account as UNCLASSIFIED, from the cumulative path too", () => {
+    const { cap, base } = rig(
+      { energyByRole: { weirdo: 2 * dt }, partsByRole: { weirdo: 10 } },
+      { energyByRole: {}, partsByRole: {} }
+    );
+    const text = textOf(cap, base);
+    expect(text).to.include("UNCLASSIFIED [weirdo]");
+    expect(actualOf(text, "UNCLASSIFIED")).to.be.closeTo(-2, 0.01);
+  });
+});
+
+/**
+ * THE TOMBSTONE CAUSE SPLIT IS EVIDENCE, NOT A MISREAD FIELD (methodology #7).
+ *
+ * v23 derived killed-vs-expired from `tombstone.creep.ticksToLive` - a field
+ * that is 0/undefined on every dead creep, so the split read "expired 100%"
+ * forever and the v24 audit line printed SUSPECT (ttl mean 0 max 0) on every
+ * close. The meter now derives cause from its own death watch (last-seen TTL
+ * vs deathTime); a tombstone with no watch entry lands in an honest UNKNOWN
+ * bucket instead of defaulting into "expired". The account prints all three
+ * shares - and the SUSPECT heuristic goes away, because expired-only windows
+ * with ttl 0 are now a legitimate reading (old age IS ttl 0), not a defect
+ * signature.
+ */
+describe("energy account: tombstone cause is expired/killed/UNKNOWN (#7)", () => {
+  const withMeter = (losses: any): any => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.core.losses = {
+      windowTicks: 1e9,
+      pileDecay: 0,
+      structureDecay: 0,
+      repairSpend: 0,
+      tombstoneLost: 0,
+      tombstoneRecovered: 0,
+      tombstoneStock: 0,
+      ...losses
+    };
+    return c;
+  };
+  const textOf = (cap: any): string => formatAccounts(cap, cap72404213, computeLedger(cap, cap72404213));
+
+  it("prints the unknown share beside expired and killed", () => {
+    const text = textOf(
+      withMeter({
+        tombstoneLost: 5,
+        tombstoneByRole: { haul: 500 },
+        tombstoneExpired: 300,
+        tombstoneKilled: 100,
+        tombstoneCauseUnknown: 100
+      })
+    );
+    const line = text.split("\n").find(l => l.includes("by cause:"))!;
+    expect(line).to.include("expired 60%");
+    expect(line).to.include("killed 20%");
+    expect(line).to.include("unknown 20%");
+  });
+
+  it("does NOT cry SUSPECT on a legitimate expired-only window (ttl 0 IS old age)", () => {
+    const text = textOf(
+      withMeter({
+        tombstoneLost: 5,
+        tombstoneByRole: { haul: 400 },
+        tombstoneExpired: 400,
+        tombstoneKilled: 0,
+        tombstoneCauseUnknown: 0,
+        tombstoneTtlMean: 0,
+        tombstoneTtlMax: 0
+      })
+    );
+    expect(text).to.not.include("SUSPECT");
+  });
+
+  it("says so when the cause is entirely unknown, rather than fabricating a split", () => {
+    const text = textOf(
+      withMeter({
+        tombstoneLost: 5,
+        tombstoneByRole: { haul: 400 },
+        tombstoneExpired: 0,
+        tombstoneKilled: 0,
+        tombstoneCauseUnknown: 400
+      })
+    );
+    const line = text.split("\n").find(l => l.includes("by cause:"))!;
+    expect(line).to.include("unknown 100%");
+  });
+
+  it("VOIDS the cause split of a pre-#7 capture instead of printing the misread field", () => {
+    // Live archaeology: the v23 deploy booked 39,806e killed / 0 expired; the
+    // v24 one read ttl mean 0 max 0 - the same field, opposite constants. A
+    // capture without the v25 unknown bucket carries those voided readings,
+    // and the account must present its cause as UNKNOWN rather than confident.
+    const text = textOf(
+      withMeter({
+        tombstoneLost: 5,
+        tombstoneByRole: { haul: 400 },
+        tombstoneExpired: 0,
+        tombstoneKilled: 400 // the misread-field constant
+      })
+    );
+    const line = text.split("\n").find(l => l.includes("by cause:"))!;
+    expect(line).to.include("unknown 100%");
+    expect(line).to.not.include("killed 100%");
+  });
+});
+
+/**
+ * METHODOLOGY #8 - the account's budgets price what the colony actually runs.
+ *
+ * Two second-implementation drifts inflated the variance surface (evidence,
+ * t72725767->t72734018 pair): the reserver budget priced continuous duty 1.0
+ * where primitives and the shipped gate use RESERVER_DUTY 0.5 (the whole
+ * +8.02 "favorable" variance was this lie - measured 8.83 = 0.524x budget),
+ * and the evacuation budget priced every route at the 1:1 body (100e/CARRY)
+ * while the planner's parts side prices paved routes at 1.5p/CARRY (-2.82 e/t
+ * of slack that MASKED real breach). Every CARRY/MOVE part costs exactly 50e,
+ * so the parts plan converts to energy exactly: bEvac = sum spawnParts x 50.
+ */
+describe("energy account: budgets price the shipped behavior (#8)", () => {
+  const quietLosses = {
+    windowTicks: 1e9, pileDecay: 0, structureDecay: 0, repairSpend: 0,
+    tombstoneLost: 0, tombstoneRecovered: 0, tombstoneStock: 0
+  };
+
+  it("prices the account's reserver budget at the SHIPPED duty cycle", () => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.corps.corps = c.data.corps.corps.filter((x: any) => x.kind !== "reservation");
+    c.data.corps.corps.push({
+      id: "reservation-W2N2-reservation",
+      kind: "reservation",
+      creepCount: 1,
+      bodyParts: 4,
+      body: { claim: 2, move: 2 },
+      sizing: { targets: 1 }
+    });
+    const { lines } = planSpawnLoad(c);
+    const res = lines.find(([n]) => n.startsWith("reservers"))!;
+    expect(res, "the reserver line exists").to.not.equal(undefined);
+    expect(res[2], "4 parts priced at duty 0.5 over the walk-adjusted claim life").to.be.closeTo(
+      reserverSpawnLoad(4),
+      1e-9
+    );
+  });
+
+  it("budgets evacuation on the plan's OWN parts basis when routes carry spawnParts", () => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.core.losses = { ...quietLosses };
+    c.data.flow.haulers = [
+      { sourceId: "s1", carryParts: 10, distance: 20, spawnParts: (1.5 * 10) / 1480 }, // paved 2:1
+      { sourceId: "s2", carryParts: 10, distance: 20, spawnParts: (2 * 10) / 1480 } // unpaved 1:1
+    ];
+    const text = formatAccounts(c, cap72404213, computeLedger(c, cap72404213));
+    const line = text.split("\n").find(l => l.includes("evacuation  (hauler)"))!;
+    const budget = Number(line.match(/-?\d+\.\d\d/g)![0]);
+    const expected = -(((1.5 * 10) / 1480 + (2 * 10) / 1480) * 50);
+    expect(budget).to.be.closeTo(expected, 0.005);
+  });
+
+  it("keeps the 1:1 energy fallback for captures whose routes predate spawnParts", () => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    c.data.core.losses = { ...quietLosses };
+    c.data.flow.haulers = [{ sourceId: "s1", carryParts: 10, distance: 20 }];
+    const text = formatAccounts(c, cap72404213, computeLedger(c, cap72404213));
+    const line = text.split("\n").find(l => l.includes("evacuation  (hauler)"))!;
+    const budget = Number(line.match(/-?\d+\.\d\d/g)![0]);
+    expect(budget).to.be.closeTo(-haulerOverhead(10, 20), 0.005);
+  });
+});
+
+/**
+ * FORGONE MINING RE-BOOKED FROM MEASUREMENT (phase 2; the two missing spec-42
+ * contras land free).
+ *
+ * The heldFrac forgone line was an INFERENCE from a spawn de-pricing stamp -
+ * and HarvestCorp harvests unconditionally, so it both over-counted (harvest
+ * continued while "held") and missed unstaffed/unreserved capacity entirely.
+ * With corps segment v14 publishing each harvest corp's cumulative `produced`
+ * (reset-surviving), the account differences two captures and books
+ * capacity - measured mined: every forgone mechanism in one measured number,
+ * heldFrac demoted to the diagnostic naming the pile-gate's share.
+ */
+describe("energy account: forgone mining is MEASURED once produced spans both captures", () => {
+  const rig = (capProduced: number[] | null, baseProduced: number[] | null): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    for (const [c, produced] of [
+      [cap, capProduced],
+      [base, baseProduced]
+    ] as [any, number[] | null][]) {
+      c.data.core.losses = {
+        windowTicks: 1e9, pileDecay: 0, structureDecay: 0, repairSpend: 0,
+        tombstoneLost: 0, tombstoneRecovered: 0, tombstoneStock: 0
+      };
+      const harvest = c.data.corps.corps.filter((x: any) => x.kind === "harvest");
+      harvest.forEach((h: any, i: number) => {
+        if (produced && produced[i] !== undefined) h.produced = produced[i];
+        else delete h.produced;
+      });
+    }
+    return { cap, base };
+  };
+  const textOf = (cap: any, base: any): string => formatAccounts(cap, base, computeLedger(cap, base));
+  const actualOf = (text: string, label: string): number => {
+    const line = text.split("\n").find(l => l.includes(label));
+    if (!line) throw new Error(`no line matching "${label}" in:\n${text}`);
+    return Number(line.match(/-?\d+\.\d\d/g)!.slice(-2)[0]);
+  };
+
+  it("books gross mining as the measured mined rate, not an inference", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    // Two harvest corps mining 6 e/t and 8 e/t of their 10 e/t capacities.
+    const { cap, base } = rig([100000 + 6 * dt, 50000 + 8 * dt], [100000, 50000]);
+    const text = textOf(cap, base);
+    expect(text).to.include("forgone (measured: capacity - mined)");
+    expect(actualOf(text, "= gross mining (measured mined)")).to.be.closeTo(14, 0.05);
+  });
+
+  it("keeps the heldFrac stamp as a DIAGNOSTIC decoration, not the booking", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    const { cap, base } = rig([100000 + 6 * dt, 50000 + 8 * dt], [100000, 50000]);
+    cap.data.corps.corps
+      .filter((x: any) => x.kind === "harvest")
+      .forEach((h: any) => (h.sizing = { ...(h.sizing ?? {}), heldFrac: 0.5 }));
+    const text = textOf(cap, base);
+    expect(text).to.include("pile-gate stamps explain");
+    // The BOOKED forgone is capacity - measured mined (corps without a
+    // counter measured nothing - a fresh corp's omitted 0 is a real 0), never
+    // heldFrac's inference.
+    const capacity = (cap.data.flow.sources as any[]).reduce((n, s) => n + (+s.harvestRate || 0), 0);
+    expect(actualOf(text, "forgone (measured")).to.be.closeTo(-(capacity - 14), 0.05);
+  });
+
+  it("falls back to the heldFrac inference when the BASELINE predates produced", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    const { cap, base } = rig([100000 + 6 * dt, 50000 + 8 * dt], null);
+    cap.data.corps.corps
+      .filter((x: any) => x.kind === "harvest")
+      .forEach((h: any) => (h.sizing = { ...(h.sizing ?? {}), heldFrac: 0.5 }));
+    const text = textOf(cap, base);
+    expect(text).to.include("miners held, buffer full");
+    expect(text).to.not.include("measured: capacity - mined");
+  });
+
+  it("counts a corp commissioned mid-window from zero (its counter began at birth)", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    // Corp 0 spans both captures; corp 1 exists only in cap (newly born).
+    const { cap, base } = rig([100000 + 6 * dt, 4 * dt], [100000]);
+    // base's second harvest corp vanishes entirely (not just its counter).
+    const harvest = base.data.corps.corps.filter((x: any) => x.kind === "harvest");
+    base.data.corps.corps = base.data.corps.corps.filter((x: any) => x !== harvest[1]);
+    const text = textOf(cap, base);
+    expect(actualOf(text, "= gross mining (measured mined)")).to.be.closeTo(10, 0.05);
+  });
+});
+
+/**
+ * S5 - the spawn-throughput headroom gauge (phase 3's systemic-risk row).
+ *
+ * The replacement treadmill ran the spawns at 90% of the physical build rate
+ * while the PLAN needed 0.51x - the missing margin is what absorbs a raid
+ * wave, and no row watched it: the cascade (buffers back up -> miners held ->
+ * income falls while replacement demand peaks) would have been diagnosed
+ * after the fact. S5 books the saturation with verdicts.
+ */
+describe("S5 spawn-throughput headroom", () => {
+  const withSpawns = (partsPerTick: number[]): any => {
+    const c = JSON.parse(JSON.stringify(cap72411542));
+    // Extend the fixture's real spawn shape (S3 upstream reads utilization
+    // etc.) rather than replacing it with a minimal object.
+    const template = (c.data.core.spawns ?? [])[0] ?? { utilization: 0.5, windowTicks: 1000 };
+    c.data.core.spawns = partsPerTick.map((p, i) => ({ ...template, id: `s${i}`, partsPerTick: p }));
+    return c;
+  };
+
+  it("books measured saturation against the physical ceiling", () => {
+    const rows = computeLedger(withSpawns([0.3, 0.3]), cap72404213);
+    const s5 = rows.find(r => r.id === "S5")!;
+    expect(s5, "the row exists once the meter reports").to.not.equal(undefined);
+    expect(s5.value).to.be.closeTo(0.9, 0.005); // 0.6 of 0.667
+    expect(s5.verdict).to.equal("WARN");
+  });
+
+  it("FAILS when the margin is effectively gone", () => {
+    const rows = computeLedger(withSpawns([0.32, 0.32]), cap72404213);
+    expect(rows.find(r => r.id === "S5")!.verdict).to.equal("FAIL");
+  });
+
+  it("stays ok with real headroom, and skips silently on pre-meter captures", () => {
+    const rows = computeLedger(withSpawns([0.2, 0.2]), cap72404213);
+    expect(rows.find(r => r.id === "S5")!.verdict).to.equal("ok");
+    const old = JSON.parse(JSON.stringify(cap72411542));
+    (old.data.core.spawns ?? []).forEach((s: any) => delete s.partsPerTick);
+    expect(computeLedger(old, cap72404213).find(r => r.id === "S5")).to.equal(undefined);
+  });
+});
+
+/**
+ * R1 - the raid-tax calibration gauge (phase 3).
+ *
+ * EXPECTED_RAID_DEFENSE_COST prices one guard body (750e) per expected raid;
+ * its own doc calls it a derived starting point awaiting measured replacement
+ * at >= 10 fiscal windows. R1 accumulates that evidence at every close:
+ * measured attrition (killed-cargo cumulative + remote churn bodies) against
+ * the priced tax - so the constant swap, when it comes, is a calibration
+ * backed by closes rather than an argument from structure.
+ */
+describe("R1 raid-tax calibration gauge", () => {
+  const rig = (killedCap: number, killedBase: number): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    const shell = {
+      windowTicks: 5, pileDecay: 0, structureDecay: 0, repairSpend: 0,
+      tombstoneLost: 0, tombstoneRecovered: 0, tombstoneStock: 0
+    };
+    cap.data.core.losses = { ...shell, cumulative: { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0, tombstoneKilled: killedCap } };
+    base.data.core.losses = { ...shell, cumulative: { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0, tombstoneKilled: killedBase } };
+    return { cap, base };
+  };
+
+  it("compares measured killed-cargo against the priced tax over the capture window", () => {
+    const dt = cap72411542.data.core.tick - cap72404213.data.core.tick;
+    const { cap, base } = rig(10 * dt, 0); // 10 e/t of killed cargo
+    const r1 = computeLedger(cap, base).find(r => r.id === "R1")!;
+    expect(r1, "the gauge exists once the death watch spans both captures").to.not.equal(undefined);
+    expect(r1.detail).to.include("killed cargo 10.00");
+    expect(r1.verdict, "an order-of-magnitude gap is a WARN, never a FAIL (known-provisional constant)").to.equal("WARN");
+  });
+
+  it("stays quiet on captures whose baseline predates the death watch", () => {
+    const { cap, base } = rig(1000, 0);
+    delete base.data.core.losses.cumulative.tombstoneKilled;
+    expect(computeLedger(cap, base).find(r => r.id === "R1")).to.equal(undefined);
+  });
+});
+
+/**
+ * H1's duty basis includes the INNER haul engines (phase 3 of the
+ * income-statement program). The corps segment publishes innerSizing
+ * (v13, spec 34 D5) precisely because the biggest hauling spend rides
+ * INSIDE harvest operations - but H1 kept reading only top-level carry
+ * corps, so its duty basis was the 0-3 standalone survivors while 8+
+ * operation engines went uncounted (measured t72743103: 8 corps with
+ * inner hauling stamps, 0 top-level carry corps, H1 silently absent).
+ */
+describe("H1 hauler duty reads the inner haul engines (the spec-34 blindness fix)", () => {
+  const rig = (): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    // No top-level carry corps in the capture at all - the live t72743103 shape.
+    cap.data.corps.corps = (cap.data.corps.corps ?? []).filter((c: any) => c.kind !== "carry");
+    cap.data.corps.corps.push(
+      {
+        id: "mining-W1N1-harvest-aaaa", kind: "harvest", creepCount: 3, bodyParts: 20,
+        innerSizing: [{ type: "hauling", nodeId: "W1N1-harvest-aaaa",
+          sizing: { duty: 0.9, idleSourceFrac: 0, idleSinkFrac: 0.1, idleSinkAtSinkFrac: 0, idleSinkStorageRoomFrac: 0, creeps: 2, carryNeeded: 8, staged: 500 } }]
+      },
+      {
+        id: "mining-W1N1-harvest-bbbb", kind: "harvest", creepCount: 3, bodyParts: 20,
+        innerSizing: [{ type: "hauling", nodeId: "W1N1-harvest-bbbb",
+          sizing: { duty: 0.5, idleSourceFrac: 0.4, idleSinkFrac: 0, idleSinkAtSinkFrac: 0, idleSinkStorageRoomFrac: 0, creeps: 2, carryNeeded: 8, staged: 500 } }]
+      }
+    );
+    return { cap, base };
+  };
+
+  it("fields the row from inner stamps alone, creep-weighted (duty 0.9 x2 + 0.5 x2 -> 0.7)", () => {
+    const { cap, base } = rig();
+    const h1 = computeLedger(cap, base).find(r => r.id === "H1")!;
+    expect(h1, "inner haul engines ARE the fleet - the row must exist without top-level carry corps").to.not.equal(
+      undefined
+    );
+    expect(h1.value).to.be.closeTo(0.7, 1e-6);
+    expect(h1.detail).to.include("4 creeps");
+  });
+});
+
+/**
+ * H3 chronic mouth - the t72654979 cd8e signature as a STANDING gauge.
+ * cd8e's buffer grew 2649 -> 3874 across a whole window while its drain
+ * route stamped creeps 0 - chronic for 512t, found only by hand in the E6
+ * audit. The gauge reads the same haul stamps H1 reads (staged + creeps,
+ * both captures, matched per corp): a mouth over the container cap at BOTH
+ * ends with NO drain creep fielded at the capture end is the leak; growing
+ * is the disease (FAIL), flat is a warning. Routes with a fielded drain,
+ * or captures predating the stamps, stay silent.
+ */
+describe("H3 chronic mouth (buffer full, zero drain demand - t72654979)", () => {
+  const inner = (staged: number, creeps: number): any => ({
+    innerSizing: [{ type: "hauling", nodeId: "W1N1-harvest-cccc",
+      sizing: { duty: 0, idleSourceFrac: 0, idleSinkFrac: 0, creeps, carryNeeded: creeps > 0 ? 4 : 1, staged } }]
+  });
+  const rig = (capStaged: number, baseStaged: number, capCreeps: number): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.corps.corps = (cap.data.corps.corps ?? []).filter((c: any) => c.kind !== "carry");
+    base.data.corps.corps = (base.data.corps.corps ?? []).filter((c: any) => c.kind !== "carry");
+    cap.data.corps.corps.push({ id: "mining-W1N1-harvest-cccc", kind: "harvest", creepCount: 1, ...inner(capStaged, capCreeps) });
+    base.data.corps.corps.push({ id: "mining-W1N1-harvest-cccc", kind: "harvest", creepCount: 1, ...inner(baseStaged, 0) });
+    return { cap, base };
+  };
+
+  it("a growing over-cap mouth with zero drain creeps is the cd8e FAIL", () => {
+    const { cap, base } = rig(3874, 2649, 0);
+    const h3 = computeLedger(cap, base).find(r => r.id === "H3")!;
+    expect(h3).to.not.equal(undefined);
+    expect(h3.verdict).to.equal("FAIL");
+    expect(h3.detail).to.include("cccc");
+    expect(h3.detail).to.include("3874");
+  });
+
+  it("a flat over-cap mouth with zero drain is a WARN, not a FAIL", () => {
+    const { cap, base } = rig(2650, 2649, 0);
+    const h3 = computeLedger(cap, base).find(r => r.id === "H3")!;
+    expect(h3.verdict).to.equal("WARN");
+  });
+
+  it("a fielded drain creep silences the gauge (the route is working the pile)", () => {
+    const { cap, base } = rig(3874, 2649, 1);
+    expect(computeLedger(cap, base).find(r => r.id === "H3")).to.equal(undefined);
+  });
+
+  it("mouths under the cap stay silent - piles below container size are normal staging", () => {
+    const { cap, base } = rig(1500, 1400, 0);
+    expect(computeLedger(cap, base).find(r => r.id === "H3")).to.equal(undefined);
+  });
+});
+
+/**
+ * F2 per-commission fleet fidelity (spec 39 phase 1). F1 answers "does the
+ * colony build what the plan prices" at CLASS grain; F2 joins the commission's
+ * own declared fleet (segment 4 v15 `fleet`, the plan side) against the same
+ * row's measured bodyParts (the actual side) - the leak lands with a
+ * commission id attached instead of a class name. Two-sided like F1: a
+ * commission fielding parts its declaration lacks is exactly as
+ * uncontrollable as one declared but never staffed. Rows without a
+ * declaration (aux kinds until spec 39 phase 4, pre-v15 captures) are
+ * excluded from the basis; NO declaring rows at all -> no gauge, never a
+ * fake zero.
+ */
+describe("F2 per-commission fleet fidelity (spec 39 phase 1: declared fleet vs fielded body)", () => {
+  const fleetRow = (id: string, planned: Record<string, number>, bodyParts: number, creepCount = 1): any => {
+    const fleet: Record<string, { parts: number; load: number }> = {};
+    for (const role of Object.keys(planned)) fleet[role] = { parts: planned[role], load: planned[role] / 1500 };
+    return { id, kind: "harvest", creepCount, bodyParts, fleet };
+  };
+  const rig = (rows: any[]): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.corps.corps = (cap.data.corps.corps ?? []).concat(rows);
+    return { cap, base };
+  };
+
+  it("captures with NO declaring commissions carry no row (pre-v15: absent, never zero)", () => {
+    const { cap, base } = rig([]);
+    expect(computeLedger(cap, base).find(r => r.id === "F2")).to.equal(undefined);
+  });
+
+  it("names the offender BY COMMISSION ID with its two-sided gap", () => {
+    const { cap, base } = rig([
+      fleetRow("mining-W1N1-harvest-good", { miner: 8, hauler: 12 }, 20),
+      fleetRow("mining-W1N1-harvest-fat", { hauler: 10 }, 25)
+    ]);
+    const f2 = computeLedger(cap, base).find(r => r.id === "F2")!;
+    expect(f2, "declaring rows exist -> the gauge fields").to.not.equal(undefined);
+    // |20-20| + |25-10| = 15 over a planned basis of 30
+    expect(f2.value).to.be.closeTo(0.5, 1e-6);
+    expect(f2.verdict).to.equal("WARN");
+    expect(f2.detail).to.include("harvest-fat");
+    expect(f2.detail).to.include("+15");
+  });
+
+  it("a faithful fleet is ok", () => {
+    const { cap, base } = rig([fleetRow("mining-W1N1-harvest-good", { miner: 8, hauler: 12 }, 20)]);
+    const f2 = computeLedger(cap, base).find(r => r.id === "F2")!;
+    expect(f2.value).to.be.closeTo(0, 1e-6);
+    expect(f2.verdict).to.equal("ok");
+  });
+
+  it("a declared-but-unstaffed fleet counts the whole miss (two-sided)", () => {
+    const { cap, base } = rig([
+      fleetRow("mining-W1N1-harvest-good", { miner: 8, hauler: 12 }, 20),
+      fleetRow("mining-W9N9-harvest-dark", { miner: 8 }, 0, 0)
+    ]);
+    const f2 = computeLedger(cap, base).find(r => r.id === "F2")!;
+    // |20-20| + |0-8| = 8 over 28 (the row value is display-rounded to 3dp)
+    expect(f2.value).to.be.closeTo(8 / 28, 5e-4);
+    expect(f2.detail).to.include("harvest-dark");
+    expect(f2.detail).to.include("-8");
+  });
+
+  it("misallocation exceeding the whole planned basis is a FAIL", () => {
+    const { cap, base } = rig([fleetRow("mining-W1N1-harvest-wild", { hauler: 10 }, 25)]);
+    const f2 = computeLedger(cap, base).find(r => r.id === "F2")!;
+    expect(f2.value).to.be.closeTo(1.5, 1e-6);
+    expect(f2.verdict).to.equal("FAIL");
+  });
+});
+
+/**
+ * METHODOLOGY #10 - RECOVERY MADE VISIBLE (owner 2026-08-04: "you may have
+ * added something for scavenging tombstones or piles but it's not showing as
+ * a line item. What if the cure is worse than the illness").
+ *
+ * Before #10 the cure was invisible on BOTH sides of the books: recovered
+ * tombstone energy existed only as a silent netting credit inside the
+ * tombstone loss line (booked gross-when-seen, credited-when-witnessed), and
+ * the recovery fleet's bodies hid inside "evacuation (hauler)". #10 publishes
+ * both: the tombstone line grows a gross/recovered detail, evacuation grows
+ * an "of which recovery fleet" sub-line (cumulative scavenge sub-counter),
+ * and a RECOVERY P&L memo answers cure-vs-illness as a subtraction every
+ * close. No new revenue line - recovered energy was already counted as mined
+ * once; grossing the EXISTING credit is what avoids the double-count.
+ */
+describe("methodology #10: the recovery P&L (cure vs illness, published)", () => {
+  const shell = { windowTicks: 5, pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneLost: 0, tombstoneRecovered: 0, tombstoneStock: 0 };
+  const zero = { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 };
+  const dtOf = (): number => cap72411542.data.core.tick - cap72404213.data.core.tick;
+  const rig = (capTotals: any, opts: { scavengeEnergy?: number; haulerEnergy?: number } = {}): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.core.losses = { ...shell, cumulative: capTotals };
+    base.data.core.losses = { ...shell, cumulative: zero };
+    if (opts.scavengeEnergy !== undefined || opts.haulerEnergy !== undefined) {
+      cap.data.core.spawnSpend = {
+        energyByRole: { hauler: opts.haulerEnergy ?? 0 },
+        partsByRole: {},
+        scavengeEnergy: opts.scavengeEnergy ?? 0,
+        scavengeParts: 0
+      };
+      base.data.core.spawnSpend = { energyByRole: {}, partsByRole: {}, scavengeEnergy: 0, scavengeParts: 0 };
+    }
+    return { cap, base };
+  };
+
+  it("the tombstone line publishes its GROSS and the witnessed-recovered credit as a detail", () => {
+    const dt = dtOf();
+    const { cap, base } = rig({ ...zero, tombstoneGross: 5 * dt, tombstoneRecovered: 2 * dt });
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const detail = text.split("\n").find(l => /gross entombed/.test(l));
+    expect(detail, "the gross/recovered detail line exists").to.not.equal(undefined);
+    expect(detail).to.include("5.00");
+    expect(detail).to.include("2.00");
+  });
+
+  it("evacuation splits out the recovery fleet from the cumulative scavenge sub-counter", () => {
+    const dt = dtOf();
+    const { cap, base } = rig(zero, { haulerEnergy: 10 * dt, scavengeEnergy: 1.5 * dt });
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const sub = text.split("\n").find(l => /of which recovery fleet/.test(l));
+    expect(sub, "the evacuation sub-line exists").to.not.equal(undefined);
+    expect(sub).to.include("1.50");
+  });
+
+  it("the RECOVERY P&L memo answers cure-vs-illness as a subtraction", () => {
+    const dt = dtOf();
+    const { cap, base } = rig(
+      { ...zero, tombstoneGross: 5 * dt, tombstoneRecovered: 2 * dt, pileDecay: 13 * dt },
+      { haulerEnergy: 10 * dt, scavengeEnergy: 1.5 * dt }
+    );
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    expect(text).to.include("RECOVERY P&L");
+    const net = text.split("\n").find(l => /= recovery net/.test(l));
+    expect(net, "the net cure line exists").to.not.equal(undefined);
+    expect(net).to.include("0.50"); // 2.00 recovered - 1.50 bodies
+  });
+
+  it("without the scavenge sub-counter the memo degrades honestly (no fabricated cost)", () => {
+    const dt = dtOf();
+    const { cap, base } = rig({ ...zero, tombstoneGross: 5 * dt, tombstoneRecovered: 2 * dt });
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    expect(text).to.include("RECOVERY P&L");
+    expect(text).to.include("not yet measured");
+  });
+
+  it("the pile-decay line publishes the ceil-floor share and the standing census (spec 44 leg 1)", () => {
+    // Owner 2026-08-04: piles pay ceil(amount/1000) >= 1 e/t however small.
+    // The account names the floor's share of the decay line and the average
+    // standing pile count (small = sub-1000, floor-bound) - the census the
+    // standing-scavenger sizing and focus-fire dispatch are designed on.
+    const dt = dtOf();
+    const { cap, base } = rig({
+      ...zero,
+      pileDecay: 13 * dt,
+      pileDecayCeilPenalty: 6 * dt,
+      pileTicks: 8 * dt,
+      pileTicksSmall: 5 * dt
+    });
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const detail = text.split("\n").find(l => /ceil FLOOR adds/.test(l));
+    expect(detail, "the census detail line exists").to.not.equal(undefined);
+    expect(detail).to.include("6.00");
+    expect(detail).to.include("8.0");
+    expect(detail).to.include("5.0");
+  });
+
+  it("the header stamps methodology #10", () => {
+    const { cap, base } = rig(zero);
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    expect(text).to.include("[methodology #10]");
   });
 });

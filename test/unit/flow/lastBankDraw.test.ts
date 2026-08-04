@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
 import { FlowEconomy } from "../../../src/economy/flowAdapter";
+import { plannedControllerFlow } from "../../../src/economy/bank";
 import { createNode, Node, NodeResource } from "../../../src/nodes/Node";
 
 /**
@@ -55,5 +56,31 @@ describe("FlowEconomy - lastBankDraw survives the instance rebuild", () => {
     b.update(1);
     expect(g.Memory.lastBankDraw, "the fresh instance's solve re-records").to.be.a("number");
     void recorded;
+  });
+
+  it("persists the FUNDED remote set so the next solve prices reservers from reality (t72750467: 26 candidates vs 8 funded)", () => {
+    new FlowEconomy(world()).update(0);
+    const funded = g.Memory.fundedRemoteRooms as string[] | undefined;
+    expect(funded, "the solve publishes its funded remote rooms").to.be.an("array");
+    // This one-room world funds only home-room sources - the set is EMPTY,
+    // which is exactly the point: the candidate-derived set would count any
+    // scouted room, the funded set counts what the plan staffed.
+    expect(funded).to.deep.equal([]);
+  });
+
+  it("publishes the plan's controller allocation PER ROOM, resolved by the pure lens (spec 38 phase B)", () => {
+    new FlowEconomy(world()).update(0);
+    const published = g.Memory.controllerAllocations as Record<string, number> | undefined;
+    expect(published, "the solve publishes the per-room controller allocations").to.be.an("object");
+    expect(published!["W0N0"], "this world's one controller room is present").to.be.a("number");
+    // 2026-08-04 (danger-gated floor + bank-fed inversion): a below-target
+    // bank with a comfortable downgrade timer legitimately publishes ZERO -
+    // the pin's subject is the publish/lens plumbing, not the amount.
+    expect(published!["W0N0"]).to.be.at.least(0);
+    // The runtime lens reads exactly what the solve published - and stays
+    // undefined-safe before the first solve (the legacy-fallback trigger).
+    expect(plannedControllerFlow(published, "W0N0")).to.equal(published!["W0N0"]);
+    expect(plannedControllerFlow(published, "W9N9")).to.equal(undefined);
+    expect(plannedControllerFlow(undefined, "W0N0")).to.equal(undefined);
   });
 });

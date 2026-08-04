@@ -49,7 +49,7 @@ describe("Telemetry spawn meter (segment 0, spec 14 phase 3)", () => {
     tickOnce(t, 104, true);
 
     const core = JSON.parse(RawMemory.segments[0]);
-    expect(core.version).to.equal(24);
+    expect(core.version).to.equal(31);
     const m = core.spawns[0];
     expect(m.id).to.equal("sid1");
     expect(m.windowTicks).to.equal(4);
@@ -151,5 +151,32 @@ describe("classifySpawnIdle (spawn idle-cause, spec 14 owner 2026-07-25)", () =>
   });
   it("an unaffordable head is energy-starved regardless of a stale gate", () => {
     expect(classifySpawnIdle({ precondition: "bank>=800", gate: "buy" })).to.equal("bank");
+  });
+});
+
+/**
+ * THE PUBLISHER SEAM (found live t72763633): the v30 scavenge sub-counter
+ * accrued in Memory but the segment publisher copied only the two role maps,
+ * so the counter never left the ship - core.version said 30 while spawnSpend
+ * carried v26's shape. The ledger tests staged spawnSpend directly and the
+ * spawnLedger tests read the view, so only a test AT THE EMISSION could have
+ * caught it. This is that test.
+ */
+describe("core segment publishes the FULL spawn-spend view (v30 emission seam)", () => {
+  beforeEach(() => setupGlobals());
+
+  it("the scavenge sub-counter rides the published spawnSpend", async () => {
+    const { accrueSpawnSpend, resetSpawnLedger } = await import("../../../src/telemetry/spawnLedger");
+    resetSpawnLedger();
+    accrueSpawnSpend("hauler", 300, 6, { scavenge: true });
+    accrueSpawnSpend("hauler", 1350, 27);
+    (Game as any).spawns = {};
+    const t = new Telemetry();
+    Game.time = 501;
+    t.update(undefined, [], undefined);
+    const core = JSON.parse(RawMemory.segments[0]);
+    expect(core.spawnSpend.energyByRole.hauler).to.equal(1650);
+    expect(core.spawnSpend.scavengeEnergy, "the sub-counter must leave the ship").to.equal(300);
+    expect(core.spawnSpend.scavengeParts).to.equal(6);
   });
 });
