@@ -7919,3 +7919,42 @@ design):
   capped claim starves real refill, S4's energy-starved share says so and
   the ceiling's e/p input is the suspect (the tender path, not the flow
   plan, does hub refill - expected null effect).
+
+### Cycle t72773737 verification (t72775811, ring 1,594t pure post-deploy) — ALL FIVE PREDICTIONS CONFIRMED
+
+The 13:23 scheduled check-in never fired (session cron lost); verification ran
+manually at owner prompt. Window: 2,074t vs baseline (~75% post-deploy); the
+blackbox ring restarted at the deploy so its 1,594t are pure post-fix.
+
+1. **Cadence ≥ ~1,100t: CONFIRMED.** 11 mining-corp hauler bodies in 1,594t
+   ≈ pure replacement for the standing fleet. The cost LADDER is dead: flat
+   pairs (1350/1350 on d01f with a 1,178t gap; 1200/1200 on cbd8 = fleet
+   fill), no +1-CARRY staircase anywhere. Hauler spend 10.32 e/t vs 17.91.
+2. **runt-upsize < 20% of recycles: CONFIRMED.** 15% (was 90%), inside a
+   window that still includes ~500 pre-deploy ticks. E5: 0 runts of last 8.
+3. **Evacuation ≤ ~12.5: EXCEEDED.** **-11.16 vs -11.04 budget (-0.12 U)** —
+   the line is ON BUDGET for the first time in the program.
+4. **F1 haulers ≤ 0.26: EXCEEDED.** 0.206 vs 0.221 planned (-0.014) - the
+   hauler class reads UNDER plan for the first time. S5 0.87x vs the ≤0.85
+   predicted - met within noise, and the residual churn is no longer
+   haulers: a RAID SURGE window (killed-where 20% intel-hostile, defense
+   0.094 p/t vs 0.000 priced) plus a NEW finding, a construction corp FAST
+   RESPAWN (X5 worst: W43N23-construction 2350e@21t - double-order loop
+   shape, next cycle's candidate).
+5. **GUARD pile decay ≤ ~9: HELD.** 7.47 (was 8.57); H1 duty 0.92 (was
+   0.87), atSink 0.02 - the slivers did not bind throughput.
+
+**Second-order effect, unpredicted and large:** the treadmill was itself the
+spawn-sink over-claim's feeder - dead churn emptied the hold-to-fund queues,
+sink claims fell 117 → 44.39 e/t without the ceiling deployed, the published
+allocation rose to the phase-D law's cap on its own (**P12 1.0x: 50.51 vs
+50.38, feeder relay 55.51, ONE VALVE holds**), and the controller delivered
+**42.18 pts/t** - the owner's ≥40 target - on this first post-fix window
+(single window; the multi-draw rule owns the sustained claim). The P12
+ceiling still ships: it cuts the remaining 14.95 e/t over-routing and makes
+the 102-claim mechanism structurally impossible on the next banking wave
+(the raid-recovery queue is exactly such a wave), and methodology #11 makes
+the budget column state it honestly either way.
+
+Verdict: **fixed - confirmed live.** The evacuation-line program that opened
+this branch closes ON BUDGET.
