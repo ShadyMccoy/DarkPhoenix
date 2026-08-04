@@ -8330,7 +8330,13 @@ spawn-sink ceiling, now the construction relay). The in-tree history that a
 the BUY side.
 
 Red-first (staged mini-relay, same ratio as live); unit 2,062 green; trio
-in flight at commit - deploy gated on it, verdicts recorded next commit.
+3-0 VERIFIED BY MARKERS (storage-depot 8s, flow-handoff 4m, runt-economy
+4m) - deployed. Process note, recorded against the trap list: the FIRST
+trio run was piped through `| tail -1` per leg, which made the chain's exit
+code tail's unconditional 0 and captured three BLANK lines - a gate that
+could not fail, self-built, caught before deploying on it. The playbook's
+"verdicts are markers, never exit codes" applies to one's own harness
+plumbing too; verdict greps now land in the output file per leg.
 
 PREDICTIONS (for the deploy): construction tanker receipts ~0 while the
 road campaign trickles (builders continue, self-fueled); F1 construction
