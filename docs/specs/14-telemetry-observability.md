@@ -8272,3 +8272,39 @@ program unchanged.
 
 Verdict: **confirmed x3** - admission, pricing, and stability all landed
 as registered; the colony is mining its eleventh source.
+
+## Cycle t72783130 — cee2 delivers ON its price (+0.12); the P&L variance program CLOSES; the construction tanker flicker named
+
+FY4852-M02 closed (73%). Score 52.56 (+14.52 F vs a campaign-conservative
+plan); S5 draining as predicted (0.96 → 0.89); delivered 103.81 of 110.
+
+**cee2's first measured window: net 6.05 vs plan 5.93 (+0.12).** The
+eleventh source delivers ON the now-complete admission price. And the
+whole remote P&L variance column - chronic -0.63..-1.68 on every close
+since the P&L shipped - reads +0.41/-0.68/+0.12/-0.00/-0.10: CENTERED ON
+ZERO. The reservation-pricing prediction is confirmed in production; the
+per-source pricing program (miner + hauler + link + invader + reservation)
+is complete and measured accurate to ~±0.4 e/t on 9 of 11 sources.
+
+**TOP LINE F1 1.32x - the construction tanker FLICKER-LOOP, named with
+receipts:** building-W43N23-construction bought 8 tankers (8,800e ≈ 5.1
+e/t) with buy-gaps of 7t and 25t while standing ZERO creeps. Mechanism
+(code-confirmed): tanker demand keys on pool-site EXISTENCE; the
+road-rebuild campaign (receipts, plan prices 0.000) trickles 300e road
+segments one at a time; each site-flicker spawns a 1,100e tanker that the
+op-end cohort release demobs on arrival - the same actuator-granularity
+disease as the even-share treadmill, on the construction seam. Plus eight
+250e road-rebuild builders (one per remote room, ~1.3 e/t, benign but
+unpriced). Fix queued red-first (task list); the "25t orphan grace bought
+nothing and cost plenty" comment (ConstructionCorp:319) reads first.
+
+Also this window: piles surged to 13.04 (cee2's mouth 3,103 held 100% -
+the new chain still forming; expansion transient atop the spec-44
+standing case); residual -16.62 on a short mid-expansion window (raid/
+tower/unmetered - bounded, watch); E4 flags the bank falling at -18.24/t
+mid-campaign with reserve target raised to 77k (expansion capex drawing
+the warchest - the spend path IS the campaign; watch it flatten as S5
+drains).
+
+Verdict: **confirmed (pricing program complete) + diagnosed (flicker-loop
+named with receipts)** - the fix is the next cycle's red-first item.
