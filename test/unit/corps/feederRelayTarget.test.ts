@@ -20,7 +20,7 @@ describe("parkedRelayCarry (the stationary relay cycle - no phantom travel)", ()
 
 import "../../../src/types/Memory";
 import { feederRelayTarget, FEEDER_STOCK_HEADROOM } from "../../../src/corps/ControllerFeederCorp";
-import { feederRelayRate, BASE_RESERVE } from "../../../src/economy/bank";
+import { bankFedControllerRate, BASE_RESERVE } from "../../../src/economy/bank";
 
 /**
  * THE PLAN ALLOCATION IS THE VALVE - the feeder half (spec 38 phase B; owner
@@ -69,9 +69,9 @@ describe("feederRelayTarget (the plan allocation is the valve - spec 38 phase B)
   });
 
   it("no known allocation (old commission, pre-first-solve): the surplus formula stands as the fallback", () => {
-    const filling = feederRelayRate(10_000, BASE_RESERVE);
+    const filling = bankFedControllerRate(10_000, BASE_RESERVE);
     expect(feederRelayTarget(filling, undefined)).to.equal(filling);
-    const surplus = feederRelayRate(BASE_RESERVE + 100_000, BASE_RESERVE);
+    const surplus = bankFedControllerRate(BASE_RESERVE + 100_000, BASE_RESERVE);
     expect(feederRelayTarget(surplus, undefined)).to.equal(surplus);
   });
 });

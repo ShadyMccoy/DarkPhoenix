@@ -349,3 +349,33 @@ Predictions registered at deploy (bank 27.5k, 42.5k under target):
    deliverable), G1's sustainable line converges toward delivered as the
    bank draw goes honest.
 4. No allocation cliff at the crossing (the swing signature stays dead).
+
+### Phase D addendum (2026-08-04, same session): the floor's 15 clamp dropped
+
+Owner, on "Why is the controller floor 15?": *"Just drop that entirely."*
+
+`STORAGE_UPGRADE_TARGET` (15) was the last hand-tuned constant in the
+controller chain — born 2026-07-11 as the save-regime cap, surviving as the
+floor's clamp, the wartime relegation level, and the feeder price floor. Its
+only defensible piece was never the 15 but the engine-anchored sip
+(`ANTI_DOWNGRADE_RESERVE` = 2). Dropped everywhere:
+
+- `controllerFloorRate()` = the sip, no arguments, no stock scaling (the
+  min(15, banked/1500) clamp existed to keep the 15 honest; with the 15 gone
+  the law is a constant, kept as a named lens).
+- `bankFedControllerRate` = sip + surplus/τ — the complete allocation law is
+  now TWO terms, one engine-anchored, one owner-ruled.
+- Wartime relegation and the feeder's `pricedRelay` floor at the sip.
+- `feederRelayRate` retired outright (its four remaining readers — feeder
+  fallback, two ConstructionCorp trunk judgments, the flow-segment report —
+  now read `bankFedControllerRate`).
+
+Found in passing: the controllerFeeder kind's "fallback sizing" test had
+never exercised the fallback — its staging threads the commission's plan
+allocation, and the old 15-based expectation coincidentally equaled the
+allocation-path result. Re-pinned to the true (ONE VALVE) behavior.
+
+Consequence while under target: allocation ≈ 2 e/t, bank rebuild ≈ delivered
+− spawn − construction − 2 (~13 e/t faster than the 15-floor variant; target
+regained in ~900–1,100t at M10's flows). Score during rebuild ≈ the sip —
+the visible-progress preference is gone by owner ruling.

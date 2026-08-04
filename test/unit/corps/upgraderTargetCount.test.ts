@@ -8,7 +8,7 @@ import {
   upgraderTargetCount
 } from "../../../src/corps/UpgradingCorp";
 import { CONTROLLER_STARVE_FLOOR } from "../../../src/corps/haulPolicy";
-import { BASE_RESERVE, STORAGE_UPGRADE_TARGET, feederRelayRate } from "../../../src/economy/bank";
+import { BASE_RESERVE } from "../../../src/economy/bank";
 import { sustainableConsumptionRate } from "../../../src/economy/primitives";
 
 /**

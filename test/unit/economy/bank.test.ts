@@ -4,13 +4,11 @@ import {
   RESERVE_COVERAGE_TICKS,
   SURPLUS_DRAIN_TICKS,
   MAX_SURPLUS_DRAW,
-  STORAGE_UPGRADE_TARGET,
   warchestTarget,
   resolveReserveTarget,
   spendableBankSurplus,
   bankSurplusRate,
   bankFedControllerRate,
-  feederRelayRate,
   bankSourceId,
   bankToTransientSource,
   controllerFloorRate
@@ -125,19 +123,18 @@ describe("economy/bank - the surplus spend primitives", () => {
     // (2026-08-04). It retires phase C's refill claim same-day: a bounded
     // controller leaves the residual to storage by construction, so the
     // bank no longer needs to CLAIM anything.
-    it("below the target: the floor alone (income residual banks)", () => {
-      expect(bankFedControllerRate(BASE_RESERVE - 20_000, BASE_RESERVE)).to.equal(
-        controllerFloorRate(BASE_RESERVE - 20_000)
-      );
+    it("below the target: the sip alone (income residual banks)", () => {
+      expect(bankFedControllerRate(BASE_RESERVE - 20_000, BASE_RESERVE)).to.equal(controllerFloorRate());
+      expect(bankFedControllerRate(BASE_RESERVE - 20_000, BASE_RESERVE)).to.equal(ANTI_DOWNGRADE_RESERVE);
     });
     it("above the target: floor + the ONE drain law", () => {
       const banked = BASE_RESERVE + 30_000;
       expect(bankFedControllerRate(banked, BASE_RESERVE)).to.be.closeTo(
-        controllerFloorRate(banked) + bankSurplusRate(banked, BASE_RESERVE),
+        controllerFloorRate() + bankSurplusRate(banked, BASE_RESERVE),
         1e-9
       );
       expect(bankFedControllerRate(banked, BASE_RESERVE)).to.be.closeTo(
-        STORAGE_UPGRADE_TARGET + 30_000 / SURPLUS_DRAIN_TICKS,
+        ANTI_DOWNGRADE_RESERVE + 30_000 / SURPLUS_DRAIN_TICKS,
         1e-9
       );
     });
@@ -150,28 +147,20 @@ describe("economy/bank - the surplus spend primitives", () => {
       expect(Math.abs(above - at)).to.be.lessThan(0.01);
     });
     it("a drained bank still floors at the anti-downgrade trickle (never zero)", () => {
-      expect(bankFedControllerRate(0, BASE_RESERVE)).to.equal(controllerFloorRate(0));
+      expect(bankFedControllerRate(0, BASE_RESERVE)).to.equal(ANTI_DOWNGRADE_RESERVE);
       expect(bankFedControllerRate(0, BASE_RESERVE)).to.be.greaterThan(0);
     });
     it("the runaway guard still bounds the drain half", () => {
       const runaway = MAX_SURPLUS_DRAW * SURPLUS_DRAIN_TICKS + 500_000;
       expect(bankFedControllerRate(BASE_RESERVE + runaway, BASE_RESERVE)).to.equal(
-        controllerFloorRate(BASE_RESERVE + runaway) + MAX_SURPLUS_DRAW
+        controllerFloorRate() + MAX_SURPLUS_DRAW
       );
     });
   });
 
-  describe("feederRelayRate", () => {
-    it("relays exactly the save-regime upgrade target while the reserve fills", () => {
-      expect(feederRelayRate(10_000, BASE_RESERVE)).to.equal(STORAGE_UPGRADE_TARGET);
-    });
-    it("adds the surplus draw on top once the reserve is full", () => {
-      expect(feederRelayRate(BASE_RESERVE + 3000, BASE_RESERVE)).to.be.closeTo(
-        STORAGE_UPGRADE_TARGET + bankSurplusRate(BASE_RESERVE + 3000, BASE_RESERVE),
-        1e-9
-      );
-    });
-  });
+  // feederRelayRate RETIRED 2026-08-04 with STORAGE_UPGRADE_TARGET (owner:
+  // "Just drop that entirely") - every reader now takes bankFedControllerRate,
+  // the one allocation law, pinned in its own describe above.
 
   describe("bankToTransientSource", () => {
     const pos = { x: 24, y: 24, roomName: "W1N1" };
@@ -234,13 +223,13 @@ describe("surplus drain horizon (owner 2026-07-29: size upgraders to the equilib
 describe("t72455355 pin: a full bank NEVER starves the relay (spec 38 guard)", () => {
   it("drives a large drain at incident-shaped stocks, whatever the plan says", () => {
     // 340k banked, 70k reserve: surplus 270k -> drain capped at MAX_SURPLUS_DRAW.
-    const rate = feederRelayRate(340_000, 70_000);
+    const rate = bankFedControllerRate(340_000, 70_000);
     expect(rate).to.be.at.least(100, "the relay the incident needed was ~115 e/t; 7 e/t starved it");
-    expect(rate).to.equal(STORAGE_UPGRADE_TARGET + MAX_SURPLUS_DRAW);
+    expect(rate).to.equal(ANTI_DOWNGRADE_RESERVE + MAX_SURPLUS_DRAW);
   });
 
-  it("still relays the save-regime floor when the bank sits AT reserve", () => {
-    expect(feederRelayRate(70_000, 70_000)).to.equal(STORAGE_UPGRADE_TARGET);
+  it("AT reserve the allocation is the sip alone - the 15 preference is dropped (owner 2026-08-04)", () => {
+    expect(bankFedControllerRate(70_000, 70_000)).to.equal(ANTI_DOWNGRADE_RESERVE);
   });
 });
 
@@ -255,19 +244,14 @@ describe("t72455355 pin: a full bank NEVER starves the relay (spec 38 guard)", (
  * floors at the anti-downgrade trickle so a thin economy's spawn is never
  * out-reserved by its own controller.
  */
-describe("controllerFloorRate (spec 38 phase A: the plan's own floor)", () => {
-  it("caps at the save-regime target once the bank can sustain it", () => {
-    expect(controllerFloorRate(340_000)).to.equal(STORAGE_UPGRADE_TARGET); // t72455355's bank
-    expect(controllerFloorRate(STORAGE_UPGRADE_TARGET * CREEP_LIFETIME)).to.equal(STORAGE_UPGRADE_TARGET);
-  });
-
-  it("scales with what the bank can actually sustain below the target", () => {
-    expect(controllerFloorRate(7500)).to.be.closeTo(5, 1e-9); // 7500/1500
-  });
-
-  it("floors at the anti-downgrade trickle on an empty bank", () => {
-    expect(controllerFloorRate(0)).to.equal(ANTI_DOWNGRADE_RESERVE);
-    expect(controllerFloorRate(1000)).to.equal(ANTI_DOWNGRADE_RESERVE); // 0.67 < trickle
+describe("controllerFloorRate (the floor IS the anti-downgrade sip - owner 2026-08-04: 'Just drop that entirely')", () => {
+  // The 15 clamp (STORAGE_UPGRADE_TARGET) was a hand-tuned visible-progress
+  // preference, not a safety requirement; the only engine-anchored need is
+  // the downgrade-timer sip. Dropped: the floor is ANTI_DOWNGRADE_RESERVE,
+  // full stop - under phase D everything above it belongs to the bank while
+  // rebuilding, and to the surplus draw above target.
+  it("is the sip, whatever the bank holds", () => {
+    expect(controllerFloorRate()).to.equal(ANTI_DOWNGRADE_RESERVE);
   });
 });
 
@@ -307,7 +291,7 @@ describe("spec 38 acceptance: the staged t72455355 state (bank full, ledger dry)
   const RESERVE = 70_000;
   const at = (x: number): Position => ({ x, y: 0, roomName: ROOM });
   const manhattan = (a: Position, b: Position): number => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-  const FLOOR = controllerFloorRate(BANKED); // 15 - the bank sustains the full save target
+  const FLOOR = controllerFloorRate(); // the sip (2) - the 15 preference is dropped
 
   const stagedProblem = (): ColonyProblem => {
     const spawn: PlannerSpawn = { id: "S", pos: at(0) };
@@ -350,7 +334,7 @@ describe("spec 38 acceptance: the staged t72455355 state (bank full, ledger dry)
 
   it("the chain AGREES end to end: relay covers the burn, both read the plan (phase B)", () => {
     const alloc = planColony(stagedProblem()).sinks.find(s => s.sinkId === "ctrl")!.allocated;
-    const relay = feederRelayTarget(feederRelayRate(BANKED, RESERVE), alloc);
+    const relay = feederRelayTarget(bankFedControllerRate(BANKED, RESERVE), alloc);
     const upgraders = upgraderSizing(alloc);
     expect(relay).to.be.closeTo(alloc + FEEDER_STOCK_HEADROOM, 1e-9, "the feeder relays the plan + headroom");
     expect(upgraders.allocated).to.be.at.most(relay, "the supply line covers the burn - no 1520->60 drain");
@@ -370,7 +354,7 @@ describe("spec 38 acceptance: the staged t72455355 state (bank full, ledger dry)
     const plan = planColony({ dist: manhattan, spawns: [spawn], sources: [bankSrc], sinks: [ctrl] });
     const alloc = plan.sinks.find(s => s.sinkId === "ctrl")!.allocated;
     expect(alloc).to.be.closeTo(bankSurplusRate(BANKED, RESERVE), 1e-6, "the solver routes the WHOLE surplus draw");
-    const relay = feederRelayTarget(feederRelayRate(BANKED, RESERVE), alloc);
+    const relay = feederRelayTarget(bankFedControllerRate(BANKED, RESERVE), alloc);
     expect(relay).to.be.at.least(100, "the incident needed ~115; the plan-read relay delivers it");
     expect(upgraderSizing(alloc).allocated).to.be.at.most(relay, "and the burn it feeds agrees");
   });

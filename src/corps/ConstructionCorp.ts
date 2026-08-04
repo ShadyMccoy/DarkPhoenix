@@ -48,7 +48,7 @@ import {
   sustainableConsumptionRate,
   workPartsForEnergyRate
 } from "../economy/primitives";
-import { feederRelayRate, plannedControllerFlow, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
+import { bankFedControllerRate, plannedControllerFlow, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
 import {
   declinedVerdictStands,
   effectiveOneWayTiles,
@@ -1519,7 +1519,7 @@ export class ConstructionCorp extends Corp {
     // pre-first-solve fallback.
     const feederFlow = room.storage?.my
       ? plannedControllerFlow(Memory.controllerAllocations, room.name) ??
-        feederRelayRate(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
+        bankFedControllerRate(room.storage.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget))
       : 0;
     if (!this.routeSettled(feeder, feederFlow) && room.storage?.my) {
       const ctrl = room.controller;
@@ -1850,7 +1850,7 @@ export class ConstructionCorp extends Corp {
     // pre-first-solve fallback only.
     const trunkFlow = (): number =>
       plannedControllerFlow(Memory.controllerAllocations, room.name) ??
-      feederRelayRate(bank?.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget));
+      bankFedControllerRate(bank?.store[RESOURCE_ENERGY] ?? 0, resolveReserveTarget(Memory.warchestTarget));
     if (entry?.declined && bank?.my && !declinedVerdictStands(entry.judgedFlow, trunkFlow())) {
       delete routes["feeder"]; // the relay rate outgrew the cached verdict - re-judge
       entry = undefined;

@@ -87,7 +87,7 @@ export function resolveReserveTarget(persisted: number | undefined): number {
  * CREEP_LIFETIME is the point (owner 2026-07-29: "drain the bank slightly
  * less aggressively, so upgraders are sized more to the equilibrium ...
  * avoid having to recycle upgraders"). Consumer fleets are SIZED to this
- * draw (bankSurplusRate -> feederRelayRate -> upgrader inflow), so the
+ * draw (bankSurplusRate -> bankFedControllerRate -> upgrader inflow), so the
  * horizon must cover the LIFETIME of the bodies it sizes. At 150 (measured
  * swing t72645498->t72652682): a ~21k surplus sized two 4350e upgraders to
  * a 100 e/t draw that self-extinguished in ~200t; the standing fleet then
@@ -113,26 +113,6 @@ export const SURPLUS_DRAIN_TICKS = CREEP_LIFETIME;
  * uncapped would ask the feeder for a ~3800 e/t relay (~107 bodies).
  */
 export const MAX_SURPLUS_DRAW = 100;
-
-/**
- * The save-regime controller FLOOR (energy/tick): the upgrade rate the plan
- * keeps guaranteed to a storage room's controller (controllerFloorRate wires
- * it as the controller sink's reserve, bounded by what the bank can sustain),
- * and the level upgrading RELEGATES to under spec 33 wartime (a standing
- * construction backlog). Comfortably above the anti-downgrade reserve so
- * upgrading always makes progress.
- *
- * HISTORY (owner 2026-08-03, "approach the equilibrium asymptotically"): this
- * was also the save-regime controller CAP - a filling warchest hard-limited
- * the controller here and the storage soaked everything else, which swung the
- * published allocation 85 -> 15 in one solve at the target crossing. That cap
- * is retired: saving is now the storage sink's refill RESERVE
- * (bankRefillRate, the surplus drain's mirror), so the bank approaches its
- * target asymptotically and this constant survives only as the floor/wartime
- * level and the feeder's price floor. Lives here (not flowAdapter) so the
- * feeder and upgrader sizing derive from the same module without cycles.
- */
-export const STORAGE_UPGRADE_TARGET = 15;
 
 /** Banked energy above the reserve target - what the colony may spend. */
 export function spendableBankSurplus(banked: number, reserveTarget: number): number {
@@ -178,35 +158,24 @@ export function bankSurplusRate(banked: number, reserveTarget: number): number {
  * retired with it.
  */
 export function bankFedControllerRate(banked: number, reserveTarget: number): number {
-  return controllerFloorRate(banked) + bankSurplusRate(banked, reserveTarget);
+  return controllerFloorRate() + bankSurplusRate(banked, reserveTarget);
 }
 
-/**
- * Energy/tick the ControllerFeederCorp must relay storage -> controller input:
- * the save-regime upgrade target plus whatever surplus the plan is drawing.
- * The feeder sizes its shuttle fleet to this, and upgrader sizing uses it as
- * the inflow term while a feeder actively relays a surplus - all three
- * consumers of "how fast does bank energy reach the controller" read this one
- * function, so they cannot disagree.
- */
-export function feederRelayRate(banked: number, reserveTarget: number): number {
-  return STORAGE_UPGRADE_TARGET + bankSurplusRate(banked, reserveTarget);
-}
 
 /**
- * The controller floor the PLAN itself guarantees (spec 38 phase A): the
- * save-regime upgrade target, but only as fast as the standing bank can
- * sustain for one creep generation (the ONE drain law - the same
- * stock/CREEP_LIFETIME behind bankSurplusRate and consumer sizing), floored
- * at the anti-downgrade trickle. Wired as the controller SINK RESERVE in the
- * adapter, so the reserve pre-pass wins the floor's parts before value greed
- * - the planner-side half of retiring feederRelayRate's
- * +STORAGE_UPGRADE_TARGET side-channel (P12's measured 3.30x non-bank
- * divergence). A cold storage room floors at the trickle: its spawn is never
- * out-reserved by its own controller.
+ * The controller floor the PLAN guarantees: the anti-downgrade SIP, full
+ * stop (owner 2026-08-04: "Just drop that entirely" - the former 15 clamp,
+ * STORAGE_UPGRADE_TARGET, was a hand-tuned visible-progress preference, not
+ * a safety requirement; the only engine-anchored need is keeping the
+ * downgrade timer refreshed). Wired as the controller SINK RESERVE in the
+ * adapter, so the reserve pre-pass wins the sip before value greed - a
+ * storage room's spawn is never out-reserved by its own controller, and
+ * under phase D everything above the sip belongs to the bank while
+ * rebuilding and to the surplus draw above target. Kept as a named lens
+ * (not an inline constant) so "the plan's controller floor" has one home.
  */
-export function controllerFloorRate(banked: number): number {
-  return Math.max(ANTI_DOWNGRADE_RESERVE, Math.min(STORAGE_UPGRADE_TARGET, sustainableConsumptionRate(banked)));
+export function controllerFloorRate(): number {
+  return ANTI_DOWNGRADE_RESERVE;
 }
 
 /**

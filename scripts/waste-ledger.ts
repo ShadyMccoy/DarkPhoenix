@@ -39,7 +39,7 @@ import {
   reserverSpawnLoad,
   tombstoneLossBudget
 } from "../src/economy/primitives";
-import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } from "../src/economy/bank";
+import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerRate } from "../src/economy/bank";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -279,7 +279,7 @@ export function planSpawnLoad(cap: any): {
     const parts = ctrl.workParts * upgraderPartsPerWork(corps);
     lines.push(["upgraders (plan WORK)", parts, parts / effectiveLife(10)]);
   }
-  const relay = feederRelayRate(banked, BASE_RESERVE);
+  const relay = bankFedControllerRate(banked, BASE_RESERVE);
   // LINK-FED feeder charges at distance 1, not the nominal 6 (owner
   // 2026-07-22 "the feeder seems way too large": this line overcharged 64p
   // vs the true ~18-22p link-fed body all week, inflating P4 ~0.03

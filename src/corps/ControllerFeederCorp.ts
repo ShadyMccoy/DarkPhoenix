@@ -37,7 +37,7 @@ import { travelTo, travelToBypass } from "./movement";
 import { roomHasFlowMiner } from "./censusLens";
 import { stampControllerFeederRegime } from "./regimes";
 import { CARRY_MOVE_PAIR_COST, carryPartsFor, maxCarryPairs, parkedRelayCarry } from "../economy/primitives";
-import { feederRelayRate, resolveReserveTarget } from "../economy/bank";
+import { bankFedControllerRate, resolveReserveTarget } from "../economy/bank";
 
 export interface SerializedControllerFeederCorp extends SerializedSpawnAnchoredCorp {
   controllerAllocation?: number;
@@ -406,7 +406,7 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     // seems way too large" - a body sized to a 110 e/t valve while consumers
     // burned 40) has nothing left to clamp.
     const reserveTarget = resolveReserveTarget(Memory.warchestTarget);
-    const surplusRate = feederRelayRate(banked, reserveTarget);
+    const surplusRate = bankFedControllerRate(banked, reserveTarget);
     const planFlow = this.controllerAllocation;
     const relayRate = feederRelayTarget(surplusRate, planFlow);
     // SOLE-OPERATOR DRAIN FLOOR (spec 02): the feeder is the ONLY creep that

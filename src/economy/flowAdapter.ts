@@ -84,9 +84,7 @@ export { ANTI_DOWNGRADE_RESERVE };
  * warchest primitives (the feeder and upgrader sizing derive from the same
  * module); re-exported here for the existing import sites.
  */
-export { STORAGE_UPGRADE_TARGET } from "./bank";
 import {
-  STORAGE_UPGRADE_TARGET,
   bankFedControllerRate,
   bankToTransientSource,
   bankSourceId,
@@ -341,7 +339,7 @@ export function controllerRoutingCapacity(
   // Doctrine keyed to a real backlog, NOT a bank level; it outranks the
   // bank-fed rate.
   if (wartimeRooms.has(sink.position.roomName)) {
-    return Math.max(STORAGE_UPGRADE_TARGET, ANTI_DOWNGRADE_RESERVE);
+    return controllerFloorRate();
   }
   // #21 (owner 2026-07-19): never faster than the upgrader fleet can
   // PHYSICALLY burn (parking tiles x affordable WORK - see
@@ -1177,8 +1175,7 @@ export function buildColonyProblem(
       // cold storage room's spawn is never out-reserved by its controller.
       // (Phase D 2026-08-04: the storage sink carries NO reserve - the bank
       // is the residual claimant by construction, nothing to claim.)
-      reserve:
-        kind === "controller" ? controllerFloorRate(storageRoomStock(sink.position.roomName)) : undefined
+      reserve: kind === "controller" ? controllerFloorRate() : undefined
     });
   }
 
@@ -1221,8 +1218,8 @@ export function buildColonyProblem(
   // the PREVIOUS solve's published allocation), not here.
   const pricedRelay =
     prevBankDraw !== undefined
-      ? Math.min(STORAGE_UPGRADE_TARGET + bankRate, Math.max(STORAGE_UPGRADE_TARGET, prevBankDraw))
-      : STORAGE_UPGRADE_TARGET + bankRate;
+      ? Math.min(controllerFloorRate() + bankRate, Math.max(controllerFloorRate(), prevBankDraw))
+      : controllerFloorRate() + bankRate;
   // Link-fed depots price the feeder at the storage->core-link leg (spec 24
   // rung 3) - the SAME controllerLink lens the corp's sizing reads.
   let linkFedRooms = 0;

@@ -214,11 +214,12 @@ describe("economy/flowAdapter - controllerRoutingCapacity (#21 + the bank-fed in
   it("WARTIME: a construction backlog in the room RELEGATES the controller to its floor (spec 33)", () => {
     // Owner 2026-07-27: "surplus ... normally for upgrading, but now for
     // building." A room with a standing build backlog caps the controller at
-    // its floor (15) so the surplus flows to construction - even over the
+    // its floor (the sip, 2 - the 15 preference dropped 2026-08-04) so the
+    // surplus flows to construction - even over the
     // bank-fed rate. Doctrine keyed to a real backlog, not a bank level.
     const wartime = new Set(["W0N0"]);
-    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime)).to.equal(15);
-    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80)).to.equal(15);
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime)).to.equal(2);
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80)).to.equal(2);
     // A room NOT in the wartime set still mops up (relegation is per-room).
     expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, new Set())).to.equal(200);
   });
