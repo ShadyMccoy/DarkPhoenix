@@ -7824,10 +7824,9 @@ for free; and the pounce judges runts against the sizer's own floor share
 (same-lens doctrine — the staffsPost trap, generalized to sizer/culler).
 Bootstrap keeps every crank (escape velocity, cee0 doctrine). Red-first:
 sliver-ask red confirmed pre-fix; 5 new behavior tests; unit 2044 green;
-typecheck clean; trio at commit time: flow-handoff PASS, runt-economy PASS
-(the bootstrap crank survives, by design), storage-depot IN FLIGHT — the
-deploy waits on it (gate discipline), and the deploy commit records its
-verdict.
+typecheck clean; trio: flow-handoff PASS, runt-economy PASS (the bootstrap
+crank survives, by design), storage-depot PASS — full gate green, deployed
+from e545b0f with t72773737 as the committed pre-deploy baseline.
 
 **Predictions (pre-deploy, next capture ≥~1500t):**
 - same-corp hauler buy cadence on d01f/cbd8/cbd5/cedc ≥ ~1100t (was 108-408t)
