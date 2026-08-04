@@ -2468,6 +2468,27 @@ describe("methodology #10: the recovery P&L (cure vs illness, published)", () =>
     expect(text).to.include("not yet measured");
   });
 
+  it("the pile-decay line publishes the ceil-floor share and the standing census (spec 44 leg 1)", () => {
+    // Owner 2026-08-04: piles pay ceil(amount/1000) >= 1 e/t however small.
+    // The account names the floor's share of the decay line and the average
+    // standing pile count (small = sub-1000, floor-bound) - the census the
+    // standing-scavenger sizing and focus-fire dispatch are designed on.
+    const dt = dtOf();
+    const { cap, base } = rig({
+      ...zero,
+      pileDecay: 13 * dt,
+      pileDecayCeilPenalty: 6 * dt,
+      pileTicks: 8 * dt,
+      pileTicksSmall: 5 * dt
+    });
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const detail = text.split("\n").find(l => /ceil FLOOR adds/.test(l));
+    expect(detail, "the census detail line exists").to.not.equal(undefined);
+    expect(detail).to.include("6.00");
+    expect(detail).to.include("8.0");
+    expect(detail).to.include("5.0");
+  });
+
   it("the header stamps methodology #10", () => {
     const { cap, base } = rig(zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));

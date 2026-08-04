@@ -62,6 +62,7 @@
 
 import "../types/Memory"; // Memory.lossLedger / creepDeathWatch augmentation
 import {
+  ENERGY_DECAY_DIVISOR,
   containerDecayEnergy,
   hitsToEnergy,
   pileDecayRate,
@@ -177,6 +178,18 @@ let totals: Totals = blank();
 /** Cumulative energy totals, monotonic, surviving global resets. */
 export interface LossCumulative {
   pileDecay: number;
+  /** THE CEIL-FLOOR SHARE of pileDecay (spec 44 leg 1, owner 2026-08-04:
+   *  "piles lose a minimum of 1 e/t not always 1/1000"): the energy the
+   *  engine's ceil(amount/1000) charges ABOVE pure proportional decay. High
+   *  share = many small piles each paying the 1 e/t floor - the regime where
+   *  focus-fire (drain one pile to zero, retiring its whole floor) beats
+   *  skimming, and the census the standing-scavenger sizing reads. */
+  pileDecayCeilPenalty: number;
+  /** Pile-tick integrals: piles standing x ticks observed (divide by the
+   *  window for the average standing count), and the sub-1000 (floor-bound)
+   *  subset. */
+  pileTicks: number;
+  pileTicksSmall: number;
   structureDecay: number;
   repairSpend: number;
   tombstoneGross: number;
@@ -203,6 +216,9 @@ export interface LossCumulative {
 function zeroCumulative(): LossCumulative {
   return {
     pileDecay: 0,
+    pileDecayCeilPenalty: 0,
+    pileTicks: 0,
+    pileTicksSmall: 0,
     structureDecay: 0,
     repairSpend: 0,
     tombstoneGross: 0,
@@ -248,6 +264,12 @@ function ledger(): LossCumulative {
   }
   if (mem.lossLedger.tombstoneRecycled === undefined) mem.lossLedger.tombstoneRecycled = 0;
   if (mem.lossLedger.tombstoneRecycledByReason === undefined) mem.lossLedger.tombstoneRecycledByReason = {};
+  if (mem.lossLedger.pileDecayCeilPenalty === undefined) {
+    // Pre-census ledger (v30 and earlier): backfill the spec-44 pile keys.
+    mem.lossLedger.pileDecayCeilPenalty = 0;
+    mem.lossLedger.pileTicks = 0;
+    mem.lossLedger.pileTicksSmall = 0;
+  }
   return mem.lossLedger;
 }
 
@@ -437,8 +459,26 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
     // the old stock (not the new one) keeps a pile that was hauled away mid-
     // interval from being charged as if it had rotted the whole time.
     let pile = 0;
-    for (const amount of census.piles) pile += pileDecayRate(amount);
+    let ceilPenalty = 0;
+    let standing = 0;
+    let small = 0;
+    for (const amount of census.piles) {
+      if (!(amount > 0)) continue;
+      const d = pileDecayRate(amount);
+      pile += d;
+      // The FLOOR's share (spec 44 leg 1): what ceil charges above pure
+      // proportional - a 100e pile pays 1 e/t, 0.9 of which is the floor.
+      ceilPenalty += Math.max(0, d - amount / ENERGY_DECAY_DIVISOR);
+      standing += 1;
+      if (amount < ENERGY_DECAY_DIVISOR) small += 1;
+    }
     accrue("pileDecay", "pileDecay", pile * dt);
+    // Census integrals, cumulative-only (capture pairs difference them; no
+    // in-window mirror is read anywhere).
+    const led = ledger();
+    led.pileDecayCeilPenalty += ceilPenalty * dt;
+    led.pileTicks += standing * dt;
+    led.pileTicksSmall += small * dt;
 
     const structure =
       census.containers * containerDecayEnergy(census.owned) +

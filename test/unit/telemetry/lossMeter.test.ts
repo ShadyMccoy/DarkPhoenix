@@ -48,6 +48,23 @@ describe("LossMeter (residual line items)", () => {
     expect(r.pileDecay).to.be.closeTo(4, 1e-9);
   });
 
+  it("splits the CEIL-FLOOR penalty and the pile census out of the decay (spec 44 leg 1)", () => {
+    // Owner 2026-08-04: "energy piles lose a minimum of 1 e/t not always
+    // 1/1000. So better to focus one down so it stops decaying than lots of
+    // small piles." The meter already prices the ceil rule; this instrument
+    // publishes HOW MUCH of the decay is the floor's doing and how many
+    // piles stand (small = sub-1000, the floor-bound class) - the census the
+    // standing-scavenger sizing and focus-fire dispatch will be designed on.
+    sampleRoomLosses(census({ piles: [100, 100, 2500] }), 100);
+    sampleRoomLosses(census({ piles: [100, 100, 2500] }), 110);
+    // decay = 1+1+3 = 5 e/t; proportional would be 0.1+0.1+2.5 = 2.7;
+    // the ceil FLOOR adds 2.3 e/t. 3 piles standing, 2 of them small.
+    const r = lossReport(110);
+    expect(r.cumulative!.pileDecayCeilPenalty).to.be.closeTo(2.3 * 10, 1e-9);
+    expect(r.cumulative!.pileTicks).to.be.closeTo(3 * 10, 1e-9);
+    expect(r.cumulative!.pileTicksSmall).to.be.closeTo(2 * 10, 1e-9);
+  });
+
   it("prices structure decay as the cost of HOLDING hits, remote containers dearer", () => {
     sampleRoomLosses(census({ owned: false, containers: 2, roadDecayEnergy: 0.05 }), 100);
     sampleRoomLosses(census({ owned: false, containers: 2, roadDecayEnergy: 0.05 }), 200);

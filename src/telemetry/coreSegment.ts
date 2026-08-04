@@ -293,6 +293,11 @@ export interface CoreTelemetry {
      */
     cumulative?: {
       pileDecay: number;
+      /** v31 (spec 44 leg 1): the ceil-floor share of pileDecay plus the
+       *  standing-pile census integrals (pile-ticks, sub-1000 subset). */
+      pileDecayCeilPenalty?: number;
+      pileTicks?: number;
+      pileTicksSmall?: number;
       structureDecay: number;
       repairSpend: number;
       tombstoneGross: number;
@@ -548,7 +553,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 30, // v29 recycle-reason attribution; v30 recovery sub-counter (scavenge spawn spend) 2026-08-04
+    version: 31, // v30 recovery sub-counter; v31 pile census (ceil-floor share, spec 44 leg 1) 2026-08-04
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {

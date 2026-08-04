@@ -2684,6 +2684,19 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
             meter ? -bPileDecay : undefined,
             "cost"
           ),
+          // THE CEIL-FLOOR CENSUS (spec 44 leg 1, owner 2026-08-04: "piles
+          // lose a minimum of 1 e/t not always 1/1000"): the floor's share of
+          // the decay line and the standing pile count. A high floor share =
+          // many small piles each paying 1 e/t - the regime where focus-fire
+          // (drain one to zero, retire its whole floor) beats skimming, and
+          // the census the standing-scavenger fleet will be sized on.
+          ...(spanned && cumRate("pileDecayCeilPenalty") > 0
+            ? [
+                `      of which the ceil FLOOR adds ${cumRate("pileDecayCeilPenalty").toFixed(2)} (avg ${cumRate(
+                  "pileTicks"
+                ).toFixed(1)} piles standing, ${cumRate("pileTicksSmall").toFixed(1)} small) - spec 44 focus-fire census`
+              ]
+            : []),
           ...(meter
             ? [
                 L("tombstone losses (creeps died carrying)", -tombLoss, 4, -bTombstone, "cost"),
