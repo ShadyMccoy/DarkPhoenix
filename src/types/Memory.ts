@@ -359,6 +359,16 @@ declare global {
     lastFleetCharge?: number;
 
     /**
+     * The last solve's fleet-mix ENERGY PER PART (fleet energy over the parts
+     * ledger's planned parts) - prices the spawn sink's physical conversion
+     * ceiling (primitives.spawnEnergyCeiling) on the NEXT solve, threaded
+     * exactly like lastFleetCharge. Undefined until the first solve after a
+     * wipe: the sink claim stays uncapped for exactly one solve rather than
+     * capped at a guessed mix.
+     */
+    lastFleetEnergyPerPart?: number;
+
+    /**
      * Arms the per-tick hauler flight recorder (telemetry/HaulTrace). Every
      * other hauling instrument is an aggregate, and a mean cannot show a creep
      * standing on one tile for forty ticks. Set from the live console:

@@ -53,6 +53,7 @@ import {
   infraSpawnLoad,
   minerOverhead,
   projectAbsorbRate,
+  spawnEnergyCeiling,
   workPartsForEnergyRate,
   WARTIME_BACKLOG_THRESHOLD,
   ANTI_DOWNGRADE_RESERVE
@@ -419,8 +420,47 @@ export function agendaFundingRate(sinkId: string): number {
  * exactly when it exceeds the steady charge; steady state claims the
  * charge; the flow is never claimed twice.
  */
-export function spawnSinkDemand(baseDemand: number, maintenance: number, fundingRate: number): number {
-  return Math.max(baseDemand, 1, maintenance, fundingRate);
+export function spawnSinkDemand(
+  baseDemand: number,
+  maintenance: number,
+  fundingRate: number,
+  /**
+   * PHYSICAL CONVERSION CEILING (P12 plan-side unification, t72773737):
+   * primitives.spawnEnergyCeiling(fleet e/p) - the most energy/tick this
+   * spawn can turn into bodies. The funding rate knows no such bound:
+   * hold-to-fund queued 5,100e of full-share bodies, FUND_HORIZON turned
+   * that into a 102 e/t claim on a spawn that converts ~25, and the solver
+   * (spawn = top of the value ladder) parked the difference - a 156.61 e/t
+   * gross bank draw with 101.45 round-tripping straight back to storage,
+   * while the published controller allocation sat at 39.64 against its own
+   * bankFedControllerRate cap of 59.04. The cap is HARD, even over the
+   * charge: a converged charge above physical describes a fleet this spawn
+   * cannot maintain - that is P4's infeasibility to flag, not a bigger
+   * claim. Undefined = no cap (cold start, before the first solve publishes
+   * the fleet mix through Memory.lastFleetEnergyPerPart) - legacy behavior
+   * for exactly one solve.
+   */
+  ceiling?: number
+): number {
+  const claim = Math.max(baseDemand, 1, maintenance, fundingRate);
+  return ceiling !== undefined ? Math.min(claim, ceiling) : claim;
+}
+
+/**
+ * The fleet-mix energy-per-part the ceiling prices: fleet ENERGY (converged
+ * charge x spawn count) over the parts ledger's planned parts (miners +
+ * infra + routed haulers). Threads solve-to-solve through
+ * Memory.lastFleetEnergyPerPart exactly like the charge itself
+ * (Memory.lastFleetCharge). Undefined without a ledger or on degenerate
+ * totals - no cap rather than a wrong one.
+ */
+export function fleetEnergyPerPart(
+  fleetEnergy: number,
+  partsLedger?: { minerLoad: number; infra: number; spent?: number }
+): number | undefined {
+  if (!partsLedger) return undefined;
+  const parts = partsLedger.minerLoad + partsLedger.infra + (partsLedger.spent ?? 0);
+  return parts > 1e-9 && fleetEnergy > 0 ? fleetEnergy / parts : undefined;
 }
 
 /**
@@ -852,7 +892,14 @@ export function buildColonyProblem(
    * per-post actuals the plan incorporates. Carried as data; phase 3's
    * replacement scheduling is the reader.
    */
-  fielded?: Record<string, FieldedFleet>
+  fielded?: Record<string, FieldedFleet>,
+  /**
+   * The previous solve's fleet-mix energy-per-part
+   * (Memory.lastFleetEnergyPerPart, threaded like prevBankDraw) - prices the
+   * spawn sink's PHYSICAL conversion ceiling (spawnEnergyCeiling). Undefined
+   * on a cold start: the sink claim stays uncapped for exactly one solve.
+   */
+  prevFleetEnergyPerPart?: number
 ): ColonyProblem {
   const spawns: PlannerSpawn[] = graph.getSinks("spawn").map(s => ({ id: s.id, pos: s.position }));
 
@@ -1119,7 +1166,12 @@ export function buildColonyProblem(
             // mining). Pass 2 supplies the fleet's real standing cost here -
             // combined with the agenda's funding rate by MAX, never sum (the
             // t72749493 double-claim lock; see spawnSinkDemand).
-            spawnSinkDemand(sink.demand, spawnMaintenance, agendaFundingRate(sink.id))
+            spawnSinkDemand(
+              sink.demand,
+              spawnMaintenance,
+              agendaFundingRate(sink.id),
+              prevFleetEnergyPerPart !== undefined ? spawnEnergyCeiling(prevFleetEnergyPerPart) : undefined
+            )
           : kind === "construction"
           ? // Build-out is an INVESTMENT: extensions raise energyCapacity, which
             // raises every body size and the whole colony's energy-per-spawn-part
@@ -1372,7 +1424,13 @@ export function solveColony(
    */
   prevFundedRemoteRooms?: readonly string[],
   /** Fielded-fleet actuals (spec 39 phase 2), host-assembled - see buildColonyProblem. */
-  fielded?: Record<string, FieldedFleet>
+  fielded?: Record<string, FieldedFleet>,
+  /**
+   * The previous solve's fleet-mix e/p (Memory.lastFleetEnergyPerPart),
+   * threaded like prevFleetCharge - prices the spawn sink's physical
+   * conversion ceiling. See buildColonyProblem / spawnSinkDemand.
+   */
+  prevFleetEnergyPerPart?: number
 ): { solution: FlowSolution; commissions: Commission[]; adopted: { sourceId: string; spawnId: string; gain: number }[] } {
   const seedCharge = Math.max(0, prevFleetCharge ?? 0);
   const baseProblem = buildColonyProblem(
@@ -1388,7 +1446,8 @@ export function solveColony(
     detectLinkDepositPorts(),
     seedCharge,
     prevFundedRemoteRooms,
-    fielded
+    fielded,
+    prevFleetEnergyPerPart
   );
   // THE STRATEGIC SEARCH (spec 18 P1, live from day one): planColony is the
   // evaluator; the searcher may pin budget-dropped sources to spawns with
@@ -1432,7 +1491,7 @@ export function solveColony(
       buildColonyProblem(
         graph, dist, transientSources, detectLinkHaulPositions(graph), detectPavedSources(),
         bankSources, INVADER_TAX_PER_ENERGY, compileGoal(goal), prevBankDraw,
-        detectLinkDepositPorts(), perSpawn, prevFundedRemoteRooms, fielded
+        detectLinkDepositPorts(), perSpawn, prevFundedRemoteRooms, fielded, prevFleetEnergyPerPart
       )
     );
 
@@ -1625,12 +1684,25 @@ export class FlowEconomy {
     // Same lifetime and rationale as the two above: the funded remote set
     // prices the next solve's reserver upkeep from the rooms actually worked.
     const prevFundedRemoteRooms = typeof Memory !== "undefined" ? Memory.fundedRemoteRooms : undefined;
+    // Same lifetime again: the fleet-mix e/p prices the spawn sink's physical
+    // conversion ceiling (spawnEnergyCeiling) - undefined for exactly one
+    // solve after a wipe, then known forever.
+    const prevFleetEnergyPerPart = typeof Memory !== "undefined" ? Memory.lastFleetEnergyPerPart : undefined;
     const result = solveColony(
       this.graph, tick, undefined, undefined, undefined, goal, prevBankDraw, prevFleetCharge, prevFundedRemoteRooms,
-      fielded
+      fielded, prevFleetEnergyPerPart
     );
     if (typeof Memory !== "undefined") {
       Memory.lastFleetCharge = result.solution.spawnMaintenance;
+      // The ceiling's mix input: fleet ENERGY (per-spawn charge x spawns the
+      // solve actually planned) over the parts ledger's planned parts.
+      const spawnSinkIds = new Set(
+        result.solution.sinkAllocations.filter(a => a.sinkType === "spawn").map(a => a.sinkId)
+      );
+      Memory.lastFleetEnergyPerPart = fleetEnergyPerPart(
+        (result.solution.spawnMaintenance ?? 0) * Math.max(1, spawnSinkIds.size),
+        result.solution.partsLedger
+      );
       Memory.fundedRemoteRooms = result.solution.fundedRemoteRooms;
       Memory.lastBankDraw = result.solution.sinkAllocations
         .filter(a => a.sinkType === "controller" || a.sinkType === "construction")

@@ -7849,3 +7849,73 @@ gauge, labeled hypothesis.
 
 Verdict: **fixed (mechanism-level, receipt-proven)** — post-deploy
 verification pending at next capture.
+### Cycle t72773737 addendum — P12 plan-side unification (the 40-GCL program's binding seam)
+
+Owner: *"I'd love to get gcl to at least 40/tick"* → *"P12 valve unification?"*
+→ *"Start working on that."* Also owner, on the account: *"It doesn't make
+[sense] for the budget for the controller to be -55. I think our budget would
+actually be unbalanced... it should just be zero or something"* — confirmed,
+and both findings turned out to be ONE seam.
+
+**The measured chain** (all links from t72773737): hold-to-fund queues
+full-share bodies (fundingNeed 5,100 at solve time) → FUND_HORIZON (50) turns
+that into a 102 e/t sink claim → spawn sinks claim 117 e/t against ~36.5 the
+two spawns physically convert (0.30/0.33 p/t measured) → the solver (spawn =
+value 100, top of ladder) feeds the claim first: 156.61 e/t gross bank draw,
+101.45 round-tripping back to storage on paper → the published controller
+allocation gets the residual, 39.64 against the phase-D law's cap of 57.04
+(bankFedControllerRate; the sip term reads 0 without downgrade telemetry) →
+the upgrader fleet, correctly obeying ONE VALVE, sizes to the depressed
+number → delivered 34.20 vs G1 sustainable 50.78. The budget column printed
+the same fiction as a -55.16 bank "budget" — a 79.85 e/t hole (the column's
+own identity: bank should have been +21.10).
+
+**Shipped (three pieces, one commit):**
+
+1. **`primitives.spawnEnergyCeiling(e/p)`** = SPAWN_PARTS_PER_TICK x the
+   plan fleet's own mean energy-per-part, floored at the cheapest part.
+   `spawnSinkDemand` takes it as a HARD cap - even over the charge (a
+   super-physical charge is P4's infeasibility to flag, not a bigger claim).
+   The mix threads solve-to-solve as `Memory.lastFleetEnergyPerPart`
+   (fleet energy / partsLedger parts), exactly the lastFleetCharge pattern;
+   undefined for one solve after a wipe = legacy uncapped, never a guessed
+   mix. At t72773737's mix (~76 e/p) the cap is ~25 e/t/spawn - ABOVE the
+   measured 18 e/t/spawn actually spent, so it cuts only the paper claim.
+2. **Methodology #11:** the bank BUDGET line is the plan's RESIDUAL, so the
+   budget column sums to zero BY CONSTRUCTION (identity test pins |sum| <
+   0.01 on the committed pair); the solver's routed net bank flow moves to
+   the over-routing note. The variance bridge re-derives from the balanced
+   column and now CLOSES EXACTLY (t72773737: explains -5.44 = actual -5.44,
+   closure +0.00; the #10 bridge carried "+71.73 bank draw budgeted but not
+   performed" - mostly phantom - plus a standing -6.61 "unexplained").
+3. **P12 re-pinned** to the post-phase-D world: published allocation vs
+   bankFedControllerRate's cap (0.70x WARN on the pair), the spawn-sink
+   claim named in the detail. The old model subtracted the drain from both
+   sides and printed "Infinity x" on negative terms - an artifact on
+   exactly the seam it existed to name.
+
+**Gate:** red-first (11 new spawnSinkDemand/ceiling pins, 4 new audit pins;
+methodology stamp test moved to #11); unit 2,055 green; typecheck clean;
+trio at commit time: storage-depot PASS, flow-handoff and runt-economy IN
+FLIGHT (verdicts recorded in the deploy commit). Deploy
+SEQUENCED AFTER the treadmill check-in verdict so each change verifies
+against a clean window.
+
+**Predictions registered for the P12 deploy** (next capture ≥ ~1,500t after
+it, multi-draw rule applies - the allocation breathes with the bank level by
+design):
+- spawn sink claims ≤ ~25 e/t per spawn (was 102/14.97); the paper bank
+  round-trip collapses (gross bank-out falls from 156.61 toward the real
+  consumer draw).
+- published controller allocation rises toward the law's cap (39.64 → ~50+
+  while surplus stands; equilibrium allocation ≈ sip + residual/tau).
+- upgrader fleet grows into the raised allocation within 1-2 generations
+  (holdToFund full bodies; S5 headroom freed by the treadmill fix pays the
+  build time); delivered score climbs toward the high-40s; **GCL ≥ 40/t
+  sustained** is the program target (G1 said 50.78 was already sustainable).
+- P12 ratio → ≥ 0.8 (ok band); the bridge's bank term stays small (the
+  -4.52 shape, not +71.73).
+- GUARD: spawn idle "bank" share (S4) must not rise materially - if the
+  capped claim starves real refill, S4's energy-starved share says so and
+  the ceiling's e/p input is the suspect (the tender path, not the flow
+  plan, does hub refill - expected null effect).

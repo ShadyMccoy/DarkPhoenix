@@ -64,6 +64,24 @@ export const SPAWN_TIME_PER_PART = 3;
 export const SPAWN_PARTS_PER_TICK = 1 / 3;
 
 /**
+ * The spawn's PHYSICAL energy-conversion ceiling (energy/tick, PER SPAWN):
+ * SPAWN_PARTS_PER_TICK parts assembled per tick, each paid at the fleet's own
+ * mean energy-per-part. A spawn sink can CONVERT at most this - every e/t
+ * claimed above it is flow the spawn cannot turn into bodies, and the solver
+ * parks it (P12 plan-side seam, measured t72773737: sinks claimed 117 e/t -
+ * fundingNeed 5,100 over FUND_HORIZON 50 - against 36.5 actually spent; the
+ * bank round-tripped 156.61 gross out / 101.45 back on paper, and the
+ * published controller allocation sat at 39.64 against its own
+ * bankFedControllerRate cap of 59.04). The spawn NETWORK's stock is the
+ * pre-fund buffer for any single big body; a CONTINUOUS super-physical claim
+ * is never real. Floored at the cheapest part (MOVE) so a degenerate mix can
+ * never zero a sink.
+ */
+export function spawnEnergyCeiling(energyPerPart: number): number {
+  return SPAWN_PARTS_PER_TICK * Math.max(BODY_COSTS.MOVE, energyPerPart);
+}
+
+/**
  * Lifetime of a creep carrying a CLAIM part (CREEP_CLAIM_LIFE_TIME). Reservers
  * live only 600 ticks, not 1500 - a big part of why the reserver toll is steep.
  */
