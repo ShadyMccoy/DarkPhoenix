@@ -8073,15 +8073,18 @@ re-stages per the file's own convention (CorpPlanner staged
 infraPartsPerTick back to originals; golden master regenerated - delta is
 exactly +0.0333 on four partsLeft traces, no allocation or route changed in
 the golden worlds). Gate: unit 2,055 green; trio 3-0 (storage-depot, flow-handoff 4m,
-runt-economy 4m). Deployed with a staged A/B CONTROL (owner: "now I want a
-control against it"): control-0.9 and treatment-1.0 bundles (same HEAD, one
-byte apart) run through sim:real on the real-rooms fixtures - admission
-read (1 draw/arm, near-deterministic solver) then throughput read (2-3
-draws/arm x 1,500t, multi-draw rule). Sims stage no raids, so sim A/B
-isolates the PLANNER delta; live-minus-sim over the experiment estimates
-the marginal remotes' raid cost - the number the admission pricing lacks.
-Null outcome is a DELETE, not a revert (owner: "if it doesn't do anything
-maybe we don't need it").
+runt-economy 4m). Deployed. CONTROL DESIGN (owner, superseding the staged sim arms: "just
+deploy and let it run as a control in prod"): the control is PROD'S OWN
+pre-lift record - the three committed post-treadmill windows (t72775811,
+t72777517, t72778545: score 42.18/53.77/51.67 pts/t, F1 0.91x, 10 funded
+sources, 28 over-budget candidates, full accounts at methodology #11) -
+against the lifted months as treatment. Confounds to carry when reading:
+raid weather, bank phase, shard speed; the reversion criteria are the
+safety net either way. A single 600t sim pair (0.9 vs 1.0 bundles, one
+byte apart) was already in flight and rides as a bonus deterministic
+admission datapoint; the multi-draw throughput arms are cancelled. Null
+outcome is a DELETE, not a revert (owner: "if it doesn't do anything maybe
+we don't need it").
 
 **Predictions (deploy t72778545+, read over ~2 fiscal months):**
 1. ADMISSION: 1-2 remotes funded within a few solves, highest nets first
