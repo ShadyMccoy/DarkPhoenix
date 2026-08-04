@@ -631,8 +631,20 @@ export function updateCoreTelemetry(
     // for captures from before the ledger shipped - those fall back to the
     // blackbox ring, stated as such.
     ...(() => {
+      // The FULL view rides (v30 emission-seam lesson, t72763633): the
+      // recovery sub-counter accrued in Memory for a whole window while this
+      // publisher copied only the two role maps - core.version said 30,
+      // spawnSpend carried v26's shape, and the RECOVERY P&L stayed
+      // "not yet measured" against live code that WAS measuring.
       const spend = spawnSpendView();
-      return { spawnSpend: { energyByRole: spend.energyByRole, partsByRole: spend.partsByRole } };
+      return {
+        spawnSpend: {
+          energyByRole: spend.energyByRole,
+          partsByRole: spend.partsByRole,
+          scavengeEnergy: spend.scavengeEnergy,
+          scavengeParts: spend.scavengeParts
+        }
+      };
     })(),
     rooms
   };
