@@ -8012,3 +8012,45 @@ Verdict: **verified x2 + instrumented** - the evacuation-line program that
 opened this branch is CLOSED (two windows at/under budget), the 40-GCL
 program is two-for-two pending the multi-draw sustain, and the account
 balances to +0.41 of 100.
+
+## Cycle t72778545 — two hypotheses confirmed; the ledger is down to ONE structural FAIL
+
+Window 1,028t (FY4851-M09 closed at 69%). No code changes; both prior
+deploys continue to verify.
+
+**F1 cohort-phasing hypothesis: CONFIRMED (recovering).** 0.66x → 0.91x
+[ok] in one window; the plan over-state shrank 0.137 → 0.034 p/t as deaths
+staggered. Class-level phase swings visible exactly as predicted (extraction
+-2.53 U as the miner wave replaces, consumers +3.61 F in their trough)
+while aggregate TOTAL SPAWN sits -0.53 U of plan. No plan fix warranted;
+the gauge was right to be two-sided and un-tuned.
+
+**GCL ≥ 40 SUSTAINED (multi-draw satisfied):** 42.18 → 53.77 → 51.67 pts/t
+across three consecutive windows (~4,300t ≈ 3 fiscal months), the last at
++1.73 F vs its own budget with bank slope +1.79 (income-funded, not
+drawdown). The owner's target stands as the measured equilibrium. P12 holds
+1.0x; E4 converging (145k vs 148k projected equilibrium).
+
+**TOP LINE (the one FAIL): L1 — pile decay 6.65 vs its deliberate zero
+budget.** Updated evidence for the next program:
+- The DEPOSIT-SPREAD hypothesis is DEAD for the chronic mouths: cd8e, cedc
+  AND d01f already route through home-link ports (46,11 / 43,38) - the DEP
+  gauge's "savings" list double-counts elections already made (gauge fix:
+  exclude ported routes). The piles stand ANYWAY.
+- The mouths sit at DRAIN-LAW EQUILIBRIUM (~2-3k buffered, E6 holding
+  miners 81-96% of window), and decay is trending down post-treadmill
+  (8.57 → 7.47 → 6.68 → 6.65) - stable, not runaway. The heal dead-band
+  may slow sliver re-sizing on exactly these routes (named trade, watch);
+  EOL replacement re-sizes drain-inclusive once per generation.
+- The FLOOR CENSUS is the actionable signal: 3.90 of the 6.65 e/t is the
+  ceil floor - ~5.0 SMALL piles each paying the >=1 e/t minimum however
+  tiny. The win is CONSOLIDATION (focus-fire a pile to zero, retire its
+  whole floor), i.e. spec 44's standing scavenger, now evidence-backed -
+  NOT more carry into the queues.
+R1 accumulates at 5x priced (window count still short of the >=10 swap bar;
+capture cadence at ~2h/month wall-clock is the constraint - session crons
+do not survive, so closes depend on invocation cadence).
+
+Verdict: **confirmed x2** - F1 recovered as hypothesized, the 40-GCL target
+is sustained by the multi-draw rule, and the next program (spec 44 leg 1,
+focus-fire consolidation) is named with its census evidence.
