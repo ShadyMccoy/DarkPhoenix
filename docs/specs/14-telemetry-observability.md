@@ -8308,3 +8308,33 @@ drains).
 
 Verdict: **confirmed (pricing program complete) + diagnosed (flicker-loop
 named with receipts)** - the fix is the next cycle's red-first item.
+
+## Cycle t72783818 — road payback lands (evacuation +6.02 F); the tanker flicker fix ships worth-a-body
+
+Short window (688t; no new close). **cee2's road is already paying:** the
+evacuation line came in at 6.54 actual vs 12.56 budget (+6.02 F) - the
+trunk's 2:1 bodies and crawl-corrected distance under-running even the
+plan's own price. Delivered 110.93 of 110 (piles drawing down); sustainable
+64.41 (short-window phase read) with +21.53 banked.
+
+**The flicker-loop was NOT dormant** - the fresh ring showed 8 MORE tankers
+@1,100e (~3.7 e/t) plus 13 road builders; F1 only rotated off the top by
+window shuffle. Fix shipped (task #10): tankerPlan takes the pool's
+remaining work and gates the relay at ITS OWN fleet price (target x body,
+<= on purpose - cargo equal to the relay's cost is not worth the relay).
+Trickling 300e road segments can never buy a 2,200e relay again; real site
+clusters clear the bar untouched. No new constants - the actuator prices
+its own quantum (worthABody doctrine, third application: heal dead-band,
+spawn-sink ceiling, now the construction relay). The in-tree history that a
+25t demob-side grace "bought nothing and cost plenty" pointed the fix at
+the BUY side.
+
+Red-first (staged mini-relay, same ratio as live); unit 2,062 green; trio
+in flight at commit - deploy gated on it, verdicts recorded next commit.
+
+PREDICTIONS (for the deploy): construction tanker receipts ~0 while the
+road campaign trickles (builders continue, self-fueled); F1 construction
+class -> ~0.02 p/t (the builders alone); the next REAL site cluster still
+fields its relay instantly (regression watch at the next RCL build-out).
+TOP LINE L1 (pile decay 9.03: cee2's forming chain + cd94) remains the
+spec-44 standing case.

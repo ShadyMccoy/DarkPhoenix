@@ -127,7 +127,7 @@ describe("ConstructionCorp tanker relay sizes to carryNeeded, not max bodies", (
     Game.getObjectById = () => null;
   });
 
-  const planFor = (partsNeeded: number): any => {
+  const planFor = (partsNeeded: number, poolWork?: number): any => {
     const corp = new ConstructionCorp("W1N1-construction", "spawn1");
     (corp as any).builderPlan = () => ({ target: 1, desiredCost: 300, minCost: 300, bodyParam: partsNeeded, partsNeeded });
     const sourcePos = { x: 12, y: 25, roomName: "W1N1" };
@@ -141,7 +141,7 @@ describe("ConstructionCorp tanker relay sizes to carryNeeded, not max bodies", (
       }
     };
     const room: any = { name: "W1N1", storage: { my: true, store: { energy: 1000 } }, memory: {}, find: () => [] };
-    return (corp as any).tankerPlan({ energyCapacity: 1800 }, room, site);
+    return (corp as any).tankerPlan({ energyCapacity: 1800 }, room, site, poolWork);
   };
 
   it("a SMALL build (2 WORK, short leg) fields a right-sized relay, not 2x the max body", () => {
@@ -158,6 +158,33 @@ describe("ConstructionCorp tanker relay sizes to carryNeeded, not max bodies", (
     expect(big.target * big.bodyParam, "total scales with consumption").to.be.greaterThan(
       small.target * small.bodyParam
     );
+  });
+
+  /**
+   * WORTH-A-BODY FOR THE RELAY (the t72783130/t72783818 flicker-loop: 16
+   * tankers / 17,600e across two rings, buy-gaps 7-25t, standing ZERO). The
+   * road-rebuild campaign TRICKLES 300e segments, so pool-site existence
+   * alone bought an 1,100e ferry per flicker that the op-end cohort release
+   * demobbed on arrival - the treadmill's actuator-granularity disease on
+   * the construction seam. The ferry's own price is its gate: a pool whose
+   * REMAINING WORK is under one tanker body buys no tanker (builders
+   * self-fuel small remainders); a real campaign clears it untouched. The
+   * old 25t orphan grace attacked the demob side and "bought nothing and
+   * cost plenty" (ConstructionCorp:319) - this is the buy-side mechanism fix.
+   */
+  it("a pool smaller than the relay's own cost buys NO tanker (the road-segment flicker)", () => {
+    // The staged mini-relay is 2 bodies x ~100e; live it is 2 x 1,100e
+    // against 300e road segments - same ratio, same verdict.
+    const plan = planFor(2, 150);
+    expect(plan.target, "no relay for less cargo than the relay costs").to.equal(0);
+  });
+
+  it("a real campaign clears the worth-a-body gate untouched", () => {
+    const gated = planFor(2, 5000);
+    const legacy = planFor(2);
+    expect(gated.target, "hot-swap floor holds on real pools").to.equal(2);
+    expect(gated.bodyParam).to.equal(legacy.bodyParam);
+    expect(gated.desiredCost).to.equal(legacy.desiredCost);
   });
 });
 
