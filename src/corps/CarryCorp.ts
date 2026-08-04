@@ -19,7 +19,7 @@ import { isTenderCreep } from "./censusLens";
 import { tenderOwnsExtensions } from "./regimes";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelToLane, travelToQueued } from "./movement";
-import { driveRecycle, runtUpsizeThreshold } from "./recycle";
+import { driveRecycle, runtUpsizeThreshold, worthABody } from "./recycle";
 import {
   CARRY_MOVE_PAIR_COST,
   CREEP_LIFETIME,
@@ -100,7 +100,7 @@ export class CarryCorp extends Corp {
    */
   private dutyAlive = 0;
   /** Which gate ended the last hauler-sizing walk (spec 14 exit verdict). */
-  private lastExit: "staffed" | "swarm-cap" | "asking" | undefined;
+  private lastExit: "staffed" | "swarm-cap" | "asking" | "deadband" | undefined;
   private dutyActive = 0;
   private dutyIdleSource = 0;
   private dutyIdleSink = 0;
@@ -402,13 +402,34 @@ export class CarryCorp extends Corp {
     const maxCarry = this.maxCarryPerHauler(room);
     if (minCarry >= maxCarry) return; // nothing under-built to heal
 
+    // THE SIZER'S OWN LENS (the even-share treadmill, t72773737): the demand
+    // side deliberately fields even-share bodies - base
+    // floor(carryNeeded/target) with the remainder as +1s - while this gate
+    // judged them against haulerBodyCarry's CEIL share, so any route that
+    // doesn't divide into equal bodies stood a floor-share body this culler
+    // read as a runt FOREVER: buy even-share, cull smallest, repeat (d01f:
+    // eight 27-36p bodies in ~1200t while the drain-priced carryNeeded crept
+    // 36->48 on a growing pile; runt-upsize 90% of the window's recycles).
+    // MATURE rooms judge against the floor share and only cull a body under
+    // HALF it (worthABody - the same predicate the ask gate reads, so sizer
+    // and culler cannot disagree); the +-1 CARRY solve wiggle rides to EOL,
+    // which re-sizes for free. Bootstrap keeps the strict crank: escape
+    // velocity beats waiting (the cee0 doctrine).
+    const storageBacked = room.storage?.my === true;
+    if (storageBacked) {
+      const carryNeeded = this.haulCarryNeeded(true);
+      const targetHaulers = Math.max(1, Math.ceil(carryNeeded / Math.max(1, maxCarryPairs(room.energyCapacityAvailable))));
+      const share = Math.max(1, Math.floor(carryNeeded / targetHaulers));
+      if (!worthABody(share - minCarry, share)) return; // at/above half its share: not a runt
+    }
+
     // Replacement affordability: in a STORAGE-BACKED room the pounce waits
     // for the FULL-SIZE body - one recycle, one buy (the cee0 ladder bought
     // five stepping-stones because this gate fired at +1 CARRY while each
     // purchase drained the bank the next buy scaled to). Bootstrap keeps the
     // +1 crank: escape velocity beats waiting when nothing guarantees refill.
     const runtRatio = this.getHaulerAssignments()[0]?.haulerRatio ?? "1:1";
-    if (room.energyAvailable < runtUpsizeThreshold(minCarry, maxCarry, room.storage?.my === true, runtRatio)) return;
+    if (room.energyAvailable < runtUpsizeThreshold(minCarry, maxCarry, storageBacked, runtRatio)) return;
 
     creeps[carry.indexOf(minCarry)].memory.recycling = true;
     creeps[carry.indexOf(minCarry)].memory.recycleReason = "runt-upsize";
@@ -1394,6 +1415,23 @@ export class CarryCorp extends Corp {
     // DEMAND-side gate, not affordability - and two gates here can produce it.
     this.lastExit = "staffed";
     if (current >= targetHaulers && fieldedCarry >= carryNeeded) return [];
+    // MATURE DEAD-BAND (the sliver-ask, t72773737): the heal actuator is a
+    // whole spawn purchase, and the drain-priced routes move carryNeeded
+    // +-1 CARRY solve to solve as buffers stage and clear. A count-complete
+    // fleet within HALF the heal body of its route rides to natural
+    // replacement (EOL re-sizes for free) instead of buying the sliver the
+    // pounce would then cull an incumbent over - the even-share treadmill
+    // that bought d01f eight bodies in ~1200t (5.17 e/t vs a 1.27 e/t plan).
+    // Bootstrap keeps the strict ask: the ramp needs every CARRY (worthABody
+    // is the one predicate both this gate and the pounce read).
+    if (
+      ctx.storageBacked === true &&
+      current >= targetHaulers &&
+      !worthABody(carryNeeded - fieldedCarry, haulerBodyCarry(ctx.energyCapacity, carryNeeded))
+    ) {
+      this.lastExit = "deadband";
+      return [];
+    }
     // The swarm cap stays on the PHYSICAL count: replacement overlap may field
     // one extra body per expiring hauler, but never an unbounded swarm.
     // THE SWARM CAP IS DENOMINATED IN CARRY, like the gate above it.

@@ -7784,3 +7784,69 @@ haul-t4-bank-surplus-upgrades PASS, haul-t4-storage-bank-and-spill PASS;
 REFILL TRIO 3-0; unit 2027-0. Baseline untouched (the cell's baseline "pass"
 now overstates master — the ratchet debt is filed here, not silently
 re-baselined).
+## Cycle t72773737 — the even-share treadmill (runt-upsize 90% of recycles, receipt-proven)
+
+Capture t72773737 vs committed t72766670 (7067t, methodology #10). The
+2026-08-03 wave measurably worked: evacuation **-15.86 vs -11.73 budget
+(-4.13 U)** — best variance in months (FY4851-M01 -6.13, FY4850-M08 -12.32) —
+with E5 down to 1 runt/8, X6 38/38 in-tolerance, H1 duty 0.87 (atSink 0.05),
+21% of controller flow direct via link. TOP LINE: F1 1.57x, haulers +0.124
+p/t of the +0.229 unbudgeted.
+
+**The raid story fails the evidence check a second time** (owner 2026-08-03:
+"a lot is blamed on raids without sufficient evidence"). R1 printed "remote
+churn bodies 5.08 e/t, 9x the priced tax" — but R1/X5 classify churn by ROLE
+EXPOSURE (remote-serving roles), not by cause. The death watch (evidence,
+v27): kills 22% of window deaths, only **2% in intel-hostile rooms**;
+recycles **76%**, of which **runt-upsize 90%**. The churn is self-inflicted.
+
+**The receipts name the mechanism** (blackbox ring, 2406t): d01f bought
+EIGHT 27-36p hauler bodies in ~1200t, costs laddering
+1350→1350→1500→1500→1650→1650→1800→1650 = 12,450e = **5.17 e/t on one
+route** (plan 1.27; its Source P&L row -5.10). cbd8: six bodies,
+1200→1500. cbd5: 1650/1800/1650. Three gears mesh into a treadmill:
+
+1. The plan prices the pile drain INTO route carryParts (phase-1
+   repricing), so a staging/clearing buffer moves carryNeeded ±1 CARRY per
+   solve (d01f 37.34 CARRY, buffered 2367; cbd8 37.64, buffered 3837).
+2. The demand heal branch had no dead-band: 1 CARRY short of a covered
+   fleet = ask for a whole even-share body.
+3. The pounce judged bodies against haulerBodyCarry's CEIL share while the
+   sizer deliberately fields FLOOR-share bodies (+remainder as +1s, the
+   2026-07-31 fix) — any route that doesn't divide evenly stands a
+   floor-share body the culler reads as a runt FOREVER. Buy even-share,
+   cull smallest, repeat.
+
+**Fix (one contract, both seams, one predicate — `worthABody` in
+corps/recycle.ts):** in the MATURE regime a CARRY deficit under HALF a
+body-share is not worth a spawn purchase — it rides to EOL, which re-sizes
+for free; and the pounce judges runts against the sizer's own floor share
+(same-lens doctrine — the staffsPost trap, generalized to sizer/culler).
+Bootstrap keeps every crank (escape velocity, cee0 doctrine). Red-first:
+sliver-ask red confirmed pre-fix; 5 new behavior tests; unit 2044 green;
+typecheck clean; trio at commit time: flow-handoff PASS, runt-economy PASS
+(the bootstrap crank survives, by design), storage-depot IN FLIGHT — the
+deploy waits on it (gate discipline), and the deploy commit records its
+verdict.
+
+**Predictions (pre-deploy, next capture ≥~1500t):**
+- same-corp hauler buy cadence on d01f/cbd8/cbd5/cedc ≥ ~1100t (was 108-408t)
+- recycled-why runt-upsize < 20% of recycles (was 90%)
+- evacuation actual ≤ ~12.5 e/t vs ~11.7 budget (was 15.86, -4.13 U)
+- F1 hauler class ≤ 0.26 p/t (was 0.358); S5 ≤ 0.85x ceiling (was 0.94)
+- GUARD: pile decay ≤ ~9 e/t (was 8.57) — a material jump falsifies the
+  premise that the forgone slivers don't bind throughput (H1 says the sink
+  binds: idleSink 0.12, atSink 0.05, storage had room)
+
+**Recorded, not fixed this cycle:** hauling-1-22's recurring 2-part 100e
+scavenge rebuys (9 in 2406t, 0.37 e/t — spec 44's standing-scavenger
+shape); the upgrader resize ladder (receipts 4450→1650→750→750→3250,
+consumers -1.27 U — the plan-allocation valve moves with the bank; same
+actuator-granularity mismatch, different valve, own cycle); construction
+class 0.042 p/t vs plan 0.000 (road-rebuild receipts campaign, unbudgeted);
+P12 prints "Infinity x" when the plan's non-bank controller term goes
+negative (plan -17.40 vs runtime -12.40) — display artifact to fix at the
+gauge, labeled hypothesis.
+
+Verdict: **fixed (mechanism-level, receipt-proven)** — post-deploy
+verification pending at next capture.

@@ -49,6 +49,24 @@ export function pickRuntToRecycle(partCounts: number[], partsNeeded: number, max
 }
 
 /**
+ * Is a CARRY deficit worth a BODY? The heal loop's only actuator is a whole
+ * spawn purchase (spawn-then-recycle retires an incumbent with life left), so
+ * acting on a sliver is pure churn - and the target WIGGLES by construction:
+ * the plan prices the pile drain into route carryParts (phase-1 repricing),
+ * so a staging/clearing buffer moves carryNeeded +-1 CARRY solve to solve.
+ * Tracking that at full-body granularity is the t72773737 treadmill: d01f
+ * bought EIGHT 27-36p bodies in ~1200 ticks (5.17 e/t against a 1.27 e/t
+ * plan), and runt-upsize was 90% of the window's recycles. A deficit under
+ * HALF the share rides to natural replacement - EOL re-sizes for free -
+ * while a genuine runt (under half) still heals. ONE predicate for both
+ * seams (the ask gate and the pounce), so sizer and culler cannot disagree
+ * about what a runt is (the staffsPost trap, generalized).
+ */
+export function worthABody(deficitCarry: number, bodyShareCarry: number): boolean {
+  return deficitCarry * 2 >= bodyShareCarry;
+}
+
+/**
  * The runt-upsize POUNCE threshold (owner 2026-08-03, the cee0 ladder:
  * 3->6->9->12->15->30 parts, five stepping-stone bodies for one 1500e body).
  * A MATURE (storage-backed) room replaces a runt only when the full-size body
