@@ -8072,9 +8072,16 @@ nets** (best 7.13, 6.52, 6.42) behind the 0.9 x 0.6 mining tranche.
 re-stages per the file's own convention (CorpPlanner staged
 infraPartsPerTick back to originals; golden master regenerated - delta is
 exactly +0.0333 on four partsLeft traces, no allocation or route changed in
-the golden worlds). Gate at commit: unit 2,055 green, storage-depot PASS;
-flow-handoff and runt-economy IN FLIGHT - the deploy waits on them and the
-deploy commit records their verdicts.
+the golden worlds). Gate: unit 2,055 green; trio 3-0 (storage-depot, flow-handoff 4m,
+runt-economy 4m). Deployed with a staged A/B CONTROL (owner: "now I want a
+control against it"): control-0.9 and treatment-1.0 bundles (same HEAD, one
+byte apart) run through sim:real on the real-rooms fixtures - admission
+read (1 draw/arm, near-deterministic solver) then throughput read (2-3
+draws/arm x 1,500t, multi-draw rule). Sims stage no raids, so sim A/B
+isolates the PLANNER delta; live-minus-sim over the experiment estimates
+the marginal remotes' raid cost - the number the admission pricing lacks.
+Null outcome is a DELETE, not a revert (owner: "if it doesn't do anything
+maybe we don't need it").
 
 **Predictions (deploy t72778545+, read over ~2 fiscal months):**
 1. ADMISSION: 1-2 remotes funded within a few solves, highest nets first
