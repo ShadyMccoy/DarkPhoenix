@@ -8151,3 +8151,48 @@ e/t net - the colony has 46% spawn headroom and 75k of free cash).
 
 Verdict: **falsified + attributed** - the best kind of failed prediction:
 it named the two real seams (partition, tranche) and priced the next win.
+### Cycle t72780703 follow-up — GLOBAL ADMISSION (owner: "give it a try")
+
+The falsification's finding, shipped as the mechanism fix: admission now
+funds candidates by net/part across ALL spawns against the GLOBAL tranche
+(spawns x miningBudgetPerSpawn), with each spawn's best still seeding
+unconditionally (liveness). Nearest-spawn ASSIGNMENT is unchanged - only
+the FUNDING decision is global. MINING_BUDGET_FRACTION stays 0.6: one
+change at a time; the tranche audit is the NEXT experiment and is now
+clean to run (the partition no longer confounds it).
+
+**A searcher ability retired by a better base solve:** spec-18 P1's
+day-one positive proof (pin a dropped source to the idle spawn) is
+DISSOLVED - under a shared budget, nearest assignment minimizes every
+source's parts, so the budget-partition move class is gone and the base
+solve reaches first-best natively (the old fixture: all three sources fund
+from A at 0.312 of 0.4; the searcher's second-best pin - d170 from B vs
+d160 from A - is strictly dominated). The searcher harness stays for the
+spec-32 structure moves. Re-pinned accordingly; the per-spawn budget pin
+re-pinned to the global contract.
+
+**EXPERIMENT NARRATIVE REVISED:** the handicap lift is NO LONGER a delete
+candidate on admission grounds - at 0.9 the global tranche (0.36) is
+smaller than funded+marginal (0.374), at 1.0 (0.40) it fits. The lift was
+NECESSARY BUT NOT SUFFICIENT; the partition bug masked it. The lift's
+window continues with this fix compounding it.
+
+**Predictions (pre-registered, exact - the falsification's lesson applied):**
+1. Within a few solves: funded 10 -> 11, the new source being 36-3
+   SPECIFICALLY (net/part 136, the best rejected; it outranks the funded
+   d01f at 130). 42-20 stays out (0.439 > 0.400). Capacity line 100 -> 110.
+2. All 10 incumbents KEEP funding (verified in the arithmetic: global fill
+   order retains them; no revocation churn - the trap-list class this must
+   not regress).
+3. P4 plan-implied +~0.05 p/t (miners+haul for 36-3) -> ~0.50, <= 0.75x
+   physical.
+4. 36-3's MEASURED net lands BELOW its priced 7.13: unpriced reservation
+   share for its room + the ~5x under-priced raid exposure (R1). The gap,
+   read off the Source P&L var column over the coming windows, IS the
+   marginal-remote cost measurement the control design wanted.
+5. GUARD: P1 plan-flap stays 0 for incumbents; E6 may add 36-3's mouth
+   (new pile risk - spec 44's program, not a reversion signal).
+
+Gate: red-first (mis-rank + liveness + global-tranche pins; the old
+per-spawn pin and spec-18 positive proof honestly re-pinned); unit 2,058
+green; trio at commit time: storage-depot PASS; flow-handoff and runt-economy IN FLIGHT - the deploy waits on them and the deploy commit records their verdicts.

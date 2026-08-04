@@ -457,29 +457,50 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
   // Profitable candidates were provisionally stamped "over-budget"; funding
   // flips the stamp, so a candidate's final verdict is exactly its fate here.
   const verdictById = new Map(verdicts.map(v => [v.sourceId, v]));
+  // GLOBAL ADMISSION (t72780703, found by the handicap-lift falsification).
+  // Funding used to run per spawn against miningBudgetPerSpawn() alone, so a
+  // BETTER source at a full spawn lost to a WORSE source at an idle one:
+  // live, candidate 36-3 (net/part 136) sat over-budget while d01f (130)
+  // stayed funded, purely because their nearest spawns differed - the
+  // global-spawn-pool work (#141) had never reached this loop. Candidates
+  // now fund by net/part across ALL spawns against the GLOBAL tranche;
+  // nearest-spawn ASSIGNMENT is unchanged (c.spawn still executes the
+  // commission). Each spawn's best still seeds unconditionally - the old
+  // liveness exemption, kept per spawn so no spawn's room is ever stranded -
+  // and seeds count toward spent exactly as before.
+  const byNetPerPart = (a: (typeof candidates)[number], b: (typeof candidates)[number]): number =>
+    b.net / b.parts - a.net / a.parts || (a.source.id < b.source.id ? -1 : 1);
+  const globalBudget = budget * Math.max(1, spawns.length);
+  let spent = 0;
+  const fund = (c: (typeof candidates)[number]): void => {
+    spent += c.parts;
+    const v = verdictById.get(c.source.id);
+    if (v) v.verdict = "funded";
+    miners.push({
+      sourceId: c.source.id,
+      nodeId: c.source.nodeId,
+      spawnId: c.spawn.id,
+      distance: c.distance,
+      rate: c.rate,
+      spawnParts: c.parts,
+      netEnergy: c.net,
+      efficiency: (c.net / c.rate) * 100,
+      maxMiners: c.source.maxMiners
+    });
+  };
+  const seeded = new Set<string>();
   for (const [, list] of bySpawn) {
-    // value per build-part, then by source id for stable ties
-    list.sort((a, b) => b.net / b.parts - a.net / a.parts || (a.source.id < b.source.id ? -1 : 1));
-    let spent = 0;
-    for (const c of list) {
-      // Always staff a spawn's best source even if it alone exceeds budget; after
-      // that, only take a source if its build-time fits the remaining budget.
-      if (spent > 0 && spent + c.parts > budget) continue;
-      spent += c.parts;
-      const v = verdictById.get(c.source.id);
-      if (v) v.verdict = "funded";
-      miners.push({
-        sourceId: c.source.id,
-        nodeId: c.source.nodeId,
-        spawnId: c.spawn.id,
-        distance: c.distance,
-        rate: c.rate,
-        spawnParts: c.parts,
-        netEnergy: c.net,
-        efficiency: (c.net / c.rate) * 100,
-        maxMiners: c.source.maxMiners
-      });
+    list.sort(byNetPerPart);
+    if (list.length > 0) {
+      fund(list[0]);
+      seeded.add(list[0].source.id);
     }
+  }
+  for (const c of candidates.filter(x => !seeded.has(x.source.id)).sort(byNetPerPart)) {
+    // Take a source iff its build-time fits the remaining GLOBAL budget -
+    // `continue`, not `break`: a cheaper later candidate can still fit.
+    if (spent + c.parts > globalBudget) continue;
+    fund(c);
   }
 
   // STORAGE-FULL DEFUND (owner 2026-07-19: "if we top out the storage... the
