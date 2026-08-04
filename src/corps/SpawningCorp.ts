@@ -174,7 +174,13 @@ export class SpawningCorp extends Corp {
       // `bodyCost` is the energy actually debited - the grant rounds high
       // whenever the built body lands under it. The account differences these
       // totals between captures, so its window is never bounded by a deploy.
-      accrueSpawnSpend(role, bodyCost, body.length);
+      // A hauler bought for a standalone scavenge corp ("hauling-" corp id
+      // prefix, the same class the ring analyses read) accrues the RECOVERY
+      // sub-counter beside its role total - the cure's cost, named
+      // (methodology #10, owner 2026-08-04).
+      accrueSpawnSpend(role, bodyCost, body.length, {
+        scavenge: role === "hauler" && buyerCorpId.startsWith("hauling-")
+      });
       const carryParts = body.filter(p => p === CARRY).length;
       const partsInfo = role === "hauler" ? `${carryParts}C` : `${workParts}W`;
       console.log(`[Spawning] Spawned ${name} (${partsInfo}, ${bodyCost} energy)`);

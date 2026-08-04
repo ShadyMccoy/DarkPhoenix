@@ -2391,3 +2391,86 @@ describe("F2 per-commission fleet fidelity (spec 39 phase 1: declared fleet vs f
     expect(f2.verdict).to.equal("FAIL");
   });
 });
+
+/**
+ * METHODOLOGY #10 - RECOVERY MADE VISIBLE (owner 2026-08-04: "you may have
+ * added something for scavenging tombstones or piles but it's not showing as
+ * a line item. What if the cure is worse than the illness").
+ *
+ * Before #10 the cure was invisible on BOTH sides of the books: recovered
+ * tombstone energy existed only as a silent netting credit inside the
+ * tombstone loss line (booked gross-when-seen, credited-when-witnessed), and
+ * the recovery fleet's bodies hid inside "evacuation (hauler)". #10 publishes
+ * both: the tombstone line grows a gross/recovered detail, evacuation grows
+ * an "of which recovery fleet" sub-line (cumulative scavenge sub-counter),
+ * and a RECOVERY P&L memo answers cure-vs-illness as a subtraction every
+ * close. No new revenue line - recovered energy was already counted as mined
+ * once; grossing the EXISTING credit is what avoids the double-count.
+ */
+describe("methodology #10: the recovery P&L (cure vs illness, published)", () => {
+  const shell = { windowTicks: 5, pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneLost: 0, tombstoneRecovered: 0, tombstoneStock: 0 };
+  const zero = { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 };
+  const dtOf = (): number => cap72411542.data.core.tick - cap72404213.data.core.tick;
+  const rig = (capTotals: any, opts: { scavengeEnergy?: number; haulerEnergy?: number } = {}): { cap: any; base: any } => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.core.losses = { ...shell, cumulative: capTotals };
+    base.data.core.losses = { ...shell, cumulative: zero };
+    if (opts.scavengeEnergy !== undefined || opts.haulerEnergy !== undefined) {
+      cap.data.core.spawnSpend = {
+        energyByRole: { hauler: opts.haulerEnergy ?? 0 },
+        partsByRole: {},
+        scavengeEnergy: opts.scavengeEnergy ?? 0,
+        scavengeParts: 0
+      };
+      base.data.core.spawnSpend = { energyByRole: {}, partsByRole: {}, scavengeEnergy: 0, scavengeParts: 0 };
+    }
+    return { cap, base };
+  };
+
+  it("the tombstone line publishes its GROSS and the witnessed-recovered credit as a detail", () => {
+    const dt = dtOf();
+    const { cap, base } = rig({ ...zero, tombstoneGross: 5 * dt, tombstoneRecovered: 2 * dt });
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const detail = text.split("\n").find(l => /gross entombed/.test(l));
+    expect(detail, "the gross/recovered detail line exists").to.not.equal(undefined);
+    expect(detail).to.include("5.00");
+    expect(detail).to.include("2.00");
+  });
+
+  it("evacuation splits out the recovery fleet from the cumulative scavenge sub-counter", () => {
+    const dt = dtOf();
+    const { cap, base } = rig(zero, { haulerEnergy: 10 * dt, scavengeEnergy: 1.5 * dt });
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const sub = text.split("\n").find(l => /of which recovery fleet/.test(l));
+    expect(sub, "the evacuation sub-line exists").to.not.equal(undefined);
+    expect(sub).to.include("1.50");
+  });
+
+  it("the RECOVERY P&L memo answers cure-vs-illness as a subtraction", () => {
+    const dt = dtOf();
+    const { cap, base } = rig(
+      { ...zero, tombstoneGross: 5 * dt, tombstoneRecovered: 2 * dt, pileDecay: 13 * dt },
+      { haulerEnergy: 10 * dt, scavengeEnergy: 1.5 * dt }
+    );
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    expect(text).to.include("RECOVERY P&L");
+    const net = text.split("\n").find(l => /= recovery net/.test(l));
+    expect(net, "the net cure line exists").to.not.equal(undefined);
+    expect(net).to.include("0.50"); // 2.00 recovered - 1.50 bodies
+  });
+
+  it("without the scavenge sub-counter the memo degrades honestly (no fabricated cost)", () => {
+    const dt = dtOf();
+    const { cap, base } = rig({ ...zero, tombstoneGross: 5 * dt, tombstoneRecovered: 2 * dt });
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    expect(text).to.include("RECOVERY P&L");
+    expect(text).to.include("not yet measured");
+  });
+
+  it("the header stamps methodology #10", () => {
+    const { cap, base } = rig(zero);
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    expect(text).to.include("[methodology #10]");
+  });
+});

@@ -41,10 +41,23 @@ export interface SpawnSpendCumulative {
   energyByRole: Record<string, number>;
   /** Body parts bought, by the role bought. */
   partsByRole: Record<string, number>;
+  /**
+   * THE CURE'S COST, NAMED (owner 2026-08-04, "what if the cure is worse
+   * than the illness"): energy/parts spent on RECOVERY-fleet bodies -
+   * haulers bought for standalone scavenge corps - accrued BESIDE their
+   * role total, never instead of it. One named sub-account of one role, so
+   * the ledger's role-grain doctrine holds (no per-corp map, no unbounded
+   * growth), and the account can split "evacuation" into route haulage vs
+   * recovery and print the RECOVERY P&L against the witnessed-recovered
+   * credit. Optional for Memory back-compat: ledgers written before this
+   * field read as 0, honestly (nothing was measured, nothing is claimed).
+   */
+  scavengeEnergy?: number;
+  scavengeParts?: number;
 }
 
 function zeroLedger(): SpawnSpendCumulative {
-  return { energyByRole: {}, partsByRole: {} };
+  return { energyByRole: {}, partsByRole: {}, scavengeEnergy: 0, scavengeParts: 0 };
 }
 
 /**
@@ -65,12 +78,23 @@ function ledger(): SpawnSpendCumulative {
  * same numbers, so the forensic ring and the account can never disagree about
  * what was bought, only about how far back they can see.
  */
-export function accrueSpawnSpend(role: string, cost: number, parts: number): void {
+export function accrueSpawnSpend(
+  role: string,
+  cost: number,
+  parts: number,
+  opts: { scavenge?: boolean } = {}
+): void {
   if (!Number.isFinite(cost) || cost <= 0) return;
   const led = ledger();
   led.energyByRole[role] = (led.energyByRole[role] ?? 0) + cost;
   if (Number.isFinite(parts) && parts > 0) {
     led.partsByRole[role] = (led.partsByRole[role] ?? 0) + parts;
+  }
+  if (opts.scavenge === true) {
+    led.scavengeEnergy = (led.scavengeEnergy ?? 0) + cost;
+    if (Number.isFinite(parts) && parts > 0) {
+      led.scavengeParts = (led.scavengeParts ?? 0) + parts;
+    }
   }
 }
 
@@ -81,6 +105,8 @@ export function spawnSpendView(): SpawnSpendCumulative & { energy: number; parts
   return {
     energyByRole: { ...led.energyByRole },
     partsByRole: { ...led.partsByRole },
+    scavengeEnergy: led.scavengeEnergy ?? 0,
+    scavengeParts: led.scavengeParts ?? 0,
     energy: sum(led.energyByRole),
     parts: sum(led.partsByRole)
   };

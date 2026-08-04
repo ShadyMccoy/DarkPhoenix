@@ -318,6 +318,11 @@ export interface CoreTelemetry {
   spawnSpend?: {
     energyByRole: Record<string, number>;
     partsByRole: Record<string, number>;
+    /** v30: recovery-fleet (scavenge-corp hauler) share, accrued beside the
+     * role totals - the account's evacuation split and RECOVERY P&L read
+     * these; absent on pre-v30 captures and the report degrades honestly. */
+    scavengeEnergy?: number;
+    scavengeParts?: number;
   };
   /** Owned rooms summary */
   rooms: {
@@ -543,7 +548,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 29, // v28 recycled-death verdict; v29 recycle-reason attribution (flag-site stamps) 2026-08-03
+    version: 30, // v29 recycle-reason attribution; v30 recovery sub-counter (scavenge spawn spend) 2026-08-04
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {

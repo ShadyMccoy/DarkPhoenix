@@ -135,7 +135,7 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, feederRelayRate } 
  *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
  *    the newly-attributed losses.
  */
-export const METHODOLOGY = 9;
+export const METHODOLOGY = 10;
 
 export interface LedgerRow {
   id: string;
@@ -2289,6 +2289,18 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     }
   }
   const perTick = (n: number) => (spawnSpanned ? n / dt : ring > 0 ? n / ring : 0);
+  // THE CURE'S COST (methodology #10, owner 2026-08-04 "what if the cure is
+  // worse than the illness"): the recovery fleet's spend, split OUT of the
+  // evacuation line for display and priced against the witnessed-recovered
+  // credit in the RECOVERY P&L memo. Known only when BOTH captures carry the
+  // v30 sub-counter - a one-sided read would difference a lifetime total
+  // against nothing and print fiction.
+  const scavOf = (s: { energyByRole: Record<string, number> } | undefined): number | undefined =>
+    (s as { scavengeEnergy?: number } | undefined)?.scavengeEnergy;
+  const scavSpend =
+    spawnSpanned && scavOf(spendCap) !== undefined && scavOf(spendBase) !== undefined
+      ? Math.max(0, (scavOf(spendCap) ?? 0) - (scavOf(spendBase) ?? 0))
+      : undefined;
   const direct = cost.extraction + cost.evacuation + cost.reservation;
   const overhead = cost.infra + cost.defense + cost.consumers + cost.other;
   const capital = cost.expansion + cost.incursion;
@@ -2614,6 +2626,9 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     "  DIRECT COST OF MINING (measured at the spawn)",
     L("extraction  (miner)", -perTick(cost.extraction), 4, -bExtract, "cost"),
     L("evacuation  (hauler)", -perTick(cost.evacuation), 4, -bEvac, "cost"),
+    ...(scavSpend !== undefined
+      ? [`      of which recovery fleet (scavenge corps) ${(-perTick(scavSpend)).toFixed(2)} - the cure's body bill, see RECOVERY P&L`]
+      : []),
     L("reservation (reserver)", -perTick(cost.reservation), 4, -bReserve, "cost"),
     ...(linkTaxKnown
       ? [
@@ -2672,6 +2687,17 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
           ...(meter
             ? [
                 L("tombstone losses (creeps died carrying)", -tombLoss, 4, -bTombstone, "cost"),
+                // GROSS AND CREDIT, published (methodology #10): the line
+                // above is NET of witnessed recoveries - before this detail
+                // the recovery machinery's whole return was an invisible
+                // netting credit, unanswerable against its cost.
+                ...(spanned && cumRate("tombstoneGross") > 0
+                  ? [
+                      `      gross entombed ${cumRate("tombstoneGross").toFixed(2)}, recovered back ${cumRate(
+                        "tombstoneRecovered"
+                      ).toFixed(2)} (pad + loot-grab + scavenge witnessed returns)`
+                    ]
+                  : []),
                 // WHOSE energy, and HOW they died. A tombstone line the account
                 // cannot attribute is not actionable: haulers expiring mid-route
                 // fold into the carry deficit, anything KILLED is a defense
@@ -2806,7 +2832,32 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
                   return out;
                 })(),
                 L("repair (energy spent holding hits)", -repairSpend, 4, -bRepair, "cost"),
-                L("= measured losses", -meteredLosses, 4, -(bPileDecay + bTombstone + bRepair), "cost")
+                L("= measured losses", -meteredLosses, 4, -(bPileDecay + bTombstone + bRepair), "cost"),
+                // CURE VS ILLNESS (methodology #10, owner 2026-08-04): the
+                // recovery machinery priced as a P&L of its own - the
+                // witnessed tombstone returns against the fleet bought to
+                // chase them. Scavenged PILES are deliberately NOT credited
+                // here (they enter as pile drawdown in REVENUE); recovered
+                // tombstone energy is deliberately NOT revenue (it was
+                // counted as mined once already - grossing the existing
+                // credit is what avoids the double-count).
+                ...(spanned
+                  ? [
+                      "  RECOVERY P&L (the cure vs the illness)",
+                      `    witnessed recovered (tombstones back into stores)   +${cumRate("tombstoneRecovered").toFixed(2)}`,
+                      ...(scavSpend !== undefined
+                        ? [
+                            `    recovery-fleet bodies (scavenge corps)              -${perTick(scavSpend).toFixed(2)}`,
+                            `    = recovery net ${
+                              cumRate("tombstoneRecovered") - perTick(scavSpend) >= 0 ? "+" : ""
+                            }${(cumRate("tombstoneRecovered") - perTick(scavSpend)).toFixed(2)} e/t   (the illness left standing: pile decay ${rot.toFixed(2)})`
+                          ]
+                        : [
+                            "    recovery-fleet bodies: not yet measured (a capture side predates the v30 sub-counter)",
+                            `    = recovery net: recovered ${cumRate("tombstoneRecovered").toFixed(2)} less an unmeasured body bill`
+                          ])
+                    ]
+                  : [])
               ]
             : [])
         ]

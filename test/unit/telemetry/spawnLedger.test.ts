@@ -66,3 +66,31 @@ describe("spawnLedger (cumulative spawn spend, the account's last short window)"
     expect(spawnSpendView().energy).to.equal(0);
   });
 });
+
+/**
+ * THE SCAVENGE SUB-COUNTER (owner 2026-08-04: "you may have added something
+ * for scavenging tombstones or piles but it's not showing as a line item.
+ * What if the cure is worse than the illness"). The account's evacuation line
+ * booked recovery-fleet bodies (standalone hauling-* scavenge corps) and
+ * source-route haulers as ONE number, so the cure's cost was invisible. One
+ * named sub-account of one role - the ledger's role-grain doctrine holds (no
+ * per-corp map, no unbounded growth).
+ */
+describe("telemetry/spawnLedger - the scavenge sub-counter (the cure's cost, named)", () => {
+  const { accrueSpawnSpend, resetSpawnLedger, spawnSpendView } = require("../../../src/telemetry/spawnLedger");
+  beforeEach(() => resetSpawnLedger());
+
+  it("a scavenge-flagged hauler purchase accrues the sub-counter beside the role total", () => {
+    accrueSpawnSpend("hauler", 300, 6, { scavenge: true });
+    accrueSpawnSpend("hauler", 1350, 27); // a source-route hauler: role only
+    const v = spawnSpendView();
+    expect(v.energyByRole.hauler).to.equal(1650);
+    expect(v.scavengeEnergy).to.equal(300);
+    expect(v.scavengeParts).to.equal(6);
+  });
+
+  it("absent the flag the sub-counter stays zero (old call sites unchanged)", () => {
+    accrueSpawnSpend("hauler", 500, 10);
+    expect(spawnSpendView().scavengeEnergy).to.equal(0);
+  });
+});
