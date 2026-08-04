@@ -73,7 +73,10 @@ describe("FlowEconomy - lastBankDraw survives the instance rebuild", () => {
     const published = g.Memory.controllerAllocations as Record<string, number> | undefined;
     expect(published, "the solve publishes the per-room controller allocations").to.be.an("object");
     expect(published!["W0N0"], "this world's one controller room is present").to.be.a("number");
-    expect(published!["W0N0"]).to.be.greaterThan(0, "a solvable world routes the controller SOMETHING");
+    // 2026-08-04 (danger-gated floor + bank-fed inversion): a below-target
+    // bank with a comfortable downgrade timer legitimately publishes ZERO -
+    // the pin's subject is the publish/lens plumbing, not the amount.
+    expect(published!["W0N0"]).to.be.at.least(0);
     // The runtime lens reads exactly what the solve published - and stays
     // undefined-safe before the first solve (the legacy-fallback trigger).
     expect(plannedControllerFlow(published, "W0N0")).to.equal(published!["W0N0"]);

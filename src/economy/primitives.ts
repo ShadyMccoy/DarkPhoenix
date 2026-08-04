@@ -473,6 +473,19 @@ export const WARTIME_BACKLOG_THRESHOLD = 3000;
  */
 export const ANTI_DOWNGRADE_RESERVE = 2;
 
+/**
+ * When the anti-downgrade floor ARMS (owner 2026-08-04: "We don't need it
+ * UNLESS the controller is in danger of downgrading, which often is not for
+ * many thousands of ticks. Not the constant trickle"): the sip applies only
+ * below this many ticksToDowngrade. Engine context: each upgrading tick
+ * restores 100 ticks of timer (CONTROLLER_DOWNGRADE_RESTORE), and RCL 6-8
+ * timers max at 120k-200k - so a 10k threshold leaves thousands of ticks of
+ * margin while the sip-rate burst (~1 upgrade tick per 1) restores ~100x
+ * faster than the timer drains. Above the threshold the floor is ZERO and
+ * every joule follows the bank-fed law.
+ */
+export const ANTI_DOWNGRADE_DANGER_TICKS = 10_000;
+
 /** The sizing horizon for a crew working `travelDistance` from its spawn.
  * `accelerate` (a spendable surplus stands) shortens it to the wartime pace. */
 export function projectBuildHorizon(travelDistance: number, accelerate = false): number {

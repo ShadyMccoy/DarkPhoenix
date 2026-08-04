@@ -329,7 +329,10 @@ export function controllerRoutingCapacity(
   totalSupply: number,
   physicalUpgradeCap: number = Infinity,
   wartimeRooms: ReadonlySet<string> = new Set(),
-  bankFedAllocation?: number
+  bankFedAllocation?: number,
+  /** The danger-gated floor (0 unless the downgrade timer is low) - what
+   * wartime relegates TO. */
+  controllerFloor: number = 0
 ): number {
   // WARTIME (spec 33, owner 2026-07-27 "surplus ... normally for upgrading,
   // but now for building"): a MEANINGFUL construction backlog stands in this
@@ -339,7 +342,7 @@ export function controllerRoutingCapacity(
   // Doctrine keyed to a real backlog, NOT a bank level; it outranks the
   // bank-fed rate.
   if (wartimeRooms.has(sink.position.roomName)) {
-    return controllerFloorRate();
+    return controllerFloor;
   }
   // #21 (owner 2026-07-19): never faster than the upgrader fleet can
   // PHYSICALLY burn (parking tiles x affordable WORK - see
@@ -713,7 +716,14 @@ export function storageBankFedAllocation(roomName: string): number | undefined {
   if (!storage || !storage.my) return undefined;
   const banked = storage.store?.[RESOURCE_ENERGY] ?? 0;
   const reserveTarget = resolveReserveTarget(typeof Memory !== "undefined" ? Memory.warchestTarget : undefined);
-  return bankFedControllerRate(banked, reserveTarget);
+  return bankFedControllerRate(banked, reserveTarget, controllerDowngradeTicks(roomName));
+}
+
+/** Live ticksToDowngrade for a room's controller (undefined without vision -
+ * the danger-gated floor's input; owned rooms always have vision live). */
+export function controllerDowngradeTicks(roomName: string): number | undefined {
+  if (typeof Game === "undefined" || !Game.rooms) return undefined;
+  return Game.rooms[roomName]?.controller?.ticksToDowngrade;
 }
 
 /**
@@ -1164,7 +1174,8 @@ export function buildColonyProblem(
               // the controller's cap IS floor + surplus draw and the bank
               // absorbs the income residual by construction. Undefined
               // (no storage / harness) keeps the mop-up.
-              storageBankFedAllocation(sink.position.roomName)
+              storageBankFedAllocation(sink.position.roomName),
+              controllerFloorRate(controllerDowngradeTicks(sink.position.roomName))
             ),
       // SPEC 38 PHASE A (2026-08-02): the controller's floor moves INSIDE the
       // plan. controllerFloorRate = the save-regime target as fast as the
@@ -1175,7 +1186,10 @@ export function buildColonyProblem(
       // cold storage room's spawn is never out-reserved by its controller.
       // (Phase D 2026-08-04: the storage sink carries NO reserve - the bank
       // is the residual claimant by construction, nothing to claim.)
-      reserve: kind === "controller" ? controllerFloorRate() : undefined
+      reserve:
+        kind === "controller"
+          ? controllerFloorRate(controllerDowngradeTicks(sink.position.roomName))
+          : undefined
     });
   }
 

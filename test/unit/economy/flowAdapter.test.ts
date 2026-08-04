@@ -163,20 +163,27 @@ describe("economy/flowAdapter - CorpPlanner as the FlowSolution authority", () =
     expect(sol.totalHarvest).to.be.closeTo(10 + 8, 1e-9);
   });
 
-  it("honors the controller's anti-downgrade reserve under scarce supply", () => {
-    // one thin source: the spawn (value 100) would take it all, but the controller
-    // keeps its reserve trickle.
-    const thin = createNode("s1", ROOM, at(15), 50, [ROOM], 0);
-    thin.resources = [{ type: "source", id: "s1", position: at(15), capacity: 3000 }];
-    // shrink supply by overriding capacity via a low-rate source node
+  it("the anti-downgrade reserve is DANGER-GATED under scarce supply (owner 2026-08-04: not the constant trickle)", () => {
+    // One thin source (3 e/t): the spawn (value 100) takes it all while the
+    // downgrade timer is comfortable - the old standing sip was the constant
+    // trickle the owner retired. When the timer actually runs low, the
+    // PLAN's floor arms and the pre-pass protects the sip even against the
+    // spawn.
     const lowRate = createNode("s1", ROOM, at(15), 50, [ROOM], 0);
     lowRate.resources = [{ type: "source", id: "s1", position: at(15), capacity: 900 } as NodeResource]; // 3/tick
     const graph = graphOf([homeNode(5), lowRate]);
-    const sol = solveWithCorpPlanner(graph, 0, manhattan);
 
-    const ctrlAlloc = sol.sinkAllocations.find(a => a.sinkType === "controller");
-    expect(ctrlAlloc, "controller is present").to.not.be.undefined;
-    expect(ctrlAlloc!.allocated).to.be.greaterThan(1.9); // reserve protected even vs the spawn
+    const calm = solveWithCorpPlanner(graph, 0, manhattan);
+    const calmCtrl = calm.sinkAllocations.find(a => a.sinkType === "controller");
+    expect(calmCtrl, "controller is present").to.not.be.undefined;
+    expect(calmCtrl!.allocated, "comfortable timer: the spawn outranks, no trickle").to.equal(0);
+
+    (g.Game as { rooms: Record<string, unknown> }).rooms = {
+      [ROOM]: { controller: { my: true, ticksToDowngrade: 3000 }, find: () => [], memory: {} }
+    };
+    const danger = solveWithCorpPlanner(graph, 0, manhattan);
+    const dangerCtrl = danger.sinkAllocations.find(a => a.sinkType === "controller");
+    expect(dangerCtrl!.allocated, "danger: the sip is protected even vs the spawn").to.be.greaterThan(1.9);
   });
 });
 
@@ -218,8 +225,12 @@ describe("economy/flowAdapter - controllerRoutingCapacity (#21 + the bank-fed in
     // surplus flows to construction - even over the
     // bank-fed rate. Doctrine keyed to a real backlog, not a bank level.
     const wartime = new Set(["W0N0"]);
-    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime)).to.equal(2);
-    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80)).to.equal(2);
+    // The floor wartime relegates TO is itself danger-gated now: 0 with a
+    // comfortable timer (build gets everything), the sip when danger is
+    // passed in from the live lens.
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime)).to.equal(0);
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80)).to.equal(0);
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80, 2)).to.equal(2);
     // A room NOT in the wartime set still mops up (relegation is per-room).
     expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, new Set())).to.equal(200);
   });
@@ -644,7 +655,11 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
     expect(build.allocated, "wartime-completion rate (1/3 life)").to.be.closeTo(15000 / ((1 / 3) * 1496), 1e-6);
     expect(build.allocated, "construction now WINS the surplus over upgrading").to.be.greaterThan(ctrl.allocated);
     expect(ctrl.allocated, "controller relegated to ~its floor, not mopping up").to.be.at.most(20);
-    expect(ctrl.allocated, "but never below the anti-downgrade floor").to.be.at.least(2);
+    // 2026-08-04: the floor wartime relegates TO is danger-gated - with a
+    // comfortable downgrade timer (no staged danger here) it is ZERO, so
+    // building takes everything. The sip returns only when the timer runs
+    // low (pinned in the scarce-supply danger test above).
+    expect(ctrl.allocated, "comfortable timer: relegation goes to zero, no trickle").to.equal(0);
   });
 });
 

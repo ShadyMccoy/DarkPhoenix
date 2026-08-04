@@ -44,8 +44,10 @@ describe("upgraderTargetCount", () => {
     expect(upgraderTargetCount(10, 2, 2, 5)).to.equal(2); // only 2 ring tiles
   });
 
-  it("always fields at least one upgrader so the controller is never abandoned", () => {
-    expect(upgraderTargetCount(0, 2, PARKING, 2)).to.equal(1);
+  it("a ZERO allocation fields ZERO upgraders - the danger-gated floor re-arms it via the plan (owner 2026-08-04)", () => {
+    expect(upgraderTargetCount(0, 2, PARKING, 2)).to.equal(0);
+    // ...and a danger-armed allocation (the sip) fields exactly one again.
+    expect(upgraderTargetCount(2, 2, PARKING, 2)).to.equal(1);
   });
 });
 
@@ -95,9 +97,13 @@ describe("upgraderSizing - consolidated behind the plan", () => {
     }
   });
 
-  it("holds the anti-downgrade floor so the controller is never abandoned", () => {
-    expect(upgraderAllocation(0)).to.equal(2);
-    expect(upgraderAllocation(1)).to.equal(2);
+  it("passes a zeroed plan through as ZERO - the anti-downgrade response is the PLAN's danger-gated floor (owner 2026-08-04)", () => {
+    // The runtime clamp that turned 0 into 2 was the constant trickle the
+    // owner retired ("Not the constant trickle"). When the downgrade timer
+    // actually runs low, the PLAN's floor arms (controllerFloorRate(ticks))
+    // and this allocation rises through the normal chain - one valve.
+    expect(upgraderAllocation(0)).to.equal(0);
+    expect(upgraderAllocation(1)).to.equal(1);
   });
 
   it("reports the plan as the inflow - there is no second rate to report", () => {

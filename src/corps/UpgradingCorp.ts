@@ -101,7 +101,7 @@ const RCL2_UPGRADER_CAP = 3;
  *                           ceiling, so allocation alone drives the count;
  *  - parkingTiles         - never field more upgraders than can ring the input
  *                           spot and actually work (0 is treated as "unknown").
- * Always at least 1 so the controller is never wholly abandoned.
+ * Zero allocation fields zero (danger-gated floor re-arms it via the plan).
  */
 export function upgraderTargetCount(
   allocated: number,
@@ -109,6 +109,12 @@ export function upgraderTargetCount(
   parkingTiles: number,
   controllerLevel: number | undefined
 ): number {
+  // ZERO allocation fields ZERO upgraders (owner 2026-08-04, the danger-gated
+  // floor): the old "always at least 1 so the controller is never wholly
+  // abandoned" was the count-side half of the constant trickle. When the
+  // downgrade timer runs low the PLAN's floor re-arms the allocation and the
+  // count follows - one valve, no runtime guard.
+  if (allocated <= 0) return 0;
   const rclCap = (controllerLevel ?? 99) <= 2 ? RCL2_UPGRADER_CAP : UPGRADER_COUNT_CAP;
   const byAllocation = Math.ceil(allocated / Math.max(1, affordableWork));
   return Math.max(1, Math.min(UPGRADER_COUNT_CAP, rclCap, parkingTiles || UPGRADER_COUNT_CAP, byAllocation));
@@ -191,7 +197,11 @@ export function upgraderSizing(
   planAllocated: number,
   financing: { bankedBehindFeeder: number | null; reserveTarget: number } | null = null
 ): { allocated: number; inflow: number; surplus: boolean } {
-  const allocated = Math.max(ANTI_DOWNGRADE_RESERVE, planAllocated);
+  // ONE VALVE (owner 2026-08-04, danger-gated floor): the fleet follows the
+  // plan's allocation exactly - the anti-downgrade response lives in the
+  // PLAN's floor (armed only when the downgrade timer is low), never as a
+  // runtime clamp that burns a constant trickle the plan didn't allocate.
+  const allocated = Math.max(0, planAllocated);
   const surplus =
     financing != null &&
     financing.bankedBehindFeeder !== null &&

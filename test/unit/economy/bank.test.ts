@@ -14,7 +14,7 @@ import {
   controllerFloorRate
 } from "../../../src/economy/bank";
 import { EXPANSION_CAPEX, EXPANSION_SAFETY_RESERVE } from "../../../src/economy/expansion";
-import { ANTI_DOWNGRADE_RESERVE, CREEP_LIFETIME } from "../../../src/economy/primitives";
+import { ANTI_DOWNGRADE_DANGER_TICKS, ANTI_DOWNGRADE_RESERVE, CREEP_LIFETIME } from "../../../src/economy/primitives";
 
 // Spec 03 (storage draw-down), the SURPLUS half: once the bank holds the
 // liquidity reserve, everything above it is spendable on the controller. The
@@ -123,18 +123,17 @@ describe("economy/bank - the surplus spend primitives", () => {
     // (2026-08-04). It retires phase C's refill claim same-day: a bounded
     // controller leaves the residual to storage by construction, so the
     // bank no longer needs to CLAIM anything.
-    it("below the target: the sip alone (income residual banks)", () => {
-      expect(bankFedControllerRate(BASE_RESERVE - 20_000, BASE_RESERVE)).to.equal(controllerFloorRate());
-      expect(bankFedControllerRate(BASE_RESERVE - 20_000, BASE_RESERVE)).to.equal(ANTI_DOWNGRADE_RESERVE);
+    it("below the target: ZERO - pure drain law, the residual banks (owner 2026-08-04: no constant trickle)", () => {
+      expect(bankFedControllerRate(BASE_RESERVE - 20_000, BASE_RESERVE)).to.equal(0);
+    });
+    it("...unless the controller is actually in DANGER: the sip arms through the same law", () => {
+      expect(bankFedControllerRate(BASE_RESERVE - 20_000, BASE_RESERVE, 5000)).to.equal(ANTI_DOWNGRADE_RESERVE);
+      expect(bankFedControllerRate(BASE_RESERVE - 20_000, BASE_RESERVE, 150_000)).to.equal(0);
     });
     it("above the target: floor + the ONE drain law", () => {
       const banked = BASE_RESERVE + 30_000;
       expect(bankFedControllerRate(banked, BASE_RESERVE)).to.be.closeTo(
-        controllerFloorRate() + bankSurplusRate(banked, BASE_RESERVE),
-        1e-9
-      );
-      expect(bankFedControllerRate(banked, BASE_RESERVE)).to.be.closeTo(
-        ANTI_DOWNGRADE_RESERVE + 30_000 / SURPLUS_DRAIN_TICKS,
+        30_000 / SURPLUS_DRAIN_TICKS,
         1e-9
       );
     });
@@ -146,15 +145,15 @@ describe("economy/bank - the surplus spend primitives", () => {
       expect(Math.abs(at - below)).to.be.lessThan(0.01);
       expect(Math.abs(above - at)).to.be.lessThan(0.01);
     });
-    it("a drained bank still floors at the anti-downgrade trickle (never zero)", () => {
-      expect(bankFedControllerRate(0, BASE_RESERVE)).to.equal(ANTI_DOWNGRADE_RESERVE);
-      expect(bankFedControllerRate(0, BASE_RESERVE)).to.be.greaterThan(0);
+    it("a drained bank with a comfortable timer allocates ZERO (the trickle is retired)", () => {
+      expect(bankFedControllerRate(0, BASE_RESERVE)).to.equal(0);
+      expect(bankFedControllerRate(0, BASE_RESERVE, 5000), "danger still arms the sip").to.equal(
+        ANTI_DOWNGRADE_RESERVE
+      );
     });
     it("the runaway guard still bounds the drain half", () => {
       const runaway = MAX_SURPLUS_DRAW * SURPLUS_DRAIN_TICKS + 500_000;
-      expect(bankFedControllerRate(BASE_RESERVE + runaway, BASE_RESERVE)).to.equal(
-        controllerFloorRate() + MAX_SURPLUS_DRAW
-      );
+      expect(bankFedControllerRate(BASE_RESERVE + runaway, BASE_RESERVE)).to.equal(MAX_SURPLUS_DRAW);
     });
   });
 
@@ -225,11 +224,11 @@ describe("t72455355 pin: a full bank NEVER starves the relay (spec 38 guard)", (
     // 340k banked, 70k reserve: surplus 270k -> drain capped at MAX_SURPLUS_DRAW.
     const rate = bankFedControllerRate(340_000, 70_000);
     expect(rate).to.be.at.least(100, "the relay the incident needed was ~115 e/t; 7 e/t starved it");
-    expect(rate).to.equal(ANTI_DOWNGRADE_RESERVE + MAX_SURPLUS_DRAW);
+    expect(rate).to.equal(MAX_SURPLUS_DRAW);
   });
 
-  it("AT reserve the allocation is the sip alone - the 15 preference is dropped (owner 2026-08-04)", () => {
-    expect(bankFedControllerRate(70_000, 70_000)).to.equal(ANTI_DOWNGRADE_RESERVE);
+  it("AT reserve the allocation is ZERO - no preference, no trickle (owner 2026-08-04)", () => {
+    expect(bankFedControllerRate(70_000, 70_000)).to.equal(0);
   });
 });
 
@@ -244,14 +243,21 @@ describe("t72455355 pin: a full bank NEVER starves the relay (spec 38 guard)", (
  * floors at the anti-downgrade trickle so a thin economy's spawn is never
  * out-reserved by its own controller.
  */
-describe("controllerFloorRate (the floor IS the anti-downgrade sip - owner 2026-08-04: 'Just drop that entirely')", () => {
-  // The 15 clamp (STORAGE_UPGRADE_TARGET) was a hand-tuned visible-progress
-  // preference, not a safety requirement; the only engine-anchored need is
-  // the downgrade-timer sip. Dropped: the floor is ANTI_DOWNGRADE_RESERVE,
-  // full stop - under phase D everything above it belongs to the bank while
-  // rebuilding, and to the surplus draw above target.
-  it("is the sip, whatever the bank holds", () => {
-    expect(controllerFloorRate()).to.equal(ANTI_DOWNGRADE_RESERVE);
+describe("controllerFloorRate (DANGER-GATED - owner 2026-08-04: 'Not the constant trickle')", () => {
+  // Two rulings in one day retired both halves of the old floor: the 15
+  // clamp ("Just drop that entirely") and then the standing sip itself
+  // ("We don't need it UNLESS the controller is in danger of downgrading").
+  // The floor is ZERO with a comfortable timer and arms to the sip only
+  // below ANTI_DOWNGRADE_DANGER_TICKS; undefined (harness, no read) is no
+  // evidence of danger.
+  it("is ZERO while the downgrade timer is comfortable", () => {
+    expect(controllerFloorRate()).to.equal(0);
+    expect(controllerFloorRate(150_000)).to.equal(0);
+    expect(controllerFloorRate(ANTI_DOWNGRADE_DANGER_TICKS)).to.equal(0);
+  });
+  it("arms to the sip only in actual danger", () => {
+    expect(controllerFloorRate(ANTI_DOWNGRADE_DANGER_TICKS - 1)).to.equal(ANTI_DOWNGRADE_RESERVE);
+    expect(controllerFloorRate(500)).to.equal(ANTI_DOWNGRADE_RESERVE);
   });
 });
 

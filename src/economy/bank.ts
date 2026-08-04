@@ -29,7 +29,7 @@ import "../types/Memory"; // Memory augmentation for the expansion import below
 import { Position } from "../types/Position";
 import { PlannerSource } from "./CorpPlanner";
 import { EXPANSION_CAPEX, EXPANSION_SAFETY_RESERVE } from "./expansion";
-import { ANTI_DOWNGRADE_RESERVE, CREEP_LIFETIME, sustainableConsumptionRate } from "./primitives";
+import { ANTI_DOWNGRADE_DANGER_TICKS, ANTI_DOWNGRADE_RESERVE, CREEP_LIFETIME, sustainableConsumptionRate } from "./primitives";
 
 /**
  * The colony's HARD liquidity floor: the expansion campaign's full CAPEX plus a
@@ -157,25 +157,32 @@ export function bankSurplusRate(banked: number, reserveTarget: number): number {
  * (bankRefillRate / storageRefillReserve / the hub draw-out shrink) is
  * retired with it.
  */
-export function bankFedControllerRate(banked: number, reserveTarget: number): number {
-  return controllerFloorRate() + bankSurplusRate(banked, reserveTarget);
+export function bankFedControllerRate(
+  banked: number,
+  reserveTarget: number,
+  ticksToDowngrade?: number
+): number {
+  return controllerFloorRate(ticksToDowngrade) + bankSurplusRate(banked, reserveTarget);
 }
 
 
 /**
- * The controller floor the PLAN guarantees: the anti-downgrade SIP, full
- * stop (owner 2026-08-04: "Just drop that entirely" - the former 15 clamp,
- * STORAGE_UPGRADE_TARGET, was a hand-tuned visible-progress preference, not
- * a safety requirement; the only engine-anchored need is keeping the
- * downgrade timer refreshed). Wired as the controller SINK RESERVE in the
- * adapter, so the reserve pre-pass wins the sip before value greed - a
- * storage room's spawn is never out-reserved by its own controller, and
- * under phase D everything above the sip belongs to the bank while
- * rebuilding and to the surplus draw above target. Kept as a named lens
- * (not an inline constant) so "the plan's controller floor" has one home.
+ * The controller floor the PLAN guarantees: ZERO unless the controller is
+ * actually in danger of downgrading (owner 2026-08-04: "Even the anti
+ * downgrade. We don't need it UNLESS the controller is in danger of
+ * downgrading, which often is not for many thousands of ticks. Not the
+ * constant trickle"). The timer read arrives from the adapter's live lens;
+ * below ANTI_DOWNGRADE_DANGER_TICKS the sip arms (wired as the controller
+ * SINK RESERVE, won by the pre-pass, and the whole allocation in wartime),
+ * restoring ~100 timer ticks per upgrade tick until the danger clears.
+ * Undefined (harness, no read) means no evidence of danger - the floor
+ * stays 0; an owned room always has vision live, so the lens never fogs in
+ * production.
  */
-export function controllerFloorRate(): number {
-  return ANTI_DOWNGRADE_RESERVE;
+export function controllerFloorRate(ticksToDowngrade?: number): number {
+  return ticksToDowngrade !== undefined && ticksToDowngrade < ANTI_DOWNGRADE_DANGER_TICKS
+    ? ANTI_DOWNGRADE_RESERVE
+    : 0;
 }
 
 /**
