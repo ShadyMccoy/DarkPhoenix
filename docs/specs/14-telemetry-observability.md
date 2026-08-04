@@ -8231,3 +8231,44 @@ Gate: unit 2,060 green (admission-net red-first test + hand-derived
 reserverRoomEnergy pin); trio 3-0 - deployed. The next capture reads three
 stacked predictions: the 36-3 admission, the remote plan-net drop, the
 incumbents holding.
+
+## Cycle t72782041 — ALL THREE PREDICTIONS CONFIRMED TO THE DECIMAL; the expansion is live
+
+FY4852-M01 closed (89%). The stacked predictions from the global-admission +
+reservation-pricing deploys, against the fresh plan:
+
+1. **Admission: CONFIRMED.** Funded 10 → 11, capacity line 100 → 110.0. The
+   admit is cee2 - the predicted candidate itself ("36-3" was its unscouted
+   position-form id; the 0.0525 parts fingerprint matches exactly), solo in
+   its room, net 5.93 = the predicted 7.13 less its full 1.20 room bill.
+2. **Reservation pricing: CONFIRMED, exact.** Solo-room remotes -1.20
+   (cedc 8.07→6.87, d01f 7.04→5.83, cbd8 7.28→6.08, cbd5, cd94, cee0),
+   shared-room -0.60 (cd8d, cd8e), home unchanged (8.94). The chronic
+   remote P&L variance's plan-side cause is closed; the P&L var column
+   should converge toward the RAID share alone over coming windows.
+3. **Incumbent stability: CONFIRMED.** All ten held funded; P1 flap 0.
+
+**The account reads as a clean expansion transition:** revenue line at
+110.00 (the budget column moved with the admission - the account and the
+plan agree about the new world); reservation +5.74 F while cee2's reservers
+spawn up; a construction campaign for the new route at HALF the spawn's
+build (F1 construction 0.332 vs 0.161 planned - watch: campaign-sized or
+the fast-respawn loop returning); score 44.17 vs 52.54 (-8.38 U, expansion
+capex taking the controller's share, as macro doctrine intends);
+**RESIDUAL -0.03 - the account is fully closed.**
+
+**TOP LINE S5 0.96x - attributed, NOT a reversion signal.** The handicap
+lift's reversion criteria were checked explicitly: X5 churn ZERO (0e of
+27,650e), no queue blocking (S3 clean, S4 idle 4% all buy-latency), P12
+1.02x. This is the t72676360 saturation SHAPE ONLY - the substance is a
+real one-time campaign (construction + upgraders + the new route's
+bodies), exactly what the surge margin exists to absorb. Watch next
+window: campaign should drain, S5 → ~0.6; if construction stays 2x its
+plan past the campaign, the fast-respawn loop gets the eye.
+
+E6 notes 5 of 11 mouths held during the build-out (cee0 buffered 4,957 -
+the new route's neighborhood congestion); expansion transient, spec-44's
+program unchanged.
+
+Verdict: **confirmed x3** - admission, pricing, and stability all landed
+as registered; the colony is mining its eleventh source.
