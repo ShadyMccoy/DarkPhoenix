@@ -8054,3 +8054,47 @@ do not survive, so closes depend on invocation cadence).
 Verdict: **confirmed x2** - F1 recovered as hypothesized, the 40-GCL target
 is sustained by the multi-draw rule, and the next program (spec 44 leg 1,
 focus-fire consolidation) is named with its census evidence.
+## Experiment: the handicap lift (SPAWN_PLAN_FRACTION 0.9 → 1.0, owner 2026-08-04)
+
+Owner: *"We could try lifting the 10% spawning capacity handicap on the
+planner for a couple of months to see what happens."* (Same message defers
+the broader feed-measured-data-back-to-planner program: "Not yet.")
+
+**Why now (evidence):** the margin's original absorbers are fixed out from
+under it - X5 home churn 18%+ at the margin's birth (t72676360: util 0.97,
+queue depth 8), 0-3% across the three post-treadmill windows; the spawn
+runs 46% physical headroom (S5 0.54x); the spawn-sink claim is physically
+capped (spawnEnergyCeiling). Meanwhile the margin BINDS at admission:
+t72778545 shows **28 candidate sources rejected "over-budget" with positive
+nets** (best 7.13, 6.52, 6.42) behind the 0.9 x 0.6 mining tranche.
+
+**The change:** one constant, one uniform lens (plannableSpawnParts). Test
+re-stages per the file's own convention (CorpPlanner staged
+infraPartsPerTick back to originals; golden master regenerated - delta is
+exactly +0.0333 on four partsLeft traces, no allocation or route changed in
+the golden worlds). Gate at commit: unit 2,055 green, storage-depot PASS;
+flow-handoff and runt-economy IN FLIGHT - the deploy waits on them and the
+deploy commit records their verdicts.
+
+**Predictions (deploy t72778545+, read over ~2 fiscal months):**
+1. ADMISSION: 1-2 remotes funded within a few solves, highest nets first
+   (candidates 36-3 net 7.13, 2-20 6.52, 5-23 6.42). Mining capacity line
+   100 → 110-120 e/t.
+2. P4 plan-implied 0.397 → ≤ ~0.50 p/t (≤ 0.75x physical) - no
+   infeasibility.
+3. S5 build rate rises toward the bigger plan (0.54 → 0.65-0.80x); S4
+   empty-idle share falls.
+4. GCL sustainable rises toward ~55-60 IF the new remotes deliver near
+   their priced nets. HONEST RISK, stated up front: R1 measures raids at
+   ~5x the priced invader tax and new remotes add raid exposure +
+   reservation load - the experiment may instead show the ADMISSION
+   pricing is optimistic (nets under-taxed). That is a valid finding, not
+   a failure ("see what happens" is the brief); the source P&L's
+   per-source var column is the verdict reader.
+5. Piles: new mouths = new pile risk (E6 count may rise; the
+   standing-scavenger program owns it).
+
+**REVERSION CRITERIA (any, sustained a full window):** util > 0.95 with
+queue-depth blocking (the t72676360 saturation shape), X5 home churn > 10%,
+or P4 ≥ 1.0x. Then the margin was still needed - and the right value
+between 0.9 and 1.0 gets MEASURED (instrument before pricing), not argued.

@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import {
+  SPAWN_PLAN_FRACTION,
   deliveryLeadTime,
   effectiveLife,
   roundTripTicks,
@@ -143,10 +144,12 @@ describe("economy/primitives", () => {
   });
 
   describe("miningBudgetPerSpawn", () => {
-    it("is the PLANNABLE rate (90% of physical - owner 2026-07-30) times the mining fraction", () => {
-      // Composes with the planning headroom: mining sees 0.6 of a 90%-sized
-      // spawn, so the whole plan shrinks uniformly (see planHeadroom.test).
-      expect(miningBudgetPerSpawn()).to.be.closeTo((1 / 3) * 0.9 * 0.6, 1e-9);
+    it("is the PLANNABLE rate times the mining fraction (composes with the headroom experiment)", () => {
+      // Composes with the planning headroom so the whole plan scales
+      // uniformly (see planHeadroom.test, which owns the fraction's VALUE -
+      // 1.0 during the owner's 2026-08-04 handicap-lift experiment). This
+      // pin owns only the COMPOSITION, so it never disagrees with that one.
+      expect(miningBudgetPerSpawn()).to.be.closeTo((1 / 3) * SPAWN_PLAN_FRACTION * 0.6, 1e-9);
     });
   });
 

@@ -779,25 +779,36 @@ export function energyPerSpawnPart(rate: number, distance: number): number {
 }
 
 /**
- * Fraction of the PHYSICAL spawn build-rate the planner may commit (owner
- * 2026-07-30: "90% of theoretical spawn capacity is available for planning -
- * everything is like before, we're just planning on an economy that's 10%
- * smaller in terms of bodies").
+ * Fraction of the PHYSICAL spawn build-rate the planner may commit.
  *
- * The reserved 10% is EXECUTION slack, not waste. A plan at 100% of physical
- * had nowhere to put the parts execution provably spends outside the plan's
- * fleets: EOL replacement overlap (deliveryLeadTime deliberately starts
- * successors early), invader-churn rebuilds (X5 measured 18% of remote spawn
- * spend), runt upsizes, and orphan rescues. Measured at t72676360 the result
- * was utilization 0.97 with queue depth 8 and blocking demands waiting behind
- * a saturated pipe. With the margin, that churn lands in reserved slack
- * instead of queueing behind planned bodies.
+ * ORIGINALLY 0.9 (owner 2026-07-30: "90% of theoretical spawn capacity is
+ * available for planning"): the reserved 10% was EXECUTION slack for the
+ * parts execution provably spent outside the plan's fleets - EOL replacement
+ * overlap, invader-churn rebuilds (X5 measured 18% of remote spawn spend at
+ * the time), runt upsizes, orphan rescues. Measured at t72676360 a 100% plan
+ * ran utilization 0.97 with queue depth 8 and blocking demands stuck behind
+ * a saturated pipe.
+ *
+ * EXPERIMENT 1.0 (owner 2026-08-04: "We could try lifting the 10% spawning
+ * capacity handicap on the planner for a couple of months to see what
+ * happens"). The margin's absorbers have been fixed out from under it: the
+ * even-share treadmill and runt ladders are dead (X5 home churn 0-3%
+ * measured across three post-fix windows, was 18%+), the spawn runs 46%
+ * physical headroom (S5 0.54x), and the spawn-sink claim is physically
+ * capped (spawnEnergyCeiling). Meanwhile the margin BINDS at admission:
+ * t72778545 shows 28 candidate sources rejected "over-budget" with positive
+ * nets (best: net 7.13) behind the 0.9 x 0.6 mining tranche. Registered
+ * predictions: 1-2 remotes admitted (+10-20 e/t capacity), P4 <= ~0.75x,
+ * S5 toward 0.65-0.80x. REVERSION CRITERIA (any, sustained a full window):
+ * utilization > 0.95 with queue-depth blocking (the t72676360 shape), X5
+ * home churn > 10%, or P4 >= 1.0x - then the margin was still needed and
+ * the number between 0.9 and 1.0 gets measured, not argued.
  *
  * This is a MARGIN at the planning seam - execution still owns the full
  * physical spawn, standing fleets are untouched, and nothing is gated
  * (doctrine: the planner prices, it doesn't gate).
  */
-export const SPAWN_PLAN_FRACTION = 0.9;
+export const SPAWN_PLAN_FRACTION = 1.0;
 
 /**
  * Parts/tick the PLANNER may budget across `spawnCount` spawns - the ONE lens
