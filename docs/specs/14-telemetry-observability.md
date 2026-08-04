@@ -7958,3 +7958,57 @@ the budget column state it honestly either way.
 
 Verdict: **fixed - confirmed live.** The evacuation-line program that opened
 this branch closes ON BUDGET.
+
+## Cycle t72777517 — both deploys verified; the account closes at RESIDUAL +0.41
+
+The first cycle in the program with NOTHING to deploy. Window t72775811 →
+t72777517 (1,706t, ~95% post-P12-deploy); fiscal closes FY4851-M07 (138%)
+and FY4851-M08 (114%) written - the first closes at methodology #11
+(balanced budget columns).
+
+**P12 ceiling verification - all predictions confirmed:**
+- Spawn sink claims: 14.54 + 14.54 = 29.09 e/t total (was 117 pre-treadmill,
+  44.39 pre-ceiling) - both sinks capped at the SAME value: the ceiling
+  binds, priced from the fleet's own mix.
+- Published allocation AT the law's cap: P12 1.0x (48.88 vs 48.92), feeder
+  relay 53.88, ONE VALVE holds end to end.
+- The paper bank round-trip collapsed: gross bank-out 77.97 (was 156.61).
+- S4 GUARD clean: spawn idle is 97% "empty" (no demand), ~0% energy-starved
+  (was 76% bank-starved attribution) - the cap starves nothing; S5 headroom
+  0.39x (61% surge margin).
+- Score: 53.77 pts/t delivered, 98% income-funded (G1 sustainable 52.48).
+  Two consecutive windows >= the owner's 40 target (42.18 -> 53.77); the
+  multi-draw rule wants one more before "sustained" is claimed in a close.
+
+**The account itself:** delivered 99.98 of 100 (forgone 0.39 - the piles are
+clearing); evacuation -9.96 vs -11.09 (+1.13 F, second window at/under
+budget); NET MINING MARGIN +0.37 F; TOTAL SPAWN -1.25 U; the solver now
+UNDER-routes its fleet by 1.64 e/t (was OVER by 86.47); **RESIDUAL +0.41 -
+effectively zero, positive, first time**. Spec 42 Stage B's |residual| <= 5%
+of gross bar is met on this window (0.4%); Stage C's |controller actual -
+budget| <= 10% likewise (+4.89 on 48.88 = 10.0%... at the line; the bridge
+closes +0.00 by construction). Both need fiscal-month sustains per spec.
+
+**New TOP LINE, recorded as HYPOTHESIS not fixed:** F1 flipped two-sided -
+0.66x, the plan OVER-states 0.137 p/t ("a fleet priced but never built").
+Candidate mechanism: COHORT PHASING - the churn era's death ended with the
+whole fleet born within ~one window (the raid-surge rebuild), so replacement
+demand now arrives in waves every ~1,500t instead of uniformly, and a
+trough window under-builds vs the amortized plan. Falsification designed:
+if phasing, F1 recovers toward 1.0 as deaths stagger over 2-3 windows; if
+it persists >= 3 windows, the plan's amortization genuinely over-prices and
+the fix is at effectiveLife/planSpawnLoad. Do NOT tune the gauge to quiet
+it - two-sided is the point (an over-stating plan is as uncontrollable as
+an under-stating one).
+
+**Standing items, unchanged:** E6 chronic mouths cedc (3,440 buffered, 100%
+held) and d01f - the spec-44 standing-scavenger / DEP deposit-spread
+program, solver work. An emergency anti-downgrade jack spawned during the
+deploy-reset turbulence (UNCLASSIFIED 0.18 e/t - by design, and worth
+knowing the path fired). Construction class still unpriced (0.018 p/t this
+window).
+
+Verdict: **verified x2 + instrumented** - the evacuation-line program that
+opened this branch is CLOSED (two windows at/under budget), the 40-GCL
+program is two-for-two pending the multi-draw sustain, and the account
+balances to +0.41 of 100.
