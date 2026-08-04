@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import {
+  reserverRoomEnergy,
   SPAWN_PLAN_FRACTION,
   deliveryLeadTime,
   effectiveLife,
@@ -150,6 +151,13 @@ describe("economy/primitives", () => {
       // 1.0 during the owner's 2026-08-04 handicap-lift experiment). This
       // pin owns only the COMPOSITION, so it never disagrees with that one.
       expect(miningBudgetPerSpawn()).to.be.closeTo((1 / 3) * SPAWN_PLAN_FRACTION * 0.6, 1e-9);
+    });
+  });
+
+  describe("reserverRoomEnergy (the per-room reservation bill, admission's share basis)", () => {
+    it("is the 4-part CLAIM body at shipped duty over walk-adjusted claim life, in energy", () => {
+      // 0.5 duty x 4 parts / (600 - 60 walk) x 325 e/part = 1.2037 e/t.
+      expect(reserverRoomEnergy()).to.be.closeTo((0.5 * 4 * 325) / 540, 1e-9);
     });
   });
 

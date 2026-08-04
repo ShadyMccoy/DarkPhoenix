@@ -8197,3 +8197,36 @@ Gate: red-first (mis-rank + liveness + global-tranche pins; the old
 per-spawn pin and spec-18 positive proof honestly re-pinned); unit 2,058
 green; trio 3-0 (storage-depot, flow-handoff, runt-economy) - deployed from 9488cfb;
 the 36-3 admission prediction reads at the next capture.
+
+### Cycle t72780703 follow-up 2 — reservation priced into admission; the raid tax deliberately NOT swapped
+
+Owner: *"is this a known problem? Can you fix it?"* Both halves known; they
+diverged on evidence.
+
+**Reservation share: FIXED.** Admission nets now carry
+`reserverRoomEnergy()/roomSources` (~1.20 e/t per room, composed from the
+SAME reserverSpawnLoad + CLAIM/MOVE mix infraSpawnEnergy prices, one home)
+for sources outside spawn rooms - the chronic remote P&L variance every
+close printed ("mean remote variance -0.63..-1.68... the remote cost the
+plan is missing") was exactly this omission. PREDICTION: the P&L plan-net
+column drops by the share the measured column already charges; the chronic
+negative remote variance closes toward ~0 over the coming windows. Note the
+interaction with the standing 36-3 prediction: remote nets all drop
+~0.6-1.2, ordering roughly preserved; 36-3's admission margin narrows but
+holds on the arithmetic (net/part stays above the funded tail).
+
+**Raid tax: NOT swapped, and the evidence says that is the fix.** The R1
+protocol (>=10-window soak + v27 hostile-room evidence gate) stands, and
+the cumulative counters INVERT the headline: provably-hostile-room killed
+cargo runs ~0.02 e/t against the 0.71 priced, while the "5x measured" is
+dominated by haulers dying AT HOME in unmarked rooms - cause UNRESOLVED
+(intel mark lag at death tick? invaders transiting pre-mark? something
+else?). Swapping the constant would encode a mystery as a price - the
+owner's twice-vindicated "blamed on raids without sufficient evidence"
+class. Next instrument (task #9): death-watch stamps hostile-presence
+within intel TTL bounds at the kill tick; the swap follows on clean
+post-stamp windows only.
+
+Gate at commit: unit 2,060 green (admission-net red-first test +
+hand-derived reserverRoomEnergy pin); storage-depot PASS; flow-handoff and
+runt-economy in flight - deploy gated on them.

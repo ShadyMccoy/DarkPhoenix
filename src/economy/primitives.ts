@@ -670,6 +670,24 @@ export function reserverSpawnLoad(parts: number): number {
 }
 
 /**
+ * ENERGY/tick of ONE remote room's reserver stint at the shipped duty - the
+ * per-room reservation bill ADMISSION must split across the room's candidate
+ * sources (t72780703 follow-up). The chronic remote P&L variance was exactly
+ * this omission: every fiscal close charged each remote source its room's
+ * reserver share (the reservation line splits per room) while the admission
+ * net priced none of it - "mean remote variance -0.63..-1.68 e/t... the
+ * remote cost the plan is missing" on every close since the P&L shipped.
+ * Composes reserverSpawnLoad and the CLAIM+MOVE body mix - the SAME terms
+ * infraSpawnEnergy's reserver line prices, so plan-side infra and admission
+ * cannot disagree about what a room's reservation costs (~1.20 e/t).
+ */
+export function reserverRoomEnergy(): number {
+  const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
+  const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE, the full-budget live body
+  return reserverSpawnLoad(RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
+}
+
+/**
  * The ONE drain law applied to a source-mouth buffer: CARRY parts that clear
  * `staged` energy over one creep generation at `distance` - the same
  * stock/CREEP_LIFETIME law the bank surplus and consumer sizing use.

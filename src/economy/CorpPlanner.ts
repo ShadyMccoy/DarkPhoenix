@@ -33,6 +33,7 @@ import { Position } from "../types/Position";
 import {
   netEnergy,
   linkTransferTax,
+  reserverRoomEnergy,
   spawnPartsFor,
   bufferDrainCarry,
   carryPartsFor,
@@ -396,6 +397,21 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
     return { miners: [], verdicts };
   }
 
+  // RESERVATION IN THE ADMISSION NET (t72780703 follow-up). The P&L charges
+  // each remote source its room's reserver share (the reservation line splits
+  // per room), but the admission net priced none of it - the chronic remote
+  // variance every close printed ("mean remote variance -0.63..-1.68 e/t...
+  // the remote cost the plan is missing"). Each remote candidate now carries
+  // reserverRoomEnergy()/roomSources; home-room sources (a spawn's own room
+  // needs no reservation) pay nothing - the same room lens the invader tax
+  // uses (outside spawn rooms).
+  const spawnRoomNames = new Set(spawns.map(s => s.pos.roomName));
+  const remoteRoomSources = new Map<string, number>();
+  for (const s of sources) {
+    if (s.transient || spawnRoomNames.has(s.pos.roomName)) continue;
+    remoteRoomSources.set(s.pos.roomName, (remoteRoomSources.get(s.pos.roomName) ?? 0) + 1);
+  }
+
   const candidates: SourceCandidate[] = [];
   for (const source of sources) {
     if (source.transient) continue; // transient stocks need no miner (already harvested)
@@ -424,8 +440,13 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
     // destroys LINK_TRANSFER_LOSS of every transfer, and pricing none of it
     // made link service look strictly cheaper than a walked route instead of
     // cheaper by the right amount (owner 2026-08-01).
+    const reservationShare = spawnRoomNames.has(source.pos.roomName)
+      ? 0
+      : reserverRoomEnergy() / Math.max(1, remoteRoomSources.get(source.pos.roomName) ?? 1);
     const tax =
-      (source.invaderTax ?? 0) * source.rate + (source.haulPos ? linkTransferTax(source.rate) : 0);
+      (source.invaderTax ?? 0) * source.rate +
+      (source.haulPos ? linkTransferTax(source.rate) : 0) +
+      reservationShare;
     const net = netEnergy(source.rate, near.distance) - tax;
     const parts = spawnPartsFor(source.rate, near.distance);
     if (net <= 0) {

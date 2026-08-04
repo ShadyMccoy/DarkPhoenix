@@ -8,6 +8,7 @@ import {
 } from "../../../src/economy/CorpPlanner";
 import {
   netEnergy,
+  reserverRoomEnergy,
   carryPartsFor,
   miningBudgetPerSpawn,
   spawnPartsFor,
@@ -180,6 +181,35 @@ describe("economy/CorpPlanner", () => {
         const v = (id: string) => plan.sourceVerdicts.find(x => x.sourceId === id)!.verdict;
         expect(v("a1")).to.equal("funded");
         expect(v("b1"), "spawn B's room is never stranded").to.equal("funded");
+      });
+
+      it("prices the RESERVATION share into remote candidate nets (the chronic P&L variance)", () => {
+        // Every fiscal close prints the same footer: the P&L charges each
+        // remote source its room's reserver share while the ADMISSION net
+        // omits it - mean remote variance -0.63..-1.68 e/t on every close,
+        // "the remote cost the plan is missing". The candidate net now
+        // subtracts reserverRoomEnergy()/roomSources for sources OUTSIDE
+        // spawn rooms; home sources pay nothing (no reservation needed).
+        const remoteA = { ...source("rA", 60), pos: { x: 60, y: 0, roomName: "W1N0" } };
+        const remoteB = { ...source("rB", 70), pos: { x: 70, y: 0, roomName: "W1N0" } };
+        const remoteSolo = { ...source("rS", 80), pos: { x: 80, y: 0, roomName: "W2N0" } };
+        const plan = planColony(
+          problem({
+            spawns: [spawn("S", 0)],
+            sources: [source("home", 10), remoteA, remoteB, remoteSolo],
+            sinks: [sink("store", "storage", 0, 1, 1000)]
+          })
+        );
+        const net = (id: string) => plan.sourceVerdicts.find(v => v.sourceId === id)!.net;
+        expect(net("home"), "home-room source pays no reservation").to.be.closeTo(netEnergy(10, 10), 1e-9);
+        expect(net("rA"), "two-source remote room splits the room bill").to.be.closeTo(
+          netEnergy(10, 60) - reserverRoomEnergy() / 2,
+          1e-9
+        );
+        expect(net("rS"), "single-source remote room carries the full bill").to.be.closeTo(
+          netEnergy(10, 80) - reserverRoomEnergy(),
+          1e-9
+        );
       });
 
       it("the funded set respects the GLOBAL tranche (seeds exempt, fills bounded)", () => {
