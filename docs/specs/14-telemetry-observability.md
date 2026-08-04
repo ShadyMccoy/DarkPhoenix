@@ -8195,4 +8195,5 @@ window continues with this fix compounding it.
 
 Gate: red-first (mis-rank + liveness + global-tranche pins; the old
 per-spawn pin and spec-18 positive proof honestly re-pinned); unit 2,058
-green; trio at commit time: storage-depot PASS; flow-handoff and runt-economy IN FLIGHT - the deploy waits on them and the deploy commit records their verdicts.
+green; trio 3-0 (storage-depot, flow-handoff, runt-economy) - deployed from 9488cfb;
+the 36-3 admission prediction reads at the next capture.
