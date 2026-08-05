@@ -90,6 +90,7 @@ import {
   bankToTransientSource,
   bankSourceId,
   controllerFloorRate,
+  fundedMiningIncome,
   resolveReserveTarget,
   warchestTarget
 } from "./bank";
@@ -1732,14 +1733,15 @@ export class FlowEconomy {
       Memory.controllerAllocations = ctrlByRoom;
       // Publish the liquidity reserve target for next solve's bank-surplus
       // emission and every consumer that sizes off it (bank.resolveReserveTarget).
-      // Income is the colony's sustained mined rate - the SAME set and rule as
-      // buildColonyProblem's minedSupply (isMinedIncomeId), so the reserve and
-      // the plan never classify income differently.
-      const income = this.graph
-        .getSources()
-        .filter(s => isMinedIncomeId(s.id))
-        .reduce((sum, s) => sum + s.capacity, 0);
-      Memory.warchestTarget = warchestTarget(income);
+      // Income is the colony's sustained FUNDED mined rate - this solve's own
+      // producer verdicts, NOT the graph's candidate pool. The pool counts
+      // every scouted source whose real id intel recorded (isMinedIncomeId's
+      // accepted residual), so giving vision to unworked neighbor rooms
+      // inflated the reserve +42k and throttled the controller valve 49 -> 31
+      // e/t (measured t72788704, the 11->12 remote regression - full story on
+      // bank.fundedMiningIncome). The reserve covers the payroll of fleets
+      // this plan actually fields; candidates fund nothing.
+      Memory.warchestTarget = warchestTarget(fundedMiningIncome(result.solution.sourceVerdicts));
     }
     this.solution = result.solution;
     this.commissions = result.commissions;

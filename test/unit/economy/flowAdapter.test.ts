@@ -944,6 +944,69 @@ describe("trunk-building sources (owner 2026-07-21: no hauling home until the ro
 });
 
 /**
+ * THE LIQUIDITY RESERVE IS SIZED FROM *FUNDED* MINING INCOME (the 11->12
+ * remote regression, measured t72788704). warchestTarget's income read
+ * summed every graph source that passes isMinedIncomeId - i.e. every scouted
+ * source whose REAL game id intel has recorded, funded or not. Working the
+ * 12th remote gave vision to unworked neighbor rooms; five of their sources
+ * gained real ids, the income read jumped 110 -> 170 e/t against 120 funded,
+ * and the reserve leapt 77k -> 119k (+42k). bankFedControllerRate (the ONE
+ * VALVE's law: floor + (banked - reserve)/SURPLUS_DRAIN_TICKS) collapsed
+ * 48.9 -> 31.0 with 165k banked, and controller delivery fell 56 -> 34.6 e/t
+ * - scouting was punished as if it were payroll. The reserve covers the
+ * payroll of fleets the plan actually fields; candidates fund nothing, so
+ * only FUNDED verdict rates may size it (same doctrine as the hub-sizing pin
+ * above: t72437535).
+ */
+describe("economy/flowAdapter - warchestTarget publishes from FUNDED income only (t72788704)", () => {
+  const g = globalThis as unknown as { Game?: unknown; Memory?: any };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+    g.Memory = {};
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  it("unfunded real-id prospects never inflate the published reserve target", async () => {
+    const { FlowEconomy } = await import("../../../src/economy/flowAdapter");
+    const { warchestTarget } = await import("../../../src/economy/bank");
+    // 2 near sources fund (20 e/t); 3 FAR real-id sources (x>=325, d=320,
+    // netEnergy < 0) stay unprofitable candidates - the exact shape of the
+    // live incident's scouted-but-never-worked neighbor sources.
+    const economy = new FlowEconomy([
+      homeNode(5),
+      sourceNode("near1", 15),
+      sourceNode("near2", 25),
+      sourceNode("far1", 325),
+      sourceNode("far2", 335),
+      sourceNode("far3", 345)
+    ]);
+    economy.update(0);
+
+    const sol = economy.getSolution()!;
+    const funded = (sol.sourceVerdicts ?? []).filter(v => v.verdict === "funded");
+    expect(funded.map(v => v.sourceId).sort(), "staging check: exactly the near pair funds").to.deep.equal([
+      "source-near1",
+      "source-near2"
+    ]);
+    const fundedRate = funded.reduce((s, v) => s + v.rate, 0);
+    expect(fundedRate).to.be.closeTo(20, 1e-9);
+
+    // The published reserve covers FUNDED income (20 e/t -> the BASE_RESERVE
+    // floor binds), never the 50 e/t candidate pool (which would publish
+    // 700 x 50 = 35,000 and throttle the controller valve for nothing).
+    expect(g.Memory.warchestTarget, "reserve sized from funded income only").to.equal(warchestTarget(fundedRate));
+  });
+});
+
+/**
  * TWO-PASS SOLVE (owner-chosen 2026-08-01, option 2 of three).
  *
  * `discoverSinks` priced the spawn sink at a hardcoded 10 e/t "base spawn

@@ -73,6 +73,34 @@ export function warchestTarget(incomeRate: number): number {
 }
 
 /**
+ * The colony's sustained FUNDED mining income (energy/tick): the sum of the
+ * solve's own funded producer verdicts. THE income basis for the reserve
+ * (FlowEconomy.update publishes warchestTarget over this).
+ *
+ * FUNDED, not the graph's candidate pool. Every scouted source whose real
+ * game id intel has recorded passes isMinedIncomeId - the t72444684 phantom
+ * guard's "accepted residual", harmless where it was accepted (the fill's
+ * bank-pool cap is funded-credit bounded post-solve) but UNBOUNDED here.
+ * Measured t72788704 (the 11->12 remote regression): working the 12th remote
+ * gave vision to unworked neighbor rooms, five of their sources gained real
+ * ids, and the candidate-pool income read jumped 110 -> 170 e/t against 120
+ * funded. The reserve leapt 77k -> 119k (+42k), the bank surplus collapsed
+ * 73k -> 46k with 165k banked, and bankFedControllerRate throttled the
+ * published controller allocation 48.9 -> 31.0 e/t (delivery 56 -> 34.6) -
+ * scouting taxed the controller as if prospects were payroll. It kept
+ * compounding as vision spread (income read 185 by t72798237). Coverage is
+ * for the payroll income actually sustains (income >= payroll); candidates
+ * field no fleets and earn no coverage. Verdict-less solutions (legacy
+ * shapes) read 0 and the BASE_RESERVE floor binds - the same safe fallback
+ * resolveReserveTarget already guarantees pre-first-solve.
+ */
+export function fundedMiningIncome(verdicts: readonly { rate: number; verdict: string }[] | undefined): number {
+  let sum = 0;
+  for (const v of verdicts ?? []) if (v.verdict === "funded") sum += v.rate;
+  return sum;
+}
+
+/**
  * The reserve target every consumer must use: the plan-persisted value, or
  * BASE_RESERVE as a safe fallback before the first solve has published one. The
  * single home for the fallback, so no call site invents its own default (which
