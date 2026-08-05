@@ -33,7 +33,7 @@ import {
 } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { recordRepair } from "../telemetry/LossMeter";
-import { creepRepairEnergy } from "../economy/primitives";
+import { CREEP_LIFETIME, creepRepairEnergy } from "../economy/primitives";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import {
@@ -56,7 +56,7 @@ import {
   tankerCarryNeededFor,
   RoadRouteSpec
 } from "../economy/roadEconomics";
-import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, isSpawnRefillStock, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, isSpawnRefillStock, sourceBufferStock, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { buildPool, buildPoolAbsorbRate, buildPoolBacklog, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
 import {
@@ -2891,7 +2891,44 @@ export class ConstructionCorp extends Corp {
       const roadSites = workRoom.find(FIND_MY_CONSTRUCTION_SITES, {
         filter: s => s.structureType === STRUCTURE_ROAD
       }).length;
-      if (this.remoteContainerProject(workRoom) || roadSites > 0) plan.target += 1;
+      const containerProject = this.remoteContainerProject(workRoom);
+      if (containerProject || roadSites > 0) {
+        plan.target += 1;
+        // Z-BUILDER SIZED TO ITS FUEL (owner 2026-08-05: "a remote builder
+        // using that 6k ... build the road Z-to-A in parallel"): the
+        // pile-funded builder's fuel is the mouth's STAGED stock - the SAME
+        // sourceBufferStock lens E6 and the miner gate read - burst-paced
+        // at spec 33's wartime horizon (stock over a third of a lifetime, 5
+        // e/WORK-tick), clamped 2..5 WORK. Measured absence (t72801354):
+        // cd98's mouth held 6,004 while the flat 2-WORK maintenance shape
+        // fielded a 4-part runt and the HOME crew tanker-hauled energy into
+        // the very room whose pile was rotting. Below a meaningful stock
+        // the flat 2 stands - no burst without fuel.
+        let staged = 0;
+        try {
+          for (const src of workRoom.find(FIND_SOURCES)) {
+            staged = Math.max(staged, sourceBufferStock(src) ?? 0);
+          }
+        } catch {
+          staged = 0; // partial mocks / no vision: size on flow alone
+        }
+        const zWork = Math.max(2, Math.min(5, Math.ceil(staged / (CREEP_LIFETIME / 3) / BUILD_ENERGY_PER_WORK)));
+        if (roadSites > 0 && zWork > 2) {
+          const zBody = buildBuilderBody(zWork, 2, ctx.energyCapacity);
+          if (zBody.workParts >= 2) {
+            plan.bodyParam = Math.max(plan.bodyParam ?? 2, zWork);
+            plan.desiredCost = Math.max(plan.desiredCost, zBody.cost);
+            // minCost stays the maintenance floor: scarcity still fields a
+            // starter body rather than nothing (the E6 dark-source lesson).
+          }
+        }
+        this.stampSizing({
+          gate: roadSites > 0 ? "pile-road" : "pile-container",
+          staged,
+          roadSites,
+          zWork
+        });
+      }
       this.lastWantedBuilders = plan.target;
       return this.builders.spawnDemand(plan);
     }

@@ -8959,3 +8959,32 @@ candidate the solve after vision records its real id. Union extended
 funds, both id forms stamped, no phantom routes. Unit 2094-0; trio running
 on the bundle before deploy. The knapsack residual-fill itself stays (for
 REAL candidates it is rational tranche-filling); noted for the record.
+
+### Cycle addendum — the Z-builder existed all along; now it is sized to its fuel
+
+Owner wish: "It would be so great to have a remote builder using that 6k
+energy like to build the road Z-to-A in parallel." Investigation: the wish
+is the owner's OWN 2026-07-21 ruling, already implemented end to end - the
+remote work-room rung fields a pile-funded local builder when road sites
+stand (ConstructionCorp.getSpawnDemand), work()'s remote branch builds any
+local site from local energy (no tankers, buildEnergy uncapped), and the
+plan carries the trunk split (sinks construction-road-A-… 8.52 e/t /
+construction-road-Z-… 1.48 e/t at t72801354). A Z-builder was STANDING in
+W43N21: building-W43N21-construction, one 4-part runt - five sibling
+remote corps in the same shape.
+
+The measured gap was SIZING + VISIBILITY: the Z-plan reused the
+maintenance body (buildUpgraderBody ≤550, 2 WORK; fielded as a 4-part runt
+under scarcity), blind to the 6,004 staged at cd98's mouth - while the
+HOME crew tanker-hauled energy into the very room whose pile was rotting.
+And the remote branch exported NO sizing stamp (sizing.keys=[] on all six
+remote corps - invisible to triage).
+
+Fix (red-first, unit 2098-0): the Z-builder's WORK sizes from the mouth's
+staged stock - the SAME sourceBufferStock lens E6 and the miner gate read
+- at spec 33's wartime burst pace (stock/(CREEP_LIFETIME/3), 5 e/WORK-t),
+clamped 2..5; desiredCost follows (minCost stays the maintenance floor so
+scarcity still fields a starter - the E6 dark-source lesson). The branch
+now stamps {gate: pile-road|pile-container, staged, roadSites, zWork}.
+At cd98's 6.5k: 3 WORK ≈ 15 e/t potential against the pile - the Z-to-A
+parallel build, fueled by energy that was decaying anyway.
