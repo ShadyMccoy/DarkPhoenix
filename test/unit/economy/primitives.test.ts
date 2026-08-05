@@ -7,6 +7,8 @@ import {
   roundTripTicks,
   staffsPost,
   sustainableConsumptionRate,
+  storageAbsorbRate,
+  controllerMaxUpgradeRate,
   carryPartsFor,
   minerOverhead,
   haulerOverhead,
@@ -199,6 +201,37 @@ describe("economy/primitives", () => {
     });
     it("no stock, no inflow -> zero (consumers wait; income keeps the spawn)", () => {
       expect(sustainableConsumptionRate(0)).to.equal(0);
+    });
+  });
+
+  describe("storageAbsorbRate (the absorb half of the ONE drain law - spec 46)", () => {
+    it("absorbs the ullage over one creep lifetime: 30k free -> 20 e/t", () => {
+      expect(storageAbsorbRate(30_000)).to.be.closeTo(30_000 / CREEP_LIFETIME, 1e-9);
+    });
+    it("a FULL storage absorbs nothing - the consumption-constrained trigger", () => {
+      expect(storageAbsorbRate(0)).to.equal(0);
+    });
+    it("mirrors sustainableConsumptionRate exactly (stock in, stock out - one law)", () => {
+      expect(storageAbsorbRate(2000)).to.be.closeTo(sustainableConsumptionRate(2000), 1e-9);
+    });
+    it("no live read (Infinity ullage) passes through: harness paths keep the uncapped soak", () => {
+      expect(storageAbsorbRate(Infinity)).to.equal(Infinity);
+    });
+    it("clamps a degenerate negative read to zero, never a negative sink", () => {
+      expect(storageAbsorbRate(-500)).to.equal(0);
+    });
+  });
+
+  describe("controllerMaxUpgradeRate (the RCL8 game rule - spec 46)", () => {
+    it("RCL8 caps upgrading at the game's 15 e/t (CONTROLLER_MAX_UPGRADE_PER_TICK)", () => {
+      expect(controllerMaxUpgradeRate(8)).to.equal(15);
+    });
+    it("below RCL8 the game imposes no rate cap", () => {
+      expect(controllerMaxUpgradeRate(7)).to.equal(Infinity);
+      expect(controllerMaxUpgradeRate(1)).to.equal(Infinity);
+    });
+    it("unknown level (no vision / partial mock) is uncapped - never fabricate a cap from a read we don't have", () => {
+      expect(controllerMaxUpgradeRate(undefined)).to.equal(Infinity);
     });
   });
 

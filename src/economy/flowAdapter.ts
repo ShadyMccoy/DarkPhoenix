@@ -49,11 +49,13 @@ import {
   HARVEST_ENERGY_PER_WORK,
   INVADER_TAX_PER_ENERGY,
   UPGRADE_ENERGY_PER_WORK,
+  controllerMaxUpgradeRate,
   infraSpawnEnergy,
   infraSpawnLoad,
   minerOverhead,
   projectAbsorbRate,
   spawnEnergyCeiling,
+  storageAbsorbRate,
   workPartsForEnergyRate,
   WARTIME_BACKLOG_THRESHOLD,
   ANTI_DOWNGRADE_RESERVE
@@ -365,26 +367,32 @@ const CONTROLLER_UPGRADER_CAP = 8;
  * cap: how much the upgrader fleet can actually burn, bounded by the parking
  * tiles ringing the controller input spot and each body's affordable WORK at
  * the room's energy capacity (mirrors UpgradingCorp.upgraderTargetCount's
- * parking bound so the sink and the fleet agree). Infinity when Game or the
- * controller is unavailable, so unit/harness paths keep the uncapped default
- * unless a cap is passed explicitly.
+ * parking bound so the sink and the fleet agree) - AND by the game's own RCL8
+ * throttle (primitives.controllerMaxUpgradeRate: a level-8 controller accepts
+ * 15 e/t, period - spec 46's consumption constraint). The game cap reads only
+ * `controller.level`, so it survives partial Game state that fails the
+ * parking lens. Infinity when Game or the controller is unavailable, so
+ * unit/harness paths keep the uncapped default unless a cap is passed
+ * explicitly.
  */
 export function controllerUpgradeCap(roomName: string): number {
   if (typeof Game === "undefined" || !Game.rooms) return Infinity;
   const controller = Game.rooms[roomName]?.controller;
   if (!controller) return Infinity;
+  const gameCap = controllerMaxUpgradeRate(controller.level);
   try {
     // Best-effort physical estimate: any incomplete Game state (partial test
-    // mock, room we cannot fully resolve) falls back to the uncapped default
-    // rather than throwing - a missing cap is safe, it only reverts to old
-    // behavior; the parking lens needs the live pos/room lookForAt API.
+    // mock, room we cannot fully resolve) falls back to the game-rule cap
+    // alone rather than throwing - a missing physical read is safe, it only
+    // reverts to old behavior; the parking lens needs the live pos/room
+    // lookForAt API.
     const parking = controllerParkingTiles(controller, controllerInputSpot(controller).pos).length;
     const spots = Math.min(parking || CONTROLLER_UPGRADER_CAP, CONTROLLER_UPGRADER_CAP);
     const capacity = Game.rooms[roomName]?.energyCapacityAvailable ?? 300;
     const affordableWork = Math.max(1, buildUpgraderBody(capacity, 99, "containerFed").workParts);
-    return spots * affordableWork * UPGRADE_ENERGY_PER_WORK;
+    return Math.min(spots * affordableWork * UPGRADE_ENERGY_PER_WORK, gameCap);
   } catch {
-    return Infinity;
+    return gameCap;
   }
 }
 
@@ -718,14 +726,18 @@ export function detectBankSources(): PlannerSource[] {
 }
 
 /**
- * Physical energy room remaining in a room's storage bank. Infinity when there
- * is no live storage to read (harness/unit paths keep the old "soak totalSupply"
- * behavior unchanged). This is the storage sink's true ceiling: while the bank
- * has room it can soak any remote surplus (storage is the hub - owner 2026-07-19
- * "consumption takes from the storage, so it IS a viable sink for remotes");
- * once it reaches ~0 the warchest is topped out and mining beyond the other
- * sinks' capacity has no home, which is exactly the owner's storage-full defund
- * trigger (selectProducers drops whole corps when mining > total sink capacity).
+ * Physical energy room remaining (ullage) in a room's storage bank. Infinity
+ * when there is no live storage to read (harness/unit paths keep the old
+ * "soak totalSupply" behavior unchanged). The storage SINK's ceiling is the
+ * absorb law over this number (primitives.storageAbsorbRate: ullage/1500, the
+ * mirror of the consumer drain law - spec 46), not the raw stock: while the
+ * bank has real room the absorb rate dwarfs supply and it soaks any remote
+ * surplus (storage is the hub - owner 2026-07-19 "consumption takes from the
+ * storage, so it IS a viable sink for remotes"); as it tops out the sink rate
+ * tapers to ~0 and mining beyond the other sinks' capacity has no home, which
+ * is exactly the owner's storage-full defund trigger (selectProducers drops
+ * whole corps when mining > total sink capacity; routeToSinks demotes the
+ * unrouted tail).
  */
 export function storageRoomRemaining(roomName: string): number {
   if (typeof Game === "undefined" || !Game.rooms) return Infinity;
@@ -1010,8 +1022,9 @@ export function buildColonyProblem(
   // withdraw the warchest AND deposit to it - and the refill claim
   // (storageRefillReserve) is nonzero only BELOW the target, where no bank
   // source exists, so claim-and-drain can never coexist either. The storage
-  // sink's capacity is its physical room remaining, so a topped-out bank
-  // presents zero room and the surplus mining is defunded rather than rotted.
+  // sink's capacity is the absorb law over its physical room remaining
+  // (storageAbsorbRate, spec 46), so a topping-out bank tapers to zero rate
+  // and the surplus mining is defunded rather than rotted.
   const roomsWithStorage = new Set<string>();
   for (const sink of graph.getSinks()) {
     if (sink.type === "storage") roomsWithStorage.add(sink.position.roomName);
@@ -1219,12 +1232,19 @@ export function buildColonyProblem(
                 : Number.POSITIVE_INFINITY
             )
           : kind === "storage"
-          ? // Soak the surplus, but only up to the bank's PHYSICAL room remaining:
-            // a topped-out storage presents zero capacity, which is the owner's
-            // defund trigger (mining beyond total sink capacity has no home).
-            // While it has room this is min(totalSupply, huge) = totalSupply, so
-            // the old "soak excess" behavior is unchanged until the bank fills.
-            Math.max(0, Math.min(totalSupply, storageRoomRemaining(sink.position.roomName)))
+          ? // Soak the surplus, but only as fast as the bank's remaining room
+            // can absorb it: the ONE drain law's absorb half (spec 46,
+            // primitives.storageAbsorbRate = ullage/1500 - the mirror of the
+            // stock/1500 consumers drain by). Far from full the absorb rate
+            // dwarfs supply, so min(totalSupply, huge) = totalSupply and the
+            // old "soak excess" behavior is unchanged; over the last
+            // ~1500xSupply energy of room the sink RATE tapers linearly to
+            // zero, so mining is defunded source by source (dependency chain)
+            // instead of cliffing whole-fleet on the last joule. A topped-out
+            // storage presents zero capacity - the owner's defund trigger
+            // (mining beyond total sink capacity has no home). No live
+            // storage to read (harness) stays Infinity -> unchanged.
+            Math.max(0, Math.min(totalSupply, storageAbsorbRate(storageRoomRemaining(sink.position.roomName))))
           : controllerRoutingCapacity(
               sink,
               totalSupply,

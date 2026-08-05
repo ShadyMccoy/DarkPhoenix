@@ -73,7 +73,14 @@ terrain ─▶ Nodes ─▶ FlowGraph ─▶ ColonyProblem ─▶ ColonyPlan ─
    becomes a transient source — `economy/bank.ts`), and **link `haulPos`**
    (link-served sources haul from the core link). Sink `value` =
    `perInstanceSinkValue` over `DEFAULT_SINK_VALUE` (the ladder, ONTOLOGY §7);
-   controllers carry the anti-downgrade `reserve`.
+   controllers carry the anti-downgrade `reserve`. Sink CAPACITIES are where
+   the world's absorption limits enter the plan: storage =
+   `storageAbsorbRate(ullage)` (the drain law's absorb half, spec 46),
+   controller = `controllerRoutingCapacity` under `controllerUpgradeCap`
+   (parking×WORK, and the RCL8 game throttle — `controllerMaxUpgradeRate`),
+   construction = the sum-of-projects absorb. A CONSUMPTION-CONSTRAINED
+   colony (full bank, RCL8 controller) is nothing but these numbers going
+   small — there is no regime flag.
 
 4. **ColonyProblem → ColonyPlan.** The strategic searcher runs first
    (spec 18: `economy/strategy.ts` — `searchStructure` may pin budget-dropped

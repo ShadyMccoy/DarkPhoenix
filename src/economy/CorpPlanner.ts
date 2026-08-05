@@ -558,9 +558,10 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
   // container downstream (supply is built from `miners`). This is naturally
   // gated by the sink capacities: with a storage sink soaking `totalSupply`
   // there is always room, so it fires only once storage tops out (flowAdapter
-  // drops its capacity to physical room-remaining, ~0 when full) and the
-  // controller is at its spot cap. Worst net-per-part first; keep at least one
-  // so the colony never strands itself.
+  // tapers its capacity by the absorb law, ullage/1500 -> ~0 when full -
+  // spec 46) and the controller is at its cap (spot-bound, or the RCL8 game
+  // throttle). Worst net-per-part first; keep at least one so the colony
+  // never strands itself.
   const sinkCapacity = problem.sinks.reduce((sum, k) => sum + k.capacity, 0);
   let minedRate = miners.reduce((sum, m) => sum + m.rate, 0);
   if (minedRate > sinkCapacity + 1e-9) {

@@ -81,6 +81,14 @@ Later families (same rule — one home):
   deadlock (t72488324).
 - **Consumer sizing:** `sustainableConsumptionRate` — consumers are sized from
   ACTUAL stock at their site, never from the goal plan (macro doctrine).
+- **The drain law, both directions** (spec 46): `storageAbsorbRate(ullage) =
+  ullage / CREEP_LIFETIME` is the ABSORB mirror of that stock/1500 drain — a
+  bank fills over one creep generation exactly as a stock empties over one.
+  It is the storage SINK's capacity (flowAdapter), which makes the
+  CONSUMPTION-CONSTRAINED regime (RCL8: controller game-capped at 15 e/t by
+  `controllerMaxUpgradeRate`, storage full) a taper the planner's dependency
+  chain follows — a hauler needs a source AND a sink, a miner needs a routed
+  hauler — instead of a cliff, and with no "storage full" flag anywhere.
 - **Operation corps (spec 34):** a consumer is PARKED at its work site; energy
   comes TO it — a supply vector (`vectorSupplyParts`) beyond withdraw
   adjacency, direct draw at a length-0 route. Its onboard buffer bridges the

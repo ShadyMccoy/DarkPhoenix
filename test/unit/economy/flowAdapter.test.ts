@@ -518,6 +518,113 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
   });
 });
 
+// SPEC 46 - the CONSUMPTION-CONSTRAINED sinks. Two game facts the plan was
+// blind to: the storage sink used to absorb at FULL rate until the last joule
+// of room then cliff to zero (min(totalSupply, physical-room) mixed e/t with
+// absolute energy), and at RCL8 the game hard-caps upgrading at 15 e/t no
+// matter the fleet. The storage now exposes the absorb HALF of the ONE drain
+// law (ullage/1500 - primitives.storageAbsorbRate, the exact mirror of
+// sustainableConsumptionRate's stock/1500), so as the bank tops out the sink
+// rate tapers smoothly and the planner's dependency chain (hauler needs a
+// source AND a sink; miner needs a routed hauler) contracts mining to match
+// consumption - no "storage full" flag anywhere. The planner-side reaction is
+// pinned in CorpPlanner.test.ts ("consumption-constrained economy").
+describe("economy/flowAdapter - consumption-constrained sinks (spec 46)", () => {
+  const g = globalThis as unknown as { Game?: any; Memory?: any };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+    g.Memory = {};
+    // The live default detectors (deposit ports) walk rooms with the FIND_*
+    // constants; stage them so this suite doesn't depend on an earlier test
+    // having leaked them (same values the port test stages).
+    (global as any).FIND_MY_STRUCTURES = 108;
+    (global as any).FIND_SOURCES = 105;
+    (global as any).STRUCTURE_LINK = "link";
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  // Same staging shape as the mop-up suite: pos stubs findInRange for the
+  // deposit-port/link detectors buildColonyProblem's live defaults walk.
+  const stagedRoom = (roomName: string, energy: number, freeCapacity: number, level?: number) => ({
+    controller: {
+      my: true,
+      ...(level !== undefined ? { level } : {}),
+      pos: { x: 40, y: 40, roomName, findInRange: () => [] }
+    },
+    storage: {
+      my: true,
+      pos: { x: 24, y: 24, roomName, findInRange: () => [] },
+      store: {
+        energy,
+        getUsedCapacity: () => energy,
+        getFreeCapacity: () => freeCapacity
+      }
+    },
+    find: () => []
+  });
+
+  it("a FULL storage exposes a ZERO-rate sink (the consumption-constrained trigger)", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    g.Game.rooms = { W0N0: stagedRoom("W0N0", 1_000_000, 0) };
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    const store = problem.sinks.find(s => s.kind === "storage")!;
+    expect(store.capacity, "no room, no absorb - mining beyond the consumers is defunded").to.equal(0);
+  });
+
+  it("a NEARLY-full storage tapers: the sink rate is ullage/1500, not full-rate-until-the-cliff", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const { storageAbsorbRate } = await import("../../../src/economy/primitives");
+    g.Game.rooms = { W0N0: stagedRoom("W0N0", 991_000, 9_000) };
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    const store = problem.sinks.find(s => s.kind === "storage")!;
+    // 9000 free / 1500 = 6 e/t - the old code exposed the FULL 20 e/t here
+    expect(store.capacity).to.be.closeTo(storageAbsorbRate(9_000), 1e-9);
+    expect(store.capacity).to.be.closeTo(6, 1e-9);
+  });
+
+  it("far from full the soak is unchanged: the absorb rate clears total supply", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    g.Game.rooms = { W0N0: stagedRoom("W0N0", 400_000, 600_000) };
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    const store = problem.sinks.find(s => s.kind === "storage")!;
+    expect(store.capacity, "absorb 400 e/t >= supply 20: min() keeps the old soak").to.be.closeTo(20, 1e-9);
+  });
+
+  it("controllerUpgradeCap carries the RCL8 game rule (15 e/t) even on a partial mock", async () => {
+    const { controllerUpgradeCap } = await import("../../../src/economy/flowAdapter");
+    g.Game.rooms = { W0N0: { controller: { my: true, level: 8 } } };
+    expect(controllerUpgradeCap("W0N0"), "RCL8: the game caps upgrading at 15 e/t").to.equal(15);
+    g.Game.rooms = { W0N0: { controller: { my: true, level: 7 } } };
+    expect(controllerUpgradeCap("W0N0"), "below 8 the physical estimate (or Infinity) rules").to.equal(Infinity);
+  });
+
+  it("END-TO-END: RCL8 + full storage assembles the consumption-constrained problem", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    // Full storage, brimming warchest (way above the 30k target -> fat bank
+    // draw), RCL8 controller: the controller sink must cap at the game's 15
+    // even though the bank could feed 100, and the storage must admit 0.
+    g.Memory.warchestTarget = 30_000;
+    g.Game.rooms = { W0N0: stagedRoom("W0N0", 1_000_000, 0, 8) };
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    const ctrl = problem.sinks.find(s => s.kind === "controller")!;
+    const store = problem.sinks.find(s => s.kind === "storage")!;
+    expect(ctrl.capacity, "the RCL8 cap binds under a fat bank surplus").to.equal(15);
+    expect(store.capacity, "the full hub admits nothing").to.equal(0);
+  });
+});
+
 /**
  * The construction absorb cap - the SUM-OF-PROJECTS lens at the PLAN layer
  * (prod incident t72444684, E4 idle capital): the construction sink's

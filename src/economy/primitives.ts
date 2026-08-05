@@ -177,6 +177,25 @@ export const UPGRADE_ENERGY_PER_WORK = 1; // UPGRADE_CONTROLLER_POWER: 1 energy/
 export const BUILD_ENERGY_PER_WORK = 5; // BUILD_POWER: 5 energy/tick per WORK
 
 /**
+ * The game's RCL8 upgrade throttle (Screeps CONTROLLER_MAX_UPGRADE_PER_TICK):
+ * a level-8 controller accepts at most 15 energy/tick, no matter the fleet.
+ * Below 8 the game imposes no rate cap.
+ */
+export const CONTROLLER_MAX_UPGRADE_PER_TICK = 15;
+
+/**
+ * The controller's game-rule upgrade ceiling (energy/tick) by level - the
+ * spec 46 consumption constraint's other half: an RCL8 room's controller sink
+ * can never absorb more than 15 e/t, so with a full storage the whole economy
+ * is bounded by consumption and the plan must contract to it. Unknown level
+ * (no vision, partial mock) is uncapped: never fabricate a cap from a read we
+ * don't have.
+ */
+export function controllerMaxUpgradeRate(level: number | undefined): number {
+  return level !== undefined && level >= 8 ? CONTROLLER_MAX_UPGRADE_PER_TICK : Infinity;
+}
+
+/**
  * WORK parts needed to move `energyPerTick` at `energyPerWork` energy/tick per
  * WORK - the single conversion behind every "energy rate -> WORK body" figure
  * (miner harvest, upgrader burn, builder burn). Rounded up: a fractional WORK
@@ -443,6 +462,29 @@ export function staffsPost(ttl: number | undefined, bodyParts: number, travelTic
  */
 export function sustainableConsumptionRate(stock: number, inflow = 0): number {
   return inflow + stock / CREEP_LIFETIME;
+}
+
+/**
+ * The ABSORB half of the ONE drain law (spec 46, owner 2026-08-05: "take the
+ * storage ullage / 1500 as the sink rate cap it exposes for the planner"): the
+ * energy/tick a storage bank can accept, given its remaining physical room
+ * (ullage). The exact mirror of sustainableConsumptionRate's stock/1500 term -
+ * stock drains over one creep generation, room fills over one - so the sink a
+ * fleet is sized against outlives the fleet it sizes.
+ *
+ * This is what makes the CONSUMPTION-CONSTRAINED regime a taper instead of a
+ * cliff: the old sink capacity (min(supply, absolute-room)) admitted the FULL
+ * mining rate until the last ~joule of room, then dropped to zero - whole
+ * corps defunded in one solve. Under the absorb law the sink rate falls
+ * linearly over the final ~1500xRate energy of room, so the planner's
+ * dependency chain (a hauler needs a source AND a sink; a miner needs a
+ * routed hauler) retires the mined fleet source by source until inflow
+ * matches what consumption actually drains. No "storage full" flag anywhere.
+ * Infinity (no live storage to read - harness paths) passes through, keeping
+ * the uncapped soak.
+ */
+export function storageAbsorbRate(ullage: number): number {
+  return Math.max(0, ullage) / CREEP_LIFETIME;
 }
 
 /**
