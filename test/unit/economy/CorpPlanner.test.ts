@@ -145,7 +145,10 @@ describe("economy/CorpPlanner", () => {
     describe("global admission ranking (the per-spawn partition mis-rank, t72780703)", () => {
       // Two spawns 400 apart partition the map. A's neighborhood holds the
       // good sources; B's holds one seed and one far, WORSE source. Budgets
-      // (at SPAWN_PLAN_FRACTION 1.0): per-spawn tranche 0.2, global 0.4.
+      // (at SPAWN_PLAN_FRACTION 0.9): per-spawn tranche 0.18, global 0.36
+      // - the staged story survives both fraction eras: A's cum 0.144 fits
+      // either tranche, aX breaches per-spawn (0.220) both ways, and b2
+      // breaches the global (0.423 > 0.36; was 0.4).
       // Hand-derived parts (spawnPartsFor(10,d) = (8.8+0.8d)/(1500-d)):
       //   a1 d10 0.0113 | a2 d100 0.0634 | a3 d110 0.0696 | a4 d130 0.0821
       //   aX d120 0.0759 (net/part 79) | b1 d10 0.0113 | b2 d170 0.1089 (np 40)
@@ -707,11 +710,11 @@ describe("economy/CorpPlanner", () => {
           // Budget ~0.031 parts/t: the remote's deposit needs ~0.022, the
           // spawn ~0.001, and an unchecked controller draw would eat ~27 e/t
           // x 0.0011 = the WHOLE ledger before storage's value-1 turn.
-          // (Re-staged 2026-08-04 for the handicap-lift experiment,
-          // SPAWN_PLAN_FRACTION 1.0: back to the original 0.297 so the
-          // staged LEFTOVER budget is unchanged against the plannable rate -
-          // the same convention as the 2026-07-30 re-stage, inverted.)
-          infraPartsPerTick: 0.297
+          // (Re-staged 2026-08-05 for the handicap-lift REVERSION,
+          // SPAWN_PLAN_FRACTION 0.9: 0.30 plannable - the same 0.0363
+          // staged LEFTOVER budget as every prior re-stage - the convention
+          // both the 2026-07-30 and 2026-08-04 re-stages followed.)
+          infraPartsPerTick: 0.2637
         })
       );
       const deposit = plan.haulers.find(h => h.sourceId === "remote" && h.sinkId === "store");
@@ -736,9 +739,10 @@ describe("economy/CorpPlanner", () => {
             sink("spawn-S", "spawn", 0, 100, 1),
             sink("store", "storage", 2, 1, 1000)
           ],
-          // (Re-staged +0.0333 for the 2026-08-04 handicap-lift, fraction
-          // 1.0; staged leftover unchanged.)
-          infraPartsPerTick: 0.302
+          // (Re-staged -0.0333 for the 2026-08-05 handicap REVERSION,
+          // fraction 0.9; staged leftover unchanged - the standing
+          // convention for fraction changes.)
+          infraPartsPerTick: 0.2687
         })
       );
       expect(plan.miners.map(m => m.sourceId), "only the routed source keeps its miner").to.deep.equal(["A"]);
@@ -849,9 +853,10 @@ describe("economy/CorpPlanner", () => {
             sink("spawn-S", "spawn", 0, 100, 1),
             sink("store", "storage", 2, 1, 1000)
           ],
-          // (Re-staged +0.0333 for the 2026-08-04 handicap-lift, fraction
-          // 1.0; staged leftover unchanged.)
-          infraPartsPerTick: 0.310
+          // (Re-staged -0.0333 for the 2026-08-05 handicap REVERSION,
+          // fraction 0.9; staged leftover unchanged - the standing
+          // convention for fraction changes.)
+          infraPartsPerTick: 0.2767
         })
       );
       const scav = plan.haulers.find(h => h.sourceId === "scavenge-big" && h.sinkId === "store");

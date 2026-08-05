@@ -8817,3 +8817,56 @@ windows toward the ≥10-window swap discipline; decompose H1's under-ask
 from the carry pickup stamps and price the dominant term into carryPartsFor
 (red-first). The armed check-in doubles as the CONTROL: with the reserve
 honest, remaining forgone/pile variance IS the remote-cost gap.
+
+### Same cycle, owner challenge #2 — "forgone was 7, jumped to 30, over many months, not invaders": CONFIRMED, invaders acquitted, handicap reversion criteria FIRED
+
+The owner rejected the invader/haul-churn attribution as flimsy. The full
+fiscal series (25 closes, FY4849-M07 → FY4853-M03) adjudicates:
+
+```
+era                     capacity   forgone actual        forgone+decay
+FY4849-M07..FY4851-M10  100 (10)   0.4-14.6, mean ~4.7   ~6-25, bounded
+FY4852-M01..M05         110 (11)   1.0-8.5               9.0-21.6
+FY4852-M06 (12th funds) 120        14.91                 24.5
+FY4853-M02              120        37.90                 44.5   ← the owner's "30"
+FY4853-M03              110        0.00 + decay 26.07    26.1   (line-shift: mined-then-rotted)
+```
+
+Invaders acquitted BY TIMELINE: R1 read 0.70x priced in FY4852-M06 — its
+quietest window in the table — while the climb was already underway; the
+10.7x spike appears only in the final window. A multi-month monotone climb
+cannot be a last-window noise burst. The role-exposure attribution repeated
+the exact "raid story fails the evidence check" failure this spec logged on
+2026-08-03.
+
+What the series DOES support: admission overreach past the MEASURED spawn
+ceiling. Demand arithmetic at FY4853-M03: plan-priced 0.607 p/t + measured
+replacement overhead ~0.14 (F1 haulers +0.116, miners +0.028) ≈ 0.75 vs
+0.667 physical. Spawn meters: utilization 0.97-0.98 with queue depth 4-8
+across t72798237/t72799968/t72800193 (~2000t) — the t72676360 shape,
+LITERALLY the handicap-lift experiment's registered reversion criterion,
+sustained. The unfillable tail starved exactly where fidelity points: F3
+d017 2.0/10 declared, F2 W45N25 38/84p (1900e miner dead at 39t),
+construction −0.140 vs plan. P4's 0.83-0.91x "feasible" was circular — it
+prices the plan's own under-priced demand. The earlier spawn-capacity
+exoneration in this cycle's entry is RETRACTED on that basis: the owner's
+original hypothesis (plan past practical limits) is CONFIRMED for the
+mining line; the reserve bug was the coincident SECOND regression (score
+side), same trigger event.
+
+**Action: SPAWN_PLAN_FRACTION reverted 1.0 → 0.9 per the experiment's own
+protocol** (criteria met ⇒ revert; "the number between 0.9 and 1.0 gets
+measured, not argued"). Red-first: planHeadroom pin flipped to 0.9 (red
+confirmed), constant reverted with the closure evidence on its doc; two
+staged tests re-staged by their own leftover-unchanged convention; golden
+master regenerated — delta is partsLeft −0.0333 in all four worlds, no
+commission/route changes. Successor filed to EARN re-lifting: price
+measured per-route replacement overhead into admission (the F1 gap becomes
+a priced line), making the margin redundant before it is removed.
+
+Registered predictions for the reversion deploy (sequenced AFTER the valve
+check-in reads, so the two changes stay separately attributable): mining
+tranche 0.36 global ⇒ 1-2 lowest-net/part remotes defund (capacity
+110-120 → 100-110); util ≤0.93 and queue ≤3 within ~1500t; F2/F3 gaps
+close on surviving routes; forgone+decay back under ~15 within 3000t;
+score unaffected (the open valve owns it; sheds phantom capacity only).

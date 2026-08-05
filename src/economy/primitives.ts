@@ -822,24 +822,38 @@ export function energyPerSpawnPart(rate: number, distance: number): number {
  *
  * EXPERIMENT 1.0 (owner 2026-08-04: "We could try lifting the 10% spawning
  * capacity handicap on the planner for a couple of months to see what
- * happens"). The margin's absorbers have been fixed out from under it: the
- * even-share treadmill and runt ladders are dead (X5 home churn 0-3%
- * measured across three post-fix windows, was 18%+), the spawn runs 46%
- * physical headroom (S5 0.54x), and the spawn-sink claim is physically
- * capped (spawnEnergyCeiling). Meanwhile the margin BINDS at admission:
- * t72778545 shows 28 candidate sources rejected "over-budget" with positive
- * nets (best: net 7.13) behind the 0.9 x 0.6 mining tranche. Registered
- * predictions: 1-2 remotes admitted (+10-20 e/t capacity), P4 <= ~0.75x,
- * S5 toward 0.65-0.80x. REVERSION CRITERIA (any, sustained a full window):
+ * happens"). The margin's absorbers had been fixed out from under it (X5
+ * home churn 18%+ -> 0-3%), and the margin BOUND at admission (t72778545:
+ * 28 positive-net candidates rejected over-budget). Registered predictions:
+ * 1-2 remotes admitted (+10-20 e/t capacity), P4 <= ~0.75x, S5 toward
+ * 0.65-0.80x. REVERSION CRITERIA (any, sustained a full window):
  * utilization > 0.95 with queue-depth blocking (the t72676360 shape), X5
- * home churn > 10%, or P4 >= 1.0x - then the margin was still needed and
- * the number between 0.9 and 1.0 gets measured, not argued.
+ * home churn > 10%, or P4 >= 1.0x.
+ *
+ * REVERTED 0.9 (2026-08-05): the criteria FIRED, measured. Utilization
+ * 0.97-0.98 with queue depth 4-8 sustained across t72798237/t72799968/
+ * t72800193 (~2000t) - the t72676360 shape, literally. The admission the
+ * lift bought (12th remote d017, W45N25 attempt) was never staffable at the
+ * ceiling: F3 d017 produced 2.0 of 10 declared, F2 W45N25 fielded 38 of 84
+ * parts (its 1900e miner dead at 39t), and forgone+pile-decay climbed from
+ * a bounded 8-20 e/t (ten months at 10-11 sources) to 24.5 -> 44.5 e/t
+ * (FY4852-M06 -> FY4853-M02) - a multi-month monotone climb that acquits
+ * invaders (R1 read 0.70x priced in M06, its QUIETEST window, while the
+ * climb ran). The arithmetic: plan-priced demand 0.607 p/t + measured
+ * replacement overhead ~0.14 (F1: haulers +0.116, miners +0.028) = ~0.75
+ * vs the 0.667 physical ceiling. P4 stayed green (0.83-0.91x) because it
+ * prices the plan's OWN estimate - the margin was the buffer for exactly
+ * the overhead the plan does not price, and lifting it exposed the
+ * mispricing. RE-LIFTING IS EARNED, NOT ARGUED: price the measured
+ * replacement overhead into admission (per-route replacement cost - the
+ * F1 gap becomes a priced line), then the margin is redundant and the
+ * number between 0.9 and 1.0 gets measured.
  *
  * This is a MARGIN at the planning seam - execution still owns the full
  * physical spawn, standing fleets are untouched, and nothing is gated
  * (doctrine: the planner prices, it doesn't gate).
  */
-export const SPAWN_PLAN_FRACTION = 1.0;
+export const SPAWN_PLAN_FRACTION = 0.9;
 
 /**
  * Parts/tick the PLANNER may budget across `spawnCount` spawns - the ONE lens
