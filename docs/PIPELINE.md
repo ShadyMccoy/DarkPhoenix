@@ -82,8 +82,10 @@ terrain ─▶ Nodes ─▶ FlowGraph ─▶ ColonyProblem ─▶ ColonyPlan ─
    `economy/CorpPlanner.ts` → `planColony`, all math from
    **`economy/primitives.ts`**:
    - `selectProducers` — assign each source to its nearest spawn, drop
-     net-negative sources (`netEnergy`), fill each spawn's build-time budget
-     (`miningBudgetPerSpawn`), ranking by net-energy-per-build-part.
+     net-negative sources (paved-aware `roadEconomics.pavedNetEnergy`, net of
+     the invader/link/reservation-share taxes); every spawn seeds its best
+     source, then candidates fund by net-per-part against the GLOBAL tranche
+     (`miningBudgetPerSpawn` × spawns — global admission, t72780703).
    - `routeToSinks` — anti-downgrade reserve pre-pass, then value-descending
      fill from nearest supply; charges the **spawn-parts LEDGER** for
      consumer/infra work (spec 15: `controllerWorkSpawnLoad` etc.); with a

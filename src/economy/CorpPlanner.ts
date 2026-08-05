@@ -10,11 +10,15 @@
  * The plan is built in two phases, each a GOAP operator class:
  *
  *   1. PRODUCER SELECTION - commission HarvestCorps. Each source is assigned to
- *      its nearest spawn; unprofitable sources (netEnergy <= 0) are never mined;
- *      per spawn, sources are taken in net-energy-per-build-part order until the
- *      spawn's mining build-time budget is spent (the best source is always
- *      staffed even if it alone exceeds budget). This is the corp-atomic rule -
- *      complete the highest-value income corp before opening the next - per spawn.
+ *      its nearest spawn; unprofitable sources (net <= 0 after the invader,
+ *      link and reservation-share taxes) are never mined. Candidates price
+ *      with the SAME paved-aware route model fill() builds edges from
+ *      (roadEconomics.pavedNetEnergy/pavedSpawnPartsFor, 2026-08-05). Every
+ *      spawn seeds its best source unconditionally (liveness); the rest fund
+ *      in net-energy-per-build-part order against the GLOBAL tranche
+ *      (miningBudgetPerSpawn x spawns, t72780703 - the per-spawn partition
+ *      mis-ranked across neighborhoods). Corp-atomic: complete the
+ *      highest-value income corp before opening the next.
  *
  *   2. VALUE ROUTING - commission CarryCorps and size the consumer sinks. The
  *      gross energy the selected sources produce is routed to sinks by value:
