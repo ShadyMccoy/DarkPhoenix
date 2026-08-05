@@ -179,6 +179,15 @@ export interface CoreTelemetry {
    */
   remoteSites?: { [roomName: string]: number };
   /**
+   * ALL of our construction sites by room (v34, owner 2026-08-05: "I want to
+   * stay informed of construction site progress"): count, remaining work and
+   * progress-so-far, from Game.constructionSites - the VISION-FREE global
+   * roster, so a remote road room with no creep standing in it still
+   * reports. remoteSites above stays for old-capture compatibility; this is
+   * the standing progress ledger the P8 build-rate/ETA read derives from.
+   */
+  siteLedger?: { [roomName: string]: { n: number; rem: number; done: number } };
+  /**
    * roadRoutes receipts, verbatim per key (v13 - prod t72485595): cd8e's
    * plan price sat 1:1 for three windows after its road stood complete and
    * WHY was uninferable from captures - the pave/dedication lenses both
@@ -499,6 +508,22 @@ export function updateCoreTelemetry(
     if (count > 0) remoteSites[roomName] = count;
   }
 
+  // Site ledger (v34): every one of OUR sites, by room, vision-free -
+  // Game.constructionSites is the global roster, so remote road progress
+  // reports even when nobody stands in the room. The P8 read derives build
+  // rate (done delta / dt) and ETA (rem / rate) between captures from this.
+  const siteLedger: NonNullable<CoreTelemetry["siteLedger"]> = {};
+  const allSites = (Game as { constructionSites?: { [id: string]: ConstructionSite } }).constructionSites ?? {};
+  for (const id in allSites) {
+    const site = allSites[id];
+    const roomName = site.pos?.roomName;
+    if (!roomName) continue;
+    const entry = (siteLedger[roomName] ??= { n: 0, rem: 0, done: 0 });
+    entry.n += 1;
+    entry.rem += Math.max(0, (site.progressTotal ?? 0) - (site.progress ?? 0));
+    entry.done += site.progress ?? 0;
+  }
+
   // Spawn meter readout (phase 3): measured utilization from the Memory windows.
   const spawns: CoreTelemetry["spawns"] = [];
   const gameSpawns = Game.spawns ?? {};
@@ -553,7 +578,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 33, // v32 hostile-at-death; v33 attribution reads RETAINED hostile windows (the home-room clear-lift blindness) 2026-08-05
+    version: 34, // v33 retained hostile windows; v34 siteLedger - vision-free per-room construction progress (owner 2026-08-05)
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
@@ -579,6 +604,7 @@ export function updateCoreTelemetry(
     agenda,
     ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
     ...(Object.keys(remoteSites).length > 0 ? { remoteSites } : {}),
+    ...(Object.keys(siteLedger).length > 0 ? { siteLedger } : {}),
     ...(() => {
       // roadRoutes receipts (v13): the exact records the pave-fraction and
       // dedication lenses read, exported verbatim so a stuck pricing names

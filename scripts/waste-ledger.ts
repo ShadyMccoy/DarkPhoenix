@@ -1583,6 +1583,36 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       const pool2 = poolWorkSum(cap.data.corps);
       const poolBuilt = pool1 !== null && pool2 !== null ? Math.max(0, pool1 - pool2) : 0;
       const flat = standing && !completion && delivered <= 0 && receiptsDelta <= 0 && poolBuilt <= 0;
+      // SITE LEDGER (core v34; owner 2026-08-05: "I want to stay informed of
+      // construction site progress"): the vision-free per-room roster from
+      // Game.constructionSites, rendered per room with its window delta and
+      // an ETA at the row's own composite build rate. RENDERING ONLY - the
+      // verdict machinery above keeps its lenses (rem falls with build AND
+      // completions, rises with placements, so the delta is context, not a
+      // rate claim). Absent on pre-v34 captures - the line simply omits.
+      const sl1 = (bcore as any).siteLedger ?? null;
+      const sl2 = (core as any).siteLedger ?? null;
+      let byRoom = "";
+      if (sl2) {
+        const roomNames = Object.keys(sl2).sort((a, b) => (sl2[b].rem ?? 0) - (sl2[a].rem ?? 0));
+        const totalRem = roomNames.reduce((a, r) => a + (sl2[r].rem ?? 0), 0);
+        const rate = dt > 0 ? (Math.max(0, delivered) + receiptsDelta + poolBuilt) / dt : 0;
+        byRoom =
+          `; by room: ` +
+          roomNames
+            .map(r => {
+              const cur = sl2[r];
+              const prev = sl1?.[r];
+              const dRem = prev ? cur.rem - prev.rem : null;
+              return (
+                `${r} ${cur.n} site${cur.n === 1 ? "" : "s"} rem ${cur.rem}` +
+                (dRem !== null && dRem !== 0 ? ` (${dRem > 0 ? "+" : ""}${dRem})` : "")
+              );
+            })
+            .join(", ") +
+          ` | total rem ${totalRem}` +
+          (rate > 0.05 && totalRem > 0 ? `, ETA ~${Math.round(totalRem / rate)}t at ${rate.toFixed(1)} e/t` : "");
+      }
       rows.push({
         id: "P8",
         name: "build delivery (site progress)",
@@ -1591,13 +1621,15 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         verdict: flat && consAlloc > 5 ? "FAIL" : flat && consAlloc > 0 ? "WARN" : "ok",
         detail: completion
           ? `completion window (sites ${count1}->${count2}, remote ${remotes1}->${remotes2}) - progress delta ambiguous, skipped` +
-            (receiptsDelta > 0 ? `; remote roads +${receiptsDelta}e via receipts` : "")
+            (receiptsDelta > 0 ? `; remote roads +${receiptsDelta}e via receipts` : "") +
+            byRoom
           : standing || receiptsDelta > 0 || poolBuilt > 0
           ? `sites ${count1}->${count2}, remote ${remotes1}->${remotes2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
             (receiptsDelta > 0 ? `, remote roads +${receiptsDelta}e (receipts)` : "") +
             (poolBuilt > 0 ? `, within-site +${poolBuilt}e (poolWork ${pool1}->${pool2})` : "") +
-            (flat ? " - CREW IDLE (energy allocated, nothing built)" : "")
-          : "no sites standing across the window"
+            (flat ? " - CREW IDLE (energy allocated, nothing built)" : "") +
+            byRoom
+          : "no sites standing across the window" + byRoom
       });
     }
   }

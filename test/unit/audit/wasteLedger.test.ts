@@ -276,6 +276,24 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(p8.detail).to.contain("CREW IDLE");
   });
 
+  it("P8 renders the siteLedger by room with window delta and ETA (core v34, owner 2026-08-05: stay informed of construction progress)", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 1, siteProgress: 1500, siteTotal: 5000 });
+    // vision-free roster both ends: the big road room built 840, the lone tile idle
+    capB.data.core.siteLedger = { W1N1: { n: 19, rem: 6000, done: 100 }, W2N2: { n: 1, rem: 300, done: 0 } };
+    capA.data.core.siteLedger = { W1N1: { n: 19, rem: 5160, done: 940 }, W2N2: { n: 1, rem: 300, done: 0 } };
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.detail).to.contain("by room:");
+    expect(p8.detail, "rooms sorted by remaining, delta rendered").to.contain("W1N1 19 sites rem 5160 (-840)");
+    expect(p8.detail, "singular form, zero-delta omitted").to.contain("W2N2 1 site rem 300");
+    expect(p8.detail).to.contain("total rem 5460");
+    expect(p8.detail, "ETA at the row's own composite rate").to.contain("ETA ~");
+    // pre-v34 captures keep the old rendering (no by-room tail) - the
+    // "skips gracefully" pin above covers the no-fields case entirely.
+  });
+
   it("P8 treats a completion window as ambiguous, never a failure", () => {
     const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
     const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
