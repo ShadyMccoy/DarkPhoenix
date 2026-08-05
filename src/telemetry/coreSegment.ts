@@ -553,7 +553,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 31, // v30 recovery sub-counter; v31 pile census (ceil-floor share, spec 44 leg 1) 2026-08-04
+    version: 32, // v31 pile census; v32 hostile-at-death kill attribution (task #9, the R1 swap's evidence) 2026-08-05
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {

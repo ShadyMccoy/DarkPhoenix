@@ -262,6 +262,48 @@ describe("LossMeter (residual line items)", () => {
       expect(r.tombstoneKilledHostileRoom, "only the intel-flagged room's kill").to.equal(300);
     });
 
+    /**
+     * HOSTILE AT DEATH, not at booking (task #9, the R1 swap's blocker).
+     * The booking-time flag misses the LAG case: a hauler killed at tick D
+     * by an invader sighted at D+40 books "not hostile" though the mark's
+     * TTL window (until = sighting + ttl) covers D. The census now carries
+     * hostileAtDeath - "the room's intel mark window covers this death's
+     * deathTime" - host-assembled beside hostileFlagged; the DELTA between
+     * the two counters IS the sighting-lag measurement. The R1 tax swap
+     * reads THIS counter's share, never the booking-time one.
+     */
+    it("books killed energy by hostile-AT-DEATH (mark window covers deathTime), beside the booking-time flag", () => {
+      sampleRoomLosses(census({ room: "W41N23" }), 90);
+      sampleRoomLosses(
+        census({
+          room: "W41N23",
+          tombstones: [
+            tomb({ id: "a", energy: 300, killed: true, hostileAtDeath: true }), // killed inside the mark window
+            tomb({ id: "b", energy: 200, killed: true }) // killed with no covering mark
+          ]
+        }),
+        100
+      );
+      const r = lossReport(100);
+      expect(r.tombstoneKilledHostileAtDeath, "only the mark-covered kill").to.equal(300);
+      expect(r.tombstoneKilled).to.equal(500);
+    });
+
+    it("recycled and expired deaths never touch the hostile-at-death counter", () => {
+      sampleRoomLosses(census({ room: "W41N23" }), 90);
+      sampleRoomLosses(
+        census({
+          room: "W41N23",
+          tombstones: [
+            tomb({ id: "a", energy: 300, recycled: true, hostileAtDeath: true }),
+            tomb({ id: "b", energy: 100, killed: false, hostileAtDeath: true })
+          ]
+        }),
+        100
+      );
+      expect(lossReport(100).tombstoneKilledHostileAtDeath).to.equal(0);
+    });
+
     it("expired and unknown deaths contribute NOTHING to the killed-location split", () => {
       sampleRoomLosses(census({ room: "W41N23", hostileFlagged: true }), 90);
       sampleRoomLosses(

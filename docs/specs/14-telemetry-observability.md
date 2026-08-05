@@ -8344,3 +8344,35 @@ class -> ~0.02 p/t (the builders alone); the next REAL site cluster still
 fields its relay instantly (regression watch at the next RCL build-out).
 TOP LINE L1 (pile decay 9.03: cee2's forming chain + cd94) remains the
 spec-44 standing case.
+
+## Cycle t72785431 — flicker fix VERIFIED (zero tanker receipts); the hostile-at-death instrument ships (v32); two harness-gate incidents recorded
+
+**Flicker verification: CONFIRMED.** 1,201t pure post-fix ring: ZERO tanker
+receipts; the road campaign continues on four self-fueled 250e builders.
+The worth-a-body relay gate joins the heal dead-band and the spawn-sink
+ceiling as the third actuator-prices-its-own-quantum fix. Evacuation +0.55
+F (fifth consecutive window at/under budget); RESIDUAL +1.21; cee2 left
+the held-mouths list (its chain caught up). TOP LINE stays L1 (pile decay
+7.99 - the spec-44 standing case, unchanged program).
+
+**Task #9 shipped (telemetry-only, core v32):** `tombstoneKilledHostileAtDeath`
+- killed energy whose room's intel mark WINDOW covers the deathTime
+(deathTime <= roomIntel.hostileUntil), host-assembled beside the
+booking-time flag. Catches the sighting-LAG kill the booking-time flag
+misses by construction; the DELTA between the two counters IS the lag
+measurement. The R1 tax swap reads THIS share once post-v32 windows
+accumulate - never the 5x headline the exposure-classified churn built.
+
+**PROCESS INCIDENT, second of the session, recorded against the trap list:**
+the deploy chain gated on `grep -E "passing|failing"` - which succeeds by
+FINDING the word "failing" - and a deploy ran with 1 failing test. The
+failure proved to be the deliberate version-pin tripwire (expected 32 to
+equal 31 - the pin doing exactly its job on the v32 bump), so the shipped
+bundle was correct; the GATE was not. Earlier the same session, a
+`| tail -1` per trio leg produced three blank lines and an unfailable exit
+code (caught before deploying). RULE, now twice-bought: a verdict is the
+PARSED FAILING COUNT (`grep -cE "[0-9]+ failing"` == 0), never marker
+presence, never exit codes - in the playbook's own words, applied to one's
+own harness plumbing.
+
+Verdict: **verified (flicker) + instrumented (v32) + process-corrected.**
