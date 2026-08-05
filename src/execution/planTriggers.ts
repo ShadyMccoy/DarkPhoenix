@@ -34,7 +34,41 @@ export interface PlanTriggerSnapshot {
   rclByRoom: Record<string, number>;
   /** My-spawn count across owned rooms (the census's spawn set size). */
   spawnCount: number;
+  /**
+   * The bank-fed LAW (bank.bankFedControllerRate over the live stock, summed
+   * across owned storage rooms) AS OF THE BUDGET'S SOLVE - published by the
+   * plan itself (Memory.budgetLawRate). Undefined before the first solve.
+   */
+  budgetLawRate?: number;
+  /**
+   * The same law priced RIGHT NOW. The gap between this and budgetLawRate is
+   * how far the world has moved under the standing budget (spec 46).
+   * Undefined without a bank or vision.
+   */
+  bankFedControllerRate?: number;
 }
+
+/**
+ * BUDGET-STALENESS thresholds (spec 46 phase A). A re-budget fires only when
+ * the live law has moved BOTH a large fraction AND a material absolute
+ * amount from where it stood WHEN THE BUDGET WAS SOLVED - the ratio alone
+ * would fire on near-zero valves (0.5 -> 2.0 is 4x and 1.5 e/t), the
+ * absolute alone would fire on ordinary drift at a rich colony. Sized so a
+ * month of normal banking rides to the boundary (the anti-thrash point)
+ * while the drained-bank case - a standing fleet drawing against a reserve
+ * that has fallen out from under it - re-budgets within a debounce window.
+ *
+ * LAW-vs-LAW, never law-vs-PUBLISHED (the flaw caught before this shipped):
+ * the published allocation legitimately diverges from the law by PLAN POLICY
+ * - wartime relegates it to ~0 while the law prices the full surplus, and
+ * the physical burn cap bounds it - so a law-vs-published test would fire
+ * every debounce window forever in exactly the state the colony is in today,
+ * restoring the 50-tick thrash through the back door. Comparing the law to
+ * its own value at budget time asks the only question that matters here:
+ * has the WORLD moved out from under the plan?
+ */
+export const BUDGET_STALE_FRACTION = 0.5;
+export const BUDGET_STALE_ABSOLUTE = 15;
 
 /**
  * Debounce on FORCED solves: at most one per this many ticks, however many
@@ -64,6 +98,18 @@ export function planTriggerReason(prev: PlanTriggerSnapshot, curr: PlanTriggerSn
     if (was !== undefined && curr.rclByRoom[room] > was) return `rcl-up:${room}:${was}->${curr.rclByRoom[room]}`;
   }
   if (prev.spawnCount !== curr.spawnCount) return `spawns:${prev.spawnCount}->${curr.spawnCount}`;
+  // BUDGET STALENESS (spec 46): the law AT BUDGET TIME vs the law now - has
+  // the world moved out from under the standing plan? Last in the order: a
+  // structural transition names itself first, and this re-budgets either way.
+  const atBudget = curr.budgetLawRate;
+  const law = curr.bankFedControllerRate;
+  if (atBudget !== undefined && law !== undefined) {
+    const gap = Math.abs(law - atBudget);
+    const frac = gap / Math.max(1, atBudget);
+    if (gap >= BUDGET_STALE_ABSOLUTE && frac >= BUDGET_STALE_FRACTION) {
+      return `budget-stale:${atBudget.toFixed(1)}->${law.toFixed(1)}`;
+    }
+  }
   return null;
 }
 
@@ -90,6 +136,7 @@ export function shouldForceReplan(
 // =============================================================================
 
 import { hostileRooms } from "../utils/RoomDiscovery";
+import { bankFedControllerRate, resolveReserveTarget } from "../economy/bank";
 
 /** Persisted detector state (survives resets; a reset re-seeds the baseline). */
 interface PlanTriggerState {
@@ -111,11 +158,32 @@ export function assemblePlanTriggerSnapshot(): PlanTriggerSnapshot {
     const c = Game.rooms[roomName]?.controller;
     if (c?.my) rclByRoom[roomName] = c.level;
   }
+  // BUDGET STALENESS inputs (spec 46): the law as the BUDGET saw it (the
+  // plan publishes it - never re-derived here) against the law right now.
+  // Absent-not-zero when there is no bank / no solve yet, so a missing
+  // reading can never fake a variance.
+  let law: number | undefined;
+  const reserveTarget = resolveReserveTarget(Memory.warchestTarget);
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room.controller?.my) continue;
+    const storage = room.storage;
+    if (!storage?.my) continue;
+    law =
+      (law ?? 0) +
+      bankFedControllerRate(
+        storage.store?.[RESOURCE_ENERGY] ?? 0,
+        reserveTarget,
+        room.controller.ticksToDowngrade
+      );
+  }
   return {
     hostileRooms: [...hostileRooms()],
     expansionState: Memory.expansion?.roomName,
     rclByRoom,
-    spawnCount: Object.keys(Game.spawns ?? {}).length
+    spawnCount: Object.keys(Game.spawns ?? {}).length,
+    ...(Memory.budgetLawRate !== undefined ? { budgetLawRate: Memory.budgetLawRate } : {}),
+    ...(law !== undefined ? { bankFedControllerRate: law } : {})
   };
 }
 

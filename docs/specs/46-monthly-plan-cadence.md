@@ -90,3 +90,54 @@ against a stable baseline.
 
 Phase A is implementable immediately; B-D follow once A's live behavior is
 verified over a full month window.
+
+## Phase A as BUILT (2026-08-05)
+
+- `PLAN_BUDGET_INTERVAL` / `isPlanBudgetBoundary` in economy/primitives,
+  derived from `CREEP_LIFETIME` so the budget term, the fiscal month and the
+  amortization horizon can never drift apart. main.ts's cadence term is the
+  boundary; the CPU governor's stretch is now strictly non-binding (1500
+  already exceeds even the stretched 150), so degradation can only slow
+  planning further, never speed it up.
+- The existing durable-transition triggers (spec 36) are unchanged and ARE
+  the structural trigger set the design called for.
+- **The budget-staleness trigger** (the owner's "large variances as signals
+  to adapt") closes the one real hazard of a monthly budget: the ONE VALVE
+  rule sizes the upgrader fleet from the published allocation and nothing
+  else, so a month-old valve can keep a standing fleet drawing against a
+  bank that has since fallen through its reserve. Fires on
+  `BUDGET_STALE_FRACTION` (0.5) AND `BUDGET_STALE_ABSOLUTE` (15 e/t)
+  together - the ratio alone fires on near-zero valves, the absolute alone
+  on ordinary rich-colony drift.
+
+### The flaw caught before it shipped (worth keeping)
+
+The first implementation compared the live law against the PUBLISHED
+allocation. That is wrong, and wrong in a way that would have restored the
+exact thrash this spec removes: the published allocation legitimately
+diverges from the law by PLAN POLICY - wartime relegates it to ~0 while the
+law prices the whole surplus, and the physical burn cap bounds it. In the
+colony's state on the day this shipped (colony-wide backlog, published ~0,
+law ~41) that test would have re-forced a solve every debounce window
+forever. The signal is **law-vs-law**: the law as the budget saw it
+(`Memory.budgetLawRate`, published by the plan - never re-derived) against
+the law now. That asks the only question that matters: has the WORLD moved
+out from under the plan, as opposed to the plan having deliberately chosen
+a different allocation? Pinned by the wartime test.
+
+### Registered predictions for the phase-A deploy
+
+- Solves drop from ~30/month to 1 plus stamped triggers; `[Planning]
+  forced replan: <reason>` lines name every off-cadence solve.
+- P1 plan flap goes structurally quiet (a funded-set flip now requires a
+  boundary or a stamped trigger); the d017 boundary flap in particular
+  cannot recur mid-month.
+- CPU: the heaviest recurring block runs 30x less often - watch the CPU
+  ledger's planning bucket fall, and the governor's stretch stop mattering.
+- Fiscal closes describe ONE budget; F1/F2/F3 stop mixing solve generations.
+- RISK to watch (the reason the staleness trigger exists): a mid-month
+  world change the trigger set does NOT cover - construction completing,
+  paving finishing, a source's buffer draining - now waits for the
+  boundary. Expected and intended ("banking excess is fine"), but if a
+  fidelity line degrades mid-month in a way that traces to a stale budget,
+  that names the next trigger to add.

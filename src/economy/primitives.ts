@@ -42,6 +42,42 @@ export const BODY_COSTS = {
 /** Creep lifetime in ticks */
 export const CREEP_LIFETIME = 1500;
 
+/**
+ * The PLAN's budget term (spec 46 phase A, owner 2026-08-05: "we take the
+ * budget/plan and we use that for the next fiscal month... to avoid
+ * thrashing and provide clarity in reporting. It's kind of setting the plan
+ * solving from 50 to 1500 effectively").
+ *
+ * THE SAME NUMBER as the fiscal month (spec 41) and the amortization horizon,
+ * derived from CREEP_LIFETIME so the three can never drift: a budget covers
+ * exactly the period its body purchases are expensed across, and exactly the
+ * window the fiscal close measures - so the close's BUDGET column describes
+ * ONE plan instead of the ~30 the 50-tick governor cadence produced.
+ *
+ * The thrash this ends, measured: d017 flapped funded -> over-budget ->
+ * funded across consecutive solves (t72801208/t72801354) - a route at the
+ * tranche edge re-decided on solve-to-solve noise in OTHER candidates' parts
+ * estimates, each flip a commission-churn risk and a re-based capacity line
+ * in the reports.
+ *
+ * A FLOOR on SCHEDULED re-planning, never a gate on transitions: the trigger
+ * detector (execution/planTriggers) still forces a replan on any durable
+ * world change - hostile flip, expansion step, RCL-up, spawn census - and
+ * the anti-downgrade pre-pass is not calendar-gated. Cadence, not freeze.
+ */
+export const PLAN_BUDGET_INTERVAL = CREEP_LIFETIME;
+
+/**
+ * Is this tick a budget boundary - the moment the month's plan is solved and
+ * becomes the term's budget? Aligned to the absolute tick clock so it lands
+ * on the SAME boundaries the fiscal calendar uses (scripts/fiscal.ts:
+ * month = floor((tick % 15000) / 1500)), which is what makes a close and a
+ * budget describe the same window.
+ */
+export function isPlanBudgetBoundary(tick: number): boolean {
+  return tick % PLAN_BUDGET_INTERVAL === 0;
+}
+
 /** Standard miner: 5W 3M */
 export const MINER_COST = 5 * BODY_COSTS.WORK + 3 * BODY_COSTS.MOVE; // 650
 /** Body parts of a standard miner (5 WORK + 3 MOVE), for spawn build-time costing. */

@@ -24,6 +24,69 @@ const base = (over: Partial<PlanTriggerSnapshot> = {}): PlanTriggerSnapshot => (
   ...over
 });
 
+/**
+ * SPEC 46 PHASE A - the budget-staleness trigger (owner 2026-08-05: "We can
+ * still resolve along the way and identify LARGE VARIANCES as signals to
+ * adapt"). With the scheduled solve at the fiscal month, the published
+ * controller allocation is a month old while the bank level moves
+ * continuously - and the ONE VALVE rule sizes the upgrader fleet from that
+ * published number and nothing else. A month-stale valve is not merely
+ * imprecise: at ~40 e/t of draw the bank moves ~60k in one term, so an
+ * allocation priced at the month's opening stock can keep a standing fleet
+ * drawing against a bank that has since fallen through its reserve (the
+ * cash-poor failure the warchest exists to prevent).
+ *
+ * So the LAW's own movement SINCE THE BUDGET SOLVED is a durable signal -
+ * bank stock, not creep positions - and re-budgets when it gets large.
+ * Small drift rides to the boundary: that IS the anti-thrash point.
+ *
+ * LAW-vs-LAW, never law-vs-PUBLISHED: the published allocation diverges
+ * from the law by PLAN POLICY (wartime relegation, the physical burn cap),
+ * so a law-vs-published test would fire every debounce window forever in
+ * exactly the state the colony is in today - pinned below.
+ */
+describe("spec 46: budget staleness is a durable trigger (the owner's large-variance signal)", () => {
+  const withBank = (atBudget: number, law: number): PlanTriggerSnapshot =>
+    base({ budgetLawRate: atBudget, bankFedControllerRate: law });
+
+  it("a LARGE move in the law since the budget solved re-budgets", () => {
+    // The bank drained through the month: the law prices 20 e/t where it
+    // stood at 60 when the budget was set. A fleet sized to that budget is
+    // eating the reserve.
+    expect(planTriggerReason(withBank(60, 60), withBank(60, 20))).to.contain("budget-stale");
+  });
+
+  it("...in BOTH directions (an under-drawing budget wastes the surplus it should be spending)", () => {
+    expect(planTriggerReason(withBank(20, 20), withBank(20, 60))).to.contain("budget-stale");
+  });
+
+  it("ORDINARY drift rides to the month boundary - that is the anti-thrash point", () => {
+    // A month of normal banking moves the law some; re-budgeting on THAT
+    // would restore the 50-tick thrash through the back door.
+    expect(planTriggerReason(withBank(50, 50), withBank(50, 56))).to.equal(null);
+  });
+
+  it("a tiny absolute gap never fires, however large the ratio (a near-zero valve is not a variance)", () => {
+    // 0.5 -> 2.0 is 4x, but it is 1.5 e/t - noise, not a signal.
+    expect(planTriggerReason(withBank(0.5, 0.5), withBank(0.5, 2))).to.equal(null);
+  });
+
+  it("absent readings never fire (no bank, no vision, pre-first-solve)", () => {
+    expect(planTriggerReason(base(), base())).to.equal(null);
+    expect(planTriggerReason(withBank(60, 60), base())).to.equal(null);
+  });
+
+  it("PLAN POLICY is never staleness: wartime publishes ~0 against a live law of 41 and nothing fires", () => {
+    // The live state at t72801354: the colony-wide backlog relegates every
+    // controller to its floor (published ~0) while the law prices the full
+    // surplus (~41). A law-vs-PUBLISHED test would re-force every debounce
+    // window forever here - the 50-tick thrash restored through the back
+    // door. Law-vs-law sees a quiet world, which it is.
+    const wartime = base({ budgetLawRate: 41, bankFedControllerRate: 41 });
+    expect(planTriggerReason(wartime, wartime)).to.equal(null);
+  });
+});
+
 describe("plan triggers (spec 36 item 1: durable transitions force a replan)", () => {
   describe("planTriggerReason - the durable trigger set", () => {
     it("a room flipping HOSTILE fires (embargo on)", () => {
