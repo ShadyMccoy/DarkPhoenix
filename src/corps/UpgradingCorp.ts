@@ -11,7 +11,7 @@ import { blankDutyHistogram, recordDutyTick } from "../telemetry/dutyHistogram";
 import { roomHasFlowHauler } from "./censusLens";
 import { controllerInputSpot, controllerParkingTiles, controllerSideStock } from "./nodeEnergy";
 import { travelToBypass } from "./movement";
-import { driveRecycle } from "./recycle";
+import { driveRecycle, worthABody } from "./recycle";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import { Position } from "../types/Position";
@@ -118,6 +118,47 @@ export function upgraderTargetCount(
   const rclCap = (controllerLevel ?? 99) <= 2 ? RCL2_UPGRADER_CAP : UPGRADER_COUNT_CAP;
   const byAllocation = Math.ceil(allocated / Math.max(1, affordableWork));
   return Math.max(1, Math.min(UPGRADER_COUNT_CAP, rclCap, parkingTiles || UPGRADER_COUNT_CAP, byAllocation));
+}
+
+/**
+ * Is the fleet's remaining WORK gap worth a SPAWN PURCHASE (owner 2026-08-05:
+ * "With the amount of work why do we even need 8 spots at all? We can make
+ * creeps big enough to avoid that constraint")?
+ *
+ * The owner's arithmetic is the point. At RCL7 capacity a containerFed
+ * upgrader packs **39 WORK for 4,450e in 50 parts**, so a 60.21 allocation
+ * wants TWO bodies (39 + 21) - and `upgraderTargetCount` computes exactly 2.
+ * The parking ring never binds at that size; it only binds on a fleet made
+ * of runts.
+ *
+ * And runts are what the corp was buying. The order size is the REMAINING
+ * gap with no floor, so once the fleet is near its allocation the gap is a
+ * 2-6 WORK sliver and the corp spends a body on it - a body that then holds
+ * a parking slot for its whole 1500-tick life. Measured t72804439: 4 bodies
+ * carrying 58 WORK (one ~39 plus three ~6-WORK slivers) where two bodies
+ * would have carried 60, with "recycled why: runt-upsize 83%" in the same
+ * window naming the churn that follows.
+ *
+ * This is the upgrader's version of the even-share treadmill the haulers
+ * were cured of on 2026-08-03, so it takes the SAME predicate -
+ * corps/recycle.worthABody - rather than a second rule that could drift
+ * from it: a deficit under HALF a body share is not worth a purchase, it
+ * rides to EOL, which re-sizes for free.
+ *
+ * Sizing to the GAP is kept (it is what makes the second body 21 rather than
+ * a wasteful full 39); only the sliver PURCHASE goes.
+ *
+ * BOOTSTRAP IS EXEMPT, exactly as on the hauler side ("Bootstrap keeps every
+ * crank - escape velocity, cee0 doctrine"). A pre-storage room cannot build
+ * big bodies at all (800 capacity affords 6 WORK), so the sliver rule there
+ * would abandon ~10% of the allocation permanently instead of the ~4% it
+ * leaves at RCL7 - and early RCL progress is exactly what buys the capacity
+ * that makes big bodies possible. Maturity is the SAME lens the haulers use:
+ * the room is storage-backed.
+ */
+export function upgraderWorthABody(remainingWork: number, affordableWork: number, mature = true): boolean {
+  if (!mature) return true; // bootstrap: close every gap, escape velocity first
+  return worthABody(remainingWork, affordableWork);
 }
 
 /**
@@ -725,6 +766,17 @@ export class UpgradingCorp extends Corp {
     // over-states what is fielded and under-orders the body that closes the gap
     // - the same count-vs-capacity drift the exit above just fixed.
     const remainingWork = allocated - fieldedWork;
+    // A WORK SLIVER IS NOT WORTH A BODY (owner 2026-08-05, see
+    // upgraderWorthABody): a 2-6 WORK gap buys a runt that then holds one of
+    // the few parking slots for 1500 ticks. Ride it to EOL, which re-sizes
+    // for free. The FIRST body is exempt by construction - with nothing
+    // fielded the gap is the whole allocation, which always clears half a
+    // share - so a cold controller still starts upgrading immediately.
+    const mature = !!spawn?.room?.storage?.my;
+    if (current > 0 && !upgraderWorthABody(remainingWork, affordableWork, mature)) {
+      this.lastSizing.demand = "sliver";
+      return [];
+    }
     const desiredWork = Math.max(1, Math.min(affordableWork, Math.ceil(remainingWork)));
     const desired = buildUpgraderBody(ctx.energyCapacity, desiredWork, "containerFed");
     // Runt policy: a runt permanently occupies one of the few parking slots and the

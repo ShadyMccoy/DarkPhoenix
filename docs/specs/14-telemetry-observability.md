@@ -9070,3 +9070,53 @@ climbing from 87,348; delivered controller e/t roughly doubles toward the
 60 e/t budget. WATCH: S5 (0.88x, 12% margin) may tighten as upgrader bodies
 join the queue - if it crosses the reversion criteria the ordering between
 consumer growth and spawn headroom is the next question, not a re-cap.
+
+### Owner correction, same cycle — "why do we even need 8 spots at all?" The parking ring was a symptom
+
+Owner 2026-08-05, on the swarm-cap fix shipped minutes earlier: *"With the
+amount of work why do we even need 8 spots at all? We can make creeps big
+enough to avoid that constraint."*
+
+The arithmetic confirms it. At RCL7 capacity (5600) a containerFed upgrader
+packs **39 WORK for 4,450e in 50 parts** - MAX_BODY_PARTS binds, not energy.
+So a 60.21 allocation wants TWO bodies (39 + 21), and `upgraderTargetCount`
+computes exactly 2. The parking ring is irrelevant at that size; it only
+binds on a fleet made of runts.
+
+And runts were being bought. The order size is `min(affordableWork,
+ceil(allocated - fieldedWork))` with NO floor, so once the fleet is near its
+allocation the gap is a 2-6 WORK sliver and the corp spends a whole body on
+it - a body that then holds a parking slot for its full 1500-tick life.
+Measured t72804439: 4 bodies carrying 58 WORK (one ~39 plus three ~6-WORK
+slivers) where two bodies would have carried 60, with "recycled why:
+runt-upsize 83%" in the same window naming the churn that follows. This is
+the upgrader's version of the even-share treadmill the HAULERS were cured of
+on 2026-08-03 - the same disease, on the post nobody re-checked.
+
+FIX: `upgraderWorthABody` delegates to the SAME predicate the cure used
+(corps/recycle.worthABody) rather than inventing a second rule that could
+drift - a deficit under HALF a body share is not worth a purchase, it rides
+to EOL which re-sizes for free. Sizing to the gap is KEPT (it makes the
+second body 21, not a wasteful 39); only the sliver purchase goes. Stamped
+`demand: "sliver"`.
+
+BOOTSTRAP EXEMPT, on the hauler doctrine's own terms ("Bootstrap keeps every
+crank - escape velocity"): the spawn harness caught it immediately - at 800
+capacity a body affords 6 WORK, so a 20 e/t allocation leaves a 2-WORK tail
+and the mature rule would abandon ~10% of the allocation permanently (vs
+~4% at RCL7), in exactly the regime where controller progress is what buys
+the capacity that makes big bodies possible. Maturity is the same lens the
+haulers use: storage-backed. Unit 2111-0.
+
+**The swarm-cap relaxation shipped an hour earlier is now correctly a
+LOW-RCL SAFETY VALVE, not the fix.** It is dormant wherever bodies are big
+(the fleet reaches fieldedWork >= allocated in two bodies and never touches
+the cap); it still matters at RCL2-4 where 4-6 WORK bodies genuinely need
+headcount. Kept, re-scoped, and named as such - the owner's question moved
+the fix one layer down to where the mechanism actually was.
+
+Methodology note, third instance this session: the owner has now twice
+redirected a defensive mechanism to the real cause (the construction ladder
+story, the budget-staleness trigger) and once re-scoped one to its honest
+role. The pattern to carry: when a cap is what's binding, ask what makes the
+cap bind before relaxing the cap.

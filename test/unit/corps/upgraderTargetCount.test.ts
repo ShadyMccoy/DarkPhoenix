@@ -1,10 +1,12 @@
 import { expect } from "chai";
+import { worthABody } from "../../../src/corps/recycle";
 import "../../../src/types/Memory";
 import {
   bankBehindFeeder,
   upgraderAllocation,
   upgraderFleetSatisfied,
   upgraderSwarmCap,
+  upgraderWorthABody,
   upgraderSizing,
   upgraderTargetCount
 } from "../../../src/corps/UpgradingCorp";
@@ -231,5 +233,66 @@ describe("upgraderSwarmCap (a WORK-short fleet is bounded by PARKING, not headco
 
   it("a degenerate parking read (0 = unknown) never strands replacement", () => {
     expect(upgraderSwarmCap(2, 0, 10, 60.21)).to.equal(4);
+  });
+});
+
+/**
+ * A WORK SLIVER IS NOT WORTH A BODY (owner 2026-08-05: "With the amount of
+ * work why do we even need 8 spots at all? We can make creeps big enough to
+ * avoid that constraint").
+ *
+ * The owner is right on the arithmetic and it reframes the swarm cap above
+ * as a symptom. At RCL7 capacity (5600) a containerFed upgrader packs
+ * **39 WORK for 4,450e in 50 parts** - one body covers 39 e/t, so a 60.21
+ * allocation wants TWO bodies (39 + 21) and `targetCount` computes exactly
+ * 2. The parking ring is irrelevant at that size.
+ *
+ * What actually stood at t72804439 was 4 bodies carrying 58 WORK - one big
+ * (~39) and three ~6-WORK slivers - because the order size is the REMAINING
+ * gap with no floor: once the fleet is near its allocation the gap is 2-6
+ * WORK and the corp buys a runt for it, which then occupies a parking slot
+ * for its whole 1500-tick life ("recycled why: runt-upsize 83%" in the same
+ * window). That is the upgrader's version of the even-share treadmill the
+ * haulers were cured of on 2026-08-03 - and the cure is the same predicate:
+ * corps/recycle.worthABody, a deficit under HALF a body share is not worth a
+ * spawn purchase, it rides to EOL which re-sizes for free.
+ *
+ * Sizing to the GAP stays (it is what makes the second body 21 and not a
+ * wasteful 39); only the sliver purchase goes.
+ */
+describe("upgraderWorthABody (the big-body rule - owner 2026-08-05)", () => {
+  it("the live sliver: 2.2 WORK short of a 39-WORK share is NOT worth a body", () => {
+    expect(upgraderWorthABody(60.21 - 58, 39)).to.equal(false);
+  });
+
+  it("a real gap IS worth a body - and sizing to the gap keeps it honest (39 + 21, not 39 + 39)", () => {
+    // Second body of a fresh 60.21 fleet: 21.21 remaining of a 39 share.
+    expect(upgraderWorthABody(60.21 - 39, 39)).to.equal(true);
+  });
+
+  it("exactly half a share is worth it (the boundary is inclusive, as for haulers)", () => {
+    expect(upgraderWorthABody(19.5, 39)).to.equal(true);
+    expect(upgraderWorthABody(19.4, 39)).to.equal(false);
+  });
+
+  it("the FIRST body is always worth it (a cold controller must start upgrading)", () => {
+    // Whole allocation outstanding: trivially past half a share.
+    expect(upgraderWorthABody(60.21, 39)).to.equal(true);
+    // ...and at a tiny RCL2 body share the same rule still fields the starter.
+    expect(upgraderWorthABody(5, 4)).to.equal(true);
+  });
+
+  it("mirrors corps/recycle.worthABody exactly (ONE doctrine, both posts)", () => {
+    expect(upgraderWorthABody(10, 20)).to.equal(worthABody(10, 20));
+    expect(upgraderWorthABody(9, 20)).to.equal(worthABody(9, 20));
+  });
+
+  it("BOOTSTRAP is exempt - a pre-storage room closes every gap (escape velocity, the hauler doctrine)", () => {
+    // At 800 capacity a body affords 6 WORK, so a 20 e/t allocation leaves a
+    // 2-WORK tail. Mature: not worth a body. Bootstrap: buy it - early RCL
+    // progress is what buys the capacity that makes big bodies possible, and
+    // abandoning ~10% of the allocation there is a worse trade than the runt.
+    expect(upgraderWorthABody(2, 6, true), "mature: the tail rides to EOL").to.equal(false);
+    expect(upgraderWorthABody(2, 6, false), "bootstrap: every crank").to.equal(true);
   });
 });
