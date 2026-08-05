@@ -1739,21 +1739,6 @@ export class FlowEconomy {
         ctrlByRoom[a.roomName] = (ctrlByRoom[a.roomName] ?? 0) + a.allocated;
       }
       Memory.controllerAllocations = ctrlByRoom;
-      // The LAW as THIS budget saw it (spec 46 phase A): what
-      // bankFedControllerRate prices over the live bank stock right now,
-      // summed across the rooms that have one. The staleness trigger
-      // (execution/planTriggers) compares it against the same law later in
-      // the term - law-vs-law, so PLAN POLICY (wartime relegation, the
-      // physical burn cap) never reads as staleness. Absent when no room has
-      // a bank, so the trigger simply cannot fire rather than fabricating a
-      // zero. Publish-don't-rederive, exactly like warchestTarget below.
-      let budgetLaw: number | undefined;
-      for (const a of result.solution.sinkAllocations) {
-        if (a.sinkType !== "controller" || !a.roomName) continue;
-        const roomLaw = storageBankFedAllocation(a.roomName);
-        if (roomLaw !== undefined) budgetLaw = (budgetLaw ?? 0) + roomLaw;
-      }
-      Memory.budgetLawRate = budgetLaw;
       // Publish the liquidity reserve target for next solve's bank-surplus
       // emission and every consumer that sizes off it (bank.resolveReserveTarget).
       // Income is the colony's sustained FUNDED mined rate - this solve's own

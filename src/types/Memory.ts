@@ -465,17 +465,6 @@ declare global {
     controllerAllocations?: Record<string, number>;
 
     /**
-     * The bank-fed LAW (bank.bankFedControllerRate, summed across owned
-     * storage rooms) as the BUDGET's solve saw it (spec 46 phase A).
-     * Published by FlowEconomy.update beside controllerAllocations; read
-     * only by execution/planTriggers, which compares it against the same
-     * law priced NOW to decide whether the world has moved out from under
-     * the month's budget. Published, never re-derived - the same
-     * publish-don't-rederive discipline as warchestTarget.
-     */
-    budgetLawRate?: number;
-
-    /**
      * Event-triggered replanning state (spec 36 item 1): the previous
      * durable-signal snapshot and the last forced-solve tick, persisted so a
      * global reset re-seeds the baseline instead of misreading the fresh

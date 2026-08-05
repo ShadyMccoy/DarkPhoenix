@@ -101,29 +101,49 @@ verified over a full month window.
   planning further, never speed it up.
 - The existing durable-transition triggers (spec 36) are unchanged and ARE
   the structural trigger set the design called for.
-- **The budget-staleness trigger** (the owner's "large variances as signals
-  to adapt") closes the one real hazard of a monthly budget: the ONE VALVE
-  rule sizes the upgrader fleet from the published allocation and nothing
-  else, so a month-old valve can keep a standing fleet drawing against a
-  bank that has since fallen through its reserve. Fires on
-  `BUDGET_STALE_FRACTION` (0.5) AND `BUDGET_STALE_ABSOLUTE` (15 e/t)
-  together - the ratio alone fires on near-zero valves, the absolute alone
-  on ordinary rich-colony drift.
+- **No staleness trigger on the controller valve** - see below. Phase A is
+  the cadence plus the existing structural triggers, and nothing else.
 
-### The flaw caught before it shipped (worth keeping)
+### The staleness trigger: built, then REMOVED on the owner's correction
 
-The first implementation compared the live law against the PUBLISHED
-allocation. That is wrong, and wrong in a way that would have restored the
-exact thrash this spec removes: the published allocation legitimately
-diverges from the law by PLAN POLICY - wartime relegates it to ~0 while the
-law prices the whole surplus, and the physical burn cap bounds it. In the
-colony's state on the day this shipped (colony-wide backlog, published ~0,
-law ~41) that test would have re-forced a solve every debounce window
-forever. The signal is **law-vs-law**: the law as the budget saw it
-(`Memory.budgetLawRate`, published by the plan - never re-derived) against
-the law now. That asks the only question that matters: has the WORLD moved
-out from under the plan, as opposed to the plan having deliberately chosen
-a different allocation? Pinned by the wartime test.
+Phase A briefly carried a budget-staleness trigger, justified by a hazard
+that does not exist. Both halves are worth keeping on the record.
+
+**The implementation flaw** (caught pre-ship): the first version compared
+the live law against the PUBLISHED allocation. The published allocation
+legitimately diverges from the law by PLAN POLICY - wartime relegates it to
+~0 while the law prices the whole surplus, and the physical burn cap bounds
+it - so in the colony's state that day (published ~0, law ~41) it would have
+re-forced a solve every debounce window forever: the exact thrash this spec
+removes, restored through the back door.
+
+**The premise flaw** (owner, same day): *"I'm ok with eating the surplus.
+The consumption is sized to consume the surplus so it's a very safe
+allocation."* Correct, and it dissolves the hazard rather than patching it.
+The arithmetic:
+
+```
+draw           = bankSurplusRate = (banked - reserve) / SURPLUS_DRAIN_TICKS
+SURPLUS_DRAIN_TICKS == CREEP_LIFETIME == PLAN_BUDGET_INTERVAL == 1500
+=> over one budget term the draw consumes EXACTLY the surplus it was
+   priced from, landing AT the reserve - plus a month of income on top,
+   so it lands above it.
+```
+
+The three horizons being one number is the design, not a coincidence
+(bank.ts: "the bodies it funds die naturally as it empties"). A fleet
+sized to this valve is SELF-LIQUIDATING over exactly the budget's term, so
+"a month-stale valve drains through the reserve" cannot happen from this
+valve at all. If the bank ever does fall through its reserve, the cause is
+something else - and that something else is the signal worth detecting, not
+the allocation.
+
+Note the reinforcement: the monthly cadence is *better* matched to the drain
+law than the 50-tick cadence was, because the budget term and the drain
+horizon are now the same 1500 ticks. The trigger was solving a problem the
+cadence change had already made coherent.
+
+Both mechanisms removed; the structural triggers (spec 36) stand unchanged.
 
 ### Registered predictions for the phase-A deploy
 
@@ -135,7 +155,7 @@ a different allocation? Pinned by the wartime test.
 - CPU: the heaviest recurring block runs 30x less often - watch the CPU
   ledger's planning bucket fall, and the governor's stretch stop mattering.
 - Fiscal closes describe ONE budget; F1/F2/F3 stop mixing solve generations.
-- RISK to watch (the reason the staleness trigger exists): a mid-month
+- RISK to watch: a mid-month
   world change the trigger set does NOT cover - construction completing,
   paving finishing, a source's buffer draining - now waits for the
   boundary. Expected and intended ("banking excess is fine"), but if a

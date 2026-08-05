@@ -8988,3 +8988,35 @@ scarcity still fields a starter - the E6 dark-source lesson). The branch
 now stamps {gate: pile-road|pile-container, staged, roadSites, zWork}.
 At cd98's 6.5k: 3 WORK ≈ 15 e/t potential against the pile - the Z-to-A
 parallel build, fueled by energy that was decaying anyway.
+
+### Same session — the budget-staleness trigger removed on the owner's correction (a hazard that wasn't)
+
+Spec 46 phase A briefly shipped a budget-staleness trigger, justified by
+"a month-old controller valve could keep a standing fleet drawing against a
+bank that has since fallen through its reserve." The owner corrected the
+premise: *"I'm ok with eating the surplus. The consumption is sized to
+consume the surplus so it's a very safe allocation."*
+
+Verified in code, not conceded: `SURPLUS_DRAIN_TICKS == CREEP_LIFETIME ==
+PLAN_BUDGET_INTERVAL == 1500`. The draw is (banked − reserve)/1500 e/t held
+for a 1500-tick term, so it consumes EXACTLY the surplus it was priced from
+and lands AT the reserve — with a month of income arriving on top, above it.
+The valve is self-liquidating over precisely the budget's term (bank.ts's
+own design note: "the bodies it funds die naturally as it empties"). The
+hazard cannot arise from this valve; if the bank ever does fall through the
+reserve, the CAUSE is elsewhere and that is the signal worth detecting.
+
+Both the mechanism and its earlier implementation flaw (law-vs-published
+would have re-forced every debounce window forever in the live wartime
+state) are recorded in spec 46. Removed: the thresholds, the snapshot
+fields, `Memory.budgetLawRate`, its publish site, and 6 tests. Phase A is
+now the cadence plus the unchanged spec-36 structural triggers — exactly
+what the directive asked for, and one fewer mechanism than the session
+nearly shipped. Unit 2101-0.
+
+Methodology note for future sessions: this is the second time in one
+session that a mechanism I added to guard a monthly budget was wrong in a
+way the OWNER caught (the first was the ladder story for construction).
+Both times the fix was to delete the mechanism, not patch it — the trap
+list's "question the mechanism, not just its failure" applies to mechanisms
+added defensively, not only to ones that have already failed live.
