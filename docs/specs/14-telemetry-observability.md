@@ -9120,3 +9120,57 @@ redirected a defensive mechanism to the real cause (the construction ladder
 story, the budget-staleness trigger) and once re-scoped one to its honest
 role. The pattern to carry: when a cap is what's binding, ask what makes the
 cap bind before relaxing the cap.
+
+## Cycle t72805426 — VERIFIED: the controller valve is delivering; the leak moves to the haul side
+
+Window t72804439 -> t72805426 (987t). The registered predictions for the
+upgrader fleet fix are **CONFIRMED**:
+
+```
+                        t72804439        t72805426
+  controller delivered   27.32 e/t        58.16 e/t   (budget 52.16 -> +6.00 F)
+  P7                     0.66x            OVER plan
+  bank slope            +14.83/t         -16.05/t     (160,848 -> 145,003)
+  G1                    UNDER-SPENDING    "72% of the score is income-funded"
+  upgrader demand exit   "swarm-cap"      "staffed"   (fieldedWork 59 >= alloc 52.16)
+```
+
+The fleet reached its allocation and the surplus is now being CONSUMED, which
+is exactly the owner's 2026-08-05 ruling ("I'm ok with eating the surplus")
+playing out: 58 e/t to the controller funded 72% from income and the rest
+from a bank drawing down toward its reserve. rclProgress +57,407 over 987t.
+
+**ATTRIBUTION, honestly bounded.** The big-body rule deployed only ~226t
+before this capture and the fleet shape is UNCHANGED (4 creeps, 59 WORK, 4
+CARRY). So this window measures the SWARM-CAP fix plus natural regrowth, NOT
+the big-body rule - whose own prediction (2 bodies of ~39+21 rather than 4
+of ~15) needs a full spawn generation and is still open. The earlier 27.32
+figure was likewise a window AVERAGE over a period when the fleet was
+rebuilding from 2 creeps/43 WORK; the standing fleet converts ~1:1
+WORK->e/t, which is what 59 WORK / 58.16 e/t now shows.
+
+**Ring caveat**: the blackbox ring spans only 165t after the deploy resets,
+so F1 (1.15x), X5 (0.07) and R1 (8.30x) are computed over that short ring
+and are NOT comparable to full-window readings. Do not act on them until a
+clean ring accumulates.
+
+**NEXT WORK ITEM - the leak moved, and it is the HAUL side.** With the
+controller now consuming 58 e/t the pressure landed downstream, and three
+rows agree on where:
+
+- L1 FAIL: pile decay **11.04 e/t** (up from 9.06) - the worst loss line.
+- E6: **4 of 10 miner ops deferred, three CHRONIC** (cee0 62%, cedc 99%,
+  cd94 90% of window) with buffers 2,087-3,703.
+- H1: duty **0.74**, idleSink 0.26 of which **0.21 is EN-ROUTE** - the row's
+  own verdict is "approach-lane congestion (traffic / standing blocker at
+  the core)", a different failure from the route-sizing story E6 defaults to.
+
+That H1 en-route split is the sharpest NEW signal of the session and it is
+NOT a sizing question - which matters, because two of today's three upgrader
+fixes were sizing fixes and the third (the owner's) showed sizing was the
+wrong layer. Next cycle should read the carry pickup stamps and the core
+approach lanes before touching any route size.
+
+Cycle verdict: **VERIFIED (the delivery prediction confirmed with a 2.1x
+measured swing) + the top line relocated to haulage with three agreeing
+rows.**
