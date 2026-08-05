@@ -8653,3 +8653,13 @@ toward the true combat share - if it STAYS ~0 with home kills continuing,
 the kills are genuinely not combat-window deaths and the home-kill mystery
 reopens on a different mechanism (that would be a REAL finding, not a lens
 artifact); (3) the deploy's global reset inflates X5 one window (known).
+
+### Deploy verification t72793082 (+63t): v33 live, machinery armed
+
+Core segment reads version 33; colony healthy through the reset (48 creeps,
+spawns 0.82/0.80). Intel state at verification: W43N24 invader-reserved
+until t72796044 (the occupation continues - cd8e/cd8d stay defunded by
+design), W44N24/W44N25 hold STALE pre-v33 creep marks (until already past;
+no vision to clear them) - their next sighting fires the v33 retention path
+with the legacy until-1500 fallback and writes the first hostileWindows.
+Prediction #1 lands there.
