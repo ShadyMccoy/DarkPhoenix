@@ -8484,3 +8484,56 @@ missed a transient stamp). (2) The deploy's global reset inflates X5 one
 window (known effect, don't re-diagnose). (3) No behavior deltas -
 telemetry-only; evacuation/controller move only with the paved convergence
 already in flight.
+
+## Cycle t72786811 close (verification t72787587) — the meter's falsification DISSOLVES the anomaly; paved admission ships
+
+**DepartMeter verdict (v16 live, ~700t):** prediction #1 FALSIFIED exactly as
+registered - every mining-hauler departure reads `full` at frac 1.0 (cd94 x2,
+cee2 x3, all nine corps). No spot-dry, no yield, no partial. Chasing the
+falsification cracked the case: a direct body read shows cd94's hauler is a
+healthy 22C/11M (33 parts, capacity 1100, hits 3300/3300). The "half load"
+was a FULL load; my "fielded 44 = 2x ask" was a misread of the corps census
+body sum (44 CARRY = TWO 22C haulers, one in delivery-aware replacement
+overlap). There was never an execution anomaly. Attribution: mine - I read
+the corp-total census as one creep's body without checking part hits or
+creep count. The meter did its job in one capture; keep it (it now
+distinguishes damaged-full from healthy-full only via a body read - noted).
+
+**The REAL top-line mechanism, one stroke, all four mouths:** the plan
+prices round trips at 2d+2 (load+unload as one intent each, zero sink
+service). Measured idleSink runs 12-27% per corp (cedc 0.266, cd94 0.20,
+cd8d 0.17, cee2 0.124 - port queueing at the shared deposit, the DEP
+gauge's 4-route port). That unmodeled trip overhead swallows the ~3-4%
+margin the drain term buys, so removal ~= inflow, the staged stock stands,
+and its ground share decays (~2 e/t per mouth = the L1 top line's mouth
+half; the small-pile ceil floor 4.29 remains spec-44's owner-gated case).
+Post-reset reads confirm the class: cd94 2488 and cee2 1818 DRAINING where
+fleets turned over to current asks; cedc 3276 still ratcheting (worst
+idleSink). **Next cycle's red-first candidate: price sink-service/queue
+time into the round trip** (a structural term, NOT measured-duty feedback -
+owner 2026-08-05: "not yet" on feeding data back to the planner).
+
+**Paved-aware ADMISSION pricing ships this deploy** (the seam this cycle
+named: candidates priced raw-1:1 beside their own 2:1 route edges).
+`pavedNetEnergy`/`pavedSpawnPartsFor` in roadEconomics compose from
+effectiveOneWayTiles + MOVE_PER_CARRY_* exactly as fill() prices edges;
+unpaved swamp-free is bit-identical to the raw primitives (conformance
+1e-9). selectProducers passes each source's pave receipt. Red-first: 5
+roadEconomics pins + 1 CorpPlanner admission behavior test; 2074 unit
+green; trio 3-0 VERIFIED BY PARSED COUNTS (storage-depot 7s, flow-handoff
+4m, runt-economy 4m).
+
+PREDICTIONS (registered before this deploy, exact arithmetic):
+1. cee2 candidate reprices net 5.93 -> 6.51, parts 0.0525 -> 0.0408;
+   efficiency 59.3 -> 65.1 - BOTH P-55 markers now fire (the original
+   efficiency marker becomes live again; clock already started t72786811).
+2. Paved remotes' plan nets rise (d50 +0.35, d77 +0.55, d85 +0.61 e/t) ->
+   the SOURCE P&L positive-variance cluster (cee2 +0.68, d01f +1.08, cd8e
+   +1.00, cbd5 +0.68) re-centers toward 0; cbd8's -0.49 goes MORE negative
+   and becomes the honest worst row (investigate it next if chronic).
+3. Funded parts drop ~0.05 p/t total -> global tranche headroom grows; the
+   12th candidate (intel-W42N21-36-3 or intel-W41N23-23-39, both priced
+   raw - no receipts) MAY admit. If one does, that is the P-55 J-curve
+   event: the gate becomes controller+bank+construction >= 55 (reclass,
+   registered at P-55).
+4. Global reset inflates X5 one window (known).

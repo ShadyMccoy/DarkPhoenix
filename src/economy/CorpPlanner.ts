@@ -31,10 +31,8 @@
 
 import { Position } from "../types/Position";
 import {
-  netEnergy,
   linkTransferTax,
   reserverRoomEnergy,
-  spawnPartsFor,
   bufferDrainCarry,
   carryPartsFor,
   constructionWorkSpawnLoad,
@@ -49,7 +47,7 @@ import {
   scavengeFloorParts,
   SPAWN_PARTS_PER_TICK
 } from "./primitives";
-import { effectiveOneWayTiles } from "./roadEconomics";
+import { effectiveOneWayTiles, pavedNetEnergy, pavedSpawnPartsFor } from "./roadEconomics";
 import { DEFAULT_VALUATION } from "./goals";
 import { bankRoomFromId, isBankSourceId } from "./ids";
 import { FieldedFleet } from "./Commission";
@@ -447,8 +445,13 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
       (source.invaderTax ?? 0) * source.rate +
       (source.haulPos ? linkTransferTax(source.rate) : 0) +
       reservationShare;
-    const net = netEnergy(source.rate, near.distance) - tax;
-    const parts = spawnPartsFor(source.rate, near.distance);
+    // Paved-aware admission (cycle t72786811): price the candidate with the
+    // SAME route model fill() builds its edges from — the funding gate and
+    // the ranking read the pave receipt instead of the raw 1:1 tile count
+    // (cee2 stood at candidate net 5.93 beside its own 2:1/d-70 route edge).
+    const pave = { paved: source.paved, pavedFraction: source.pavedFraction, swampFraction: source.swampFraction };
+    const net = pavedNetEnergy(source.rate, near.distance, pave) - tax;
+    const parts = pavedSpawnPartsFor(source.rate, near.distance, pave);
     if (net <= 0) {
       // never mine a source that costs more than it yields - stamped, not silent
       verdicts.push({ sourceId: source.id, rate: source.rate, distance: near.distance, net, tax, parts, verdict: "unprofitable" });

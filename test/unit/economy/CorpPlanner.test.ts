@@ -18,7 +18,7 @@ import {
   MINER_PARTS,
   SPAWN_PARTS_PER_TICK
 } from "../../../src/economy/primitives";
-import { effectiveOneWayTiles } from "../../../src/economy/roadEconomics";
+import { effectiveOneWayTiles, pavedNetEnergy, pavedSpawnPartsFor } from "../../../src/economy/roadEconomics";
 import { Position } from "../../../src/types/Position";
 
 // 1-D world: everything in one room, distance = |dx| + |dy|, so we can place a
@@ -219,6 +219,30 @@ describe("economy/CorpPlanner", () => {
         // seeds (a1,b1) are exempt by the liveness rule but COUNT toward
         // spent, exactly as the old per-spawn seed did.
         expect(fills).to.be.at.most(2 * SPAWN_PARTS_PER_TICK * 0.6 + 1e-9);
+      });
+
+      it("prices a PAVED candidate with the same model its own route edges use (cycle t72786811)", () => {
+        // The live seam: cee2's candidate read d 82 / net 5.93 (raw 1:1)
+        // in the same plan whose route edge for the same source was 2:1 at
+        // effective distance 70. Admission now reads the pave receipt: the
+        // paved twin admits at a HIGHER net and FEWER parts than the bare
+        // twin at the same distance - the exact numbers the paved primitives
+        // give (conformance, not a direction check alone).
+        const bare = source("bare", 120);
+        const paved = { ...source("pvd", 120), paved: true, pavedFraction: 1 };
+        const plan = planColony(
+          problem({
+            spawns: [spawn("S", 0)],
+            sources: [source("seed", 10), bare, paved],
+            sinks: [sink("store", "storage", 0, 1, 1000)]
+          })
+        );
+        const v = (id: string) => plan.sourceVerdicts.find(x => x.sourceId === id)!;
+        expect(v("pvd").net).to.be.closeTo(pavedNetEnergy(10, 120, { paved: true, pavedFraction: 1 }), 1e-9);
+        expect(v("pvd").parts).to.be.closeTo(pavedSpawnPartsFor(10, 120, { paved: true, pavedFraction: 1 }), 1e-9);
+        expect(v("bare").net).to.be.closeTo(netEnergy(10, 120), 1e-9);
+        expect(v("pvd").net).to.be.greaterThan(v("bare").net);
+        expect(v("pvd").parts).to.be.lessThan(v("bare").parts);
       });
     });
 
