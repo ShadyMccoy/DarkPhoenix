@@ -77,6 +77,44 @@ assigned, ~2× paper headroom; total link inflow ≈ 58 e/t vs controller
 demand ~60 — a SEQUENCING problem, not capacity); (c) core not empty when
 ports are ready — **TRUE and dominant** (26% empty, 50% clamp).
 
+## The sizing principle (owner 2026-08-05, verbatim doctrine)
+
+> "It's important for the feeder to be big enough. They need to drain the
+> core link pretty much on demand. Anytime an incoming link is imminent. It
+> can't be a bottleneck. Between its programming and its size it has to do
+> job well. Idle haulers are a form of waste. They're sized for full time
+> moving."
+
+Two creep classes, two sizing laws — do not blur them:
+
+- **Haulers are sized for full-time moving.** Duty ~1.0 is their contract;
+  every idle hauler tick is waste (H1's whole point). The network owes them
+  a sink that is never blocked.
+- **The feeder is a SERVICE creep.** Its metric is drain LATENCY, not
+  throughput utilization: it must clear a full volley from the core before
+  the next one lands, and its idleness between volleys is the price of
+  hauler duty — cheap and correct. Sizing it to average relay flow is the
+  bug class.
+
+**Measured gap (t72787778): the live feeder is 4 CARRY / 4 MOVE = 200e.**
+`parkedRelayCarry(effectiveBodyRate)` sizes it to sustain the average relay
+flow on the parked 1-tile leg (~4 CARRY carries 60-80 e/t there — true and
+irrelevant). Draining one 800 volley takes FOUR withdraw→transfer cycles
+(~8 ticks even perfectly stationed) while two ports at 13/14t cooldowns
+land volleys every ~7t on average. The feeder is quantitatively the
+bottleneck the arrivals-first program would otherwise expose harder.
+
+**The floor: with inbound senders on the core link, feeder CARRY ≥ one
+full volley** (`LINK_CAPACITY / CARRY_CAPACITY` = 16 — both constants in
+primitives; no new numbers). A 16C body stationed on the pivot tile
+(adjacent to BOTH core (35,25) and storage (36,26) — e.g. (35,26)/(36,25))
+clears a volley in ONE withdraw+transfer pair = 2 ticks without moving.
+Seam: the feeder body sizing in `ControllerFeederCorp` (the
+`parkedRelayCarry`/`carryPartsFor` branch, ~line 421) gains the volley
+floor when `coreLink` has inbound senders (deposit ports or source links);
+the plan prices the bigger body through the same commission envelope
+(P4/F1 stay honest by construction).
+
 ## The fix, in order (no new constants)
 
 **Principle: inbound energy outranks staged energy at every buffer.**
@@ -90,12 +128,19 @@ ports are ready — **TRUE and dominant** (26% empty, 50% clamp).
    check before the core→CTRL block; `routeSourceVolley` (pure, in
    `execution/linkRouting.ts`) already carries the capacity/range machinery.
 2. **Feeder — load the core from storage ONLY when no inbound volley is
-   pending.** The drain direction and target-level symmetry
-   (`coreLinkLoadRoom`/`coreLinkDrainAmount`, spec 02/38 — do NOT disturb
-   the phase-D valve or re-create the t72595372 walking-drain thrash; the
-   feeder stays the sole operator) is kept; only the LOAD gate gains the
-   arrivals-first condition. Seam: `ControllerFeederCorp.runLinkRouter`
-   direction choice + `coreLinkLoadRoom` inputs.
+   pending, PRE-DRAIN when one is imminent, and size for the volley.**
+   Three legs of one requirement (the sizing-principle section above):
+   (a) the LOAD gate gains the arrivals-first condition; (b) the DRAIN
+   direction fires proactively whenever any inbound link stands loaded or
+   near-fire — target level effectively 0 ahead of arrivals, not reactive
+   after the clamp; (c) the body floors at one full volley (16 CARRY) with
+   inbound senders, stationed on the pivot tile. The drain/load
+   target-level symmetry (`coreLinkLoadRoom`/`coreLinkDrainAmount`,
+   spec 02/38 — do NOT disturb the phase-D valve or re-create the
+   t72595372 walking-drain thrash; the feeder stays the sole operator) is
+   kept. Seams: `ControllerFeederCorp.runLinkRouter` direction choice,
+   `coreLinkLoadRoom`/`coreLinkTargetLevel` inputs, and the body sizing at
+   the `parkedRelayCarry` branch (~line 421).
 3. **Cap deposit-route hauler bodies at the landing quantum: 16 CARRY
    (800e).** One arrival = one unload intent (given port room) — the
    worthABody doctrine's cousin: match the actuator to the quantum it
@@ -116,7 +161,12 @@ Unit pins (red-first):
    tick; core relay fires only with no pending inbound sender.
 2. Feeder load gate: `coreLinkLoadRoom` (or its call site) returns 0 while
    an inbound link stands loaded ≥ threshold — staged-vs-arrivals pinned.
-   Drain direction unchanged (spec 38 conformance stays green).
+   Drain-direction valve law unchanged (spec 38 conformance stays green).
+2b. Feeder volley-service floor: with inbound senders on the core link the
+   planned feeder body carries ≥ LINK_CAPACITY/CARRY_CAPACITY (16); without
+   them the `parkedRelayCarry` law stands unchanged (bit-identical pin).
+   Pre-drain: an imminent inbound volley (loaded link, cooldown ≤ its
+   range-to-core) drives the drain target to 0 that tick.
 3. Deposit-route body cap: a route with `depositPos` never plans a body
    over 16 CARRY; walking routes unchanged (X6 judges against the corp's
    own stamp — keep them consistent).
