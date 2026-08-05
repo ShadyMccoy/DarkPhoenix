@@ -4,6 +4,7 @@ import {
   bankBehindFeeder,
   upgraderAllocation,
   upgraderFleetSatisfied,
+  upgraderSwarmCap,
   upgraderSizing,
   upgraderTargetCount
 } from "../../../src/corps/UpgradingCorp";
@@ -176,5 +177,59 @@ describe("upgraderFleetSatisfied (count AND capacity - the runt-fleet invariant)
 
   it("treats a fleet at or above its allocation as done regardless of rounding", () => {
     expect(upgraderFleetSatisfied(2, 2, 75, 75)).to.equal(true);
+  });
+});
+
+/**
+ * THE SWARM-CAP DEADLOCK (measured live t72804439, the first clean
+ * month-cadence window).
+ *
+ * The count-vs-capacity drift the `upgraderFleetSatisfied` fix caught at the
+ * SATISFACTION gate has a twin one line below it, at the swarm cap - and the
+ * twin is worse, because it does not merely fail to notice the gap, it makes
+ * the gap unclosable:
+ *
+ *   allocated 60.21, affordableWork ~30 (a 5600-capacity body)
+ *   -> targetCount = ceil(60.21/30) = 2
+ *   but bodies are actually built at ~14.5 WORK (energy AVAILABLE, not
+ *   capacity - "recycled why: runt-upsize 83%" in the same window)
+ *   -> 4 creeps x 14.5 = 58 WORK < 60.21 allocated  => NOT satisfied
+ *   -> but getCreepCount() 4 >= targetCount*2 = 4   => "swarm-cap", no demand
+ *
+ * The fleet is permanently one body short of its own allocation with parking
+ * for 8, the controller takes 27.32 e/t of a 60.21 budget (P7 0.66x), and
+ * the residual banks at +14.83 e/t (G1 under-spending, E4 surplus 87,348).
+ *
+ * The cap's own doc says what it is for: "replacement overlap may field one
+ * extra body per expiring incumbent, never more - PARKING TILES ARE FEW". So
+ * the bound it wants is the PHYSICAL one. When the fleet is WORK-SHORT, extra
+ * bodies are not a swarm - they are the compensation for undersized bodies -
+ * and the honest ceiling is the parking ring, which targetCount is already
+ * bounded by.
+ */
+describe("upgraderSwarmCap (a WORK-short fleet is bounded by PARKING, not headcount)", () => {
+  it("the live deadlock: 4 bodies, 58 of 60.21 WORK, parking 8 - one more body is allowed", () => {
+    expect(upgraderSwarmCap(2, 8, 58, 60.21)).to.be.greaterThan(4);
+    expect(upgraderSwarmCap(2, 8, 58, 60.21), "...but never past the parking ring").to.equal(8);
+  });
+
+  it("a fleet whose WORK covers the allocation keeps the tight overlap cap", () => {
+    // Not work-short: the 2x overlap allowance is the whole story, and a
+    // stale/huge allocation still cannot buy a swarm.
+    expect(upgraderSwarmCap(2, 8, 61, 60.21)).to.equal(4);
+  });
+
+  it("ONLY EVER RELAXES: a parking ring tighter than the overlap allowance keeps the allowance", () => {
+    // Deliberately NOT a tightening. The cap's job is to bound a swarm, and
+    // the overlap allowance is what makes replacement possible at all - a
+    // room whose ring is narrower than 2x its target would strand its own
+    // replacements if this returned parking. targetCount is already
+    // parking-bounded, so the relaxed branch can never exceed the ring by
+    // more than that same allowance.
+    expect(upgraderSwarmCap(2, 3, 10, 60.21)).to.equal(4);
+  });
+
+  it("a degenerate parking read (0 = unknown) never strands replacement", () => {
+    expect(upgraderSwarmCap(2, 0, 10, 60.21)).to.equal(4);
   });
 });

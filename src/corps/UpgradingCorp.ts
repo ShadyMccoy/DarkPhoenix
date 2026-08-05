@@ -121,6 +121,44 @@ export function upgraderTargetCount(
 }
 
 /**
+ * The physical swarm cap: how many upgrader bodies may stand at once (pure,
+ * unit-tested). The cap exists for REPLACEMENT OVERLAP - one extra body per
+ * expiring incumbent - and its own reason is physical: "parking tiles are
+ * few". So the bound it wants is the parking ring, and `targetCount * 2` is
+ * only the overlap allowance for a fleet that is already big enough.
+ *
+ * THE DEADLOCK IT FIXES (measured t72804439, the first clean month-cadence
+ * window): targetCount comes from `affordableWork`, the body the room COULD
+ * build at full energyCapacity (~30 WORK at 5600). Bodies are actually built
+ * at the energy AVAILABLE when the spawn fires - ~14.5 WORK in that window,
+ * with "recycled why: runt-upsize 83%" confirming it. So the fleet reached
+ * targetCount*2 = 4 bodies carrying 58 WORK against a 60.21 allocation:
+ * NOT satisfied (the count-vs-capacity invariant one gate above says so),
+ * yet capped from ever ordering the body that would close it. The controller
+ * took 27.32 e/t of its 60.21 budget (P7 0.66x) while the residual banked at
+ * +14.83 e/t and the parking ring stood 8 wide with 4 tiles empty.
+ *
+ * A WORK-SHORT fleet is therefore bounded by PARKING, not by headcount:
+ * extra bodies there are not a swarm, they are the compensation for
+ * undersized ones, and targetCount is already parking-bounded so this can
+ * never exceed what the ring holds. A fleet whose WORK covers its allocation
+ * keeps the tight 2x overlap cap - a stale or over-large allocation still
+ * cannot buy a swarm, which is what the cap was built to prevent.
+ */
+export function upgraderSwarmCap(
+  targetCount: number,
+  parkingTiles: number,
+  fieldedWork: number,
+  allocated: number
+): number {
+  const overlap = targetCount * 2;
+  if (fieldedWork >= allocated) return overlap;
+  // Parking 0 means "unknown" (the same convention upgraderTargetCount uses),
+  // so it must never strand replacement below the overlap allowance.
+  return Math.max(overlap, parkingTiles || 0);
+}
+
+/**
  * Is the standing fleet DONE - both enough bodies and enough WORK to burn the
  * allocation (pure, unit-tested)?
  *
@@ -672,8 +710,12 @@ export class UpgradingCorp extends Corp {
       return [];
     }
     // Physical swarm cap (mirrors CarryCorp): replacement overlap may field one
-    // extra body per expiring incumbent, never more - parking tiles are few.
-    if (this.getCreepCount() >= targetCount * 2) {
+    // extra body per expiring incumbent - but a WORK-SHORT fleet is bounded by
+    // the PARKING ring instead, or the undersized-body case deadlocks one body
+    // short of its own allocation forever (t72804439; see upgraderSwarmCap).
+    const swarmCap = upgraderSwarmCap(targetCount, parking, fieldedWork, allocated);
+    this.lastSizing.swarmCap = swarmCap;
+    if (this.getCreepCount() >= swarmCap) {
       this.lastSizing.demand = "swarm-cap";
       return [];
     }

@@ -9020,3 +9020,53 @@ way the OWNER caught (the first was the ladder story for construction).
 Both times the fix was to delete the mechanism, not patch it — the trap
 list's "question the mechanism, not just its failure" applies to mechanisms
 added defensively, not only to ones that have already failed live.
+
+## Cycle t72804439 — FIRST CLEAN MONTH-CADENCE WINDOW: P1 flap ZERO; the upgrader swarm-cap deadlock found
+
+The first deploy-free window since the cadence shipped (t72802844 -> t72804439,
+1595t, no global resets). Registered prediction CONFIRMED: **P1 plan flap 0
+sources, "stable vs baseline"** - against 3 flips in each of the two prior
+windows, including the d017 tranche-edge flap this spec was written around.
+The funded set held all window; solves landed at the 72804000 boundary. S3
+util 0.97 with "head guard@390 vs bank 2366 AFFORDABLE+IDLE" (not a stall).
+Forgone recovered to 7.21 (was 18.95 in the reset-contaminated window);
+residual back to -6.21 (was -20.81); tombstones 1.40 (was 3.89) with kills
+back inside the raid story (5% in intel-hostile rooms vs 0% before).
+
+**TOP LINE: the controller took 27.32 e/t of a 60.21 budget (P7 0.66x) while
+the residual banked at +14.83 e/t (G1 under-spending; E4 surplus 87,348 and
+climbing).** The stamps name the mechanism exactly, and it is the twin of the
+t72706408 count-vs-capacity bug one gate lower:
+
+```
+allocated 60.206, affordableWork ~30 (the body 5600 capacity COULD build)
+  -> targetCount = ceil(60.21/30) = 2
+bodies actually built at ~14.5 WORK (energy AVAILABLE when the spawn fires;
+  "recycled why: runt-upsize 83%" in the same window confirms it)
+  -> 4 creeps x 14.5 = 58 WORK  <  60.21 allocated  => NOT satisfied
+  -> getCreepCount() 4 >= targetCount*2 = 4          => "swarm-cap", NO demand
+```
+
+The fleet is permanently one body short of its own allocation and CANNOT
+order it, with the parking ring 8 wide and 4 tiles empty. The fleet was
+measured oscillating 4 -> 2 -> 4 bodies across the three captures while
+targetCount sat at 2 in every one. `upgraderFleetSatisfied` (the 2026-08-04
+fix) correctly reports "not satisfied"; the very next line then refuses to
+act on it.
+
+FIX (red-first, unit 2105-0): `upgraderSwarmCap(targetCount, parking,
+fieldedWork, allocated)` - a WORK-SHORT fleet is bounded by the PARKING ring
+(the cap's own stated reason: "parking tiles are few"), a covered fleet keeps
+the tight 2x overlap allowance so a stale/huge allocation still cannot buy a
+swarm. ONLY EVER RELAXES - a ring narrower than the allowance keeps the
+allowance, so no room's replacement is stranded; targetCount is already
+parking-bounded, so the relaxed branch cannot exceed the ring by more than
+that allowance. Stamped as `swarmCap` beside the existing demand verdict.
+
+Registered predictions: upgrader fleet grows past 4 bodies toward 8 parking
+tiles until fieldedWork >= allocated; P7 -> ~1.0x; G1 under-spending closes
+(bank slope -> ~0 or negative as the surplus is consumed); E4 surplus stops
+climbing from 87,348; delivered controller e/t roughly doubles toward the
+60 e/t budget. WATCH: S5 (0.88x, 12% margin) may tighten as upgrader bodies
+join the queue - if it crosses the reversion criteria the ordering between
+consumer growth and spawn headroom is the next question, not a re-cap.
