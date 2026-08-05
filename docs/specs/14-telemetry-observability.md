@@ -8748,10 +8748,27 @@ law, so every newly-scouted real-id source permanently raised the reserve by
 700 × its rate and throttled the published allocation — delivery 56 → 34.6
 (FY4852-M05→M06) → 5.6 e/t (this window, G1: 12.93 e/t banking while the
 controller starved; E4 read "at/near target" because the target itself was
-poisoned). Compounding: 17 → 19 → 22 real ids as vision spread. Secondary
-finding, downstream: with the valve closed the solver spilled the surplus
-into construction sinks (P4 construction 0.238 p/t, 333 parts planned) and
-S5 hit 0.97× — the spawn saturation was a SYMPTOM, not the cause.
+poisoned). Compounding: 17 → 19 → 22 real ids as vision spread.
+
+**CORRECTION (same cycle, owner question):** the first write-up claimed the
+closed valve "spilled the surplus into construction sinks" — wrong as a
+ladder mechanism, retracted. The bank absorbed the surplus (+12.93/t all
+window), and construction (70) outranks the controller (~43 at 4.66M
+remaining) regardless of the valve, so no energy was redirected. The 0.238
+p/t construction plan tracks the 24 standing remote ROAD SITES
+(source-local clusters at the local source's rate), not the valve. What the
+poisoned reserve did to production is narrower: it held spendableBankSurplus
+at zero, sterilizing the bank — no consumer sizing, no wartime build pace,
+the exact asset-rich-cash-poor failure the dynamic reserve exists to
+prevent. S5 0.97× is haul churn (54% of actual spawn output, +0.116 p/t
+over plan; R1 10.7×, W45N25 miner dead at 39t) plus the road-site build
+plan — an independent line, not a valve symptom. P-6 is RESTATED before
+the check-in data: opening the valve ADDS ~0.05 p/t consumer demand, so S5
+may stay tight short-term; durable relief runs through roads completing →
+paved 2:1 repricing → the haul class (biggest in P4) shrinking. Forgone
+mining is expected back near its ~7-8 e/t baseline only via that haul-side
+path; if it stays elevated with the valve open, H1's carry under-ask is the
+next cycle's top line.
 
 **NOT the spawn-capacity handicap**: none of the SPAWN_PLAN_FRACTION=1.0
 experiment's registered reversion criteria fired (P4 0.83–0.91x, S3 "not a
