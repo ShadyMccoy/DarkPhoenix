@@ -8800,3 +8800,20 @@ Cycle verdict: **fixed (funded-income reserve basis, immediate mechanism
 flip confirmed live) + attributed (the 11→12 correlation resolved to the
 reserve seam, spawn-capacity hypothesis falsified with the experiment's own
 criteria) — full-window delivery verification pending.**
+
+**Owner steer (same cycle): attack the underlying cause, not the symptom
+valves.** The pile gate / decay / churn lines are the runtime absorbing a
+PRICING gap: the plan buys remote capacity below its measured cost, so the
+affordable fleet is structurally smaller than the routes need. Two seams,
+both instrumented: raid attrition priced ~1/10th measured (R1 8.38 vs 0.79
+e/t; F1's +0.116 p/t unbudgeted hauler replacement is the subsidy made
+visible), and route carry priced below measured need (H1 under-ask, E6
+drain/route-sizing verdict). The retired SPAWN_PLAN_FRACTION handicap was
+the BLUNT encoding of the same truth — honest per-route costing is the
+sharp one: at true prices the marginal remote (d01f, chronic −1.63 vs its
+own admission net) either clears with its true-size fleet funded or falls
+out, and the pile gate stops managing the mismatch. Next cycle: accrue R1
+windows toward the ≥10-window swap discipline; decompose H1's under-ask
+from the carry pickup stamps and price the dominant term into carryPartsFor
+(red-first). The armed check-in doubles as the CONTROL: with the reserve
+honest, remaining forgone/pile variance IS the remote-cost gap.
