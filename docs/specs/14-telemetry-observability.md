@@ -8376,3 +8376,45 @@ presence, never exit codes - in the playbook's own words, applied to one's
 own harness plumbing.
 
 Verdict: **verified (flicker) + instrumented (v32) + process-corrected.**
+
+## Registration t72785753 — P-55: the marginal-source accretion prediction (owner's number, decomposed and armed)
+
+Owner criterion, verbatim doctrine: "At the end of the day we have to see if
+controller+bank increases. Otherwise it's extra cpu and spawning for no
+gain." Measured against that criterion from the committed capture series
+(endpoint arithmetic, tick-weighted, no window averaging):
+
+| era | span | ctl + bank |
+|---|---|---|
+| baseline (pre-engagement) | 128,698t | **23.50 e/t** |
+| prior audit cycles | 76,088t | 41.06 |
+| this session, 10-source era | 6,966t | 47.67 |
+| this session, 11-source era (cee2 in) | 3,712t | **51.20** |
+
+Cost side over the same split: spawn spend 0.511 -> 0.483 p/t (DOWN across
+the session's changes), CPU spot-reads 18.9 -> 31.8 used/t with the bucket
+pegged at 10,000 in every capture across all eras (never binding). The
+accumulation doubled against baseline and the 11th source is already +3.5
+e/t accretive WHILE paying its own road capex and hauling at unpaved
+prices.
+
+**PREDICTION P-55 (registered before measurement).** cee2's route receipt
+stamped paved 76/76 at t72785801; the t72785754 plan snapshot still prices
+it unpaved (d 82, eff 59.3) - the repricing is real upside not yet in any
+measured number. Decomposition from the 51.20 base: evacuation EMA
+convergence on the route (+1.3, the measured unfavorable variance), road
+capex ends (+~2), repriced hauler downsizing at fleet turnover (+~1).
+**Point estimate 55 +/- 3; falsification bar: tick-weighted controller+bank
+>= 53 over >= 3 windows / >= 6,000t AFTER the plan reprices cee2** (marker:
+flow source W42N21-40-4 efficiency > 59.3 in the capture).
+
+Named risk that reclassifies rather than falsifies: admission of a surveyed
+candidate mid-window - intel-W42N21-36-3 (40/76 tiles pre-built via shared
+corridor, ~10.8k capex remaining) or intel-W41N23-23-39 (51/85, ~10.2k).
+Either starts a new J-curve inside the measurement window; if one admits,
+the gate becomes controller+bank+construction >= 55 (investment reclass,
+same doctrine - the trunk spend is bank-shaped, not waste). Attribution
+ladder if the bar misses WITHOUT new admission: (a) repricing never landed
+in the solver (check the flow source line), (b) evac EMA did not converge
+(cee2 P&L variance column), (c) spawn line binding (S-gauges), (d) draw
+noise (mitigated by the >= 6,000t era aggregate).
