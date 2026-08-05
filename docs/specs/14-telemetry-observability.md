@@ -8930,3 +8930,32 @@ FY4852-M06 CREW IDLE precedent is the named risk class ("poor behavior"
 the owner flagged); if construction is funded but idle with the controller
 relegated, that is the next cycle's incident, not a reason to re-open the
 controller.
+
+### Cycle t72801208 — the combined deploy's first solve caught a PHANTOM FUNDING: intel prospects are not candidates
+
+Immediate reads on the combined deploy (capture +~50t): WARTIME EXACT -
+controller sink demand 0 (was 41.66), three construction sinks at their
+10.0 e/t absorb caps, residual banking. REVERSION - d017 shed as predicted,
+warchest tracked instantly (73,500 = 700 x funded 105).
+
+THE SURPRISE the tightened tranche exposed: `source-intel-W45N23-20-16` -
+an intel PHANTOM (position-only, no real game id) - FUNDED with a miner
+commissioned at d=140, net 1.09, rate 5. Mechanism: the greedy net/part
+fill does not stop at the first budget breach; d017 (net/part 91, parts
+0.065) breached the 0.36 tranche at cum 0.306, then the SMALLER phantom
+(net/part 22, parts 0.050) slipped into the residual gap. Phantom
+economics are fabricated (unreserved 5 e/t guess, no container, no id) -
+and funding one guarantees an id flip when vision lands, orphan/rename
+churn by construction. This is the mechanism behind the W45N25
+misadventure (harvest-6-34, the same positional-id pattern: 84p declared,
+1900e miner dead at 39t, X5's worst row) - the first named "poor behavior"
+under the owner's directive 2, fixed rather than budgeted around.
+
+Fix (red-first): producer selection now applies the SAME isMinedIncomeId
+lens the income guard uses (t72444684, one home) - an intel-id source is
+stamped verdict "prospect" and never enters candidates; it becomes a
+candidate the solve after vision records its real id. Union extended
+(SourceVerdict + "prospect"). Pin: intel source with budget slack never
+funds, both id forms stamped, no phantom routes. Unit 2094-0; trio running
+on the bundle before deploy. The knapsack residual-fill itself stays (for
+REAL candidates it is rational tranche-filling); noted for the record.

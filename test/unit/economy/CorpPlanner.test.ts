@@ -306,6 +306,34 @@ describe("economy/CorpPlanner", () => {
       expect(plan.haulers[0].carryParts).to.be.closeTo(carryPartsFor(10, 10), 1e-9);
     });
 
+    it("INTEL PROSPECTS ARE NOT CANDIDATES: a position-only scout record never funds, even with budget slack (t72801208)", () => {
+      // Caught live minutes after the 0.9 reversion: the tightened tranche
+      // rejected d017 (net/part 91) at the budget line, and the greedy fill
+      // then slipped source-intel-W45N23-20-16 (net/part 22, rate 5, d=140)
+      // into the residual gap - a PHANTOM with fabricated economics (no real
+      // game id, position-only intel). Same pattern as the W45N25
+      // misadventure (harvest-6-34: 84p declared, 1900e miner dead at 39t) -
+      // the "poor behavior" the owner ruled must be fixed, not budgeted
+      // around. The t72444684 guard excluded intel ids from INCOME; this
+      // extends it to PRODUCER SELECTION: a prospect is stamped, never
+      // funded - it becomes a candidate only when vision records its real
+      // id (which is also what keeps the corp id stable; funding a phantom
+      // guarantees an id flip mid-flight = churn by construction).
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("real", 10), source("source-intel-W9N9-20-16", 15), source("intel-W9N9-30-30", 20)],
+          sinks: [sink("ctrl", "controller", 0, 50, 100)]
+        })
+      );
+      expect(plan.miners.map(m => m.sourceId), "only the real source funds").to.deep.equal(["real"]);
+      const wrapped = plan.sourceVerdicts.find(v => v.sourceId === "source-intel-W9N9-20-16")!;
+      const bare = plan.sourceVerdicts.find(v => v.sourceId === "intel-W9N9-30-30")!;
+      expect(wrapped.verdict, "wrapped intel form stamped, never silent").to.equal("prospect");
+      expect(bare.verdict, "bare intel form stamped, never silent").to.equal("prospect");
+      expect(plan.haulers.some(h => h.sourceId.includes("intel")), "no phantom routes either").to.equal(false);
+    });
+
     it("never mines a source that costs more to staff than it yields", () => {
       // at distance 320 the round-trip hauler cost drives netEnergy negative
       expect(netEnergy(10, 320)).to.be.lessThan(0);
