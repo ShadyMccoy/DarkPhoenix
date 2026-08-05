@@ -32,6 +32,27 @@ describe("corp getSpawnDemand()", () => {
       expect(d.desiredCost).to.be.at.least(d.minCost);
       expect(d.value).to.be.greaterThan(100); // base + efficiency
     });
+
+    it("the hostile-defund exit STAMPS its gate (no silent demand exits, cycle t72793209)", () => {
+      // Three dark corps read as "no stamp at all" while their rooms sat
+      // invader-occupied, and E6 quoted their frozen pre-defund stamps.
+      const savedMemory = (global as any).Memory;
+      const savedGame = (global as any).Game;
+      try {
+        (global as any).Game = { time: 5000, rooms: {}, getObjectById: () => null };
+        (global as any).Memory = { roomIntel: { W1N1: { lastVisit: 1, invaderReservedUntil: 9000 } } };
+        const corp = new HarvestCorp("W1N1-harvest-aaaa", "spawn1", "source-aaaa");
+        corp.setMinerAssignment({
+          sourceId: "source-aaaa", spawnId: "spawn-spawn1", harvestRate: 10,
+          maxMiners: 1, efficiency: 80,
+        } as MinerAssignment);
+        expect(corp.getSpawnDemand({ ...ctx, tick: 5000 })).to.deep.equal([]);
+        expect(corp.lastSizing?.gate, "the defund names itself").to.equal("hostile-defund");
+      } finally {
+        (global as any).Memory = savedMemory;
+        (global as any).Game = savedGame;
+      }
+    });
   });
 
   describe("CarryCorp", () => {

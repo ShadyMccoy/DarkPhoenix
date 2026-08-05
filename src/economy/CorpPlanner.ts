@@ -96,6 +96,18 @@ export interface PlannerSource {
    */
   transient?: boolean;
   /**
+   * The EXECUTION side buys no bodies for this source's room right now -
+   * the adapter stamps it from the SAME hostileRooms() lens the corps'
+   * defense-economics gates read (creep marks + invader reservations), so
+   * the plan prices only capacity the runtime will actually staff. Cycle
+   * t72793209: the plan funded W43N24's two sources at rate 10 through a
+   * 2,446-tick invader occupation - 20 e/t of phantom capacity, forgone
+   * -41.25, and budget columns allocating margin that could not exist.
+   * Funding resumes automatically when the intel clears (same all-clear
+   * that un-defunds the corps - the two sides can never disagree again).
+   */
+  defunded?: boolean;
+  /**
    * The source's haul route fields the 2:1 road body - 1.5 spawn parts per
    * CARRY instead of 2 - which the routing pass prices in. Set from
    * ConstructionCorp's receipts via roadEconomics.partialPaveRatio: fully
@@ -318,7 +330,7 @@ export interface SourceVerdict {
   net: number;
   tax: number;
   parts: number;
-  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable" | "no-sink" | "unrouted";
+  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable" | "no-sink" | "unrouted" | "defunded";
 }
 
 export interface ColonyPlan {
@@ -417,6 +429,13 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
   const candidates: SourceCandidate[] = [];
   for (const source of sources) {
     if (source.transient) continue; // transient stocks need no miner (already harvested)
+    if (source.defunded) {
+      // Same-lens defund (see PlannerSource.defunded): the corps buy no
+      // bodies here, so the plan prices no capacity here - stamped, never
+      // silent, and re-funded automatically on the intel all-clear.
+      verdicts.push({ sourceId: source.id, rate: source.rate, distance: 0, net: 0, tax: 0, parts: 0, verdict: "defunded" });
+      continue;
+    }
     // The searcher's pin overrides the nearest-spawn default (spec 18).
     const pinned = source.assignedSpawnId ? spawns.find(s => s.id === source.assignedSpawnId) : undefined;
     const near = pinned

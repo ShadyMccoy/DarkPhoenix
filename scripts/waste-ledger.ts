@@ -156,7 +156,13 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
  *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
  *    the newly-attributed losses.
  */
-export const METHODOLOGY = 11;
+// 12 (2026-08-05): the capacity line excludes DEFUNDED sources - the plan
+//    now reads the same hostileRooms() lens the corps' defense gates read
+//    (invader occupations + creep marks), so "mining capacity" is what the
+//    runtime will actually staff, with the exclusion printed as a memo
+//    line. A #11 capacity (phantom-inclusive) and a #12 capacity differ by
+//    exactly the occupied rooms' rates; forgone shrinks by the same amount.
+export const METHODOLOGY = 12;
 
 export interface LedgerRow {
   id: string;
@@ -1641,7 +1647,14 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   // income actually stopped) FAILs. No stamped harvest corps => pre-gate
   // capture => no row.
   {
-    const stamped = corps.filter((c: any) => c.kind === "harvest" && c.sizing);
+    // STALE-STAMP FILTER (cycle t72793209): a defunded corp's demand path
+    // used to exit without stamping, so its lastSizing FROZE at the last
+    // pre-defund value - E6 quoted "staffing 1/1 buffered 3825 held 100%"
+    // for corps with ZERO creeps whose containers had already decayed away.
+    // A stamp is evidence only if it was written inside this window.
+    const stamped = corps.filter(
+      (c: any) => c.kind === "harvest" && c.sizing && (c.sizing.tick ?? 0) >= base.tick
+    );
     if (stamped.length > 0) {
       const gated = stamped.filter((c: any) => c.sizing.gate === "buffer-full");
       const bGated = new Set(
@@ -2646,6 +2659,15 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     `${" ".repeat(38)}${"BUDGET".padStart(9)}${"ACTUAL".padStart(10)}${"VARIANCE".padStart(11)}`,
     "  REVENUE",
     L("mining capacity (reserved rate)", grossCapacity, 4, grossCapacity),
+    // Methodology #12: capacity the plan EXCLUDED because the execution side
+    // is defunded there (invader occupation / hostile marks - same lens both
+    // sides). Not a variance - the plan and runtime AGREE this is unworkable.
+    ...(() => {
+      const defunded = ((cap.data.flow?.candidates ?? []) as any[]).filter(c => c.verdict === "defunded");
+      if (defunded.length === 0) return [];
+      const rate = defunded.reduce((n, c) => n + (+c.rate || 0), 0);
+      return [`    (excluded: ${rate.toFixed(2)} e/t in ${defunded.length} defunded source(s) - occupied/hostile rooms)`];
+    })(),
     ...(minedKnown
       ? [
           // MEASURED (phase 2): capacity less what the harvest corps' own

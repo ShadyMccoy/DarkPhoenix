@@ -221,6 +221,29 @@ describe("economy/CorpPlanner", () => {
         expect(fills).to.be.at.most(2 * SPAWN_PARTS_PER_TICK * 0.6 + 1e-9);
       });
 
+      it("a DEFUNDED source is excluded with its own verdict (same lens as the execution defund)", () => {
+        // Cycle t72793209: the plan funded W43N24's two sources at rate 10
+        // while the invader held the room for 2,446 more ticks and
+        // HarvestCorp's defense-economics gate bought no bodies - 20 e/t of
+        // phantom capacity, forgone -41.25, and budget columns allocating
+        // margin that could not exist. The adapter now stamps `defunded`
+        // from the SAME hostileRooms() lens the corps read; the planner
+        // excludes and says why.
+        const occupied = { ...source("occ", 60), defunded: true };
+        const plan = planColony(
+          problem({
+            spawns: [spawn("S", 0)],
+            sources: [source("seed", 10), occupied, source("free", 70)],
+            sinks: [sink("store", "storage", 0, 1, 1000)]
+          })
+        );
+        const v = (id: string) => plan.sourceVerdicts.find(x => x.sourceId === id)!;
+        expect(v("occ").verdict).to.equal("defunded");
+        expect(plan.miners.some(m => m.sourceId === "occ"), "no capacity priced for it").to.equal(false);
+        expect(v("free").verdict, "the clear twin is untouched").to.equal("funded");
+        expect(v("seed").verdict).to.equal("funded");
+      });
+
       it("prices a PAVED candidate with the same model its own route edges use (cycle t72786811)", () => {
         // The live seam: cee2's candidate read d 82 / net 5.93 (raw 1:1)
         // in the same plan whose route edge for the same source was 2:1 at

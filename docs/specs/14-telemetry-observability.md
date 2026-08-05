@@ -8663,3 +8663,48 @@ design), W44N24/W44N25 hold STALE pre-v33 creep marks (until already past;
 no vision to clear them) - their next sighting fires the v33 retention path
 with the legacy until-1500 fallback and writes the first hostileWindows.
 Prediction #1 lands there.
+
+## Cycle t72793209 — SAME-LENS DEFUND: the plan stops pricing occupied rooms (methodology #12)
+
+Owner flag, verbatim: "Something seems very wrong with all the foregone
+mining and other variances." Verified by direct reads - the wrongness was
+REAL and threefold: (1) the plan funded W43N24's two sources at rate 10
+through a live invader occupation (2,446t remaining; both sources at
+3000/3000 regen-stalled) and d017 while its corp fielded nothing - 30 e/t
+of phantom capacity making forgone -41.25 and allocating budget margin
+(construction 10, bank 33) that could not exist; (2) the corps' defund
+exits returned WITHOUT stamping, so E6 quoted frozen pre-defund stamps
+("staffing 1/1 buffered 3825" on corps with zero creeps whose containers
+had decayed away); (3) W41N25's trunk builders walked a kill corridor while
+the room's producer commission was dark (sequencing debt, spec 16/45
+adjacent - named, not fixed this cycle).
+
+**SHIPPED (live-behavior + ledger, one commit):**
+- `PlannerSource.defunded` stamped by the ADAPTER from the SAME
+  hostileRooms() lens the corps' defense gates read (invader reservations +
+  creep marks; never for spawn rooms - un-funding home mid-raid would be
+  the death spiral, not honesty). selectProducers excludes with verdict
+  **"defunded"**; re-funds automatically on the intel all-clear. The trap
+  list's same-lens rule, extended to the PLAN.
+- HarvestCorp's two defund exits and CarryCorp's hostile exit now STAMP
+  (gates "hostile-defund" / "transit-embargo") - no silent demand exits.
+- E6 discards stamps older than the window (stale-stamp filter).
+- **METHODOLOGY #12**: capacity excludes defunded sources, printed as a
+  REVENUE memo line - a #11 capacity and a #12 capacity differ by exactly
+  the occupied rooms' rates.
+Red-first: defunded-verdict planner test + hostile-defund stamp pin; E6
+staged stamps re-staged to live ticks (the filter's own rule); methodology
+pin 11->12. Unit 2,088 green by parsed count; trio 3-0 by parsed counts.
+
+PREDICTIONS (before deploy): (1) first post-deploy solve: cd8e/cd8d
+verdicts funded->defunded, capacity 120->100, d017 stays funded (its
+embargo is route-side); (2) the REVENUE memo prints "(excluded: 20.00 e/t
+in 2 defunded source(s))" and forgone drops toward the operational
+remainder (~-10..-18 with d017 still dark); (3) freed tranche ~0.094 p/t
+may admit the next global candidate - the honest J-curve, P-55 reclass
+gate already armed; (4) cd8e/cd8d stamp "hostile-defund"; d017 stamps
+"transit-embargo" OR re-staffs if the corridor cleared - either named
+outcome verifies; (5) P1 flags the funded->defunded flips this window
+(expected, named); (6) when the W43N24 occupation ends the sources
+RE-ADMIT automatically - the re-fund event is the mechanism's proof;
+(7) reset inflates X5 one window.

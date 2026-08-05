@@ -18,7 +18,7 @@
  */
 
 import "../types/Memory"; // RoomMemory.roadRoutes augmentation (paved receipts)
-import { isSourceKeeperRoom, roomLinearDistance } from "../utils/RoomDiscovery";
+import { hostileRooms, isSourceKeeperRoom, roomLinearDistance } from "../utils/RoomDiscovery";
 import {
   FlowSink,
   FlowSolution,
@@ -939,6 +939,14 @@ export function buildColonyProblem(
         return frac > 0 ? { swampFraction: frac } : {};
       })(),
       ...(pave && pave.ratio === "2:1" ? { paved: true, pavedFraction: pave.fraction } : {}),
+      // SAME-LENS DEFUND (cycle t72793209): HarvestCorp's defense-economics
+      // gate buys no bodies while hostileRooms() marks this room (creep
+      // marks + invader reservations), so the plan must not price its
+      // capacity either - the divergence WAS the -41 forgone line and the
+      // phantom budget margin. Never stamped for spawn rooms: home defense
+      // is towers + guards, and un-funding the home economy mid-raid would
+      // be the death spiral, not honesty.
+      ...(!spawnRooms.has(s.position.roomName) && hostileRooms().has(s.position.roomName) ? { defunded: true } : {}),
       ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax }),
       // STAGED MOUTH STOCK (phase 1 of the income-statement program): the
       // SAME sourceBufferStock lens the corp's drain term and E6's gate read,

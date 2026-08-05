@@ -768,7 +768,10 @@ describe("E6 miner pile gate (haul-deficit visibility, owner 2026-07-29)", () =>
     creepCount: staffing,
     bodyParts: staffing * 8,
     body: {},
-    sizing: { tick: 1, gate: "buffer-full", buffered: 2400, threshold: 2000, staffing, target: 1 },
+    // Stamped INSIDE the window (>= base tick): the stale-stamp filter (cycle
+    // t72793209) discards frozen pre-defund stamps, so staged evidence must
+    // carry a live tick like the real gate now always does.
+    sizing: { tick: 72411542, gate: "buffer-full", buffered: 2400, threshold: 2000, staffing, target: 1 },
     createdAt: 0,
     lastActivityTick: 1
   });
@@ -808,7 +811,7 @@ describe("E6 miner pile gate (haul-deficit visibility, owner 2026-07-29)", () =>
   it("reports quiet-gate visibility (stamps present, zero deferrals) as ok/0", () => {
     const cap = clone(cap72411542);
     const clear = gatedCorp("mining-W9N9-harvest-fine", 1);
-    clear.sizing = { tick: 1, gate: "clear", buffered: 150, staffing: 1, target: 1 };
+    clear.sizing = { tick: 72411542, gate: "clear", buffered: 150, staffing: 1, target: 1 };
     cap.data.corps.corps.push(clear);
     const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
     expect(e6.verdict).to.equal("ok");
@@ -867,7 +870,7 @@ describe("E6 frac trigger sample floor (first-contact calibration, t72645498)", 
     cap.data.corps.corps.push({
       id: "mining-W9N9-harvest-tiny", kind: "harvest", type: "mining", nodeId: "n", roomName: "W9N9",
       creepCount: 1, bodyParts: 8, body: {},
-      sizing: { tick: 1, gate: "buffer-full", buffered: 4000, staffing: 1, target: 1, heldFor, heldFrac },
+      sizing: { tick: 72411542, gate: "buffer-full", buffered: 4000, staffing: 1, target: 1, heldFor, heldFrac },
       createdAt: 0, lastActivityTick: 1
     });
     return cap;
@@ -2494,10 +2497,10 @@ describe("methodology #10: the recovery P&L (cure vs illness, published)", () =>
     expect(detail).to.include("5.0");
   });
 
-  it("the header stamps methodology #11", () => {
+  it("the header stamps methodology #12 (capacity excludes defunded sources)", () => {
     const { cap, base } = rig(zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    expect(text).to.include("[methodology #11]");
+    expect(text).to.include("[methodology #12]");
   });
 });
 

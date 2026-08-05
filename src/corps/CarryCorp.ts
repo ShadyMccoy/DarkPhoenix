@@ -101,7 +101,7 @@ export class CarryCorp extends Corp {
    */
   private dutyAlive = 0;
   /** Which gate ended the last hauler-sizing walk (spec 14 exit verdict). */
-  private lastExit: "staffed" | "swarm-cap" | "asking" | "deadband" | undefined;
+  private lastExit: "staffed" | "swarm-cap" | "asking" | "deadband" | "hostile-defund" | undefined;
   private dutyActive = 0;
   private dutyIdleSource = 0;
   private dutyIdleSink = 0;
@@ -1392,8 +1392,12 @@ export class CarryCorp extends Corp {
     // pickup room is hostile (sighted, or inside a sighted hostile's TTL
     // bound). Existing haulers run out; funding resumes on all-clear. The
     // room comes from the nodeId (its leading segment is the source's room),
-    // which needs no Game objects - harness-safe.
-    if (hostileRooms().has(this.nodeId.split("-")[0])) return [];
+    // which needs no Game objects - harness-safe. Stamped since cycle
+    // t72793209 (no silent demand exits).
+    if (hostileRooms().has(this.nodeId.split("-")[0])) {
+      this.lastExit = "hostile-defund";
+      return [];
+    }
 
     // Spec 13 phase 2b (The International's pathsThrough): the circuit is
     // also defunded when any room it TRANSITS is hostile - a clear pickup
