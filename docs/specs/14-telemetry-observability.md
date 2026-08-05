@@ -8593,3 +8593,13 @@ PREDICTIONS (registered before deploy):
    sequencing legs of spec 45 are still unshipped; the five-gauge
    acceptance bar stays with them).
 5. The deploy's global reset inflates X5 one window (known).
+
+### Verification t72788704 (+64t post-deploy): the floor is live in both homes
+
+Stamp reads EXACTLY as registered: `volleyFloor 16, inboundSenders 2,
+neededCarry 16, wantedFeeders 1, feeders 1` — gate "staffed", the 4C
+incumbent holds the post until EOL (prediction #3's shape, on schedule).
+The floor dominates its own throughput term as designed (coreDrain 80 →
+parked carry 4; floor 16 wins). Plan side moved with it: fleetCharge.infra
+11.52 → 13.50 e/t (the floor's energy delta + W41N25's ninth remote
+reserver). Predictions #2-#4 read at the next full windows.

@@ -1,7 +1,13 @@
 # Spec 45 — Arrivals-first link sequencing (remove the sink wait, don't price it)
 
-**Status: MEASURED DIAGNOSIS 2026-08-05 (owner-directed); red-first design
-ready, implementation is the next session's first work item.** Owner framing:
+**Status: MEASURED DIAGNOSIS 2026-08-05 (owner-directed). The SIZING leg
+(feeder volley-service floor, fix #2c) SHIPPED + DEPLOYED same day —
+`volleyServiceCarry()` in primitives, floored in the corp AND the
+infraSpawnLoad/-Energy twins, 6 red-first pins, trio 3-0; the 16C body
+arrives at the incumbent's natural EOL (staffing is by-count, no linchpin
+churn — registered prediction #3). The SEQUENCING legs (fix #1 direct-first,
+#2a/#2b feeder gates, #3 deposit-body cap) are the next session's first
+work item; the five-gauge acceptance bar belongs to them.** Owner framing:
 *"Behind pricing sink wait let's see what we can do to remove or reduce it.
 What's actually causing that?"* — attack the cause; pricing the wait into the
 plan (the alternative this spec supersedes for now) only becomes relevant for
