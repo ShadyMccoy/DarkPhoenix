@@ -8724,3 +8724,62 @@ t72795700 by decay, earlier by striker) is the standing watch.
 Cycle verdict: **fixed (same-lens defund, methodology #12) + instrumented
 (no silent demand exits, stale-stamp filter) + owner-flag confirmed real
 and attributed.**
+
+## Cycle t72799968 — scouting taxed the controller: the reserve counted prospects as payroll (valve 49→31→4.9→0.00, then reopened 59.7)
+
+The owner's report ("great over 50 e/t, regressed when we expanded 11→12
+remote sources") is confirmed measured — and the correlation is exact but the
+causation is not spawn capacity. warchestTarget's income read summed every
+graph source passing `isMinedIncomeId` — every scouted source whose REAL game
+id intel recorded, funded or not (the t72444684 phantom guard's "accepted
+residual", unbounded at this consumer). The scouting wave that admitted the
+12th remote (d017, net 5.91, d=102) flipped six frontier sources
+(W41N24/25, W42N24/25, W43N25) from intel-phantom to real ids in one step:
+
+```
+t72787778  11 funded  income 110  reserve  77,000  ctrl law 48.9 e/t
+t72788704  12 funded  income 170  reserve 119,000  ctrl law 31.0  (M05→M06 cliff)
+t72798237  12 funded  income 185  reserve 129,500  ctrl law  4.9
+t72799968  11 funded  income 230  reserve 161,000  ctrl law  0.00  ← fully closed
+```
+
+bankFedControllerRate = floor + (banked − reserve)/1500 is the ONE VALVE's
+law, so every newly-scouted real-id source permanently raised the reserve by
+700 × its rate and throttled the published allocation — delivery 56 → 34.6
+(FY4852-M05→M06) → 5.6 e/t (this window, G1: 12.93 e/t banking while the
+controller starved; E4 read "at/near target" because the target itself was
+poisoned). Compounding: 17 → 19 → 22 real ids as vision spread. Secondary
+finding, downstream: with the valve closed the solver spilled the surplus
+into construction sinks (P4 construction 0.238 p/t, 333 parts planned) and
+S5 hit 0.97× — the spawn saturation was a SYMPTOM, not the cause.
+
+**NOT the spawn-capacity handicap**: none of the SPAWN_PLAN_FRACTION=1.0
+experiment's registered reversion criteria fired (P4 0.83–0.91x, S3 "not a
+stall", X5 home 2%), the 12-source plan is spawn-feasible, and the 12th
+source prices net-positive (its P&L row: +2.56 F this window). The handicap
+stays lifted; S5 0.97× under valve-closure is the watch item to re-read
+post-fix.
+
+**Fix (a419c99, red-first):** the reserve's income basis is now
+`bank.fundedMiningIncome(sourceVerdicts)` — the solve's own funded producer
+rates, the same funded-only doctrine as the hub-sizing fix (t72437535).
+Publish pin: FlowEconomy.update test (candidate-pool 35,000 vs funded
+22,650, red confirmed pre-fix) + fundedMiningIncome unit pins. Gate: unit
+2091-0; trio flow-handoff/runt-economy/storage-depot PASS; grid
+reserve-adjacent 6/6 PASS (haul-t4 bank/feeder/spill, cons-t4, capguard,
+journey); fid-t4/fid-t5 red — control run on pre-change src fails both
+IDENTICALLY (same assertions, full-window), acquitted as the known
+host-load-coupled sandbox class; baseline untouched.
+
+**Deployed ~t72800100. Registered predictions → interim capture t72800193
+(+~90t):** P-1 warchestTarget 161,000 → **77,000** = 700×110 funded ✓ EXACT.
+P-2 published allocation 0.00 → **59.7** = (166,605−77,000)/1500 ✓ EXACT.
+P-3..P-6 (ONE VALVE coherence, delivery ≥30 ramping to 45–60, bank slope
+→~0, construction share draining from 0.238 p/t) pending the +3000t
+check-in. Fiscal closes FY4853-M02 (59%), M03 (115%) written — M03 is the
+terminal closed-valve phase sample.
+
+Cycle verdict: **fixed (funded-income reserve basis, immediate mechanism
+flip confirmed live) + attributed (the 11→12 correlation resolved to the
+reserve seam, spawn-capacity hypothesis falsified with the experiment's own
+criteria) — full-window delivery verification pending.**
