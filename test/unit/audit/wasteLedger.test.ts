@@ -768,7 +768,10 @@ describe("E6 miner pile gate (haul-deficit visibility, owner 2026-07-29)", () =>
     creepCount: staffing,
     bodyParts: staffing * 8,
     body: {},
-    sizing: { tick: 1, gate: "buffer-full", buffered: 2400, threshold: 2000, staffing, target: 1 },
+    // Stamped INSIDE the window (>= base tick): the stale-stamp filter (cycle
+    // t72793209) discards frozen pre-defund stamps, so staged evidence must
+    // carry a live tick like the real gate now always does.
+    sizing: { tick: 72411542, gate: "buffer-full", buffered: 2400, threshold: 2000, staffing, target: 1 },
     createdAt: 0,
     lastActivityTick: 1
   });
@@ -808,7 +811,7 @@ describe("E6 miner pile gate (haul-deficit visibility, owner 2026-07-29)", () =>
   it("reports quiet-gate visibility (stamps present, zero deferrals) as ok/0", () => {
     const cap = clone(cap72411542);
     const clear = gatedCorp("mining-W9N9-harvest-fine", 1);
-    clear.sizing = { tick: 1, gate: "clear", buffered: 150, staffing: 1, target: 1 };
+    clear.sizing = { tick: 72411542, gate: "clear", buffered: 150, staffing: 1, target: 1 };
     cap.data.corps.corps.push(clear);
     const e6 = computeLedger(cap, cap72404213).find(r => r.id === "E6")!;
     expect(e6.verdict).to.equal("ok");
@@ -867,7 +870,7 @@ describe("E6 frac trigger sample floor (first-contact calibration, t72645498)", 
     cap.data.corps.corps.push({
       id: "mining-W9N9-harvest-tiny", kind: "harvest", type: "mining", nodeId: "n", roomName: "W9N9",
       creepCount: 1, bodyParts: 8, body: {},
-      sizing: { tick: 1, gate: "buffer-full", buffered: 4000, staffing: 1, target: 1, heldFor, heldFrac },
+      sizing: { tick: 72411542, gate: "buffer-full", buffered: 4000, staffing: 1, target: 1, heldFor, heldFrac },
       createdAt: 0, lastActivityTick: 1
     });
     return cap;
@@ -2494,9 +2497,88 @@ describe("methodology #10: the recovery P&L (cure vs illness, published)", () =>
     expect(detail).to.include("5.0");
   });
 
-  it("the header stamps methodology #10", () => {
+  it("the header stamps methodology #12 (capacity excludes defunded sources)", () => {
     const { cap, base } = rig(zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    expect(text).to.include("[methodology #10]");
+    expect(text).to.include("[methodology #12]");
+  });
+});
+
+/**
+ * METHODOLOGY #11 - THE BUDGET COLUMN BALANCES BY CONSTRUCTION (owner
+ * 2026-08-04: "I think our budget would actually be unbalanced... it should
+ * just be zero or something"). #10 printed the bank BUDGET as the solver's
+ * routed net bank flow (storage alloc - bank-out) while every other budget
+ * line was the PLAN'S PRICED statement - two bases in one column. Measured
+ * t72773737: bank budget -55.16 (a draw whose destination was a 117 e/t
+ * spawn-sink claim against ~36.5 physically convertible), a 79.85 e/t hole
+ * in the column. #11 prints the bank budget as the plan's RESIDUAL - what a
+ * balanced budget leaves the bank after every priced line - so the column
+ * sums to zero identically; the solver's routed flows stay visible in the
+ * over-routing note.
+ */
+describe("the budget column balances by construction (methodology #11, t72773737)", () => {
+  const cap: any = fixture("shard1-t72773737.json");
+  const base: any = fixture("shard1-t72766670.json");
+  const text = formatAccounts(cap, base, computeLedger(cap, base));
+  const budgetOf = (label: string): number => {
+    const line = text.split("\n").find(l => l.includes(label));
+    expect(line, `line "${label}" exists`).to.not.equal(undefined);
+    const cols = (line as string).slice(38).trim().split(/\s+/);
+    return Number(cols[0]);
+  };
+
+  it("delivered budget - priced costs - loss budgets - appropriations budgets = 0", () => {
+    const identity =
+      budgetOf("= delivered into the economy") +
+      budgetOf("extraction  (miner)") +
+      budgetOf("evacuation  (hauler)") +
+      budgetOf("reservation (reserver)") +
+      budgetOf("link transfer") +
+      budgetOf("= total overhead") +
+      budgetOf("= measured losses") -
+      budgetOf("controller (score)") -
+      budgetOf("construction (site progress)") -
+      budgetOf("to/(from) bank");
+    expect(Math.abs(identity), `budget column sums to zero (got ${identity.toFixed(2)})`).to.be.lessThan(0.01);
+  });
+
+  it("the bank budget is the plan residual, not the solver's routed net draw (-55.16 at t72773737)", () => {
+    const bank = budgetOf("to/(from) bank");
+    expect(bank, "the routed -55.16 fiction is gone").to.be.greaterThan(0);
+    expect(bank).to.be.closeTo(21.1, 1.0); // 100 - 30.50 fleet - 3.59 link - 5.17 losses - 39.64 ctrl
+  });
+
+  it("the solver's routed net bank flow stays visible in the over-routing note", () => {
+    expect(text).to.match(/solver.*routed net bank|routed flows: net bank/i);
+  });
+});
+
+/**
+ * P12 RE-PINNED (post spec-38 phase D, 2026-08-04). The runtime constant the
+ * gauge was born against (STORAGE_UPGRADE_TARGET + drain) was retired by
+ * phase D + addendum: plan sink and feeder both resolve
+ * bankFedControllerRate = sip + surplus/tau. What still diverges is the
+ * SOLVER: an over-claiming spawn sink (fundingNeed / FUND_HORIZON, physical
+ * ceiling since t72773737) parks the draw and the published allocation
+ * lands BELOW the law's cap - measured 39.64 against 59.04. The gauge now
+ * reads published-alloc / law-cap, never a ratio of two negative
+ * decompositions (the old model printed "Infinity x" on exactly the seam it
+ * existed to name).
+ */
+describe("P12 valve coherence (published allocation vs the phase-D law)", () => {
+  it("t72773737: allocation 39.64 vs cap 57.04 reads 0.70x - a WARN, not Infinity", () => {
+    // The law's floor term (the anti-downgrade sip) honestly reads 0 when the
+    // capture carries no ticksToDowngrade, so the cap here is the pure
+    // surplus/tau term: (155,554 - 70,000) / 1,500 = 57.04.
+    const cap: any = fixture("shard1-t72773737.json");
+    const base: any = fixture("shard1-t72766670.json");
+    const p12 = computeLedger(cap, base).find(r => r.id === "P12")!;
+    expect(p12, "P12 present").to.not.equal(undefined);
+    expect(Number.isFinite(p12.value), "never Infinity").to.equal(true);
+    expect(p12.value).to.be.closeTo(0.7, 0.03);
+    expect(p12.verdict).to.equal("WARN");
+    expect(p12.unit).to.contain("57.0"); // the law's cap is named
+    expect(p12.detail).to.contain("spawn sink"); // and so is the parked-claim culprit
   });
 });

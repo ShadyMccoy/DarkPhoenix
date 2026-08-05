@@ -81,16 +81,33 @@ measurement leg 1.
 
 ## Measurement legs (do these first; they gate the design)
 
+**LEG STATUS 2026-08-05: all three landed — the design is measurement-ready
+and waits only on the owner's go (the "don't rush" gate is theirs).**
+
 1. **Pile census instrument**: per-pile size distribution over time (count,
    size buckets, floor-bound share of measured decay). The loss meter knows
    total decay; it cannot yet say how many piles pay the floor. Without this
    the focus-fire dividend and the standing-fleet size are guesses.
+   **SHIPPED core v31 (2026-08-04); reading steadily since** — recent
+   windows: floor share 4.29 of 8.44 total (avg 6.7 piles, 4.9 small,
+   FY4852-M04) and 3.88 of 10.28 (avg 6.5 piles, 3.9 small, M05 era). The
+   floor-bound share is stable ~4 e/t; the proportional remainder is the
+   MOUTH class, which spec 45 (arrivals-first link sequencing) attacks at
+   cause — read L1's two halves against their own specs.
 2. **Recovery P&L trend** (methodology #10, first complete close = M10): the
    standing fleet must beat the transient fleet's net (recovered − bodies).
    The transient baseline is now measurable; capture 2–3 clean windows of it
    before switching, so the redesign has a before/after.
+   **BASELINE ACCUMULATED through FY4852-M05**: recovery net −0.27 to −0.39
+   e/t across recent windows (recovered +0.49..+0.64 vs bodies −0.76..−1.03)
+   — the transient cure consistently costs more than it recovers, which is
+   itself the case for the standing redesign.
 3. **retiring-demob share** (v29 recycled-why): the line the persistence
    change should collapse; its clean baseline lands with M10.
+   **BASELINED**: 6% at M10; 66%/29% of recycle losses in the two most
+   recent windows (small absolute base — recycle losses net ~0.1–0.4 e/t
+   at a ~96% recovery rate; the LIFECYCLE waste, a fresh corp+body per
+   reforming pile every ~490t, is the real line).
 
 ## Open questions (deliberately unanswered)
 

@@ -430,6 +430,73 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       ).to.be.greaterThan(0);
     });
 
+    /**
+     * THE SLIVER-ASK (t72773737, the demand half of the even-share
+     * treadmill). The plan prices the pile drain into route carryParts, so a
+     * staging/clearing buffer moves carryNeeded +-1 CARRY between solves. The
+     * heal branch had no dead-band: one CARRY short of a covered fleet asked
+     * for a whole even-share body, the pounce then culled the incumbent it
+     * displaced, and the next solve moved the target again - a full spawn
+     * purchase per wiggle (d01f: eight bodies in ~1200t, 5.17 e/t measured
+     * against a 1.27 e/t plan). MATURE rooms ride a sub-half-body deficit to
+     * natural replacement; a REAL gap (>= half the heal body) still asks, so
+     * the fidelity-cell invariant (keep asking while carry-short) survives.
+     */
+    it("MATURE: a count-complete fleet within half a body of the route does not buy the sliver", () => {
+      const nodeId = "W1N1-hauling-sliver";
+      const corp = carryCorp(nodeId);
+      // carryNeeded 12 at 550 cap: target 3, heal body = 4 CARRY.
+      corp.setHaulerAssignments([{ ...route("controller-cccc", 20, 6), carryParts: 12 }]);
+
+      // Fleet [5,5,1] = 11 of 12: count-complete, one CARRY short.
+      const creeps: Record<string, unknown> = {};
+      [5, 5, 1].forEach((carry, i) => {
+        creeps[`s${i}`] = {
+          memory: { corpId: nodeId, workType: "haul" },
+          spawning: false,
+          store: { getCapacity: () => carry * 50 },
+          getActiveBodyparts: (part: string) => (part === "carry" ? carry : 0)
+        };
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = { ...MockGame, creeps, time: 100 };
+
+      expect(
+        corp.getSpawnDemand({ ...ctx, storageBacked: true }),
+        "one CARRY of 12 is the drain wiggle - not worth a body in a mature room"
+      ).to.deep.equal([]);
+      expect(
+        corp.getSpawnDemand(ctx).length,
+        "bootstrap keeps the strict ask - the ramp needs every CARRY"
+      ).to.be.greaterThan(0);
+    });
+
+    it("MATURE: a REAL heal-branch gap (>= half the heal body) still asks", () => {
+      const nodeId = "W1N1-hauling-realgap";
+      const corp = carryCorp(nodeId);
+      // carryNeeded 6 at 550 cap: target 2, heal body = 3 CARRY.
+      corp.setHaulerAssignments([route("controller-cccc", 20, 6)]);
+
+      // Fleet [1,1,1,1] = 4 of 6: count-complete (4 >= 2), gap 2 = 2/3 of the
+      // heal body - the fidelity-cell shape, and it must keep asking.
+      const creeps: Record<string, unknown> = {};
+      for (let i = 0; i < 4; i += 1) {
+        creeps[`g${i}`] = {
+          memory: { corpId: nodeId, workType: "haul" },
+          spawning: false,
+          store: { getCapacity: () => 50 },
+          getActiveBodyparts: (part: string) => (part === "carry" ? 1 : 0)
+        };
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = { ...MockGame, creeps, time: 100 };
+
+      expect(
+        corp.getSpawnDemand({ ...ctx, storageBacked: true }).length,
+        "two of six missing is a real deficit - mature rooms still heal it"
+      ).to.be.greaterThan(0);
+    });
+
     it("stops demanding once the fleet is large enough", () => {
       const nodeId = "W1N1-hauling-stop";
       const corp = carryCorp(nodeId);
@@ -827,6 +894,98 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
       (mineCorp as any).flagRuntForRecycling(mineCreeps, room, spawn);
       expect(mineCreeps.some(c => c.memory.recycling), "standing routes still heal").to.equal(true);
       expect(mineCreeps.find(c => c.memory.recycling)!.memory.recycleReason).to.equal("runt-upsize");
+    });
+
+    /**
+     * THE EVEN-SHARE TREADMILL (t72773737 ring: d01f bought EIGHT 27-36p
+     * hauler bodies in ~1200 ticks, cost laddering 1350->1500->1650->1800,
+     * 5.17 e/t against the route's 1.27 plan; colony-wide the window's
+     * recycled line reads runt-upsize 90%). Two mismatched lenses:
+     *
+     *  - the SIZER deliberately fields even-share bodies - base
+     *    floor(carryNeeded/target) with the remainder as +1s (the 2026-07-31
+     *    "that share, NOT the room's maxCarryPerHauler" fix) - so a route
+     *    that doesn't divide into equal bodies ALWAYS stands a floor-share
+     *    body;
+     *  - the CULLER judged every body against haulerBodyCarry's CEIL share,
+     *    so that floor-share body reads "runt" forever: buy even-share, cull
+     *    smallest, repeat - a whole spawn purchase per wiggle.
+     *
+     * And the target WIGGLES by construction: the plan prices the pile drain
+     * into route carryParts (phase-1 repricing), so a staging/clearing buffer
+     * moves carryNeeded +-1 CARRY solve to solve (d01f 37.34 with buffered
+     * 2367 at capture). Same-lens doctrine (the staffsPost trap,
+     * generalized): the culler judges against the share the sizer BUILDS,
+     * and in the MATURE regime a deficit under HALF a share is not worth a
+     * body - it rides to natural replacement, which re-sizes for free.
+     */
+    it("MATURE: the sizer's own floor-share body is NOT a runt (the d01f treadmill)", () => {
+      const mkCreep = (name: string, carry: number): any => ({
+        name,
+        memory: {},
+        getActiveBodyparts: (p: string) => (p === "carry" ? carry : 0)
+      });
+      // carryNeeded 21 at 1300 cap: target 2, sizer builds [11, 10].
+      const room: any = { energyAvailable: 1300, energyCapacityAvailable: 1300, storage: { my: true } };
+      const spawn: any = { spawning: false };
+      const corp = carryCorp("W1N1-hauling-share");
+      corp.setHaulerAssignments([{ ...route("storage-home", 40, 6), carryParts: 21 }]);
+      const creeps = [mkCreep("a", 11), mkCreep("b", 10)];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (corp as any).flagRuntForRecycling(creeps, room, spawn);
+      expect(
+        creeps.some(c => c.memory.recycling),
+        "a floor-share body is what the sizer built - culling it is the treadmill"
+      ).to.equal(false);
+    });
+
+    it("MATURE: a body at or above HALF its share rides to EOL; under half still heals", () => {
+      const mkCreep = (name: string, carry: number): any => ({
+        name,
+        memory: {},
+        getActiveBodyparts: (p: string) => (p === "carry" ? carry : 0)
+      });
+      const room: any = { energyAvailable: 1300, energyCapacityAvailable: 1300, storage: { my: true } };
+      const spawn: any = { spawning: false };
+
+      // share 10 (carryNeeded 21, target 2): a 6-CARRY body (deficit 4,
+      // under half a share) is the solve-to-solve wiggle - not worth a body.
+      const rides = carryCorp("W1N1-hauling-rides");
+      rides.setHaulerAssignments([{ ...route("storage-home", 40, 6), carryParts: 21 }]);
+      const ridesCreeps = [mkCreep("a", 6), mkCreep("b", 11)];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (rides as any).flagRuntForRecycling(ridesCreeps, room, spawn);
+      expect(ridesCreeps.some(c => c.memory.recycling), "within half a share: rides to EOL").to.equal(false);
+
+      // A 4-CARRY body (deficit 6 of 10, over half a share) is a genuine
+      // runt - the heal is worth the purchase, exactly the original intent.
+      const heals = carryCorp("W1N1-hauling-heals");
+      heals.setHaulerAssignments([{ ...route("storage-home", 40, 6), carryParts: 21 }]);
+      const healsCreeps = [mkCreep("a", 4), mkCreep("b", 11)];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (heals as any).flagRuntForRecycling(healsCreeps, room, spawn);
+      expect(healsCreeps.some(c => c.memory.recycling), "under half a share: a real runt").to.equal(true);
+      expect(healsCreeps.find(c => c.memory.recycling)!.memory.recycleReason).to.equal("runt-upsize");
+    });
+
+    it("BOOTSTRAP keeps the strict heal - escape velocity beats waiting (cee0 doctrine)", () => {
+      const mkCreep = (name: string, carry: number): any => ({
+        name,
+        memory: {},
+        getActiveBodyparts: (p: string) => (p === "carry" ? carry : 0)
+      });
+      // Same 6-CARRY body that RIDES in a mature room pounces in bootstrap:
+      // no storage means every CARRY of coverage is the ramp itself.
+      const room: any = { energyAvailable: 1300, energyCapacityAvailable: 1300 };
+      const spawn: any = { spawning: false };
+      const corp = carryCorp("W1N1-hauling-cold");
+      corp.setHaulerAssignments([{ ...route("storage-home", 40, 6), carryParts: 21 }]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (corp as any).readPickupBuffer = () => ({ staged: null, srcLinkEnergy: null, srcLinkCap: null });
+      const creeps = [mkCreep("a", 6), mkCreep("b", 11)];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (corp as any).flagRuntForRecycling(creeps, room, spawn);
+      expect(creeps.some(c => c.memory.recycling), "bootstrap still cranks upward").to.equal(true);
     });
   });
 

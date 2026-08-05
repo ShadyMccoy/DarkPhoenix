@@ -150,7 +150,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   }
 
   const telemetry: CorpsTelemetry = {
-    version: 15, // v14 produced/delivered counters; v15 planned fleet per commission (spec 39 phase 1) 2026-08-03
+    version: 16, // v15 planned fleet per commission; v16 hauler departure-reason meter in haul sizing stamps (cycle t72786811) 2026-08-05
     tick: Game.time,
     corps,
     summary: {

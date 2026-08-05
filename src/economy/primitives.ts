@@ -64,6 +64,24 @@ export const SPAWN_TIME_PER_PART = 3;
 export const SPAWN_PARTS_PER_TICK = 1 / 3;
 
 /**
+ * The spawn's PHYSICAL energy-conversion ceiling (energy/tick, PER SPAWN):
+ * SPAWN_PARTS_PER_TICK parts assembled per tick, each paid at the fleet's own
+ * mean energy-per-part. A spawn sink can CONVERT at most this - every e/t
+ * claimed above it is flow the spawn cannot turn into bodies, and the solver
+ * parks it (P12 plan-side seam, measured t72773737: sinks claimed 117 e/t -
+ * fundingNeed 5,100 over FUND_HORIZON 50 - against 36.5 actually spent; the
+ * bank round-tripped 156.61 gross out / 101.45 back on paper, and the
+ * published controller allocation sat at 39.64 against its own
+ * bankFedControllerRate cap of 59.04). The spawn NETWORK's stock is the
+ * pre-fund buffer for any single big body; a CONTINUOUS super-physical claim
+ * is never real. Floored at the cheapest part (MOVE) so a degenerate mix can
+ * never zero a sink.
+ */
+export function spawnEnergyCeiling(energyPerPart: number): number {
+  return SPAWN_PARTS_PER_TICK * Math.max(BODY_COSTS.MOVE, energyPerPart);
+}
+
+/**
  * Lifetime of a creep carrying a CLAIM part (CREEP_CLAIM_LIFE_TIME). Reservers
  * live only 600 ticks, not 1500 - a big part of why the reserver toll is steep.
  */
@@ -587,7 +605,16 @@ export function infraSpawnLoad(
   // the CARRY for the same relay. Priced like the original: one feeder
   // detail for the depot room (multi-depot pricing arrives with expansion).
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
-  const feeder = depotRoomCount > 0 ? (2 * carryPartsFor(relayRate, feederDist)) / effectiveLife(feederDist) : 0;
+  // Spec 45 volley-service floor: a link-fed feeder must clear a FULL 800e
+  // volley in one parked cycle (see volleyServiceCarry) - the plan prices
+  // the same floor the corp fields (F1: price = behavior). A link-fed room
+  // without inbound senders over-prices by the floor; accepted - that
+  // config is transient here and the error sits on the conservative side.
+  const feederCarry =
+    linkFedRoomCount > 0
+      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry())
+      : carryPartsFor(relayRate, feederDist);
+  const feeder = depotRoomCount > 0 ? (2 * feederCarry) / effectiveLife(feederDist) : 0;
   // 2 tankers x measured 24-part body, per depot room (owner ratchet
   // 2026-07-22, priced WITH the fleet-cap cut - P5: price = behavior).
   const TENDER_FLEET_PARTS = 48;
@@ -628,8 +655,12 @@ export function infraSpawnEnergy(
   const CARRY_MOVE_PER_PART = CARRY_MOVE_PAIR_COST / 2;
   const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
-  const feeder =
-    depotRoomCount > 0 ? ((2 * carryPartsFor(relayRate, feederDist)) / effectiveLife(feederDist)) * CARRY_MOVE_PER_PART : 0;
+  // Spec 45 volley-service floor - the SAME line as the parts twin above.
+  const feederCarry =
+    linkFedRoomCount > 0
+      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry())
+      : carryPartsFor(relayRate, feederDist);
+  const feeder = depotRoomCount > 0 ? ((2 * feederCarry) / effectiveLife(feederDist)) * CARRY_MOVE_PER_PART : 0;
   const TENDER_FLEET_PARTS = 48;
   const tender = ((depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME) * CARRY_MOVE_PER_PART;
   const RESERVER_PARTS_PER_ROOM = 4;
@@ -649,6 +680,24 @@ export function infraSpawnEnergy(
 export function reserverSpawnLoad(parts: number): number {
   const RESERVER_WALK = 60; // nominal remote-controller walk
   return (RESERVER_DUTY * parts) / Math.max(1, CLAIM_LIFETIME - RESERVER_WALK);
+}
+
+/**
+ * ENERGY/tick of ONE remote room's reserver stint at the shipped duty - the
+ * per-room reservation bill ADMISSION must split across the room's candidate
+ * sources (t72780703 follow-up). The chronic remote P&L variance was exactly
+ * this omission: every fiscal close charged each remote source its room's
+ * reserver share (the reservation line splits per room) while the admission
+ * net priced none of it - "mean remote variance -0.63..-1.68 e/t... the
+ * remote cost the plan is missing" on every close since the P&L shipped.
+ * Composes reserverSpawnLoad and the CLAIM+MOVE body mix - the SAME terms
+ * infraSpawnEnergy's reserver line prices, so plan-side infra and admission
+ * cannot disagree about what a room's reservation costs (~1.20 e/t).
+ */
+export function reserverRoomEnergy(): number {
+  const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
+  const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE, the full-budget live body
+  return reserverSpawnLoad(RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
 }
 
 /**
@@ -761,25 +810,36 @@ export function energyPerSpawnPart(rate: number, distance: number): number {
 }
 
 /**
- * Fraction of the PHYSICAL spawn build-rate the planner may commit (owner
- * 2026-07-30: "90% of theoretical spawn capacity is available for planning -
- * everything is like before, we're just planning on an economy that's 10%
- * smaller in terms of bodies").
+ * Fraction of the PHYSICAL spawn build-rate the planner may commit.
  *
- * The reserved 10% is EXECUTION slack, not waste. A plan at 100% of physical
- * had nowhere to put the parts execution provably spends outside the plan's
- * fleets: EOL replacement overlap (deliveryLeadTime deliberately starts
- * successors early), invader-churn rebuilds (X5 measured 18% of remote spawn
- * spend), runt upsizes, and orphan rescues. Measured at t72676360 the result
- * was utilization 0.97 with queue depth 8 and blocking demands waiting behind
- * a saturated pipe. With the margin, that churn lands in reserved slack
- * instead of queueing behind planned bodies.
+ * ORIGINALLY 0.9 (owner 2026-07-30: "90% of theoretical spawn capacity is
+ * available for planning"): the reserved 10% was EXECUTION slack for the
+ * parts execution provably spent outside the plan's fleets - EOL replacement
+ * overlap, invader-churn rebuilds (X5 measured 18% of remote spawn spend at
+ * the time), runt upsizes, orphan rescues. Measured at t72676360 a 100% plan
+ * ran utilization 0.97 with queue depth 8 and blocking demands stuck behind
+ * a saturated pipe.
+ *
+ * EXPERIMENT 1.0 (owner 2026-08-04: "We could try lifting the 10% spawning
+ * capacity handicap on the planner for a couple of months to see what
+ * happens"). The margin's absorbers have been fixed out from under it: the
+ * even-share treadmill and runt ladders are dead (X5 home churn 0-3%
+ * measured across three post-fix windows, was 18%+), the spawn runs 46%
+ * physical headroom (S5 0.54x), and the spawn-sink claim is physically
+ * capped (spawnEnergyCeiling). Meanwhile the margin BINDS at admission:
+ * t72778545 shows 28 candidate sources rejected "over-budget" with positive
+ * nets (best: net 7.13) behind the 0.9 x 0.6 mining tranche. Registered
+ * predictions: 1-2 remotes admitted (+10-20 e/t capacity), P4 <= ~0.75x,
+ * S5 toward 0.65-0.80x. REVERSION CRITERIA (any, sustained a full window):
+ * utilization > 0.95 with queue-depth blocking (the t72676360 shape), X5
+ * home churn > 10%, or P4 >= 1.0x - then the margin was still needed and
+ * the number between 0.9 and 1.0 gets measured, not argued.
  *
  * This is a MARGIN at the planning seam - execution still owns the full
  * physical spawn, standing fleets are untouched, and nothing is gated
  * (doctrine: the planner prices, it doesn't gate).
  */
-export const SPAWN_PLAN_FRACTION = 0.9;
+export const SPAWN_PLAN_FRACTION = 1.0;
 
 /**
  * Parts/tick the PLANNER may budget across `spawnCount` spawns - the ONE lens
@@ -814,6 +874,28 @@ export function miningBudgetPerSpawn(): number {
  * meter's core-fill sampler boundary (telemetry/LinkMeter).
  */
 export const LINK_FIRE_THRESHOLD = 100;
+
+/** Engine: a link holds at most this much energy - the largest possible volley. */
+export const LINK_CAPACITY = 800;
+
+/**
+ * CARRY parts that clear one FULL link volley in a single parked
+ * withdraw+transfer cycle (spec 45, owner sizing doctrine 2026-08-05): the
+ * feeder is a SERVICE creep - its metric is drain LATENCY, not throughput
+ * utilization. "They need to drain the core link pretty much on demand.
+ * Anytime an incoming link is imminent. It can't be a bottleneck... Idle
+ * haulers are a form of waste. They're sized for full time moving." Sized to
+ * average relay flow instead (parkedRelayCarry), the live 4-CARRY feeder
+ * needed ~8 ticks per 800e volley while two deposit ports at 13/14t
+ * cooldowns landed one every ~7t - the feeder itself clamped the network
+ * (coreEmptyShare 0.26, hubClampShare 0.50 measured at t72787778). The
+ * feeder's idle between volleys is the price of hauler duty, and it is
+ * cheap; the corp's sizing and infraSpawnLoad/-Energy's pricing BOTH floor
+ * at this so plan and runtime agree (F1).
+ */
+export function volleyServiceCarry(): number {
+  return LINK_CAPACITY / CARRY_CAPACITY;
+}
 
 // ---------------------------------------------------------------------------
 // NPC-invader raid facts (spec 13 ground truth, verified against the vendored

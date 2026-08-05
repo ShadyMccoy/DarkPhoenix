@@ -19,7 +19,7 @@ import { isTenderCreep } from "./censusLens";
 import { tenderOwnsExtensions } from "./regimes";
 import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
 import { travelToLane, travelToQueued } from "./movement";
-import { driveRecycle, runtUpsizeThreshold } from "./recycle";
+import { driveRecycle, runtUpsizeThreshold, worthABody } from "./recycle";
 import {
   CARRY_MOVE_PAIR_COST,
   CREEP_LIFETIME,
@@ -34,6 +34,7 @@ import {
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { travelTicksPerTile } from "./economics";
 import { traceHaulTick } from "../telemetry/HaulTrace";
+import { DepartMeter, DepartReason } from "../telemetry/DepartMeter";
 
 /**
  * Hard backstop on bodies per hauling corp - the pathological case where the
@@ -100,7 +101,7 @@ export class CarryCorp extends Corp {
    */
   private dutyAlive = 0;
   /** Which gate ended the last hauler-sizing walk (spec 14 exit verdict). */
-  private lastExit: "staffed" | "swarm-cap" | "asking" | undefined;
+  private lastExit: "staffed" | "swarm-cap" | "asking" | "deadband" | "hostile-defund" | undefined;
   private dutyActive = 0;
   private dutyIdleSource = 0;
   private dutyIdleSink = 0;
@@ -129,6 +130,14 @@ export class CarryCorp extends Corp {
    * mis-assignment that outlived the vision gap).
    */
   private pickupPos: Position | null = null;
+
+  /**
+   * Why haulers leave the pickup stop (cycle t72786811): cd94's hauler left
+   * at half load twice on live watch with 2000 banked beside it, and the
+   * branch is invisible from outside. Every depart() records its reason here;
+   * the stamp rides innerSizing so the next capture names the branch.
+   */
+  private departMeter = new DepartMeter();
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("hauling", nodeId, customId);
@@ -201,6 +210,10 @@ export class CarryCorp extends Corp {
       // under-sizing or a link backlog.
       carryNeeded: this.haulCarryNeeded(this.homeStorageBacked()),
       ...(this.lastExit ? { exit: this.lastExit } : {}),
+      // Departure-reason meter (cycle t72786811): which depart() branch sent
+      // each hauler home and how full it was — a half-load lastDepart at a
+      // stocked mouth names the standing-pile mechanism from one capture.
+      ...this.departMeter.stamp(),
       staged: pickup.staged,
       srcLinkEnergy: pickup.srcLinkEnergy,
       srcLinkCap: pickup.srcLinkCap,
@@ -402,13 +415,34 @@ export class CarryCorp extends Corp {
     const maxCarry = this.maxCarryPerHauler(room);
     if (minCarry >= maxCarry) return; // nothing under-built to heal
 
+    // THE SIZER'S OWN LENS (the even-share treadmill, t72773737): the demand
+    // side deliberately fields even-share bodies - base
+    // floor(carryNeeded/target) with the remainder as +1s - while this gate
+    // judged them against haulerBodyCarry's CEIL share, so any route that
+    // doesn't divide into equal bodies stood a floor-share body this culler
+    // read as a runt FOREVER: buy even-share, cull smallest, repeat (d01f:
+    // eight 27-36p bodies in ~1200t while the drain-priced carryNeeded crept
+    // 36->48 on a growing pile; runt-upsize 90% of the window's recycles).
+    // MATURE rooms judge against the floor share and only cull a body under
+    // HALF it (worthABody - the same predicate the ask gate reads, so sizer
+    // and culler cannot disagree); the +-1 CARRY solve wiggle rides to EOL,
+    // which re-sizes for free. Bootstrap keeps the strict crank: escape
+    // velocity beats waiting (the cee0 doctrine).
+    const storageBacked = room.storage?.my === true;
+    if (storageBacked) {
+      const carryNeeded = this.haulCarryNeeded(true);
+      const targetHaulers = Math.max(1, Math.ceil(carryNeeded / Math.max(1, maxCarryPairs(room.energyCapacityAvailable))));
+      const share = Math.max(1, Math.floor(carryNeeded / targetHaulers));
+      if (!worthABody(share - minCarry, share)) return; // at/above half its share: not a runt
+    }
+
     // Replacement affordability: in a STORAGE-BACKED room the pounce waits
     // for the FULL-SIZE body - one recycle, one buy (the cee0 ladder bought
     // five stepping-stones because this gate fired at +1 CARRY while each
     // purchase drained the bank the next buy scaled to). Bootstrap keeps the
     // +1 crank: escape velocity beats waiting when nothing guarantees refill.
     const runtRatio = this.getHaulerAssignments()[0]?.haulerRatio ?? "1:1";
-    if (room.energyAvailable < runtUpsizeThreshold(minCarry, maxCarry, room.storage?.my === true, runtRatio)) return;
+    if (room.energyAvailable < runtUpsizeThreshold(minCarry, maxCarry, storageBacked, runtRatio)) return;
 
     creeps[carry.indexOf(minCarry)].memory.recycling = true;
     creeps[carry.indexOf(minCarry)].memory.recycleReason = "runt-upsize";
@@ -424,7 +458,7 @@ export class CarryCorp extends Corp {
       creep.say("pickup");
     }
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
-      this.depart(creep, room);
+      this.depart(creep, room, "full");
     }
 
     // A clean bus: it fills completely at its source stop, then runs the route and
@@ -503,8 +537,18 @@ export class CarryCorp extends Corp {
    * this trip's destination. Called on the normal full-load state flip, and by the
    * scavenger path when its transient stock runs dry mid-load (a drained stock can
    * never top the hauler up to full, so waiting for the flip would freeze it).
+   * Every caller states its reason; the meter stamps it (partial-load departures
+   * at a stocked mouth are the cd94 standing-pile mechanism, cycle t72786811).
    */
-  private depart(creep: Creep, room: Room): void {
+  private depart(creep: Creep, room: Room, reason: DepartReason): void {
+    // Telemetry must never break the depart itself: harness creeps (and any
+    // odd store shape) may lack getCapacity — record frac 0 rather than throw.
+    this.departMeter.record(
+      reason,
+      creep.store[RESOURCE_ENERGY] ?? 0,
+      creep.store.getCapacity?.(RESOURCE_ENERGY) ?? 0,
+      typeof Game !== "undefined" ? Game.time : 0
+    );
     creep.memory.working = true;
     // Each hauler has ONE permanent home circuit (assigned in proportion to the
     // flow solver's per-sink allocations - see assignCircuit), so it is a dumb
@@ -635,7 +679,7 @@ export class CarryCorp extends Corp {
     // line read 0.0 of a 2.0 plan. Yielding means no NEW pickups; anything
     // already aboard delivers first, then the empty creep stands by.
     if (this.yieldsToBuild()) {
-      if (creep.store[RESOURCE_ENERGY] > 0) this.depart(creep, room);
+      if (creep.store[RESOURCE_ENERGY] > 0) this.depart(creep, room, "yield");
       return;
     }
 
@@ -716,7 +760,7 @@ export class CarryCorp extends Corp {
         // longer exists can never provide the top-up - waiting for the flip
         // froze the scavenger beside its dead stock for the rest of its life
         // (observed live 2026-07-17, 744/800 aboard).
-        this.depart(creep, room);
+        this.depart(creep, room, "scavenge-dry");
       } else {
         // Drained stock AND empty-handed: this scavenger will never scavenge
         // again (re-detection dropped the stock; the corp is retiring and its
@@ -751,7 +795,7 @@ export class CarryCorp extends Corp {
         }).length > 0) ||
       (assignedSource ? (assignedSource.energy ?? 0) > 0 : false);
     if (!spotStocked && creep.store[RESOURCE_ENERGY] > 0 && creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-      this.depart(creep, room);
+      this.depart(creep, room, "spot-dry");
       return;
     }
     workSpot(creep, spot, "collect");
@@ -1348,8 +1392,12 @@ export class CarryCorp extends Corp {
     // pickup room is hostile (sighted, or inside a sighted hostile's TTL
     // bound). Existing haulers run out; funding resumes on all-clear. The
     // room comes from the nodeId (its leading segment is the source's room),
-    // which needs no Game objects - harness-safe.
-    if (hostileRooms().has(this.nodeId.split("-")[0])) return [];
+    // which needs no Game objects - harness-safe. Stamped since cycle
+    // t72793209 (no silent demand exits).
+    if (hostileRooms().has(this.nodeId.split("-")[0])) {
+      this.lastExit = "hostile-defund";
+      return [];
+    }
 
     // Spec 13 phase 2b (The International's pathsThrough): the circuit is
     // also defunded when any room it TRANSITS is hostile - a clear pickup
@@ -1394,6 +1442,23 @@ export class CarryCorp extends Corp {
     // DEMAND-side gate, not affordability - and two gates here can produce it.
     this.lastExit = "staffed";
     if (current >= targetHaulers && fieldedCarry >= carryNeeded) return [];
+    // MATURE DEAD-BAND (the sliver-ask, t72773737): the heal actuator is a
+    // whole spawn purchase, and the drain-priced routes move carryNeeded
+    // +-1 CARRY solve to solve as buffers stage and clear. A count-complete
+    // fleet within HALF the heal body of its route rides to natural
+    // replacement (EOL re-sizes for free) instead of buying the sliver the
+    // pounce would then cull an incumbent over - the even-share treadmill
+    // that bought d01f eight bodies in ~1200t (5.17 e/t vs a 1.27 e/t plan).
+    // Bootstrap keeps the strict ask: the ramp needs every CARRY (worthABody
+    // is the one predicate both this gate and the pounce read).
+    if (
+      ctx.storageBacked === true &&
+      current >= targetHaulers &&
+      !worthABody(carryNeeded - fieldedCarry, haulerBodyCarry(ctx.energyCapacity, carryNeeded))
+    ) {
+      this.lastExit = "deadband";
+      return [];
+    }
     // The swarm cap stays on the PHYSICAL count: replacement overlap may field
     // one extra body per expiring hauler, but never an unbounded swarm.
     // THE SWARM CAP IS DENOMINATED IN CARRY, like the gate above it.

@@ -297,7 +297,17 @@ export interface FlowSolution {
    * The plan's spawn-parts ledger, traced (spec 15 P4): capacity, standing
    * deductions, and the routing budget the sink fill worked with.
    */
-  partsLedger?: { capacity: number; plannable?: number; minerLoad: number; infra: number; budget: number };
+  partsLedger?: {
+    capacity: number;
+    plannable?: number;
+    minerLoad: number;
+    infra: number;
+    budget: number;
+    /** Parts the routing actually spent of the budget (v9; the type lagged the field). */
+    spent?: number;
+    /** True when routing exhausted the budget - spawn capacity binds (v9). */
+    dry?: boolean;
+  };
   /** Problem-assembly counts (flow v5): names the layer that dropped sources. */
   assembly?: { graphSources: number; mined: number; transient: number; bank: number };
 

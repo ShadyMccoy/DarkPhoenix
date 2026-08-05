@@ -2922,7 +2922,7 @@ export class ConstructionCorp extends Corp {
     const poolSite = this.poolTankerSite(spawn.pos.roomName);
     if (!poolSite) return builderDemand;
 
-    const tankerDemand = this.tankers.spawnDemand(this.tankerPlan(ctx, workRoom, poolSite));
+    const tankerDemand = this.tankers.spawnDemand(this.tankerPlan(ctx, workRoom, poolSite, poolWork));
     return [...builderDemand, ...tankerDemand];
   }
 
@@ -2952,7 +2952,7 @@ export class ConstructionCorp extends Corp {
     };
   }
 
-  private tankerPlan(ctx: SpawnDemandContext, room: Room, site: ConstructionSite): SquadPlan {
+  private tankerPlan(ctx: SpawnDemandContext, room: Room, site: ConstructionSite, poolWork?: number): SquadPlan {
     // Big shuttles, few bodies (owner 2026-07-18: construction consumes 5x
     // more energy per WORK, so the DELIVERY side is the binding constraint -
     // "we actually need the haulers to be bigger"). The old 4-CARRY cap
@@ -2992,6 +2992,24 @@ export class ConstructionCorp extends Corp {
     // scope; only the SIZING is corrected to the shape actually built.
     const desired = buildTankerBody(carryPer, ctx.energyCapacity, false);
     const min = buildTankerBody(1, ctx.energyCapacity, false);
+    // WORTH-A-BODY FOR THE RELAY (t72783130/t72783818: 16 tankers/17,600e
+    // across two rings at 7-25t buy-gaps, standing ZERO). Road campaigns
+    // TRICKLE 300e segments, so pool-site existence alone bought an 1,100e
+    // ferry per flicker that the op-end cohort release demobbed on arrival -
+    // the even-share treadmill's actuator-granularity disease on the
+    // construction seam. The ferry's own price is the gate: a pool whose
+    // remaining work is under ONE tanker body buys no tanker (builders
+    // self-fuel small remainders; supplyMethod already prices adjacency).
+    // The old 25t orphan grace attacked the DEMOB side and "bought nothing
+    // and cost plenty" (see the recycle note above) - this is the buy-side
+    // mechanism fix. Undefined poolWork = ungated (legacy callers/tests).
+    // The bar is the RELAY the plan buys (target x body - the hot-swap
+    // floor means the purchase is never one ferry), and <= on purpose:
+    // cargo EQUAL to the relay's price still is not worth the relay
+    // (spend X to move X).
+    if (poolWork !== undefined && poolWork <= target * desired.cost) {
+      return { target: 0, desiredCost: 0, minCost: 0, bodyParam: 1 };
+    }
     return {
       target,
       desiredCost: desired.cost,

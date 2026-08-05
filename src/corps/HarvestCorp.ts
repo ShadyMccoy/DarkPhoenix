@@ -540,13 +540,22 @@ export class HarvestCorp extends Corp {
     // DEFENSE ECONOMICS (owner 2026-07-10): while hostiles hold this source's
     // room (sighted, or inside a sighted hostile's TTL bound), buy no bodies
     // for the grinder. Existing miners run out; funding resumes on all-clear.
-    if (hostileRooms().has(this.getPosition().roomName)) return [];
+    // STAMPED (cycle t72793209): these two returns were the last silent
+    // demand exits - three dark corps read as "no stamp at all" while their
+    // rooms sat occupied, and E6 quoted their frozen pre-defund stamps.
+    if (hostileRooms().has(this.getPosition().roomName)) {
+      this.lastSizing = { tick: typeof Game !== "undefined" ? Game.time : 0, gate: "hostile-defund" };
+      return [];
+    }
 
     // Spec 13 phase 2b (transit embargo): a replacement miner must not WALK
     // through a raided room to reach a clear one. Endpoint rooms come first
     // (Game-free, harness-safe); the route check needs the spawn resolved.
     const homeSpawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
-    if (homeSpawn && routeIsDangerous(homeSpawn.room.name, this.getPosition().roomName)) return [];
+    if (homeSpawn && routeIsDangerous(homeSpawn.room.name, this.getPosition().roomName)) {
+      this.lastSizing = { tick: Game.time, gate: "transit-embargo" };
+      return [];
+    }
 
     // WORK parts needed to saturate this source (2 energy/tick per WORK part).
     const totalWork = Math.max(1, workPartsForEnergyRate(assignment.harvestRate, HARVEST_ENERGY_PER_WORK));

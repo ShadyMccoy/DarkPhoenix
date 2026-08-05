@@ -26,6 +26,21 @@ declare global {
      */
     hostileUntil?: number;
     /**
+     * Tick the CURRENT hostile episode was first sighted (set with the fresh
+     * mark, cleared with it). Pairs with hostileUntil to form the closed
+     * window the all-clear retains below (v33 attribution).
+     */
+    hostileMarkedAt?: number;
+    /**
+     * The last few CLOSED hostile episodes, retained at the all-clear so
+     * death attribution outlives the live mark (v33): the home room's
+     * standing vision lifts marks within ticks of a fight ending - before
+     * the loss meter books the tombstones - which made every home kill read
+     * unattributed (measured t72792889: 3.6% of killed cargo caught).
+     * Capped at 3; oldest dropped first.
+     */
+    hostileWindows?: { from: number; until: number }[];
+    /**
      * The room's controller is reserved by the Invader NPC (an invader core
      * holds it) until ~this tick. Same defense economics as hostileUntil: the
      * room's corps are defunded - mining is throttled/contested and our
@@ -357,6 +372,16 @@ declare global {
      * rebuild, so instance-held history never reaches a second solve.
      */
     lastFleetCharge?: number;
+
+    /**
+     * The last solve's fleet-mix ENERGY PER PART (fleet energy over the parts
+     * ledger's planned parts) - prices the spawn sink's physical conversion
+     * ceiling (primitives.spawnEnergyCeiling) on the NEXT solve, threaded
+     * exactly like lastFleetCharge. Undefined until the first solve after a
+     * wipe: the sink claim stays uncapped for exactly one solve rather than
+     * capped at a guessed mix.
+     */
+    lastFleetEnergyPerPart?: number;
 
     /**
      * Arms the per-tick hauler flight recorder (telemetry/HaulTrace). Every

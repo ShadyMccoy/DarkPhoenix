@@ -65,7 +65,15 @@
  * netEnergy()/spawnPartsFor() in primitives.ts.
  */
 
-import { BODY_COSTS, CARRY_CAPACITY, CREEP_LIFETIME, carryPartsFor, effectiveLife } from "./primitives";
+import {
+  BODY_COSTS,
+  CARRY_CAPACITY,
+  CREEP_LIFETIME,
+  MINER_PARTS,
+  carryPartsFor,
+  effectiveLife,
+  minerOverhead
+} from "./primitives";
 
 /** Energy to build one road construction site's worth on plain terrain. */
 export const ROAD_BUILD_COST = 300;
@@ -209,6 +217,61 @@ export function effectiveOneWayTiles(
   // loaded back at the terrain-and-ratio rate. Halved because callers multiply
   // it back into a round trip.
   return (oneWayTiles + loadedBack) / 2;
+}
+
+/**
+ * Pave state of a source's haul route, as ADMISSION pricing needs it — the
+ * same three fields fill() reads off the PlannerSource when it prices the
+ * actual route edges (paved receipt, verified fraction, swamp share).
+ */
+export interface RoutePaveState {
+  paved?: boolean;
+  /** Verified built/total; defaults to 1 when `paved` (the receipt IS full). */
+  pavedFraction?: number;
+  swampFraction?: number;
+}
+
+/**
+ * The effective distance + body-ratio pair the pave state implies — ONE
+ * derivation for both admission functions below, identical to the fill()
+ * route model: a paved route runs a 2:1 body over road, an unpaved one a 1:1
+ * body over its own plain/swamp mix.
+ */
+function paveModel(distance: number, pave?: RoutePaveState): { dEff: number; movePerCarry: number } {
+  const paved = pave?.paved === true;
+  const paveFrac = paved ? pave?.pavedFraction ?? 1 : 0;
+  const dEff = effectiveOneWayTiles(distance, paveFrac, paved ? 2 : 1, pave?.swampFraction ?? 0);
+  return { dEff, movePerCarry: paved ? MOVE_PER_CARRY_ROAD : MOVE_PER_CARRY_PLAIN };
+}
+
+/**
+ * netEnergy at the route's pave state (cycle t72786811): admission used to
+ * price every candidate with the raw-distance 1:1 model while the SAME plan
+ * priced the source's route edges paved-aware — cee2 stood at candidate
+ * d 82 / net 5.93 beside its own 2:1 / distance-70 edge, so the funding gate
+ * and the ranking under-valued exactly the sources the colony had already
+ * paid to pave (and over-valued swampy unpaved ones, which the raw tile
+ * count flattered by up to 5x on the loaded leg). Unpaved with zero swamp is
+ * bit-identical to primitives.netEnergy — nothing moves on a swamp-free
+ * unpaved map (conformance-pinned).
+ */
+export function pavedNetEnergy(rate: number, distance: number, pave?: RoutePaveState): number {
+  const { dEff, movePerCarry } = paveModel(distance, pave);
+  const carry = carryPartsFor(rate, dEff);
+  const haul = (carry * (BODY_COSTS.CARRY + BODY_COSTS.MOVE * movePerCarry)) / effectiveLife(distance);
+  return rate - minerOverhead(distance) - haul;
+}
+
+/**
+ * spawnPartsFor at the route's pave state — the scarce-currency side of the
+ * same correction: a paved route's haulers cost (1 + MOVE_PER_CARRY_ROAD)
+ * parts per CARRY unit over a SHORTER effective distance, so pavement
+ * genuinely enlarges the mining budget at the funding gate (the module
+ * banner's second line, finally priced where admission reads it).
+ */
+export function pavedSpawnPartsFor(rate: number, distance: number, pave?: RoutePaveState): number {
+  const { dEff, movePerCarry } = paveModel(distance, pave);
+  return (MINER_PARTS + (1 + movePerCarry) * carryPartsFor(rate, dEff)) / effectiveLife(distance);
 }
 
 

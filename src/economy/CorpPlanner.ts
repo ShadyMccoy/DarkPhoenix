@@ -10,11 +10,15 @@
  * The plan is built in two phases, each a GOAP operator class:
  *
  *   1. PRODUCER SELECTION - commission HarvestCorps. Each source is assigned to
- *      its nearest spawn; unprofitable sources (netEnergy <= 0) are never mined;
- *      per spawn, sources are taken in net-energy-per-build-part order until the
- *      spawn's mining build-time budget is spent (the best source is always
- *      staffed even if it alone exceeds budget). This is the corp-atomic rule -
- *      complete the highest-value income corp before opening the next - per spawn.
+ *      its nearest spawn; unprofitable sources (net <= 0 after the invader,
+ *      link and reservation-share taxes) are never mined. Candidates price
+ *      with the SAME paved-aware route model fill() builds edges from
+ *      (roadEconomics.pavedNetEnergy/pavedSpawnPartsFor, 2026-08-05). Every
+ *      spawn seeds its best source unconditionally (liveness); the rest fund
+ *      in net-energy-per-build-part order against the GLOBAL tranche
+ *      (miningBudgetPerSpawn x spawns, t72780703 - the per-spawn partition
+ *      mis-ranked across neighborhoods). Corp-atomic: complete the
+ *      highest-value income corp before opening the next.
  *
  *   2. VALUE ROUTING - commission CarryCorps and size the consumer sinks. The
  *      gross energy the selected sources produce is routed to sinks by value:
@@ -31,9 +35,8 @@
 
 import { Position } from "../types/Position";
 import {
-  netEnergy,
   linkTransferTax,
-  spawnPartsFor,
+  reserverRoomEnergy,
   bufferDrainCarry,
   carryPartsFor,
   constructionWorkSpawnLoad,
@@ -48,7 +51,7 @@ import {
   scavengeFloorParts,
   SPAWN_PARTS_PER_TICK
 } from "./primitives";
-import { effectiveOneWayTiles } from "./roadEconomics";
+import { effectiveOneWayTiles, pavedNetEnergy, pavedSpawnPartsFor } from "./roadEconomics";
 import { DEFAULT_VALUATION } from "./goals";
 import { bankRoomFromId, isBankSourceId } from "./ids";
 import { FieldedFleet } from "./Commission";
@@ -92,6 +95,18 @@ export interface PlannerSource {
    * which point re-detection drops it from the world and scavenging demobilises.
    */
   transient?: boolean;
+  /**
+   * The EXECUTION side buys no bodies for this source's room right now -
+   * the adapter stamps it from the SAME hostileRooms() lens the corps'
+   * defense-economics gates read (creep marks + invader reservations), so
+   * the plan prices only capacity the runtime will actually staff. Cycle
+   * t72793209: the plan funded W43N24's two sources at rate 10 through a
+   * 2,446-tick invader occupation - 20 e/t of phantom capacity, forgone
+   * -41.25, and budget columns allocating margin that could not exist.
+   * Funding resumes automatically when the intel clears (same all-clear
+   * that un-defunds the corps - the two sides can never disagree again).
+   */
+  defunded?: boolean;
   /**
    * The source's haul route fields the 2:1 road body - 1.5 spawn parts per
    * CARRY instead of 2 - which the routing pass prices in. Set from
@@ -315,7 +330,7 @@ export interface SourceVerdict {
   net: number;
   tax: number;
   parts: number;
-  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable" | "no-sink" | "unrouted";
+  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable" | "no-sink" | "unrouted" | "defunded";
 }
 
 export interface ColonyPlan {
@@ -396,9 +411,31 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
     return { miners: [], verdicts };
   }
 
+  // RESERVATION IN THE ADMISSION NET (t72780703 follow-up). The P&L charges
+  // each remote source its room's reserver share (the reservation line splits
+  // per room), but the admission net priced none of it - the chronic remote
+  // variance every close printed ("mean remote variance -0.63..-1.68 e/t...
+  // the remote cost the plan is missing"). Each remote candidate now carries
+  // reserverRoomEnergy()/roomSources; home-room sources (a spawn's own room
+  // needs no reservation) pay nothing - the same room lens the invader tax
+  // uses (outside spawn rooms).
+  const spawnRoomNames = new Set(spawns.map(s => s.pos.roomName));
+  const remoteRoomSources = new Map<string, number>();
+  for (const s of sources) {
+    if (s.transient || spawnRoomNames.has(s.pos.roomName)) continue;
+    remoteRoomSources.set(s.pos.roomName, (remoteRoomSources.get(s.pos.roomName) ?? 0) + 1);
+  }
+
   const candidates: SourceCandidate[] = [];
   for (const source of sources) {
     if (source.transient) continue; // transient stocks need no miner (already harvested)
+    if (source.defunded) {
+      // Same-lens defund (see PlannerSource.defunded): the corps buy no
+      // bodies here, so the plan prices no capacity here - stamped, never
+      // silent, and re-funded automatically on the intel all-clear.
+      verdicts.push({ sourceId: source.id, rate: source.rate, distance: 0, net: 0, tax: 0, parts: 0, verdict: "defunded" });
+      continue;
+    }
     // The searcher's pin overrides the nearest-spawn default (spec 18).
     const pinned = source.assignedSpawnId ? spawns.find(s => s.id === source.assignedSpawnId) : undefined;
     const near = pinned
@@ -424,10 +461,20 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
     // destroys LINK_TRANSFER_LOSS of every transfer, and pricing none of it
     // made link service look strictly cheaper than a walked route instead of
     // cheaper by the right amount (owner 2026-08-01).
+    const reservationShare = spawnRoomNames.has(source.pos.roomName)
+      ? 0
+      : reserverRoomEnergy() / Math.max(1, remoteRoomSources.get(source.pos.roomName) ?? 1);
     const tax =
-      (source.invaderTax ?? 0) * source.rate + (source.haulPos ? linkTransferTax(source.rate) : 0);
-    const net = netEnergy(source.rate, near.distance) - tax;
-    const parts = spawnPartsFor(source.rate, near.distance);
+      (source.invaderTax ?? 0) * source.rate +
+      (source.haulPos ? linkTransferTax(source.rate) : 0) +
+      reservationShare;
+    // Paved-aware admission (cycle t72786811): price the candidate with the
+    // SAME route model fill() builds its edges from — the funding gate and
+    // the ranking read the pave receipt instead of the raw 1:1 tile count
+    // (cee2 stood at candidate net 5.93 beside its own 2:1/d-70 route edge).
+    const pave = { paved: source.paved, pavedFraction: source.pavedFraction, swampFraction: source.swampFraction };
+    const net = pavedNetEnergy(source.rate, near.distance, pave) - tax;
+    const parts = pavedSpawnPartsFor(source.rate, near.distance, pave);
     if (net <= 0) {
       // never mine a source that costs more than it yields - stamped, not silent
       verdicts.push({ sourceId: source.id, rate: source.rate, distance: near.distance, net, tax, parts, verdict: "unprofitable" });
@@ -457,29 +504,50 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
   // Profitable candidates were provisionally stamped "over-budget"; funding
   // flips the stamp, so a candidate's final verdict is exactly its fate here.
   const verdictById = new Map(verdicts.map(v => [v.sourceId, v]));
+  // GLOBAL ADMISSION (t72780703, found by the handicap-lift falsification).
+  // Funding used to run per spawn against miningBudgetPerSpawn() alone, so a
+  // BETTER source at a full spawn lost to a WORSE source at an idle one:
+  // live, candidate 36-3 (net/part 136) sat over-budget while d01f (130)
+  // stayed funded, purely because their nearest spawns differed - the
+  // global-spawn-pool work (#141) had never reached this loop. Candidates
+  // now fund by net/part across ALL spawns against the GLOBAL tranche;
+  // nearest-spawn ASSIGNMENT is unchanged (c.spawn still executes the
+  // commission). Each spawn's best still seeds unconditionally - the old
+  // liveness exemption, kept per spawn so no spawn's room is ever stranded -
+  // and seeds count toward spent exactly as before.
+  const byNetPerPart = (a: (typeof candidates)[number], b: (typeof candidates)[number]): number =>
+    b.net / b.parts - a.net / a.parts || (a.source.id < b.source.id ? -1 : 1);
+  const globalBudget = budget * Math.max(1, spawns.length);
+  let spent = 0;
+  const fund = (c: (typeof candidates)[number]): void => {
+    spent += c.parts;
+    const v = verdictById.get(c.source.id);
+    if (v) v.verdict = "funded";
+    miners.push({
+      sourceId: c.source.id,
+      nodeId: c.source.nodeId,
+      spawnId: c.spawn.id,
+      distance: c.distance,
+      rate: c.rate,
+      spawnParts: c.parts,
+      netEnergy: c.net,
+      efficiency: (c.net / c.rate) * 100,
+      maxMiners: c.source.maxMiners
+    });
+  };
+  const seeded = new Set<string>();
   for (const [, list] of bySpawn) {
-    // value per build-part, then by source id for stable ties
-    list.sort((a, b) => b.net / b.parts - a.net / a.parts || (a.source.id < b.source.id ? -1 : 1));
-    let spent = 0;
-    for (const c of list) {
-      // Always staff a spawn's best source even if it alone exceeds budget; after
-      // that, only take a source if its build-time fits the remaining budget.
-      if (spent > 0 && spent + c.parts > budget) continue;
-      spent += c.parts;
-      const v = verdictById.get(c.source.id);
-      if (v) v.verdict = "funded";
-      miners.push({
-        sourceId: c.source.id,
-        nodeId: c.source.nodeId,
-        spawnId: c.spawn.id,
-        distance: c.distance,
-        rate: c.rate,
-        spawnParts: c.parts,
-        netEnergy: c.net,
-        efficiency: (c.net / c.rate) * 100,
-        maxMiners: c.source.maxMiners
-      });
+    list.sort(byNetPerPart);
+    if (list.length > 0) {
+      fund(list[0]);
+      seeded.add(list[0].source.id);
     }
+  }
+  for (const c of candidates.filter(x => !seeded.has(x.source.id)).sort(byNetPerPart)) {
+    // Take a source iff its build-time fits the remaining GLOBAL budget -
+    // `continue`, not `break`: a cheaper later candidate can still fit.
+    if (spent + c.parts > globalBudget) continue;
+    fund(c);
   }
 
   // STORAGE-FULL DEFUND (owner 2026-07-19: "if we top out the storage... the

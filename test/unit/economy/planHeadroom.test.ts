@@ -32,11 +32,15 @@ describe("spawn planning headroom (plan on 90% of the physical ceiling)", () => 
     expect(plannableSpawnParts(2)).to.be.closeTo(2 * SPAWN_PARTS_PER_TICK * SPAWN_PLAN_FRACTION, 1e-12);
   });
 
-  it("the fraction is 0.9 - a margin, not a throttle", () => {
-    // 10% is sized to the measured churn classes it must absorb (EOL overlap
-    // + invader rebuilds), not to halve the economy. A fraction drifting far
-    // from 0.9 needs an owner decision, so pin it.
-    expect(SPAWN_PLAN_FRACTION).to.equal(0.9);
+  it("the fraction is 1.0 - the handicap-lift EXPERIMENT (owner 2026-08-04)", () => {
+    // Owner 2026-08-04: "We could try lifting the 10% spawning capacity
+    // handicap on the planner for a couple of months to see what happens."
+    // The 10% margin's absorbers were fixed out from under it (X5 home churn
+    // 18% -> 0-3% across three post-fix windows) while the margin BOUND at
+    // admission (t72778545: 28 positive-net candidates rejected over-budget).
+    // Reversion criteria live on the constant's doc; a change in either
+    // direction is an owner decision, so pin the experiment value too.
+    expect(SPAWN_PLAN_FRACTION).to.equal(1.0);
   });
 
   it("two spawns at 90% still out-plan one spawn at 100% (the margin never inverts growth)", () => {

@@ -58,6 +58,27 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
  * 1: energy account (revenue / direct / overhead / appropriations / residual),
  *    budget-vs-actual-vs-variance, source P&L, controller variance bridge,
  *    ground rot split, capital vs operating, reserving as COGS.
+ * 11: THE BUDGET COLUMN BALANCES BY CONSTRUCTION (owner 2026-08-04: "I think
+ *    our budget would actually be unbalanced... it should just be zero or
+ *    something"). The bank BUDGET line becomes the PLAN'S RESIDUAL -
+ *    delivered budget less every priced line (fleet, link tax, loss budgets,
+ *    controller, construction) - so the budget column sums to ZERO
+ *    identically. #4-#10 printed the solver's routed net bank flow there
+ *    (storage alloc - bank-out), which mixes bases with the priced spawn
+ *    lines: t72773737 printed a -55.16 draw whose destination was a 117 e/t
+ *    spawn-sink claim against ~36.5 physically convertible - a 79.85 e/t
+ *    hole in the column, and the bridge booked the fiction as "bank draw
+ *    budgeted but not performed" (+71.73, mostly phantom). The routed net
+ *    stays visible in the over-routing note; the BRIDGE re-derives from the
+ *    balanced column (delivered gap / fleet execution / losses+residual /
+ *    bank behavior). A #10 bank budget and a #11 bank budget are NOT
+ *    comparable; #10 controller bridges are voided, not restated. P12 is
+ *    re-pinned the same commit: published allocation vs the phase-D law's
+ *    cap (bankFedControllerRate), replacing the retired runtime-constant
+ *    model whose negative decomposition printed "Infinity x".
+ * 10: THE CURE'S COST: the recovery fleet's spend (v30 scavenge sub-counter)
+ *    splits out of the evacuation line and prices against witnessed
+ *    recoveries in a RECOVERY P&L memo; tombstone gross/credit published.
  * 9: EVERY LOSS HAS A BUDGET (spec 42 stage A). The MEASURED LOSSES block
  *    gains a BUDGET column priced by primitives: pile decay budgets ZERO
  *    (pileDecayBudget at the gate's own design point - the plan intends every
@@ -135,7 +156,13 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
  *    residual and a #2 residual are NOT comparable: #2 is smaller by exactly
  *    the newly-attributed losses.
  */
-export const METHODOLOGY = 10;
+// 12 (2026-08-05): the capacity line excludes DEFUNDED sources - the plan
+//    now reads the same hostileRooms() lens the corps' defense gates read
+//    (invader occupations + creep marks), so "mining capacity" is what the
+//    runtime will actually staff, with the exclusion printed as a memo
+//    line. A #11 capacity (phantom-inclusive) and a #12 capacity differ by
+//    exactly the occupied rooms' rates; forgone shrinks by the same amount.
+export const METHODOLOGY = 12;
 
 export interface LedgerRow {
   id: string;
@@ -1620,7 +1647,14 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   // income actually stopped) FAILs. No stamped harvest corps => pre-gate
   // capture => no row.
   {
-    const stamped = corps.filter((c: any) => c.kind === "harvest" && c.sizing);
+    // STALE-STAMP FILTER (cycle t72793209): a defunded corp's demand path
+    // used to exit without stamping, so its lastSizing FROZE at the last
+    // pre-defund value - E6 quoted "staffing 1/1 buffered 3825 held 100%"
+    // for corps with ZERO creeps whose containers had already decayed away.
+    // A stamp is evidence only if it was written inside this window.
+    const stamped = corps.filter(
+      (c: any) => c.kind === "harvest" && c.sizing && (c.sizing.tick ?? 0) >= base.tick
+    );
     if (stamped.length > 0) {
       const gated = stamped.filter((c: any) => c.sizing.gate === "buffer-full");
       const bGated = new Set(
@@ -2039,47 +2073,51 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     }
   }
 
-  // ---- P12 valve coherence: plan vs runtime controller rate (owner 2026-08-01) ----
+  // ---- P12 valve coherence: published allocation vs the phase-D law ----
   //
-  // "The plan and actual controller should use the same valve formula logic so
-  // they are more consistent. Maybe they are but using mismatched inputs."
-  // Measured t72714129 - HALF right, and the half that diverges is total:
+  // RE-PINNED 2026-08-04 (methodology #11). The gauge was born (owner
+  // 2026-08-01: "the plan and actual controller should use the same valve
+  // formula logic") against a runtime CONSTANT - STORAGE_UPGRADE_TARGET +
+  // drain - that spec-38 phase D retired the same day this re-pin landed:
+  // the plan's controller sink and the feeder now both resolve ONE law,
+  // bankFedControllerRate = sip + surplus/tau. The old two-sided
+  // decomposition subtracted the drain from BOTH sides and printed
+  // "Infinity x" on negative terms (t72773737: plan -17.40 vs runtime
+  // -12.40) - a model artifact on exactly the seam it existed to name.
   //
-  //   RUNTIME valve = STORAGE_UPGRADE_TARGET(15) + bankSurplusRate(28.10) = 43.10
-  //   PLAN controller = mined(100) - spawnSinks(20) + bankSurplusRate(28.10) = 108.10
-  //
-  // The BANK term is genuinely shared - both call `bankSurplusRate` with the
-  // same inputs and agree to the decimal. The NON-BANK term is not shared at
-  // all: the plan computes it from the economy (mined less what it routes to
-  // the spawns) while the runtime substitutes a hardcoded constant. 80.00 vs
-  // 15.00, a 5.3x divergence, and it is the whole of the disagreement.
-  //
-  // This row is the pin for unifying them. It must go green by making the two
-  // agree at the CORRECT value, not by pointing the runtime at planFlow - the
-  // plan's own figure is inflated (it under-routes its fleet by 22.44 e/t and
-  // models no losses), so unifying naively would have the feeder draw ~39 e/t
-  // from the bank and reproduce the saw-tooth's down-stroke on purpose.
+  // What still diverges is the SOLVER: an over-claiming spawn sink
+  // (fundingNeed / FUND_HORIZON - physically capped at spawnEnergyCeiling
+  // since t72773737) parks the bank draw, and the PUBLISHED allocation
+  // lands below the law's cap: measured 39.64 vs 59.04 (0.67x) with 116.97
+  // e/t routed to spawn sink claims against ~36.5 physically convertible -
+  // the binding seam of the 40-GCL program. The row reads published/cap;
+  // the feeder relay rides in the detail (relay < published would be a
+  // RUNTIME fault - none seen since phase B).
   {
     const banked = ((core.rooms ?? []) as any[]).reduce((n, r) => n + (r.storageEnergy ?? 0), 0);
     const feeder = corps.find((c: any) => c.kind === "controllerFeeder");
     const relay = feeder?.sizing?.relayRate;
     const ctrlSink = ((flow?.sinks ?? []) as any[]).find(x => x.type === "controller");
-    if (typeof relay === "number" && ctrlSink && banked > 0) {
-      const drain = Math.min(MAX_SURPLUS_DRAW, Math.max(0, banked - resolveReserve(cap)) / SURPLUS_DRAIN_TICKS);
-      const runtimeNonBank = relay - drain;
-      const planNonBank = (+ctrlSink.allocated || 0) - drain;
-      const ratio = runtimeNonBank > 0 ? planNonBank / runtimeNonBank : Infinity;
+    if (ctrlSink && banked > 0) {
+      const alloc = +ctrlSink.allocated || 0;
+      const lawCap = bankFedControllerRate(banked, resolveReserve(cap));
+      const spawnClaim = ((flow?.sinks ?? []) as any[])
+        .filter(x => x.type === "spawn")
+        .reduce((n, x) => n + (+x.allocated || 0), 0);
+      const ratio = lawCap > 0 ? alloc / lawCap : 1;
       rows.push({
         id: "P12",
-        name: "valve coherence (plan vs runtime controller rate)",
+        name: "valve coherence (published allocation vs phase-D law)",
         value: +ratio.toFixed(2),
-        unit: `x divergence on the NON-BANK term (plan ${planNonBank.toFixed(2)} vs runtime ${runtimeNonBank.toFixed(2)})`,
-        verdict: ratio > 2 || ratio < 0.5 ? "FAIL" : ratio > 1.25 || ratio < 0.8 ? "WARN" : "ok",
+        unit: `x of the law's cap (published ${alloc.toFixed(2)} vs bankFedControllerRate ${lawCap.toFixed(2)})`,
+        verdict: ratio < 0.5 || ratio > 2 ? "FAIL" : ratio < 0.8 || ratio > 1.25 ? "WARN" : "ok",
         detail:
-          `bank term SHARED and agreeing (${drain.toFixed(2)} both sides, same bankSurplusRate call); ` +
-          `non-bank term is NOT - the plan derives it from the economy, the runtime uses a constant. ` +
-          `Unify at the CORRECT rate (mined - ALL spawn cost - losses), not at planFlow: the plan's own ` +
-          `figure is inflated by the fleet energy it does not route.`
+          `ONE law both sides since spec-38 phase D; the remaining gap is the SOLVER's - it routes ` +
+          `${spawnClaim.toFixed(2)} e/t to spawn sink claims (physical ceiling caps the claim since t72773737), ` +
+          `and the published allocation gets the residual` +
+          (typeof relay === "number"
+            ? `; feeder relay ${relay.toFixed(2)} ${relay + 1e-9 >= alloc ? ">= published (ONE VALVE holds)" : "< published - RUNTIME FAULT"}`
+            : "")
       });
     }
   }
@@ -2500,7 +2538,11 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const bankOut = planHaulers
     .filter(h => String(h.sourceId ?? "").startsWith("bank-"))
     .reduce((n, h) => n + (+h.flowRate || 0), 0);
-  const bBank = sinkAlloc("storage") - bankOut;
+  // The SOLVER'S routed net bank position - disposal accounting, kept for the
+  // over-routing note. NOT the budget's bank line since methodology #11: it
+  // mixes bases with the priced spawn lines (t72773737: -55.16 printed as a
+  // "budget" while the priced column had +24.69 of residual headroom).
+  const bBankRouted = sinkAlloc("storage") - bankOut;
   // THE PLAN'S SPAWN BUDGET. This is the like-for-like comparator P10 lacked
   // and was retracted for missing: energy the plan routes INTO the spawn
   // structures (a rate) against energy those structures convert OUT into
@@ -2522,6 +2564,20 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const bDefense = pe("defense");
   const bConsumers = pe("upgraders", "construction (all-in)");
   const bFleetEnergy = Object.keys(planEnergy).reduce((n, k) => n + planEnergy[k], 0);
+  // METHODOLOGY #11: the bank BUDGET is the plan's RESIDUAL - what a balanced
+  // budget leaves the bank after every PRICED line - mirroring exactly the
+  // budget cells the column prints (loss budgets only where the meter prints
+  // them; link tax only where its budget is known), so the column sums to
+  // zero BY CONSTRUCTION and a nonzero sum is arithmetically impossible
+  // rather than merely unlikely.
+  const lossesBudget = meter ? bPileDecay + bTombstone + bRepair : 0;
+  const bBank =
+    grossCapacity -
+    (bExtract + bEvac + bReserve + (linkBudgetKnown ? bLinkTax : 0)) -
+    (bInfra + bDefense + bConsumers) -
+    lossesBudget -
+    bController -
+    bConstruction;
   const pileDelta = (piles(cap) - piles(base)) / dt;
   const delivered = grossPlan - pileDelta;
   // Link transport is a real use of delivered energy, so it sits on the cost
@@ -2603,6 +2659,15 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     `${" ".repeat(38)}${"BUDGET".padStart(9)}${"ACTUAL".padStart(10)}${"VARIANCE".padStart(11)}`,
     "  REVENUE",
     L("mining capacity (reserved rate)", grossCapacity, 4, grossCapacity),
+    // Methodology #12: capacity the plan EXCLUDED because the execution side
+    // is defunded there (invader occupation / hostile marks - same lens both
+    // sides). Not a variance - the plan and runtime AGREE this is unworkable.
+    ...(() => {
+      const defunded = ((cap.data.flow?.candidates ?? []) as any[]).filter(c => c.verdict === "defunded");
+      if (defunded.length === 0) return [];
+      const rate = defunded.reduce((n, c) => n + (+c.rate || 0), 0);
+      return [`    (excluded: ${rate.toFixed(2)} e/t in ${defunded.length} defunded source(s) - occupied/hostile rooms)`];
+    })(),
     ...(minedKnown
       ? [
           // MEASURED (phase 2): capacity less what the harvest corps' own
@@ -2662,8 +2727,11 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
         ]
       : [
           `    ...and the plan ROUTES ${bSpawn.toFixed(2)} e/t to the spawn sinks - OVER-routing its own fleet`,
-          `    by ${(bSpawn - bFleetEnergy).toFixed(2)} e/t, so the controller is charged for bodies the plan does not field.`
+          `    by ${(bSpawn - bFleetEnergy).toFixed(2)} e/t of disposal flow the spawn cannot convert (physical ceiling`,
+          `    caps the claim since t72773737).`
         ]),
+    `    (solver routed flows: net bank ${bBankRouted >= 0 ? "+" : ""}${bBankRouted.toFixed(2)} e/t - disposal accounting, not the budget's`,
+    `    bank line since methodology #11; the budget column above balances by construction.)`,
     ...(capital > 0
       ? [
           "  CAPITAL (funded from the expansion reserve, not operating margin)",
@@ -2887,25 +2955,39 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     ...(() => {
       // Single-column lines - the three-column renderer above would print two
       // empty budget/variance cells for each.
+      //
+      // METHODOLOGY #11: derived from the BALANCED budget column, so the
+      // terms are exactly the other lines' actual-vs-budget gaps and the
+      // bridge closes to rounding BY CONSTRUCTION - the #10 bridge carried
+      // the routed-bank fiction as "bank draw budgeted but not performed"
+      // (+71.73 at t72773737, mostly phantom) plus a standing "unexplained
+      // (window mismatch)" term. The solver's disposal flows are P12's row,
+      // not a bridge term.
       const B = (label: string, v: number): string => `    ${label.padEnd(42)}${v >= 0 ? "+" : ""}${v.toFixed(2)}`;
-      const spawnGap = -(perTick(spawnTotal) - bSpawn);
-      const lossGap = -(residual + (rotKnown ? meteredLosses : 0));
+      const bSpawnLines = bExtract + bEvac + bReserve + bInfra + bDefense + bConsumers;
+      const deliveredGap = delivered - grossCapacity;
+      const fleetExecGap = -(perTick(spawnTotal) - bSpawnLines);
+      const linkGap = linkTaxKnown && linkBudgetKnown ? -(linkTax - bLinkTax) : linkTaxKnown ? -linkTax : 0;
+      const lossGap = -((rotKnown ? meteredLosses : 0) - lossesBudget + residual);
+      const buildGap = -(build - bConstruction);
       const bankGap = -(bankDelta - bBank);
-      const explains = spawnGap + lossGap + bankGap;
+      const explains = deliveredGap + fleetExecGap + linkGap + lossGap + buildGap + bankGap;
       const actualVar = score - bController;
       return [
-        B("plan under-ROUTES its own fleet cost", -(bFleetEnergy - bSpawn)),
-        B("fleet costs more than the plan prices", -(perTick(spawnTotal) - bFleetEnergy)),
-        B("losses the plan does not model (residual)", lossGap),
-        B("bank draw budgeted but not performed", bankGap),
+        B("delivered below the capacity budget", deliveredGap),
+        B("fleet costs more than the plan prices", fleetExecGap),
+        B("link tax vs budget", linkGap),
+        B("losses above budget (incl. residual)", lossGap),
+        B("construction above budget", buildGap),
+        B("bank kept above the residual budget", bankGap),
         B("= explains", explains),
         B("  actual controller variance", actualVar),
-        `    ${"  unexplained (window mismatch)".padEnd(42)}${actualVar - explains >= 0 ? "+" : ""}${(actualVar - explains).toFixed(2)}`,
-        "    ACCOUNTING vs BEHAVIOUR: the first and third terms are the PLAN's own",
-        "    accounting (it under-routes a fleet cost it correctly prices, and models no",
-        "    losses at all); the fourth is runtime (a budgeted bank draw the valve did not",
-        "    perform). The second is the only fleet-EXECUTION term and it is the smallest -",
-        "    the plan's fleet pricing is accurate to ~4%."
+        `    ${"  closure check (rounding only)".padEnd(42)}${actualVar - explains >= 0 ? "+" : ""}${(actualVar - explains).toFixed(2)}`,
+        "    ACCOUNTING vs BEHAVIOUR: fleet execution and the bank term are RUNTIME",
+        "    (bodies bought vs priced; energy banked vs the residual the balanced budget",
+        "    left it); delivered/losses are the physical world the plan does not model.",
+        "    The solver parking flow in spawn sinks no longer distorts any term here -",
+        "    it is P12's row and the over-routing note."
       ];
     })(),
     `  BUDGET CHECK: extraction+evacuation(1:1 energy basis) ${(bExtract + bEvacLegacy).toFixed(2)} vs the plan's own totalOverhead ` +

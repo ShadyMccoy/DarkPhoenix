@@ -4,10 +4,13 @@ import {
   effectiveOneWayTiles,
   evaluateRoadRoute,
   partialPaveRatio,
+  pavedNetEnergy,
   pavedRouteCostPerTick,
+  pavedSpawnPartsFor,
   paveScore,
   loadedTicksPerTile,
   roundTripTicksForRoute,
+  MOVE_PER_CARRY_ROAD,
   PARTIAL_PAVE_REPRICE_FRACTION,
   REJUDGE_FLOW_FACTOR,
   ROAD_BUILD_COST,
@@ -17,7 +20,16 @@ import {
   UNMAINTAINED_ROAD_LIFE,
   WALL_ROAD_MULTIPLIER
 } from "../../../src/economy/roadEconomics";
-import { roundTripTicks } from "../../../src/economy/primitives";
+import {
+  BODY_COSTS,
+  MINER_PARTS,
+  carryPartsFor,
+  effectiveLife,
+  minerOverhead,
+  netEnergy,
+  roundTripTicks,
+  spawnPartsFor
+} from "../../../src/economy/primitives";
 
 /**
  * The road cost/benefit model. Hand-derived anchors:
@@ -350,5 +362,50 @@ describe("economy/roadEconomics - partial-pave repricing (32/38 is already a 2:1
       expect(2 * dEff + 2).to.be.closeTo(roundTripTicksForRoute(32, 6, 0, 2), 1e-9);
       expect(dEff).to.equal(41);
     });
+  });
+});
+
+describe("economy/roadEconomics - paved-aware ADMISSION pricing (cycle t72786811)", () => {
+  // The seam, measured live: cee2's candidate priced d 82 / net 5.93 (raw,
+  // unpaved model) in the same plan whose own route edge for the same source
+  // was 2:1 at distance 70 with paved spawnParts. Admission decided from a
+  // different (pessimistic) price than the flows the plan builds. These
+  // primitives give the funding gate the SAME model fill() prices routes
+  // with; unpaved-with-zero-swamp is bit-identical to the raw formulas.
+  const R = 10;
+  const D = 82;
+
+  it("unpaved, swamp-free: bit-identical to netEnergy / spawnPartsFor (conformance)", () => {
+    expect(pavedNetEnergy(R, D)).to.be.closeTo(netEnergy(R, D), 1e-9);
+    expect(pavedSpawnPartsFor(R, D)).to.be.closeTo(spawnPartsFor(R, D), 1e-9);
+    expect(pavedNetEnergy(R, D, { paved: false })).to.be.closeTo(netEnergy(R, D), 1e-9);
+  });
+
+  it("composes from the exported pieces exactly (no private re-derivation)", () => {
+    const pave = { paved: true, pavedFraction: 1, swampFraction: 0.0122 };
+    const dEff = effectiveOneWayTiles(D, 1, 2, 0.0122);
+    const carry = carryPartsFor(R, dEff);
+    const expectedParts = (MINER_PARTS + (1 + MOVE_PER_CARRY_ROAD) * carry) / effectiveLife(D);
+    const expectedHaul = (carry * (BODY_COSTS.CARRY + BODY_COSTS.MOVE * MOVE_PER_CARRY_ROAD)) / effectiveLife(D);
+    expect(pavedSpawnPartsFor(R, D, pave)).to.be.closeTo(expectedParts, 1e-9);
+    expect(pavedNetEnergy(R, D, pave)).to.be.closeTo(R - minerOverhead(D) - expectedHaul, 1e-9);
+  });
+
+  it("a fully paved route admits CHEAPER than its unpaved twin (net up, parts down)", () => {
+    const pave = { paved: true, pavedFraction: 1, swampFraction: 0 };
+    expect(pavedNetEnergy(R, D, pave)).to.be.greaterThan(netEnergy(R, D));
+    expect(pavedSpawnPartsFor(R, D, pave)).to.be.lessThan(spawnPartsFor(R, D));
+  });
+
+  it("unpaved swamp now prices the crawl the old candidate model ignored", () => {
+    // fill() got "TICKS, NOT TILES" earlier; admission inherits it here: a
+    // swampy unpaved route is WORSE than the raw-distance price said.
+    expect(pavedNetEnergy(R, 50, { swampFraction: 0.4 })).to.be.lessThan(netEnergy(R, 50));
+  });
+
+  it("partial pavement under the repricing threshold stays a 1:1 body price", () => {
+    // paved:true only lands with the receipt (or >= 1/2 built); a bare
+    // pavedFraction without paved never flips the ratio.
+    expect(pavedNetEnergy(R, D, { paved: false, pavedFraction: 0.4 })).to.be.closeTo(netEnergy(R, D), 1e-9);
   });
 });

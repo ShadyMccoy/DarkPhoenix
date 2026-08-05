@@ -8,6 +8,7 @@ import {
 } from "../../../src/economy/CorpPlanner";
 import {
   netEnergy,
+  reserverRoomEnergy,
   carryPartsFor,
   miningBudgetPerSpawn,
   spawnPartsFor,
@@ -17,7 +18,7 @@ import {
   MINER_PARTS,
   SPAWN_PARTS_PER_TICK
 } from "../../../src/economy/primitives";
-import { effectiveOneWayTiles } from "../../../src/economy/roadEconomics";
+import { effectiveOneWayTiles, pavedNetEnergy, pavedSpawnPartsFor } from "../../../src/economy/roadEconomics";
 import { Position } from "../../../src/types/Position";
 
 // 1-D world: everything in one room, distance = |dx| + |dy|, so we can place a
@@ -126,6 +127,146 @@ describe("economy/CorpPlanner", () => {
       const haul = plan.haulers.reduce((s, h) => s + h.spawnParts, 0);
       const work = controllerWorkSpawnLoad(ctrl.allocated, 8) + constructionWorkSpawnLoad(build.allocated, 6);
       expect(miners + haul + work + 0.2).to.be.at.most(SPAWN_PARTS_PER_TICK + 1e-9);
+    });
+
+    /**
+     * GLOBAL ADMISSION (t72780703, the handicap-lift falsification's real
+     * finding). Admission funded each spawn's candidate list against its OWN
+     * miningBudgetPerSpawn() tranche, so a BETTER source at a full spawn
+     * lost to a WORSE source at an idle spawn: live, candidate 36-3
+     * (net/part 136) sat over-budget while d01f (130) stayed funded, purely
+     * because their nearest spawns differed. The global-spawn-pool work
+     * (#141) never reached the admission loop. Funding now ranks ALL
+     * candidates by net/part against the GLOBAL tranche (spawns x
+     * miningBudgetPerSpawn); each spawn's best still seeds unconditionally
+     * (liveness - no spawn's room is ever stranded), exactly the old
+     * per-spawn exemption.
+     */
+    describe("global admission ranking (the per-spawn partition mis-rank, t72780703)", () => {
+      // Two spawns 400 apart partition the map. A's neighborhood holds the
+      // good sources; B's holds one seed and one far, WORSE source. Budgets
+      // (at SPAWN_PLAN_FRACTION 1.0): per-spawn tranche 0.2, global 0.4.
+      // Hand-derived parts (spawnPartsFor(10,d) = (8.8+0.8d)/(1500-d)):
+      //   a1 d10 0.0113 | a2 d100 0.0634 | a3 d110 0.0696 | a4 d130 0.0821
+      //   aX d120 0.0759 (net/part 79) | b1 d10 0.0113 | b2 d170 0.1089 (np 40)
+      // OLD per-spawn: A funds a1,a2,a3 (0.144) then rejects aX/a4 (>0.2);
+      // B funds b1,b2 (0.120 of 0.2) - the worse b2 in, the better aX out.
+      // GLOBAL: seeds a1,b1 then a2,a3,aX,a4 (cum 0.314), b2 would breach
+      // 0.4 - the better sources in, the worse one out.
+      const twoSpawnWorld = () =>
+        problem({
+          spawns: [spawn("SA", 0), spawn("SB", 400)],
+          sources: [
+            source("a1", 10),
+            source("a2", 100),
+            source("a3", 110),
+            source("aX", 120),
+            source("a4", 130),
+            source("b1", 390), // d10 from SB
+            source("b2", 230) // d170 from SB, d230 from SA -> assigns to SB
+          ],
+          sinks: [sink("store", "storage", 0, 1, 1000)]
+        });
+
+      it("a better source at a full spawn beats a worse source at an idle spawn", () => {
+        const plan = planColony(twoSpawnWorld());
+        const v = (id: string) => plan.sourceVerdicts.find(x => x.sourceId === id)!.verdict;
+        expect(v("aX"), "the globally better candidate funds").to.equal("funded");
+        expect(v("a4"), "and the next-best fits the global tranche too").to.equal("funded");
+        expect(v("b2"), "the globally worse candidate waits").to.equal("over-budget");
+      });
+
+      it("every spawn still seeds its best source unconditionally (liveness)", () => {
+        const plan = planColony(twoSpawnWorld());
+        const v = (id: string) => plan.sourceVerdicts.find(x => x.sourceId === id)!.verdict;
+        expect(v("a1")).to.equal("funded");
+        expect(v("b1"), "spawn B's room is never stranded").to.equal("funded");
+      });
+
+      it("prices the RESERVATION share into remote candidate nets (the chronic P&L variance)", () => {
+        // Every fiscal close prints the same footer: the P&L charges each
+        // remote source its room's reserver share while the ADMISSION net
+        // omits it - mean remote variance -0.63..-1.68 e/t on every close,
+        // "the remote cost the plan is missing". The candidate net now
+        // subtracts reserverRoomEnergy()/roomSources for sources OUTSIDE
+        // spawn rooms; home sources pay nothing (no reservation needed).
+        const remoteA = { ...source("rA", 60), pos: { x: 60, y: 0, roomName: "W1N0" } };
+        const remoteB = { ...source("rB", 70), pos: { x: 70, y: 0, roomName: "W1N0" } };
+        const remoteSolo = { ...source("rS", 80), pos: { x: 80, y: 0, roomName: "W2N0" } };
+        const plan = planColony(
+          problem({
+            spawns: [spawn("S", 0)],
+            sources: [source("home", 10), remoteA, remoteB, remoteSolo],
+            sinks: [sink("store", "storage", 0, 1, 1000)]
+          })
+        );
+        const net = (id: string) => plan.sourceVerdicts.find(v => v.sourceId === id)!.net;
+        expect(net("home"), "home-room source pays no reservation").to.be.closeTo(netEnergy(10, 10), 1e-9);
+        expect(net("rA"), "two-source remote room splits the room bill").to.be.closeTo(
+          netEnergy(10, 60) - reserverRoomEnergy() / 2,
+          1e-9
+        );
+        expect(net("rS"), "single-source remote room carries the full bill").to.be.closeTo(
+          netEnergy(10, 80) - reserverRoomEnergy(),
+          1e-9
+        );
+      });
+
+      it("the funded set respects the GLOBAL tranche (seeds exempt, fills bounded)", () => {
+        const plan = planColony(twoSpawnWorld());
+        const funded = plan.sourceVerdicts.filter(x => x.verdict === "funded");
+        const fills = funded.reduce((s, x) => s + x.parts, 0);
+        // seeds (a1,b1) are exempt by the liveness rule but COUNT toward
+        // spent, exactly as the old per-spawn seed did.
+        expect(fills).to.be.at.most(2 * SPAWN_PARTS_PER_TICK * 0.6 + 1e-9);
+      });
+
+      it("a DEFUNDED source is excluded with its own verdict (same lens as the execution defund)", () => {
+        // Cycle t72793209: the plan funded W43N24's two sources at rate 10
+        // while the invader held the room for 2,446 more ticks and
+        // HarvestCorp's defense-economics gate bought no bodies - 20 e/t of
+        // phantom capacity, forgone -41.25, and budget columns allocating
+        // margin that could not exist. The adapter now stamps `defunded`
+        // from the SAME hostileRooms() lens the corps read; the planner
+        // excludes and says why.
+        const occupied = { ...source("occ", 60), defunded: true };
+        const plan = planColony(
+          problem({
+            spawns: [spawn("S", 0)],
+            sources: [source("seed", 10), occupied, source("free", 70)],
+            sinks: [sink("store", "storage", 0, 1, 1000)]
+          })
+        );
+        const v = (id: string) => plan.sourceVerdicts.find(x => x.sourceId === id)!;
+        expect(v("occ").verdict).to.equal("defunded");
+        expect(plan.miners.some(m => m.sourceId === "occ"), "no capacity priced for it").to.equal(false);
+        expect(v("free").verdict, "the clear twin is untouched").to.equal("funded");
+        expect(v("seed").verdict).to.equal("funded");
+      });
+
+      it("prices a PAVED candidate with the same model its own route edges use (cycle t72786811)", () => {
+        // The live seam: cee2's candidate read d 82 / net 5.93 (raw 1:1)
+        // in the same plan whose route edge for the same source was 2:1 at
+        // effective distance 70. Admission now reads the pave receipt: the
+        // paved twin admits at a HIGHER net and FEWER parts than the bare
+        // twin at the same distance - the exact numbers the paved primitives
+        // give (conformance, not a direction check alone).
+        const bare = source("bare", 120);
+        const paved = { ...source("pvd", 120), paved: true, pavedFraction: 1 };
+        const plan = planColony(
+          problem({
+            spawns: [spawn("S", 0)],
+            sources: [source("seed", 10), bare, paved],
+            sinks: [sink("store", "storage", 0, 1, 1000)]
+          })
+        );
+        const v = (id: string) => plan.sourceVerdicts.find(x => x.sourceId === id)!;
+        expect(v("pvd").net).to.be.closeTo(pavedNetEnergy(10, 120, { paved: true, pavedFraction: 1 }), 1e-9);
+        expect(v("pvd").parts).to.be.closeTo(pavedSpawnPartsFor(10, 120, { paved: true, pavedFraction: 1 }), 1e-9);
+        expect(v("bare").net).to.be.closeTo(netEnergy(10, 120), 1e-9);
+        expect(v("pvd").net).to.be.greaterThan(v("bare").net);
+        expect(v("pvd").parts).to.be.lessThan(v("bare").parts);
+      });
     });
 
     it("with no infra load and light flows the cap is slack and allocations are untouched", () => {
@@ -566,10 +707,11 @@ describe("economy/CorpPlanner", () => {
           // Budget ~0.031 parts/t: the remote's deposit needs ~0.022, the
           // spawn ~0.001, and an unchecked controller draw would eat ~27 e/t
           // x 0.0011 = the WHOLE ledger before storage's value-1 turn.
-          // (Re-staged 2026-07-30 for the 90% planning headroom: 0.0333
-          // lower than the original 0.297 so the staged LEFTOVER budget is
-          // unchanged against the plannable rate.)
-          infraPartsPerTick: 0.2637
+          // (Re-staged 2026-08-04 for the handicap-lift experiment,
+          // SPAWN_PLAN_FRACTION 1.0: back to the original 0.297 so the
+          // staged LEFTOVER budget is unchanged against the plannable rate -
+          // the same convention as the 2026-07-30 re-stage, inverted.)
+          infraPartsPerTick: 0.297
         })
       );
       const deposit = plan.haulers.find(h => h.sourceId === "remote" && h.sinkId === "store");
@@ -594,8 +736,9 @@ describe("economy/CorpPlanner", () => {
             sink("spawn-S", "spawn", 0, 100, 1),
             sink("store", "storage", 2, 1, 1000)
           ],
-          // (Re-staged -0.0333 for the 90% headroom; staged leftover unchanged.)
-          infraPartsPerTick: 0.2687
+          // (Re-staged +0.0333 for the 2026-08-04 handicap-lift, fraction
+          // 1.0; staged leftover unchanged.)
+          infraPartsPerTick: 0.302
         })
       );
       expect(plan.miners.map(m => m.sourceId), "only the routed source keeps its miner").to.deep.equal(["A"]);
@@ -706,8 +849,9 @@ describe("economy/CorpPlanner", () => {
             sink("spawn-S", "spawn", 0, 100, 1),
             sink("store", "storage", 2, 1, 1000)
           ],
-          // (Re-staged -0.0333 for the 90% headroom; staged leftover unchanged.)
-          infraPartsPerTick: 0.2767
+          // (Re-staged +0.0333 for the 2026-08-04 handicap-lift, fraction
+          // 1.0; staged leftover unchanged.)
+          infraPartsPerTick: 0.310
         })
       );
       const scav = plan.haulers.find(h => h.sourceId === "scavenge-big" && h.sinkId === "store");
@@ -958,16 +1102,18 @@ describe("Phase 1 - over-abundance sizing (value density under the parts budget)
       })
     );
     expect(double.miners.length).to.be.greaterThan(single.miners.length);
-    // and no spawn's MINING selection individually blows its budget (the
-    // spawnPartsUsed ledger also carries sink-side hauling, which is
-    // budgeted downstream - only the Phase-1 mining fill is capped here)
-    const miningPartsBySpawn = new Map<string, number>();
-    for (const m of double.miners) {
-      miningPartsBySpawn.set(m.spawnId, (miningPartsBySpawn.get(m.spawnId) ?? 0) + spawnPartsFor(m.rate, m.distance));
-    }
-    for (const [, used] of miningPartsBySpawn) {
-      expect(used).to.be.at.most(miningBudgetPerSpawn() + 1e-9);
-    }
+    // GLOBAL tranche since t72780703: the funded TOTAL respects
+    // spawns x miningBudgetPerSpawn (seeds exempt, as ever). A single
+    // spawn's assignment MAY exceed its own share when the other has room -
+    // that asymmetry is the fix (the per-spawn cap is what rejected the
+    // net/part-136 candidate while a 130 stayed funded, live).
+    const totalMining = double.miners.reduce((s, m) => s + spawnPartsFor(m.rate, m.distance), 0);
+    const seeds = 2; // each spawn's best funds unconditionally
+    const seedParts = [...new Map(double.miners.map(m => [m.spawnId, m])).values()]
+      .reduce((s, m) => s + spawnPartsFor(m.rate, m.distance), 0);
+    expect(totalMining - seedParts, "fills fit the global tranche net of the unconditional seeds")
+      .to.be.at.most(2 * miningBudgetPerSpawn() + 1e-9);
+    expect(seeds).to.equal(2);
   });
 });
 

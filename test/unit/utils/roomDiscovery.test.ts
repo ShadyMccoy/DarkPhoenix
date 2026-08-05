@@ -433,3 +433,65 @@ describe("utils/RoomDiscovery - isReservableRoom (the vision-free reservability 
     expect(isReservableRoom("W9N9", "me")).to.equal(true);
   });
 });
+
+describe("utils/RoomDiscovery - closed hostile windows retained for attribution (v33)", () => {
+  // The clear path used to DELETE the mark outright - and the home room has
+  // permanent vision, so the mark evaporated within ticks of a fight ending,
+  // BEFORE the loss meter booked the tombstones. Measured t72792889: 9,203e
+  // killed cargo, the live-mark lens caught 332e (3.6%), 47% of kills in the
+  // home room where the mark can never survive to booking. The closed window
+  // is retained so attribution outlives the all-clear.
+  const g = globalThis as unknown as { Game?: any; Memory?: any };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+  let time = 50_000;
+
+  function observe(rooms: Record<string, any>): void {
+    time += 1;
+    g.Game = { time, rooms };
+    hostileRooms();
+  }
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    (globalThis as any).FIND_HOSTILE_CREEPS = FIND_HOSTILE_CREEPS;
+    (globalThis as any).FIND_HOSTILE_STRUCTURES = FIND_HOSTILE_STRUCTURES;
+    g.Memory = { roomIntel: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  it("a mark records its start; the all-clear retains the closed window and lifts the live mark", () => {
+    observe({ W5N5: mockRoom("W5N5", { hostiles: [{ ticksToLive: 600 }] }) });
+    const markTick = time;
+    const intel = g.Memory.roomIntel.W5N5;
+    expect(intel.hostileMarkedAt, "the episode's start is durable").to.equal(markTick);
+    const until = intel.hostileUntil;
+    observe({ W5N5: mockRoom("W5N5") }); // fresh all-clear sighting
+    expect(intel.hostileUntil, "live mark lifted").to.equal(undefined);
+    expect(intel.hostileMarkedAt, "start stamp cleared with it").to.equal(undefined);
+    expect(intel.hostileWindows).to.deep.equal([{ from: markTick, until }]);
+  });
+
+  it("keeps only the last 3 closed windows", () => {
+    for (let i = 0; i < 4; i++) {
+      observe({ W5N5: mockRoom("W5N5", { hostiles: [{ ticksToLive: 100 }] }) });
+      observe({ W5N5: mockRoom("W5N5") });
+    }
+    const windows = g.Memory.roomIntel.W5N5.hostileWindows;
+    expect(windows).to.have.length(3);
+    expect(windows[2].until, "newest last").to.be.greaterThan(windows[0].until);
+  });
+
+  it("a legacy mid-episode entry (no start stamp) closes with a TTL-bounded from", () => {
+    g.Memory.roomIntel.W5N5 = { lastVisit: 1, hostileUntil: time + 500 };
+    const until = time + 500;
+    observe({ W5N5: mockRoom("W5N5") });
+    const w = g.Memory.roomIntel.W5N5.hostileWindows[0];
+    expect(w.until).to.equal(until);
+    expect(w.from, "bounded by the max creep TTL - conservative, never wider").to.equal(until - 1500);
+  });
+});

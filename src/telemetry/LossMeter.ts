@@ -103,6 +103,15 @@ export interface RoomLossCensus {
     recycleReason?: string;
     /** TTL the creep still had at death - the raw number behind `killed`. */
     ttlAtDeath?: number;
+    /**
+     * v32 (task #9): the room's intel hostile mark WINDOW covers this
+     * death's deathTime (deathTime <= roomIntel.hostileUntil). Host-
+     * assembled beside hostileFlagged so the fold stays pure. Catches the
+     * sighting-LAG kill the booking-time flag misses; a mark from an
+     * unrelated later raid can only false-positive inside the tombstone's
+     * short decay window, stated rather than hidden.
+     */
+    hostileAtDeath?: boolean;
   }[];
   /** Container count (priced by `owned`). */
   containers: number;
@@ -147,6 +156,12 @@ interface Totals {
   /** KILLED energy booked in rooms intel flagged hostile at the time - the
    *  share the invader story can actually claim. */
   tombstoneKilledHostileRoom: number;
+  /** KILLED energy whose room's intel mark WINDOW covers the deathTime
+   *  (v32, task #9): catches the sighting-LAG case the booking-time flag
+   *  misses (killer sighted after the kill still covers the death). The
+   *  DELTA vs tombstoneKilledHostileRoom measures the lag; the R1 tax swap
+   *  reads THIS share, never the booking-time one. */
+  tombstoneKilledHostileAtDeath: number;
   /** Energy from creeps that died RECYCLING (deliberate refund, not combat). */
   tombstoneRecycled: number;
   /** Recycled energy by TRIGGER CLASS (the flag site's stamped reason;
@@ -205,6 +220,9 @@ export interface LossCumulative {
    *  WHERE exactly as they difference the WHAT. */
   tombstoneKilledByRoom: Record<string, number>;
   tombstoneKilledHostileRoom: number;
+  /** v32 (task #9): mark-window-covers-deathTime share - see the report
+   *  interface's doc; absent on pre-v32 ledgers, backfilled to 0. */
+  tombstoneKilledHostileAtDeath: number;
   /** Energy from creeps that died RECYCLING (deliberate refund, not combat). */
   tombstoneRecycled: number;
   tombstoneRecycledByReason: Record<string, number>;
@@ -228,6 +246,7 @@ function zeroCumulative(): LossCumulative {
     tombstoneKilled: 0,
     tombstoneKilledByRoom: {},
     tombstoneKilledHostileRoom: 0,
+    tombstoneKilledHostileAtDeath: 0,
     tombstoneRecycled: 0,
     tombstoneRecycledByReason: {},
     tombstoneCauseUnknown: 0,
@@ -262,6 +281,7 @@ function ledger(): LossCumulative {
     mem.lossLedger.tombstoneKilledByRoom = {};
     mem.lossLedger.tombstoneKilledHostileRoom = mem.lossLedger.tombstoneKilledHostileRoom ?? 0;
   }
+  if (mem.lossLedger.tombstoneKilledHostileAtDeath === undefined) mem.lossLedger.tombstoneKilledHostileAtDeath = 0;
   if (mem.lossLedger.tombstoneRecycled === undefined) mem.lossLedger.tombstoneRecycled = 0;
   if (mem.lossLedger.tombstoneRecycledByReason === undefined) mem.lossLedger.tombstoneRecycledByReason = {};
   if (mem.lossLedger.pileDecayCeilPenalty === undefined) {
@@ -297,6 +317,7 @@ function blank(): Totals {
     tombstoneKilled: 0,
     tombstoneKilledByRoom: {},
     tombstoneKilledHostileRoom: 0,
+    tombstoneKilledHostileAtDeath: 0,
     tombstoneRecycled: 0,
     tombstoneRecycledByReason: {},
     tombstoneCauseUnknown: 0,
@@ -409,6 +430,25 @@ export function resolveDeathCause(
     return { recycled: true, ttlAtDeath, ...(watch.length > 3 ? { recycleReason: watch[3] } : {}) };
   }
   return { killed: ttlAtDeath > 0, ttlAtDeath };
+}
+
+/**
+ * Does a hostile mark window cover this death? (v33) Checks the LIVE mark
+ * first (deathTime <= hostileUntil - the v32 semantics, kept verbatim), then
+ * the RETAINED closed windows RoomDiscovery's all-clear now preserves. The
+ * retained check is what makes home-room combat attributable at all: the
+ * home room's standing vision lifts the live mark within ticks of a fight
+ * ending, before the loss meter books the tombstones (measured t72792889:
+ * 9,203e killed cargo, live-mark lens caught 332e / 3.6%, 47% of kills at
+ * home). Never fabricates: no deathTime, no intel, no cover -> false.
+ */
+export function deathInHostileWindow(
+  deathTime: number | undefined,
+  intel: { hostileUntil?: number; hostileWindows?: { from: number; until: number }[] } | undefined
+): boolean {
+  if (typeof deathTime !== "number" || !intel) return false;
+  if (typeof intel.hostileUntil === "number" && deathTime <= intel.hostileUntil) return true;
+  return (intel.hostileWindows ?? []).some(w => deathTime >= w.from && deathTime <= w.until);
 }
 
 /**
@@ -539,6 +579,10 @@ export function sampleRoomLosses(census: RoomLossCensus, tick: number): void {
           totals.tombstoneKilledHostileRoom += t.energy;
           led.tombstoneKilledHostileRoom += t.energy;
         }
+        if (t.hostileAtDeath === true) {
+          totals.tombstoneKilledHostileAtDeath += t.energy;
+          led.tombstoneKilledHostileAtDeath += t.energy;
+        }
       } else if (t.killed === false) {
         totals.tombstoneExpired += t.energy;
         led.tombstoneExpired += t.energy;
@@ -613,6 +657,7 @@ export interface LossReport {
    *  (owner 2026-08-03: kills in quiet rooms falsify the raid narrative). */
   tombstoneKilledByRoom: Record<string, number>;
   tombstoneKilledHostileRoom: number;
+  tombstoneKilledHostileAtDeath: number;
   /** Energy from creeps that died RECYCLING (deliberate refund, not combat). */
   tombstoneRecycled: number;
   /** Recycled energy by trigger class (flag-site stamp; "unstamped" = pre-stamp). */
@@ -647,6 +692,7 @@ export function lossReport(tick: number): LossReport {
     tombstoneKilled: totals.tombstoneKilled,
     tombstoneKilledByRoom: { ...totals.tombstoneKilledByRoom },
     tombstoneKilledHostileRoom: totals.tombstoneKilledHostileRoom,
+    tombstoneKilledHostileAtDeath: totals.tombstoneKilledHostileAtDeath,
     tombstoneRecycled: totals.tombstoneRecycled,
     tombstoneRecycledByReason: { ...totals.tombstoneRecycledByReason },
     tombstoneCauseUnknown: totals.tombstoneCauseUnknown,
@@ -761,7 +807,18 @@ export function collectLosses(tick: number): void {
         ...resolveDeathCause(
           deathWatchEntry((t.creep as { name?: string } | undefined)?.name ?? ""),
           (t as { deathTime?: number }).deathTime
+        ),
+        // v32 (task #9) -> v33: does a hostile mark WINDOW cover the death?
+        // v32 read only the LIVE hostileUntil - which the home room's
+        // standing vision deletes within ticks of every fight ending, so
+        // home kills could never attribute. v33 also checks the closed
+        // windows RoomDiscovery's all-clear retains (deathInHostileWindow).
+        ...(deathInHostileWindow(
+          (t as { deathTime?: number }).deathTime,
+          typeof Memory !== "undefined" ? Memory.roomIntel?.[name] : undefined
         )
+          ? { hostileAtDeath: true }
+          : {})
       }));
 
       let containers = 0;
