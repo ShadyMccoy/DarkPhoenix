@@ -119,3 +119,51 @@ export function routeSourceVolley(ctx: VolleyContext): VolleyTarget {
   // >=threshold volley (step 2). Below the minimum-worthwhile volley, don't fire.
   return null;
 }
+
+/** The facts the core->CTRL relay hold reads (pure; see holdCoreRelay). */
+export interface RelayHoldContext {
+  /**
+   * Source/port links standing loaded (>= threshold) and OFF COOLDOWN this
+   * tick - the volleys that could land in CTRL directly if its space is left
+   * for them.
+   */
+  pendingSenders: number;
+  /** The warchest gate (spec 26 stage 2): are ports allowed to fire direct at all? */
+  preferControllerDirect: boolean;
+  /** CTRL's free capacity, or null when the room has no controller link. */
+  controllerFree: number | null;
+  /** Minimum worthwhile volley (LINK_FIRE_THRESHOLD). */
+  threshold: number;
+}
+
+/**
+ * ARRIVALS-FIRST: should the core->CTRL relay HOLD this tick because a source
+ * port can use CTRL's space more cheaply (spec 45 leg 1, owner-directed
+ * 2026-08-05)?
+ *
+ * Measured t72805426: hubClampShare **0.625** against coreEmptyShare
+ * **0.276** - the core clamps arriving volleys 62% of the time while sitting
+ * empty 28% of the time. A buffer cannot be both saturated and idle, so this
+ * is sequencing, not capacity (and it had worsened from the 0.50 clamp share
+ * spec 45 was written against).
+ *
+ * The relay is the EXPENSIVE controller feed: two hops, two 3% taxes, and it
+ * spends the CORE link's cooldown - the one resource every source in the room
+ * shares. A port firing direct is one hop, one tax, and PORT B is physically
+ * closer to CTRL than to the hub. So while a port stands loaded and ready,
+ * CTRL's free space belongs to it and the relay waits one beat; the relay
+ * becomes the fallback it should always have been, not the competitor.
+ *
+ * THE WARCHEST GATE IS NOT REPLACED (spec 45 trap note): below the reserve
+ * `preferControllerDirect` is false, ports bank at the core by production-first
+ * doctrine (spec 26 stage-2 law), and the relay is then the ONLY controller
+ * feed - holding it there would starve the controller outright. Nor does it
+ * hold when CTRL lacks room for a whole volley anyway: the port could not fire
+ * direct either, so reserving the space buys nothing.
+ */
+export function holdCoreRelay(ctx: RelayHoldContext): boolean {
+  if (ctx.pendingSenders <= 0) return false;
+  if (!ctx.preferControllerDirect) return false;
+  if (ctx.controllerFree === null || ctx.controllerFree < ctx.threshold) return false;
+  return true;
+}

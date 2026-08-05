@@ -207,3 +207,69 @@ deploy poisons X1/workUtil).
 - Deposit-port assignment and `portRemaining` throughput debits live in the
   planner's storage-sink fill (CorpPlanner ~line 760+); the body cap is a
   SIZING clamp, not a flow clamp — flows are already port-bounded.
+
+
+## The sequencing legs AS BUILT (2026-08-05, owner-directed)
+
+Re-measured before implementing (t72805426, 249t window): the defect had
+WORSENED against the diagnosis baseline — **hubClampShare 0.50 → 0.625**,
+hubVolleyAvg 378 → 500 of 800, coreEmptyShare 0.26 → 0.276. Senders blocked
+62% of the time while the receiver sat idle 28% of the time; a buffer cannot
+be both saturated and idle, which is what makes this sequencing rather than
+capacity.
+
+**Leg 1 — `holdCoreRelay` (execution/linkRouting).** The core→CTRL relay
+HOLDS while any port stands loaded (≥ LINK_FIRE_THRESHOLD) and off cooldown
+and CTRL has room for a whole volley. The relay is the expensive feed (two
+hops, two 3% taxes, and it spends the CORE cooldown every source shares);
+the direct fire is one hop and PORT B is physically nearer CTRL. Wired in
+`runLinks` with `pendingSenders` computed BEFORE the fire loop — Screeps
+intents are deferred, so `link.store` still reads its pre-fire value and a
+port that just fired would otherwise count itself as pending.
+**The warchest gate is respected, not replaced** (spec 45 trap note): below
+the reserve `preferControllerDirect` is false, ports bank at the core by
+production-first law, and the relay is then the ONLY controller feed — the
+hold is disabled there, pinned by its own test.
+
+**Leg 2 — arrivals-first at the core buffer (corps/nodeEnergy).** Rather than
+patching the load gate and the drain direction separately, the fix rides the
+EXISTING symmetry: both directions read one target level, so
+`coreLinkTargetLevel(..., inboundPending)` returning 0 delivers both legs at
+once — `coreLinkLoadRoom` → 0 (stop staging into the landing zone) and
+`coreLinkDrainAmount` → the whole store (PRE-drain, clearing it ahead of the
+arrival). The loadRoom>0 XOR drainAmount>0 invariant is preserved by
+construction and pinned; the phase-D valve law is untouched (this decides
+WHEN the core holds staged energy, never how much the controller is
+allocated). `coreInboundPending` is the detector: any non-core, non-CTRL link
+loaded ≥ threshold and within `nearFireTicks` (1) of firing. It fails CLOSED
+on partial mocks / unresolvable rooms — no evidence of an arrival is not an
+arrival.
+
+**Leg 3 — `depositRouteCarryCap` (economy/primitives).** A deposit route
+unloads into a link port, so one arrival is one unload intent: CARRY beyond
+LINK_CAPACITY/CARRY_CAPACITY buys standing time at the port, not throughput
+(measured: 978–1,851e bodies into an 800-cap port, 2–3 volley cycles per
+trip). Reuses `volleyServiceCarry()` rather than minting a second constant —
+the unloading quantum and the feeder's draining quantum are the same physical
+fact. Walking routes untouched. A SIZING clamp only; flows stay port-bounded
+by the planner's `portRemaining` debit.
+
+Safe against the deadlock class: CarryCorp's swarm cap has been denominated
+in CARRY rather than count since 2026-08-02 for exactly this reason, so
+smaller-than-planned bodies cannot satisfy a count gate at a permanent carry
+deficit. X6 judges bodies ABOVE the route need, so a downward clamp cannot
+trip it.
+
+### Registered predictions (from t72805426)
+
+- `hubClampShare` 0.625 → toward 0; `hubVolleyAvg` 500 → toward full 800.
+- `coreEmptyShare` 0.276 → materially UP (an empty core is the goal now: it
+  is landing room, not idleness — read it WITH the clamp share, never alone).
+- `directShare` 0.25 → up; `taxRate` 3.37 → down (one hop replacing two).
+- Deposit-route hauler bodies ≤ 16 CARRY; per-corp `idleSinkAtSinkFrac` down
+  at the seven deposit routes; H1 `atSink` (0.05) down.
+- E6 held-mouth count/heldFrac down; L1 mouth share of pile decay down (the
+  ~4.2 ceil-floor share stays — that is spec 44's half).
+- NOT predicted to move: H1's `enRoute` 0.21. That is spec 47's un-localized
+  approach-lane signal and it is a DIFFERENT failure; if it falls anyway,
+  the two were coupled and that is itself a finding.

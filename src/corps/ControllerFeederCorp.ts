@@ -27,6 +27,7 @@ import {
   controllerLink,
   coreDepot,
   coreLink,
+  coreInboundPending,
   coreLinkDrainAmount,
   coreLinkLoadRoom,
   controllerInputSpot,
@@ -263,8 +264,14 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     const coreEnergy = core.store[RESOURCE_ENERGY];
     const capacity = coreEnergy + core.store.getFreeCapacity(RESOURCE_ENERGY);
     const ctrlFree = ctrlLink.store.getFreeCapacity(RESOURCE_ENERGY);
-    const loadRoom = coreLinkLoadRoom(coreEnergy, capacity, ctrlFree);
-    const drainAmount = coreLinkDrainAmount(coreEnergy, capacity, ctrlFree);
+    // ARRIVALS-FIRST (spec 45 leg 2): a loaded/near-fire source link means a
+    // volley wants this buffer THIS beat, so the target drops to 0 - stop
+    // staging from storage into the landing zone, and PRE-drain what is
+    // already there. One target level still drives both directions, so the
+    // load/drain XOR symmetry and the phase-D valve law are untouched.
+    const inbound = coreInboundPending(core.room, core);
+    const loadRoom = coreLinkLoadRoom(coreEnergy, capacity, ctrlFree, inbound);
+    const drainAmount = coreLinkDrainAmount(coreEnergy, capacity, ctrlFree, inbound);
     const storageFree = storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0;
 
     // Decide direction ONLY when empty-handed: a half-loaded feeder always

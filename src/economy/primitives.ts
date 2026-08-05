@@ -960,6 +960,30 @@ export function volleyServiceCarry(): number {
   return LINK_CAPACITY / CARRY_CAPACITY;
 }
 
+/**
+ * Cap a DEPOSIT-route hauler body at the landing quantum (spec 45 leg 3,
+ * owner-directed 2026-08-05).
+ *
+ * A deposit route unloads into a LINK PORT, and a link holds LINK_CAPACITY -
+ * one arrival is one unload intent, given port room. Measured t72787778:
+ * deposit bodies carried 978-1,851e into an 800-cap port, so every trip stood
+ * through 2-3 volley cycles waiting for the port to clear. The surplus CARRY
+ * moves no extra energy; it converts itself into standing time AT the port -
+ * precisely the atSink idle the drop-off gets blamed for. Match the actuator
+ * to the quantum it serves (the worthABody doctrine's cousin).
+ *
+ * Reuses volleyServiceCarry() rather than minting a second constant: the
+ * unloading quantum and the feeder's draining quantum are the SAME physical
+ * fact, so retuning one must move the other. WALKING routes are untouched -
+ * storage has no quantum, and their bodies answer to the route's round trip.
+ *
+ * A SIZING clamp only: flows are already port-bounded by the planner's
+ * portRemaining debit, so this changes body shape, never routed energy.
+ */
+export function depositRouteCarryCap(carry: number, isDepositRoute: boolean): number {
+  return isDepositRoute ? Math.min(carry, volleyServiceCarry()) : carry;
+}
+
 // ---------------------------------------------------------------------------
 // NPC-invader raid facts (spec 13 ground truth, verified against the vendored
 // engine in node_modules - the same code the live servers run). Raids are a

@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { routeSourceVolley, VolleyContext } from "../../../src/execution/linkRouting";
+import { holdCoreRelay, routeSourceVolley, VolleyContext } from "../../../src/execution/linkRouting";
 
 /**
  * Stage-2 acceptance: the routing rule that captures the 0%-direct miss the
@@ -129,5 +129,54 @@ describe("routeSourceVolley - throughput per cooldown (owner 2026-07-29)", () =>
   it("treats a missing range as neutral (legacy callers keep working)", () => {
     const { coreRange, controllerRange, ...noRanges } = full;
     expect(routeSourceVolley(noRanges as any)).to.equal("controllerDirect");
+  });
+});
+
+/**
+ * ARRIVALS-FIRST SEQUENCING (spec 45 leg 1, owner-directed 2026-08-05).
+ *
+ * Measured t72805426: **hubClampShare 0.625** (62.5% of port volleys clamped
+ * by a full core) against **coreEmptyShare 0.276** (the core sits empty over
+ * a quarter of the time). A buffer cannot be both saturated and idle - that
+ * is a SEQUENCING failure, not capacity, and it had worsened from the 0.50
+ * clamp share spec 45 was written against.
+ *
+ * One of its two mechanisms is the core->CTRL relay COMPETING with the source
+ * ports for the controller link's free space. The relay is the expensive path
+ * (two hops, two 3% taxes, and it spends the CORE link's cooldown - a resource
+ * every source in the room shares); a port firing DIRECT is one hop and one
+ * tax, and PORT B is physically closer to CTRL than to the hub. So when a port
+ * stands loaded and ready, CTRL's space belongs to it and the relay must wait
+ * one beat.
+ *
+ * The gate must NOT replace the warchest law (spec 45 trap note): below the
+ * reserve, `preferControllerDirect` is false, ports bank at the core by
+ * production-first doctrine, and the relay is then the ONLY controller feed -
+ * holding it there would starve the controller outright.
+ */
+describe("holdCoreRelay (spec 45 leg 1: ports outrank the relay for CTRL's space)", () => {
+  it("HOLDS the relay while a loaded port can take CTRL's space directly", () => {
+    expect(holdCoreRelay({ pendingSenders: 1, preferControllerDirect: true, controllerFree: 800, threshold: 100 })).to.equal(true);
+  });
+
+  it("fires the relay when no port is pending (the relay is the FALLBACK, not the competitor)", () => {
+    expect(holdCoreRelay({ pendingSenders: 0, preferControllerDirect: true, controllerFree: 800, threshold: 100 })).to.equal(false);
+  });
+
+  it("NEVER holds below the warchest - production-first makes the relay the only CTRL feed (spec 26 stage-2 law)", () => {
+    // Ports bank at the core here; holding the relay would starve the
+    // controller completely. The arrivals-first rule respects the warchest
+    // gate rather than replacing it.
+    expect(holdCoreRelay({ pendingSenders: 3, preferControllerDirect: false, controllerFree: 800, threshold: 100 })).to.equal(false);
+  });
+
+  it("does not hold when CTRL lacks room for a whole volley anyway (holding would buy nothing)", () => {
+    // The port could not fire direct either, so reserving the space is pointless
+    // and the relay's own clamped fire is no worse.
+    expect(holdCoreRelay({ pendingSenders: 2, preferControllerDirect: true, controllerFree: 50, threshold: 100 })).to.equal(false);
+  });
+
+  it("does not hold without a controller link at all (no space to reserve)", () => {
+    expect(holdCoreRelay({ pendingSenders: 2, preferControllerDirect: true, controllerFree: null, threshold: 100 })).to.equal(false);
   });
 });

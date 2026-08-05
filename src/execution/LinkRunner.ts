@@ -14,7 +14,7 @@
 
 import { controllerLink, coreLink } from "../corps/nodeEnergy";
 import { recordLinkFire, recordCoreLevel } from "../telemetry/LinkMeter";
-import { routeSourceVolley } from "./linkRouting";
+import { holdCoreRelay, routeSourceVolley } from "./linkRouting";
 import { resolveReserveTarget } from "../economy/bank";
 // Don't fire a dribble: the fire gate is homed in primitives (one leaf, shared
 // with the LinkMeter's core-fill sampler) - rationale at the declaration.
@@ -70,6 +70,19 @@ export function runLinks(): void {
     const preferControllerDirect =
       banked >= resolveReserveTarget(typeof Memory !== "undefined" ? Memory.warchestTarget : undefined);
 
+    // ARRIVALS-FIRST (spec 45 leg 1): count the ports that could take CTRL's
+    // space DIRECTLY this tick, BEFORE any fire. Screeps intents are deferred -
+    // `link.store` still reads its pre-fire value after transferEnergy - so
+    // this must be computed up front rather than re-read below, or a port that
+    // just fired would still count as pending.
+    const pendingSenders = links.filter(
+      l =>
+        l.id !== core.id &&
+        !(ctrl && l.id === ctrl.id) &&
+        l.cooldown === 0 &&
+        l.store[RESOURCE_ENERGY] >= LINK_FIRE_THRESHOLD
+    ).length;
+
     for (const link of links) {
       if (link.id === core.id) continue;
       if (ctrl && link.id === ctrl.id) continue; // withdraw-only, never a sender
@@ -102,8 +115,20 @@ export function runLinks(): void {
       }
     }
 
+    // The relay is the FALLBACK controller feed, not the competitor: while a
+    // port stands loaded and off cooldown, CTRL's space belongs to the cheaper
+    // one-hop direct fire (spec 45 leg 1 - see holdCoreRelay for the measured
+    // clamp-vs-empty evidence and the warchest carve-out).
+    const relayHeld = holdCoreRelay({
+      pendingSenders,
+      preferControllerDirect,
+      controllerFree: ctrl ? ctrl.store.getFreeCapacity(RESOURCE_ENERGY) : null,
+      threshold: LINK_FIRE_THRESHOLD
+    });
+
     if (
       ctrl &&
+      !relayHeld &&
       core.cooldown === 0 &&
       core.store[RESOURCE_ENERGY] >= LINK_FIRE_THRESHOLD &&
       ctrl.store.getFreeCapacity(RESOURCE_ENERGY) >= LINK_FIRE_THRESHOLD

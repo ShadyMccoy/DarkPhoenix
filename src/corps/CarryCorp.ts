@@ -25,6 +25,7 @@ import {
   CREEP_LIFETIME,
   bufferDrainCarry,
   carryPartsFor,
+  depositRouteCarryCap,
   haulerBodyCarry,
   haulerBodyCost,
   maxCarryPairs,
@@ -1514,6 +1515,13 @@ export class CarryCorp extends Corp {
       desiredCarry = haulerBodyCarry(ctx.energyCapacity, carryNeeded);
     }
     desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, desiredCarry));
+    // THE LANDING QUANTUM (spec 45 leg 3): a route that unloads into a link
+    // PORT can only discharge one volley per arrival, so CARRY beyond that
+    // buys standing time at the port, not throughput (measured t72787778:
+    // 978-1,851e bodies into an 800-cap port, 2-3 volley cycles per trip).
+    // Sizing clamp only - flows stay port-bounded by the planner's
+    // portRemaining debit. Walking routes are untouched.
+    desiredCarry = Math.max(1, depositRouteCarryCap(desiredCarry, this.storageDepositPort() !== undefined));
     // The grant IS the debit (methodology #8): price the body this demand
     // actually elicits at its route's ratio, not a flat 100e/CARRY. The flat
     // price over-granted 2:1 road bodies ~33% (75e/CARRY built) - and the
