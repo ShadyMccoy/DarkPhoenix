@@ -177,6 +177,19 @@ export const UPGRADE_ENERGY_PER_WORK = 1; // UPGRADE_CONTROLLER_POWER: 1 energy/
 export const BUILD_ENERGY_PER_WORK = 5; // BUILD_POWER: 5 energy/tick per WORK
 
 /**
+ * Extra WORK parts on every planned builder beyond the supply-sized need
+ * (owner 2026-08-05: "our builders are kind of small. The limit might be on
+ * the hauling but like why not throw an extra WORK or two on these guys?").
+ * The crew is sized SUPPLY-side (allocation / stock drain / absorb caps), so
+ * average-rate WORK caps the crew at the average while delivery arrives in
+ * BURSTS (tanker drops, staged piles); the headroom lets the same crew eat a
+ * burst instead of watching it queue. WORK is the cheap half of the trade -
+ * 100e/part amortized over a lifetime - against measured P8 windows where
+ * the binding constraint was burn rate at the site, not fuel.
+ */
+export const BUILDER_WORK_HEADROOM = 2;
+
+/**
  * WORK parts needed to move `energyPerTick` at `energyPerWork` energy/tick per
  * WORK - the single conversion behind every "energy rate -> WORK body" figure
  * (miner harvest, upgrader burn, builder burn). Rounded up: a fractional WORK

@@ -38,6 +38,7 @@ import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
+  BUILDER_WORK_HEADROOM,
   bufferCarryParts,
   carryPartsFor,
   DIRECT_DRAW_REACH,
@@ -481,6 +482,10 @@ export class ConstructionCorp extends Corp {
         creep => (creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, room)),
         spawn
       );
+      // Z-SHUTTLE run wiring (owner 2026-08-05): the remote branch never ran
+      // its tankers - runTanker's committed-source path (mouth container/
+      // pile -> crew, bank paths no-op without a storage) IS the shuttle.
+      this.tankers.run(creep => this.runTanker(creep, room), spawn);
       return;
     }
 
@@ -948,7 +953,15 @@ export class ConstructionCorp extends Corp {
       buildEnergy = Math.min(buildEnergy, Math.max(absorb, this.poolAllocatedRate));
     }
     buildEnergy = Math.max(BUILD_ENERGY_PER_WORK, buildEnergy);
-    const totalWork = Math.max(1, workPartsForEnergyRate(buildEnergy, BUILD_ENERGY_PER_WORK));
+    // WORK HEADROOM (owner 2026-08-05): the supply-side sizing above caps
+    // WORK at the AVERAGE delivery rate, but delivery is bursty (tanker
+    // drops, staged stock) - the headroom lets the same crew eat a burst
+    // instead of queueing it. Real crews only (base >= 2 WORK): a project
+    // TAIL's 1-WORK closer stays small (the sum-of-projects pin - a
+    // 400-energy tail must never field a big crew). See
+    // BUILDER_WORK_HEADROOM's doc for the trade.
+    const baseWork = Math.max(1, workPartsForEnergyRate(buildEnergy, BUILD_ENERGY_PER_WORK));
+    const totalWork = baseWork + (baseWork >= 2 ? BUILDER_WORK_HEADROOM : 0);
     // SPEC 34 D2/D3: the fuel GEOMETRY sizes the onboard buffer of the PARKED
     // builder (owner: "they stay in one place building" - haulers bring the
     // energy). One lens with the tanker fetch (buildFuelDistance); the supply
@@ -2905,9 +2918,14 @@ export class ConstructionCorp extends Corp {
         // the very room whose pile was rotting. Below a meaningful stock
         // the flat 2 stands - no burst without fuel.
         let staged = 0;
+        let zSource: Source | null = null;
         try {
           for (const src of workRoom.find(FIND_SOURCES)) {
-            staged = Math.max(staged, sourceBufferStock(src) ?? 0);
+            const stock = sourceBufferStock(src) ?? 0;
+            if (stock > staged || zSource === null) {
+              staged = Math.max(staged, stock);
+              zSource = src;
+            }
           }
         } catch {
           staged = 0; // partial mocks / no vision: size on flow alone
@@ -2922,12 +2940,54 @@ export class ConstructionCorp extends Corp {
             // starter body rather than nothing (the E6 dark-source lesson).
           }
         }
+        // Z-SHUTTLE (owner 2026-08-05: "It has a tanker or hauler to shuttle
+        // energy appropriate to its haul distance which depends on the
+        // number of road tiles built... It works just like the regular
+        // builder fleet in a sense just a smaller one"): the SAME
+        // supplyMethod verdict as the pool vector. A frontier inside the
+        // direct-draw reach needs no body - the builder eats at the mouth;
+        // past the crossover ONE small tanker runs the mouth->frontier leg,
+        // CARRY sized to the round trip (which grows as tiles complete and
+        // the frontier walks away from the mouth). runTanker's
+        // committed-source path already does the leg - withdraw at the
+        // mouth's container/pile, deliver to the crew - only the demand and
+        // the remote run wiring were missing.
+        let zTanker: SpawnDemand[] = [];
+        let zDist = 0;
+        let zCarry = 0;
+        if (roadSites > 0 && zSource) {
+          const roadSiteList = workRoom.find(FIND_MY_CONSTRUCTION_SITES, {
+            filter: s => s.structureType === STRUCTURE_ROAD
+          });
+          let near = Infinity;
+          for (const site of roadSiteList) {
+            const d = Math.max(Math.abs(site.pos.x - zSource.pos.x), Math.abs(site.pos.y - zSource.pos.y));
+            if (d < near) near = d;
+          }
+          zDist = Number.isFinite(near) ? near : 0;
+          const zRate = zWork * BUILD_ENERGY_PER_WORK;
+          if (supplyMethod(zRate, zDist).method === "vector") {
+            zCarry = Math.max(1, Math.min(8, tankerCarryNeededFor(zRate, zDist, 0, TANKER_CARRY_PER_MOVE_PLAIN)));
+            const zVector = buildTankerBody(zCarry, ctx.energyCapacity, false);
+            const zMin = buildTankerBody(1, ctx.energyCapacity, false);
+            zTanker = this.tankers.spawnDemand({
+              target: 1,
+              desiredCost: zVector.cost,
+              minCost: zMin.cost,
+              bodyParam: zCarry
+            });
+          }
+        }
         this.stampSizing({
           gate: roadSites > 0 ? "pile-road" : "pile-container",
           staged,
           roadSites,
-          zWork
+          zWork,
+          zDist,
+          zCarry
         });
+        this.lastWantedBuilders = plan.target;
+        return [...this.builders.spawnDemand(plan), ...zTanker];
       }
       this.lastWantedBuilders = plan.target;
       return this.builders.spawnDemand(plan);
