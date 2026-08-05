@@ -8904,3 +8904,29 @@ the behaviors driving the overhead, measured down (X5/R1 lines); (2) only
 then calibrate admission prices from clean actuals; the 0.9 margin carries
 until (2) lands. This supersedes the "successor filed" line in the
 reversion entry above.
+
+### Cycle t72801151 — valve verification at +1051t; combined deploy (0.9 reversion + colony-wide wartime)
+
+Valve-only verification (capture t72801151): P-1 HOLDS (reserve pinned
+77,000 = 700x110, scouting no longer ratchets it); P-2 TRACKS EXACTLY
+(allocation 41.66 = (139,493-77,000)/1500, the bank draining INTO the
+controller 166.6k -> 139.5k as designed); delivery resumed (rclProgress
++67,238 over ~2900t spanning the closed-valve tail, ~23 e/t and rising);
+P-6 as restated post-correction - spawn still saturated (util 0.98/1.0,
+q 7-8), the valve added consumer demand, relief is the reversion's job.
+Verdict on the valve fix: CONFIRMED live, both immediate predictions exact,
+delivery recovery underway.
+
+Combined bundle DEPLOYED at ~t72801250 (gate: unit 2093-0, trio 3-0 on the
+combined dist). Registered predictions: REVERSION - 1-2 lowest net/part
+remotes defund within a solve (funded -> ~90-100 e/t), warchest follows the
+funded set down, util <=0.93 and queue <=3 within ~1500t, F2/F3 close on
+survivors, forgone+decay < 15 e/t within 3000t. WARTIME - published
+controller allocation -> ~0 while the ~24-site backlog stands (BY DESIGN,
+supersedes P-2/P-4 score expectations), feeder to headroom-only, upgraders
+drain to floor, construction funded at its absorb caps, bank slope positive
+INTENDED. WATCH ITEM: P8 must show actual build consumption - the
+FY4852-M06 CREW IDLE precedent is the named risk class ("poor behavior"
+the owner flagged); if construction is funded but idle with the controller
+relegated, that is the next cycle's incident, not a reason to re-open the
+controller.
