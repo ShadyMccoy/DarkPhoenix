@@ -8708,3 +8708,19 @@ outcome verifies; (5) P1 flags the funded->defunded flips this window
 (expected, named); (6) when the W43N24 occupation ends the sources
 RE-ADMIT automatically - the re-fund event is the mechanism's proof;
 (7) reset inflates X5 one window.
+
+### Deploy verification t72797359 (+62t): the lens is live and caught a fresh episode
+
+Predictions land with honest deltas: cd8e/cd8d verdict **defunded** (at
+rate 5 - their reservation lapsed during the occupation, so the rate lens
+downgraded them too; extra honesty beyond the forecast), d017 stamps
+**transit-embargo at the capture tick** (the silence is over; the corridor
+is still dangerous), and capacity reads 120 -> 105. The unpredicted third
+defund - cbd5/W44N23 - is a FRESH mark the same lens caught in real time:
+the mechanism generalizing on day one. Memo line + forgone shift verify at
+the next full window; the W43N24 re-admit event (occupation ends <=
+t72795700 by decay, earlier by striker) is the standing watch.
+
+Cycle verdict: **fixed (same-lens defund, methodology #12) + instrumented
+(no silent demand exits, stale-stamp filter) + owner-flag confirmed real
+and attributed.**
