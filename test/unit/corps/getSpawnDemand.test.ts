@@ -340,4 +340,98 @@ describe("corp getSpawnDemand()", () => {
       expect(demands[0].infrastructure, "and only the first feeder pierces").to.equal(false);
     });
   });
+
+  /**
+   * Spec 45 volley-service floor (owner sizing doctrine 2026-08-05): the
+   * feeder is a SERVICE creep - it must clear a FULL 800e link volley from
+   * the core in ONE parked withdraw+transfer cycle whenever inbound senders
+   * (deposit ports / source links) exist, or it is itself the network's
+   * clamp (measured: 4C body vs volleys every ~7t -> coreEmptyShare 0.26,
+   * hubClampShare 0.50). Idle feeder ticks between volleys are the PRICE of
+   * hauler duty; idle hauler ticks are the waste.
+   */
+  describe("ControllerFeederCorp volley-service floor (spec 45)", () => {
+    const ROOM = "W1N1";
+    const SPAWN_ID = "spawn1";
+    let savedGame: any;
+    let savedMemory: any;
+
+    beforeEach(() => {
+      savedGame = (global as any).Game;
+      savedMemory = (global as any).Memory;
+      (global as any).FIND_MY_STRUCTURES = 108;
+      (global as any).FIND_STRUCTURES = 107;
+      (global as any).FIND_SOURCES = 105;
+      (global as any).STRUCTURE_LINK = "link";
+      (global as any).RESOURCE_ENERGY = "energy";
+    });
+    afterEach(() => {
+      (global as any).Game = savedGame;
+      (global as any).Memory = savedMemory;
+    });
+
+    /** Stage a LINK-FED room: core link beside storage, controller link, and
+     * `senderCount` additional links (the inbound senders). */
+    function stageLinkRoom(senderCount: number, corpId: string) {
+      const core = { id: "core-link", structureType: "link", pos: { x: 31, y: 21, roomName: ROOM } };
+      const ctrl = { id: "ctrl-link", structureType: "link", pos: { x: 25, y: 11, roomName: ROOM } };
+      const senders = Array.from({ length: senderCount }, (_, i) => ({
+        id: `sender-${i}`,
+        structureType: "link",
+        pos: { x: 40 + i, y: 5, roomName: ROOM }
+      }));
+      const allLinks = [core, ctrl, ...senders];
+      const room: any = {
+        name: ROOM,
+        memory: {},
+        find: (type: number, opts?: { filter?: (s: any) => boolean }) => {
+          if (type === (global as any).FIND_SOURCES) return [];
+          const list = allLinks;
+          return opts?.filter ? list.filter(opts.filter) : list;
+        }
+      };
+      room.storage = {
+        my: true,
+        store: { energy: 60_000 },
+        pos: { x: 30, y: 20, roomName: ROOM, findInRange: () => [core] }
+      };
+      room.controller = {
+        my: true,
+        pos: { x: 25, y: 10, roomName: ROOM, findInRange: () => [ctrl] }
+      };
+      const spawn: any = {
+        id: SPAWN_ID,
+        room,
+        pos: { x: 30, y: 20, roomName: ROOM, getRangeTo: () => 10 }
+      };
+      (global as any).Memory = { creeps: {}, rooms: {} };
+      (global as any).Game = {
+        time: 100,
+        rooms: {},
+        creeps: {
+          miner1: { room: { name: ROOM }, spawning: false, memory: { workType: "harvest", corpId: "mining-x" } }
+        },
+        getObjectById: (id: string) => (id === SPAWN_ID ? spawn : null)
+      };
+    }
+
+    it("with inbound senders the body floors at ONE FULL VOLLEY (16 CARRY)", () => {
+      const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
+      stageLinkRoom(2, corp.id); // two deposit ports, the live shape
+      const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
+      expect(demands).to.have.length(1);
+      expect(demands[0].bodyParam, "one withdraw+transfer pair clears any volley").to.equal(16);
+      expect(corp.lastSizing?.volleyFloor, "the stamp records the floor binding").to.equal(16);
+      expect(corp.lastSizing?.inboundSenders).to.equal(2);
+    });
+
+    it("a pure-relay link room (core + ctrl only) keeps the throughput law untouched", () => {
+      const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
+      stageLinkRoom(0, corp.id);
+      const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
+      expect(demands).to.have.length(1);
+      expect(demands[0].bodyParam, "no volleys to service - parkedRelayCarry law stands").to.be.lessThan(16);
+      expect(corp.lastSizing?.volleyFloor).to.equal(undefined);
+    });
+  });
 });

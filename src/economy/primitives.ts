@@ -605,7 +605,16 @@ export function infraSpawnLoad(
   // the CARRY for the same relay. Priced like the original: one feeder
   // detail for the depot room (multi-depot pricing arrives with expansion).
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
-  const feeder = depotRoomCount > 0 ? (2 * carryPartsFor(relayRate, feederDist)) / effectiveLife(feederDist) : 0;
+  // Spec 45 volley-service floor: a link-fed feeder must clear a FULL 800e
+  // volley in one parked cycle (see volleyServiceCarry) - the plan prices
+  // the same floor the corp fields (F1: price = behavior). A link-fed room
+  // without inbound senders over-prices by the floor; accepted - that
+  // config is transient here and the error sits on the conservative side.
+  const feederCarry =
+    linkFedRoomCount > 0
+      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry())
+      : carryPartsFor(relayRate, feederDist);
+  const feeder = depotRoomCount > 0 ? (2 * feederCarry) / effectiveLife(feederDist) : 0;
   // 2 tankers x measured 24-part body, per depot room (owner ratchet
   // 2026-07-22, priced WITH the fleet-cap cut - P5: price = behavior).
   const TENDER_FLEET_PARTS = 48;
@@ -646,8 +655,12 @@ export function infraSpawnEnergy(
   const CARRY_MOVE_PER_PART = CARRY_MOVE_PAIR_COST / 2;
   const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
-  const feeder =
-    depotRoomCount > 0 ? ((2 * carryPartsFor(relayRate, feederDist)) / effectiveLife(feederDist)) * CARRY_MOVE_PER_PART : 0;
+  // Spec 45 volley-service floor - the SAME line as the parts twin above.
+  const feederCarry =
+    linkFedRoomCount > 0
+      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry())
+      : carryPartsFor(relayRate, feederDist);
+  const feeder = depotRoomCount > 0 ? ((2 * feederCarry) / effectiveLife(feederDist)) * CARRY_MOVE_PER_PART : 0;
   const TENDER_FLEET_PARTS = 48;
   const tender = ((depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME) * CARRY_MOVE_PER_PART;
   const RESERVER_PARTS_PER_ROOM = 4;
@@ -861,6 +874,28 @@ export function miningBudgetPerSpawn(): number {
  * meter's core-fill sampler boundary (telemetry/LinkMeter).
  */
 export const LINK_FIRE_THRESHOLD = 100;
+
+/** Engine: a link holds at most this much energy - the largest possible volley. */
+export const LINK_CAPACITY = 800;
+
+/**
+ * CARRY parts that clear one FULL link volley in a single parked
+ * withdraw+transfer cycle (spec 45, owner sizing doctrine 2026-08-05): the
+ * feeder is a SERVICE creep - its metric is drain LATENCY, not throughput
+ * utilization. "They need to drain the core link pretty much on demand.
+ * Anytime an incoming link is imminent. It can't be a bottleneck... Idle
+ * haulers are a form of waste. They're sized for full time moving." Sized to
+ * average relay flow instead (parkedRelayCarry), the live 4-CARRY feeder
+ * needed ~8 ticks per 800e volley while two deposit ports at 13/14t
+ * cooldowns landed one every ~7t - the feeder itself clamped the network
+ * (coreEmptyShare 0.26, hubClampShare 0.50 measured at t72787778). The
+ * feeder's idle between volleys is the price of hauler duty, and it is
+ * cheap; the corp's sizing and infraSpawnLoad/-Energy's pricing BOTH floor
+ * at this so plan and runtime agree (F1).
+ */
+export function volleyServiceCarry(): number {
+  return LINK_CAPACITY / CARRY_CAPACITY;
+}
 
 // ---------------------------------------------------------------------------
 // NPC-invader raid facts (spec 13 ground truth, verified against the vendored

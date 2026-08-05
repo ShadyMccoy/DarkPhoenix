@@ -27,7 +27,11 @@ import {
   SOURCE_REGEN_TIME,
   SPAWN_PARTS_PER_TICK,
   SPAWN_TIME_PER_PART,
-  infraSpawnLoad
+  infraSpawnLoad,
+  infraSpawnEnergy,
+  CARRY_MOVE_PAIR_COST,
+  LINK_CAPACITY,
+  volleyServiceCarry
 } from "../../../src/economy/primitives";
 
 // First-principles checks: every number is hand-derived from the game constants
@@ -358,5 +362,38 @@ describe("infraSpawnLoad (the plan's standing-infra parts deduction)", () => {
     const withDepot = infraSpawnLoad(115, 1, 0);
     expect(withDepot).to.be.greaterThan(72 / 1500); // at least the tender fleet
     expect(infraSpawnLoad(115, 1, 4)).to.be.closeTo(withDepot + (0.5 * 4 * 4) / 540, 1e-9);
+  });
+});
+
+describe("volleyServiceCarry (spec 45: the feeder is a SERVICE creep, sized for drain latency)", () => {
+  // Owner doctrine 2026-08-05: the feeder must "drain the core link pretty
+  // much on demand... it can't be a bottleneck. Between its programming and
+  // its size it has to do job well. Idle haulers are a form of waste."
+  // Measured: a 4-CARRY feeder (parkedRelayCarry-sized to average flow)
+  // needs ~8 ticks per 800e volley while two deposit ports land one every
+  // ~7t - the feeder itself clamps the network (coreEmptyShare 0.26).
+  it("is exactly one full link volley of CARRY", () => {
+    expect(volleyServiceCarry()).to.equal(LINK_CAPACITY / CARRY_CAPACITY);
+    expect(volleyServiceCarry()).to.equal(16);
+  });
+
+  it("infraSpawnLoad prices the link-fed feeder at the SAME floor the corp fields (F1: price = behavior)", () => {
+    const relay = 115; // carryPartsFor(115,1) = 9.2 < 16 -> the floor binds
+    const feeder = (2 * Math.max(carryPartsFor(relay, 1), volleyServiceCarry())) / effectiveLife(1);
+    const tender = 48 / CREEP_LIFETIME;
+    expect(infraSpawnLoad(relay, 1, 0, 1)).to.be.closeTo(feeder + tender, 1e-9);
+  });
+
+  it("walking rooms keep the exact old law (no floor - there is no volley to service)", () => {
+    const relay = 115;
+    const feeder = (2 * carryPartsFor(relay, 6)) / effectiveLife(6);
+    expect(infraSpawnLoad(relay, 1, 0, 0)).to.be.closeTo(feeder + 48 / CREEP_LIFETIME, 1e-9);
+  });
+
+  it("the ENERGY twin floors identically (the twins never diverge)", () => {
+    const relay = 115;
+    const feederParts = (2 * Math.max(carryPartsFor(relay, 1), volleyServiceCarry())) / effectiveLife(1);
+    const expected = (feederParts + 48 / CREEP_LIFETIME) * (CARRY_MOVE_PAIR_COST / 2);
+    expect(infraSpawnEnergy(relay, 1, 0, 1)).to.be.closeTo(expected, 1e-9);
   });
 });

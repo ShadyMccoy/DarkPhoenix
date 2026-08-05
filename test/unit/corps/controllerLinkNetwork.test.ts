@@ -257,11 +257,13 @@ describe("controller link network (spec 24 rung 3)", () => {
     }
   });
 
-  it("infraSpawnLoad: a link-fed depot prices the feeder at the 1-tile leg (~1/6th)", () => {
+  it("infraSpawnLoad: a link-fed depot prices the feeder cheaper, floored at the volley body (spec 45)", () => {
     const walked = infraSpawnLoad(115, 1, 4, 0);
     const linked = infraSpawnLoad(115, 1, 4, 1);
-    // Only the feeder term changes; it must shrink hard (measured target:
-    // 64p -> ~22p of standing feeder at relay 115).
+    // Only the feeder term changes. Pre-spec-45 the 1-tile leg shrank it to
+    // ~1/6th; the volley-service floor (16 CARRY - clear a full 800e volley
+    // in one parked cycle) now holds the link-fed body at 32p, so the saving
+    // is ~half, not ~1/6th - still a real saving, and the floor is the point.
     expect(linked).to.be.lessThan(walked);
     expect(walked - linked, "the whole saving is the feeder leg").to.be.greaterThan(0.02);
   });

@@ -8557,3 +8557,39 @@ Cycle verdict: **instrumented (DepartMeter, v16) + falsified-with-attribution
 (the cd94 "anomaly" was my census misread; the meter's one capture dissolved
 it) + fixed (paved admission, verified exact) + named (sink-service trip
 overhead - next cycle's red-first candidate)**.
+
+## Deploy: spec 45 sizing leg — the feeder volley-service floor (owner: "large enough to handle the spikes")
+
+`volleyServiceCarry()` = LINK_CAPACITY/CARRY_CAPACITY = 16 lands in
+primitives (both constants engine ground truth, no new numbers) and floors
+the link-fed feeder body wherever the core link has INBOUND SENDERS (any
+link that is neither core nor the withdraw-only ctrl — deposit ports and
+source links alike, the same set LinkRunner loops). Applied in BOTH homes so
+plan and runtime agree (F1): ControllerFeederCorp.getSpawnDemand (stamps
+volleyFloor + inboundSenders) and infraSpawnLoad/infraSpawnEnergy (the
+structurally-identical twins moved in the same commit; a link-fed room
+without senders over-prices by the floor — accepted, conservative,
+transient config). Red-first: 4 primitives pins + 2 corp behavior pins
+(link-staged room: floor binds at 16 with senders, pure-relay room
+bit-identical); the surviving "~1/6th" link-fed pricing pin re-narrated
+honestly (~half now — the floor is the point). Unit 2080 green by parsed
+count; trio 3-0 VERIFIED BY PARSED COUNTS (storage-depot 7s, flow-handoff
+4m, runt-economy 4m).
+
+PREDICTIONS (registered before deploy):
+1. The NEXT capture's feeder sizing stamp reads volleyFloor 16,
+   inboundSenders 2, neededCarry 16, wantedFeeders 1 (stamp updates every
+   demand pass, purchase or not).
+2. The plan's infra pricing rises ~+0.015 p/t (2x(16-4.8)/1499 at the live
+   relay ~60): P4 infra line and F1 PLANNED both step up; measured follows
+   at fleet turnover.
+3. THE BODY ARRIVES AT NATURAL TURNOVER, not immediately: staffing is
+   by-count (feeders >= wantedFeeders = 1) and the 4C incumbent holds the
+   post until EOL (<= 1500t post-deploy). No mid-life churn for the
+   linchpin — deliberate; if the post were ordered dark to force it, that
+   would be the treadmill's cousin.
+4. AFTER the 16C body lands: coreEmptyShare/hubClampShare improve
+   DIRECTIONALLY (sizing alone cannot clear them — the arrivals-first
+   sequencing legs of spec 45 are still unshipped; the five-gauge
+   acceptance bar stays with them).
+5. The deploy's global reset inflates X5 one window (known).

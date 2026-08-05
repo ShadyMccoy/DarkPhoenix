@@ -36,7 +36,13 @@ import {
 import { travelTo, travelToBypass } from "./movement";
 import { roomHasFlowMiner } from "./censusLens";
 import { stampControllerFeederRegime } from "./regimes";
-import { CARRY_MOVE_PAIR_COST, carryPartsFor, maxCarryPairs, parkedRelayCarry } from "../economy/primitives";
+import {
+  CARRY_MOVE_PAIR_COST,
+  carryPartsFor,
+  maxCarryPairs,
+  parkedRelayCarry,
+  volleyServiceCarry
+} from "../economy/primitives";
 import { bankFedControllerRate, resolveReserveTarget } from "../economy/bank";
 
 export interface SerializedControllerFeederCorp extends SerializedSpawnAnchoredCorp {
@@ -348,6 +354,22 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
   }
 
   /**
+   * Links that SEND INTO this room's core link: every link that is neither
+   * the core nor the withdraw-only controller link - deposit ports and
+   * source links alike, the same set LinkRunner loops as senders. Spec 45:
+   * while any exist, volleys of up to LINK_CAPACITY land on the core and the
+   * feeder must be able to clear one in a SINGLE parked cycle.
+   */
+  private inboundLinkSenderCount(room: Room): number {
+    const core = coreLink(room);
+    if (!core) return 0;
+    const ctrl = controllerLink(room);
+    return room.find(FIND_MY_STRUCTURES, {
+      filter: s => s.structureType === STRUCTURE_LINK && s.id !== core.id && s.id !== (ctrl?.id ?? "")
+    }).length;
+  }
+
+  /**
    * Demand feeders once a storage bank exists and the room produces energy.
    * NON-blocking infrastructure: until one spawns, room.memory.controllerFeederActive
    * stays false and the haulers feed the controller directly, so nothing is starved.
@@ -416,8 +438,18 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     // Non-link rooms have no core drain, so this is 0 and the body is unchanged.
     const coreDrain = linkFed ? this.coreDrainRate(spawn.room) : 0;
     const effectiveBodyRate = Math.max(relayRate, coreDrain);
+    // VOLLEY-SERVICE FLOOR (spec 45, owner 2026-08-05): with inbound senders
+    // on the core link the feeder is a SERVICE creep - it must clear a full
+    // LINK_CAPACITY volley in ONE parked withdraw+transfer cycle, or it is
+    // itself the network's clamp (measured: the throughput-sized 4C body
+    // took ~8t per 800e volley against a ~7t arrival cadence; coreEmptyShare
+    // 0.26, hubClampShare 0.50). Its idle between volleys is the price of
+    // hauler duty. infraSpawnLoad prices the same floor (F1).
+    const inboundSenders = linkFed ? this.inboundLinkSenderCount(spawn.room) : 0;
+    const volleyFloor = inboundSenders > 0 ? volleyServiceCarry() : 0;
     const neededCarry = Math.max(
       1,
+      volleyFloor,
       Math.ceil((linkFed ? parkedRelayCarry(effectiveBodyRate) : carryPartsFor(effectiveBodyRate, distance)) * 1.2)
     );
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
@@ -433,6 +465,7 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
       distance,
       ...(linkFed ? { linkFed: true } : {}),
       ...(coreDrain > 0 ? { coreDrain } : {}),
+      ...(volleyFloor > 0 ? { volleyFloor, inboundSenders } : {}),
       neededCarry,
       wantedFeeders,
       feeders
