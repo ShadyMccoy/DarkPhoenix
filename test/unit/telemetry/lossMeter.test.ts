@@ -591,3 +591,25 @@ describe("LossMeter cumulative totals (a fiscal month must be measurable)", () =
     expect(lossReport(200).windowTicks).to.equal(0);
   });
 });
+
+describe("deathInHostileWindow (v33: attribution outlives the all-clear)", () => {
+  const { deathInHostileWindow } = require("../../../src/telemetry/LossMeter");
+
+  it("keeps the v32 live-mark semantics (deathTime <= hostileUntil)", () => {
+    expect(deathInHostileWindow(100, { hostileUntil: 150 })).to.equal(true);
+    expect(deathInHostileWindow(200, { hostileUntil: 150 })).to.equal(false);
+  });
+
+  it("attributes from a RETAINED window when the live mark is gone (the home-room clear-lift case)", () => {
+    const intel = { hostileWindows: [{ from: 80, until: 150 }] };
+    expect(deathInHostileWindow(100, intel), "died inside the closed window").to.equal(true);
+    expect(deathInHostileWindow(60, intel), "died BEFORE the episode started").to.equal(false);
+    expect(deathInHostileWindow(160, intel), "died after it ended").to.equal(false);
+  });
+
+  it("no intel, no deathTime, no windows -> false (never fabricates)", () => {
+    expect(deathInHostileWindow(undefined, { hostileUntil: 150 })).to.equal(false);
+    expect(deathInHostileWindow(100, undefined)).to.equal(false);
+    expect(deathInHostileWindow(100, {})).to.equal(false);
+  });
+});

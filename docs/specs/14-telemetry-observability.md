@@ -8603,3 +8603,53 @@ The floor dominates its own throughput term as designed (coreDrain 80 →
 parked carry 4; floor 16 wins). Plan side moved with it: fleetCharge.infra
 11.52 → 13.50 e/t (the floor's energy delta + W41N25's ninth remote
 reserver). Predictions #2-#4 read at the next full windows.
+
+## Cycle t72792889 — the raid episode priced; the attribution lens's structural blindness found and fixed (core v33)
+
+**The window (4,185t) was a raid EPISODE on the expansion corridor**, and the
+designed responses all engaged: CoreBuster on the invader occupation (the
+account's new CAPITAL line, -1.24 e/t), guards up then stood down (41% of
+recycle refunds), the hostile-route defund held W43N24's fleets at zero NEW
+bodies (F2: cd8e/cd8d fielded 0p vs 22/33p declared - defund by priority,
+nobody stranded, E2 = 0), X5 churn just 3%, S5 kept a 20% surge margin. The
+episode's price, named: forgone mining -26.76 (F3: d017 1.1/10, cd8e 1.5/10,
+cd8d 1.6/10 = the whole line), tombstones 1.46, reservation -4.00 U
+(re-reserving the corridor), pile decay 11.06 (mouths behind the defund).
+Controller still delivered 36.29 vs the slashed 32.28 plan (P7 1.18x);
+bank flat; G1 101% income-funded. FY4852-M06 closed. NOT a defect - weather,
+handled; the L1 spike is the episode's shadow and drains when the defund
+lifts (the drain term prices the standing mouths).
+
+**Standing-prediction checks:** feeder volley floor LANDED (32C standing =
+2x16C replacement overlap; the 4C incumbent is gone - sizing-leg prediction
+#3 confirmed). Paved-admission prediction #2 (P&L re-centering, cbd8 the
+honest worst row): episode noise dominates every variance column - deferred
+to a calm window, not judged. P-55 gate reads 37.33 this window (episode +
+W41N25 J-curve, inside the registered reclass regime).
+
+**THE CYCLE'S FINDING - task #9's instrument was structurally blind and the
+episode proved it.** v32 counters over the window: killed cargo 9,203e;
+booking-time flag caught 691e (7.5%); hostileAtDeath caught **332e (3.6%)**
+- and 47% of kills are in the HOME room. Code read confirms the mechanism:
+hostileRooms()'s all-clear path DELETES hostileUntil on any sighted-clear
+tick, and the home room has PERMANENT vision - the mark evaporates within
+ticks of every fight ending, before the loss meter books the tombstones.
+The "0-8% raid-claimable" share every window has printed is a FLOOR
+ARTIFACT of the lens, not a truth about the kills. **Fix (core v33,
+telemetry-only): the all-clear RETAINS the closed window**
+(roomIntel.hostileWindows, cap 3, from = the fresh-mark tick, legacy
+fallback until-1500) and attribution reads live mark OR retained windows
+(LossMeter.deathInHostileWindow, pure + pinned). 6 red-first tests; 2,086
+unit green by parsed count.
+
+**R1 PROTOCOL NOTE (comparability):** hostileAtDeath windows BEFORE v33 are
+floor artifacts - the >= 10-window swap evidence RESTARTS at v33. Do not
+mix v32 and v33 readings of the counter.
+
+PREDICTIONS (registered before deploy): (1) the next hostile episode's
+all-clear writes roomIntel.hostileWindows (readable via Memory API); (2)
+in subsequent episode windows hostileAtDeath rises from the 3.6% floor
+toward the true combat share - if it STAYS ~0 with home kills continuing,
+the kills are genuinely not combat-window deaths and the home-kill mystery
+reopens on a different mechanism (that would be a REAL finding, not a lens
+artifact); (3) the deploy's global reset inflates X5 one window (known).

@@ -26,6 +26,21 @@ declare global {
      */
     hostileUntil?: number;
     /**
+     * Tick the CURRENT hostile episode was first sighted (set with the fresh
+     * mark, cleared with it). Pairs with hostileUntil to form the closed
+     * window the all-clear retains below (v33 attribution).
+     */
+    hostileMarkedAt?: number;
+    /**
+     * The last few CLOSED hostile episodes, retained at the all-clear so
+     * death attribution outlives the live mark (v33): the home room's
+     * standing vision lifts marks within ticks of a fight ending - before
+     * the loss meter books the tombstones - which made every home kill read
+     * unattributed (measured t72792889: 3.6% of killed cargo caught).
+     * Capped at 3; oldest dropped first.
+     */
+    hostileWindows?: { from: number; until: number }[];
+    /**
      * The room's controller is reserved by the Invader NPC (an invader core
      * holds it) until ~this tick. Same defense economics as hostileUntil: the
      * room's corps are defunded - mining is throttled/contested and our

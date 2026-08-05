@@ -553,7 +553,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 32, // v31 pile census; v32 hostile-at-death kill attribution (task #9, the R1 swap's evidence) 2026-08-05
+    version: 33, // v32 hostile-at-death; v33 attribution reads RETAINED hostile windows (the home-room clear-lift blindness) 2026-08-05
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {

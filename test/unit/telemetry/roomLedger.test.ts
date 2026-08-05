@@ -76,7 +76,7 @@ describe("Telemetry room energy ledger (segment 0, spec 14 phase 1)", () => {
     new Telemetry().update(undefined, [], undefined);
     const core = JSON.parse(RawMemory.segments[0]);
 
-    expect(core.version).to.equal(32); // v32 hostile-at-death kill attribution (task #9) 2026-08-05
+    expect(core.version).to.equal(33); // v33: hostile-at-death reads retained windows (home clear-lift) 2026-08-05
     const room = core.rooms[0];
     expect(room.storageEnergy).to.equal(200000);
     // 1500 in the controller-side container + 250 dropped at the input spot

@@ -433,6 +433,25 @@ export function resolveDeathCause(
 }
 
 /**
+ * Does a hostile mark window cover this death? (v33) Checks the LIVE mark
+ * first (deathTime <= hostileUntil - the v32 semantics, kept verbatim), then
+ * the RETAINED closed windows RoomDiscovery's all-clear now preserves. The
+ * retained check is what makes home-room combat attributable at all: the
+ * home room's standing vision lifts the live mark within ticks of a fight
+ * ending, before the loss meter books the tombstones (measured t72792889:
+ * 9,203e killed cargo, live-mark lens caught 332e / 3.6%, 47% of kills at
+ * home). Never fabricates: no deathTime, no intel, no cover -> false.
+ */
+export function deathInHostileWindow(
+  deathTime: number | undefined,
+  intel: { hostileUntil?: number; hostileWindows?: { from: number; until: number }[] } | undefined
+): boolean {
+  if (typeof deathTime !== "number" || !intel) return false;
+  if (typeof intel.hostileUntil === "number" && deathTime <= intel.hostileUntil) return true;
+  return (intel.hostileWindows ?? []).some(w => deathTime >= w.from && deathTime <= w.until);
+}
+
+/**
  * Drop the module-state view - what a global reset does to the globals.
  *
  * `keepTotals` models the real thing: Memory survives a reset, the globals do
@@ -789,19 +808,17 @@ export function collectLosses(tick: number): void {
           deathWatchEntry((t.creep as { name?: string } | undefined)?.name ?? ""),
           (t as { deathTime?: number }).deathTime
         ),
-        // v32 (task #9): does the room's intel mark WINDOW cover the death?
-        // Read from the same durable store hostileRooms() maintains
-        // (Memory.roomIntel.hostileUntil = sighting + max hostile TTL), so a
-        // killer sighted AFTER the kill still attributes - the lag case the
-        // booking-time hostileFlagged misses by construction.
-        ...(() => {
-          const dt = (t as { deathTime?: number }).deathTime;
-          const until =
-            typeof Memory !== "undefined" ? Memory.roomIntel?.[name]?.hostileUntil : undefined;
-          return typeof dt === "number" && typeof until === "number" && dt <= until
-            ? { hostileAtDeath: true }
-            : {};
-        })()
+        // v32 (task #9) -> v33: does a hostile mark WINDOW cover the death?
+        // v32 read only the LIVE hostileUntil - which the home room's
+        // standing vision deletes within ticks of every fight ending, so
+        // home kills could never attribute. v33 also checks the closed
+        // windows RoomDiscovery's all-clear retains (deathInHostileWindow).
+        ...(deathInHostileWindow(
+          (t as { deathTime?: number }).deathTime,
+          typeof Memory !== "undefined" ? Memory.roomIntel?.[name] : undefined
+        )
+          ? { hostileAtDeath: true }
+          : {})
       }));
 
       let containers = 0;

@@ -389,10 +389,15 @@ export function hostileRooms(): Set<string> {
           // Fresh mark on a previously-clear room: flight-recorder row so
           // live defund windows have measurable starts (spec 13 phase 5).
           blackBox("mark", { room: roomName, kind: "creeps", until });
+          // Durable episode START (v33 attribution): the all-clear below
+          // retains {from, until} so a death inside the window attributes
+          // even after the live mark lifts. Only stamped on the fresh mark -
+          // repeat sightings extend hostileUntil, not the start.
+          if (intel) intel.hostileMarkedAt = Game.time;
         }
         if (intel) intel.hostileUntil = until;
         else {
-          Memory.roomIntel[roomName] = { lastVisit: Game.time, hostileUntil: until } as RoomIntel;
+          Memory.roomIntel[roomName] = { lastVisit: Game.time, hostileUntil: until, hostileMarkedAt: Game.time } as RoomIntel;
         }
         // Raid observation (spec 13): Invader-owned creeps in sight mean the
         // engine zeroed its raid fuse when it spawned them - zero the mirror
@@ -406,6 +411,20 @@ export function hostileRooms(): Set<string> {
           recordRaidSighting(roomName);
         }
       } else if (intel?.hostileUntil) {
+        // RETAIN the closed window before lifting the mark (v33): the loss
+        // meter books tombstones AFTER this clear in any room with standing
+        // vision - the home room ALWAYS has it, so deleting outright erased
+        // the attribution evidence within ticks of every fight ending
+        // (measured t72792889: 9,203e killed cargo, the live-mark lens
+        // caught 332e / 3.6%, with 47% of kills at home). `from` falls back
+        // to until - max creep TTL for legacy mid-episode entries - bounded
+        // by physics, never wider than a real episode could be.
+        const HOSTILE_WINDOWS_KEPT = 3;
+        intel.hostileWindows = [
+          ...(intel.hostileWindows ?? []).slice(-(HOSTILE_WINDOWS_KEPT - 1)),
+          { from: intel.hostileMarkedAt ?? intel.hostileUntil - 1500, until: intel.hostileUntil }
+        ];
+        delete intel.hostileMarkedAt;
         delete intel.hostileUntil; // fresh all-clear sighting
         blackBox("unmark", { room: roomName, kind: "creeps" });
       }
