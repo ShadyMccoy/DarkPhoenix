@@ -8870,3 +8870,37 @@ tranche 0.36 global ⇒ 1-2 lowest-net/part remotes defund (capacity
 110-120 → 100-110); util ≤0.93 and queue ≤3 within ~1500t; F2/F3 gaps
 close on surviving routes; forgone+decay back under ~15 within 3000t;
 score unaffected (the open valve owns it; sheds phantom capacity only).
+
+### Same cycle, owner directives #3 — construction is the PRIMARY consumer colony-wide; actuals do NOT inform budgets yet
+
+**Directive 1 (implemented, red-first): "I WANT construction to be the
+primary consumer over controller if we have a construction project. Banking
+excess it can't consume is fine."** The spec-33 wartime relegation already
+encoded exactly this — but its lens was per-ROOM ("a backlog in the
+controller's room"), and the live backlog at t72799968 was 24 REMOTE road
+sites with home siteCount 0, so the home controller never relegated and the
+bank-fed allocation outbid the very roads that fix the haul economics. The
+wartime backlog is now summed COLONY-WIDE (threshold 3000 kept - a lone
+road tile still never flaps upgrading): while it stands, every owned
+controller relegates to its danger-gated floor, construction absorbs at its
+own caps, and the residual BANKS - never the controller. Red pin: remote
+4000-backlog world, controller relegated to 0, storage takes the residual
+(was 41.75 to the controller); anti-flap control pinned beside it. NOTE for
+the armed check-in: once this deploys, the score predictions (P-2/P-4) are
+SUPERSEDED by design - the controller allocation drops to ~0 while the
+24-site backlog drains, the bank absorbs (E4 slope positive is now the
+INTENDED state), and score resumes on the accumulated surplus when the
+backlog clears. The valve fix stays essential underneath: an honest reserve
+is what makes the post-backlog reopening real.
+
+**Directive 2 (successor re-filed): "Yes eventually we will feed actuals
+back to inform the budget, but not quite yet. We have some poor behavior
+that's causing variants that we don't want to encode as the budget."** The
+earlier successor ("price measured per-route replacement overhead into
+admission") is DEFERRED: current actuals carry defective behaviors (the
+W45N25 fast-respawn loop, defund-window replacement churn) that a
+calibrated budget would enshrine as legitimate cost. Revised order: (1) fix
+the behaviors driving the overhead, measured down (X5/R1 lines); (2) only
+then calibrate admission prices from clean actuals; the 0.9 margin carries
+until (2) lands. This supersedes the "successor filed" line in the
+reversion entry above.

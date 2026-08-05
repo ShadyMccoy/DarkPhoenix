@@ -1057,21 +1057,29 @@ export function buildColonyProblem(
     .getSinks()
     .filter(s => toSinkKind(s.type) === "construction" && s.progressRemaining !== undefined);
 
-  // WARTIME rooms (spec 33, owner 2026-07-27): rooms holding a MEANINGFUL
-  // construction backlog - summed site work >= one structure (~3000). While
-  // one stands (and the warchest is in surplus), the controller relegates to
-  // its floor so the surplus goes to BUILDING, not upgrading (see
-  // controllerRoutingCapacity). The threshold excludes a lone road so trivial
-  // paving never relegates upgrading; a real build-out (extensions, storage)
-  // does. Exits cleanly when the backlog drains below the threshold.
-  const constructionWorkByRoom = new Map<string, number>();
-  for (const cs of constructionSites) {
-    const r = cs.position.roomName;
-    constructionWorkByRoom.set(r, (constructionWorkByRoom.get(r) ?? 0) + (cs.progressRemaining ?? 0));
-  }
-  const wartimeRooms = new Set(
-    [...constructionWorkByRoom].filter(([, w]) => w >= WARTIME_BACKLOG_THRESHOLD).map(([r]) => r)
-  );
+  // WARTIME (spec 33, owner 2026-07-27; COLONY-WIDE since owner 2026-08-05:
+  // "I WANT construction to be the primary consumer over controller if we
+  // have a construction project. Banking excess it can't consume is fine").
+  // The backlog is summed across the WHOLE colony - the per-room lens was
+  // the measured gap at t72799968: 24 remote road sites stood (the roads
+  // that fix the haul economics) while the home room held zero sites, so
+  // the home controller never relegated and took the bank-fed allocation
+  // over the build-out. While a meaningful backlog stands ANYWHERE (>= one
+  // structure, ~3000 - the threshold still excludes a lone road so trivial
+  // paving never flaps upgrading), EVERY owned controller relegates to its
+  // danger-gated floor (see controllerRoutingCapacity), construction
+  // absorbs at its own caps, and the residual banks - never the controller.
+  // Exits cleanly when the colony backlog drains below the threshold.
+  const colonyBacklog = constructionSites.reduce((sum, cs) => sum + (cs.progressRemaining ?? 0), 0);
+  const wartimeRooms: ReadonlySet<string> =
+    colonyBacklog >= WARTIME_BACKLOG_THRESHOLD
+      ? new Set(
+          graph
+            .getSinks()
+            .filter(s => s.type === "controller")
+            .map(s => s.position.roomName)
+        )
+      : new Set();
 
   // SOURCE-LOCAL CLUSTERS (spec 25 phase 3, owner: "there shouldn't be any
   // residual - we can just make a bigger builder... consume all the energy

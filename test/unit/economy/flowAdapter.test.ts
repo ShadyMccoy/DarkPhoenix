@@ -637,6 +637,42 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
     );
   });
 
+  it("WARTIME IS COLONY-WIDE: REMOTE road sites relegate the home controller (owner 2026-08-05: construction is the primary consumer wherever the project stands; the residual BANKS)", () => {
+    // The live gap this pins (t72799968): 24 remote road sites stood while
+    // the home room held zero sites - the per-room wartime lens never armed,
+    // and the controller took the bank-fed allocation while the roads that
+    // would fix the haul economics sat unbuilt. Owner 2026-08-05: "I WANT
+    // construction to be the primary consumer over controller if we have a
+    // construction project. Banking excess it can't consume is fine." The
+    // wartime backlog is now summed COLONY-WIDE; when it stands, every
+    // owned controller relegates to its danger-gated floor, construction
+    // absorbs at its own caps, and the residual banks (storage) - never the
+    // controller.
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    // Two REMOTE road sites, far from every source and hub (un-clustered:
+    // farther from each source than that source's hub), summing 4000 >= the
+    // 3000 anti-flap threshold. Home room stages NO sites - the exact live
+    // shape.
+    graph.addConstructionSite("remoteRoadA", "home", { x: 48, y: 25, roomName: "W1N0" }, 2000);
+    graph.addConstructionSite("remoteRoadB", "home", { x: 48, y: 27, roomName: "W1N0" }, 2000);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+
+    const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
+    const builds = sol.sinkAllocations.filter(a => a.sinkType === "construction");
+    const store = sol.sinkAllocations.find(a => a.sinkType === "storage")!;
+    expect(ctrl.allocated, "home controller relegated by the REMOTE backlog (comfortable timer: floor 0)").to.equal(0);
+    expect(builds.reduce((s, a) => s + a.allocated, 0), "construction absorbs at its own caps").to.be.greaterThan(0);
+    expect(store.allocated, "the residual BANKS - excess construction can't consume goes to storage").to.be.greaterThan(0);
+  });
+
+  it("colony-wide wartime keeps the anti-flap threshold: a lone sub-3000 remote site never relegates", () => {
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    graph.addConstructionSite("loneTile", "home", { x: 48, y: 25, roomName: "W1N0" }, 300);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+    const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
+    expect(ctrl.allocated, "trivial paving never relegates upgrading (threshold preserved)").to.be.greaterThan(0);
+  });
+
   it("WARTIME: a real build-out RELEGATES the controller - the surplus goes to building, not upgrading (owner 2026-07-27)", () => {
     // The site sits 4 tiles from the spawn; a bank surplus stands and the 15k
     // backlog is >= the wartime threshold (3000). So (spec 33): construction
