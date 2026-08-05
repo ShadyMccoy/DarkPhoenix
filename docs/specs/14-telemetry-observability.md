@@ -8418,3 +8418,69 @@ ladder if the bar misses WITHOUT new admission: (a) repricing never landed
 in the solver (check the flow source line), (b) evac EMA did not converge
 (cee2 P&L variance column), (c) spawn line binding (S-gauges), (d) draw
 noise (mitigated by the >= 6,000t era aggregate).
+
+## Cycle t72786811 — the standing-mouth mechanism cornered live; departure-reason meter ships (corps v16); P-55 marker corrected
+
+**Standing set:** window 1058t. Delivered 104.25/110; evacuation **+4.28 F**
+(the paved fleet is cheaper than the plan still prices); reservation -2.66 U;
+controller 54.56 vs 58.29; bank +4.47; RESIDUAL -5.80; appropriations
+**59.03 e/t** (short-window phase sample - no P-55 claim). FY4852-M04 closed
+(129%). TOP LINE stays L1: pile decay 8.44 vs 0 (floor share 4.29).
+
+**P-55 MARKER CORRECTION (attributed miss, mine).** The registered marker
+("flow source W42N21-40-4 efficiency > 59.3") tracks CANDIDATE/admission
+pricing, which reads RAW distance and never updates on paving - it cannot
+fire. The substantive repricing DID land: cee2's route edge is 2:1 at
+distance 70 (port-adjusted, paved-aware spawnParts) in this capture. The
+prediction clock starts at t72786811 on the corrected marker (route-edge
+ratio 2:1, already true). Attribution: I picked a field owned by the wrong
+pricing side; admission pricing paved-blind is ALSO a real seam now named -
+candidates are priced pessimistically vs the routes the same plan builds
+(cee2 candidate d 82/net 5.93 beside its own 2:1/d 70 route edge).
+
+**TOP-LINE DIAGNOSIS - the 8.44 decomposes into two mechanisms + one anomaly:**
+
+E6: four mouths held CHRONIC (cee2 96%, cd94 77%, cedc 63%, cd8d 86% of
+window; buffered 3.0-3.5k each). The buffer-full "gate" is DE-PRICING (spawn
+priority), not suppression - the miner keeps mining (F3 gaps <= 1.0 e/t; the
+account's "37.51 explained by heldFrac" is an upper bound, not a read).
+The cost is the standing GROUND share (~1-1.9k/mouth over the 2000
+container) decaying ~2 e/t each, plus the small-pile ceil floor 4.29
+(spec-44's owner-gated scavenger case).
+
+Stamp classification of the four mouths:
+- cee2 ask 35 / fielded 32, exit=deadband; cd8d ask 21 / fielded 20,
+  exit=deadband: mid-generation ask RISES (drain term + paved repricing)
+  the worthABody dead-band defers BY DESIGN; shares (floor+remainder)
+  cover the ask at natural turnover - self-healing <= 1 generation.
+- cedc ask 21 / fielded 22, exit=staffed: the ZERO-MARGIN equilibrium -
+  sustained carry prices removal == inflow, so a formed backlog is
+  permanent until the drain term fields; pile stands just over 1000 where
+  decay balances the residual margin.
+- **cd94 ask 22 / fielded 44 (DOUBLE), exit=staffed, staged flat 1058t:
+  the anomaly.** Live watch (5 snapshots, 90s apart): the 44-CARRY hauler
+  arrived empty, took ~1118 of the 1671 pile, and LEFT AT EXACTLY HALF
+  LOAD (1100/2200, seen en route twice) with 2000 banked in the container
+  one tile away; visits every ~100-120t; removal/trip barely above
+  inflow/trip => the pile never drains. Hypothesis #1 (stale
+  dedicatedBuildSourceId freezing the mouth as construction fuel):
+  FALSIFIED by live Memory read (undefined). Hypothesis #2 (depart-on-dry
+  firing off a stale spot resolution): NOT verifiable from outside - the
+  branch is invisible in captures.
+
+**Per the method (one falsified hypothesis => instrument, don't
+re-theorize): task #12 ships the DepartMeter.** Every CarryCorp depart()
+now states its reason (full / yield / scavenge-dry / spot-dry); the haul
+sizing stamp carries lastDepartReason/lastDepartFrac/lastDepartTick +
+counts by reason (corps segment v16). Telemetry-only; red-first (4 meter
+pins); 2068 unit green by parsed failing count.
+
+PREDICTIONS (registered before deploy): (1) next capture >= 300t
+post-deploy shows cd94's stamp dominated by a NON-"full" reason with
+lastDepartFrac 0.4-0.7 - named candidate "spot-dry"; a "full" reading at
+frac < 1.0 would instead indicate a capacity accounting bug, "yield" would
+resurrect the dedication mechanism (post-facto Memory read could have
+missed a transient stamp). (2) The deploy's global reset inflates X5 one
+window (known effect, don't re-diagnose). (3) No behavior deltas -
+telemetry-only; evacuation/controller move only with the paved convergence
+already in flight.

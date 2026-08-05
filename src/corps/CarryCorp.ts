@@ -34,6 +34,7 @@ import {
 import { HaulerAssignment } from "../flow/FlowTypes";
 import { travelTicksPerTile } from "./economics";
 import { traceHaulTick } from "../telemetry/HaulTrace";
+import { DepartMeter, DepartReason } from "../telemetry/DepartMeter";
 
 /**
  * Hard backstop on bodies per hauling corp - the pathological case where the
@@ -130,6 +131,14 @@ export class CarryCorp extends Corp {
    */
   private pickupPos: Position | null = null;
 
+  /**
+   * Why haulers leave the pickup stop (cycle t72786811): cd94's hauler left
+   * at half load twice on live watch with 2000 banked beside it, and the
+   * branch is invisible from outside. Every depart() records its reason here;
+   * the stamp rides innerSizing so the next capture names the branch.
+   */
+  private departMeter = new DepartMeter();
+
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("hauling", nodeId, customId);
     this.spawnId = spawnId;
@@ -201,6 +210,10 @@ export class CarryCorp extends Corp {
       // under-sizing or a link backlog.
       carryNeeded: this.haulCarryNeeded(this.homeStorageBacked()),
       ...(this.lastExit ? { exit: this.lastExit } : {}),
+      // Departure-reason meter (cycle t72786811): which depart() branch sent
+      // each hauler home and how full it was — a half-load lastDepart at a
+      // stocked mouth names the standing-pile mechanism from one capture.
+      ...this.departMeter.stamp(),
       staged: pickup.staged,
       srcLinkEnergy: pickup.srcLinkEnergy,
       srcLinkCap: pickup.srcLinkCap,
@@ -445,7 +458,7 @@ export class CarryCorp extends Corp {
       creep.say("pickup");
     }
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
-      this.depart(creep, room);
+      this.depart(creep, room, "full");
     }
 
     // A clean bus: it fills completely at its source stop, then runs the route and
@@ -524,8 +537,18 @@ export class CarryCorp extends Corp {
    * this trip's destination. Called on the normal full-load state flip, and by the
    * scavenger path when its transient stock runs dry mid-load (a drained stock can
    * never top the hauler up to full, so waiting for the flip would freeze it).
+   * Every caller states its reason; the meter stamps it (partial-load departures
+   * at a stocked mouth are the cd94 standing-pile mechanism, cycle t72786811).
    */
-  private depart(creep: Creep, room: Room): void {
+  private depart(creep: Creep, room: Room, reason: DepartReason): void {
+    // Telemetry must never break the depart itself: harness creeps (and any
+    // odd store shape) may lack getCapacity — record frac 0 rather than throw.
+    this.departMeter.record(
+      reason,
+      creep.store[RESOURCE_ENERGY] ?? 0,
+      creep.store.getCapacity?.(RESOURCE_ENERGY) ?? 0,
+      typeof Game !== "undefined" ? Game.time : 0
+    );
     creep.memory.working = true;
     // Each hauler has ONE permanent home circuit (assigned in proportion to the
     // flow solver's per-sink allocations - see assignCircuit), so it is a dumb
@@ -656,7 +679,7 @@ export class CarryCorp extends Corp {
     // line read 0.0 of a 2.0 plan. Yielding means no NEW pickups; anything
     // already aboard delivers first, then the empty creep stands by.
     if (this.yieldsToBuild()) {
-      if (creep.store[RESOURCE_ENERGY] > 0) this.depart(creep, room);
+      if (creep.store[RESOURCE_ENERGY] > 0) this.depart(creep, room, "yield");
       return;
     }
 
@@ -737,7 +760,7 @@ export class CarryCorp extends Corp {
         // longer exists can never provide the top-up - waiting for the flip
         // froze the scavenger beside its dead stock for the rest of its life
         // (observed live 2026-07-17, 744/800 aboard).
-        this.depart(creep, room);
+        this.depart(creep, room, "scavenge-dry");
       } else {
         // Drained stock AND empty-handed: this scavenger will never scavenge
         // again (re-detection dropped the stock; the corp is retiring and its
@@ -772,7 +795,7 @@ export class CarryCorp extends Corp {
         }).length > 0) ||
       (assignedSource ? (assignedSource.energy ?? 0) > 0 : false);
     if (!spotStocked && creep.store[RESOURCE_ENERGY] > 0 && creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-      this.depart(creep, room);
+      this.depart(creep, room, "spot-dry");
       return;
     }
     workSpot(creep, spot, "collect");
