@@ -8537,3 +8537,23 @@ PREDICTIONS (registered before this deploy, exact arithmetic):
    event: the gate becomes controller+bank+construction >= 55 (reclass,
    registered at P-55).
 4. Global reset inflates X5 one window (known).
+
+### Deploy verification t72787749 (+95t): predictions land exactly; the 12th admission fires
+
+1. cee2 candidate: **net 6.51 / parts 0.0408 / efficiency 65.1** - the exact
+   pre-registered arithmetic, to the decimal. Both P-55 markers live.
+2. Paved incumbents repriced up across the board (d32 82.1, d50 78.2, d55
+   71.1, d77 66.2, d85 64.4 - the whole efficiency ladder shifted +2..+6).
+3. **The tranche headroom admitted a 12th source: W41N25 (d 102, net 5.91,
+   raw-priced - a NEW remote room)**, not one of the two named same-corridor
+   candidates (both absent from this candidate list; their discovery state
+   is a next-window read). This IS the P-55 J-curve event as registered:
+   reservation + trunk-paving capex for a fresh room begins inside the
+   measurement window, so the P-55 gate is now
+   **controller + bank + construction >= 55** (investment reclass).
+4. P&L variance re-centering (prediction #2) reads at the next full window.
+
+Cycle verdict: **instrumented (DepartMeter, v16) + falsified-with-attribution
+(the cd94 "anomaly" was my census misread; the meter's one capture dissolved
+it) + fixed (paved admission, verified exact) + named (sink-service trip
+overhead - next cycle's red-first candidate)**.
