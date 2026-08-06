@@ -66,6 +66,68 @@ Nothing else changed. No planner edits, no flags, no regime branch: the
 CorpPlanner scenario tests passed on the existing planner the moment the
 inputs were staged correctly — which is the point.
 
+## 2b. The pair: the storage as a source AND a sink
+
+**Owner, 2026-08-05:** *"An interesting idea might be to model the energy in
+the storage as a source and the ullage as a sink (although obviously they
+can't be applied to each other)."*
+
+That model is what §2 completed, so it now has a name and one home:
+`bank.bankPressure(stock, ullage, reserveTarget) → {source, sink}`. Both
+halves already existed and are the same law over one creep generation — the
+stock drains at `stock/1500` net of the liquidity reserve (`bankSurplusRate`),
+the room fills at `ullage/1500` (`storageAbsorbRate`). They lived in different
+modules with nothing tying them together, which is precisely how the sink half
+stayed dimensionally wrong (an e/t rate min'd against absolute energy) until
+this spec. `flowAdapter.storageBankPressure(room)` is its world lens: ONE
+storage read yields both rates, so a room's give and take cannot be read a
+tick or a formula apart.
+
+Properties, pinned as scenarios (`test/unit/economy/bankPressure.test.ts`):
+
+- **Complementarity** — at least one half is always open across the whole
+  sweep. A bank that could neither give nor take would strand the colony with
+  income it cannot bank and savings it cannot spend.
+- **Monotone pressure** — the source rises and the sink falls with the stock;
+  never both the same way. The vessel metaphor made exact.
+- **The saturation map** — the source knee sits at `reserve + MAX_SURPLUS_DRAW
+  × 1500`, the sink knee at `ullage = supply × 1500`. Between them BOTH halves
+  are saturated, so the bank is a plain buffer through the middle of its range
+  and a regulator only near the two ends. At a 1M storage, a ~30k target and
+  ~40 e/t of supply that is roughly stock ∈ [180k, 940k] — about 75% of the
+  range. **This is why nothing forced the sink half to be right until an RCL8
+  room with a full storage turned up.**
+- **Anti-drift** — `bankPressure` reproduces both halves exactly across a
+  sweep; it is the pair's one home, never a third opinion.
+
+**The caveat is structural, not arithmetic.** Nothing in `bankPressure` stops
+the two halves being applied to each other, deliberately: that guard lives
+where routing happens (`routeToSinks` gives the bank a non-deposit ROLE, so a
+storage sink only ever draws deposit-class sources and bank→its own store is
+unrepresentable). A rate pair is the wrong place for a routing rule, and the
+role-based guard already holds for every source class rather than
+special-casing the bank. The scenarios prove it across the WHOLE bank sweep —
+including the mid-range where the bank simultaneously offers 100 e/t of source
+and hundreds of e/t of sink, which is where a value-greedy router would most
+want to circulate.
+
+**The asymmetry is measured, not an oversight.** The source subtracts the
+liquidity reserve; the sink has no mirror "fill target". Storage sits at the
+BOTTOM of the value ladder (value 1) and so already receives only what nothing
+else wants — that ladder position is the reserve's true mirror. The
+rate-shaped alternative was built and retired: spec 38 phase C claimed a
+refill through the storage sink's RESERVE and died the same day (M10:
+unbudgeted burns ate the claim before the bank saw it, 76k → 27.5k straight
+through the target). The bank holds its floor by being the residual claimant,
+not by claiming a rate.
+
+Correction landed with the pair: `bank.ts`'s header claimed the anti-pump
+worked by *dropping the room's storage sink from the problem whenever a bank
+source is emitted*. It never did — `buildColonyProblem` keeps every storage
+sink in every regime on purpose (a hub must stay open to soak remote surplus,
+#19), which the adapter's own comment states and the anti-pump test proves by
+asserting the sink is present while a bank source stands.
+
 ## 3. The equilibrium (what "react appropriately" looks like)
 
 With storage full: absorb 0 ⇒ mined deposits route nowhere ⇒ every mined

@@ -89,6 +89,14 @@ Later families (same rule — one home):
   `controllerMaxUpgradeRate`, storage full) a taper the planner's dependency
   chain follows — a hauler needs a source AND a sink, a miner needs a routed
   hauler — instead of a cliff, and with no "storage full" flag anywhere.
+- **The bank is TWO-SIDED** (`bank.bankPressure`, owner 2026-08-05): a
+  storage's ENERGY is a source and its ULLAGE is a sink, the two halves above
+  read as ONE object off ONE storage read
+  (`flowAdapter.storageBankPressure`), so they cannot drift. Source rises and
+  sink falls with the stock; at least one is always open. The two can never
+  be applied to each other, but that guard is STRUCTURAL and lives in
+  routing (`routeToSinks`' deposit ROLE), never in the rate pair — a rate is
+  the wrong home for a routing rule.
 - **Operation corps (spec 34):** a consumer is PARKED at its work site; energy
   comes TO it — a supply vector (`vectorSupplyParts`) beyond withdraw
   adjacency, direct draw at a length-0 route. Its onboard buffer bridges the

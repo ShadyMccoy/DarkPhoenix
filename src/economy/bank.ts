@@ -13,10 +13,20 @@
  * so the draw tapers to zero as the bank approaches the target. The taper IS
  * the hysteresis: no mode flag, no flapping at the boundary.
  *
- * Anti-pump is STRUCTURAL (spec 03): whenever a room emits a bank source, that
- * room's storage sink is dropped from the problem for that solve
- * (flowAdapter.buildColonyProblem), so bank->storage circulation is impossible
- * by construction, not by tuning. Bank flows also never materialize as
+ * The storage is TWO-SIDED (owner 2026-08-05): its energy is a source and its
+ * ullage is a sink, one law over one creep generation in each direction -
+ * `bankPressure` is the pair's one home.
+ *
+ * Anti-pump is STRUCTURAL (spec 03), by ROLE: a storage sink only ever draws
+ * DEPOSIT-class sources (CorpPlanner.routeToSinks - `isDeposit` excludes bank
+ * ids), so bank->storage circulation is unrepresentable rather than merely
+ * priced away. CORRECTED 2026-08-05: this header used to claim the guard was
+ * "the room's storage sink is dropped from the problem whenever a bank source
+ * is emitted". It is not, and never is - buildColonyProblem keeps every
+ * storage sink in every regime deliberately (a hub must stay open to soak
+ * remote surplus, #19), which its own comment says and the anti-pump test
+ * proves by asserting the sink is present while a bank source stands. Bank
+ * flows also never materialize as
  * CarryCorp haulers (commissionPlan skips them): the depot movers already run
  * the last legs - the extension tender (bank -> spawn/extensions) and the
  * ControllerFeederCorp (bank -> controller input) - and both size themselves
@@ -29,7 +39,13 @@ import "../types/Memory"; // Memory augmentation for the expansion import below
 import { Position } from "../types/Position";
 import { PlannerSource } from "./CorpPlanner";
 import { EXPANSION_CAPEX, EXPANSION_SAFETY_RESERVE } from "./expansion";
-import { ANTI_DOWNGRADE_DANGER_TICKS, ANTI_DOWNGRADE_RESERVE, CREEP_LIFETIME, sustainableConsumptionRate } from "./primitives";
+import {
+  ANTI_DOWNGRADE_DANGER_TICKS,
+  ANTI_DOWNGRADE_RESERVE,
+  CREEP_LIFETIME,
+  storageAbsorbRate,
+  sustainableConsumptionRate
+} from "./primitives";
 
 /**
  * The colony's HARD liquidity floor: the expansion campaign's full CAPEX plus a
@@ -128,6 +144,67 @@ export function spendableBankSurplus(banked: number, reserveTarget: number): num
  */
 export function bankSurplusRate(banked: number, reserveTarget: number): number {
   return Math.min(MAX_SURPLUS_DRAW, spendableBankSurplus(banked, reserveTarget) / SURPLUS_DRAIN_TICKS);
+}
+
+/**
+ * The bank's TWO-SIDED pressure: what the storage offers as a SOURCE and what
+ * it can accept as a SINK, at one bank level.
+ */
+export interface BankPressure {
+  /** e/t the bank offers as supply - the spendable surplus over one creep
+   *  generation, under the runaway guard (bankSurplusRate). */
+  source: number;
+  /** e/t the bank can accept - its ullage over one creep generation
+   *  (primitives.storageAbsorbRate). Infinity when the ullage is unknown. */
+  sink: number;
+}
+
+/**
+ * THE STORAGE AS A SOURCE AND A SINK (owner 2026-08-05: "model the energy in
+ * the storage as a source and the ullage as a sink (although obviously they
+ * can't be applied to each other)").
+ *
+ * Both halves already existed, and both are the SAME law over one creep
+ * generation: the stock drains at stock/1500 (bankSurplusRate, net of the
+ * liquidity reserve), the room fills at ullage/1500 (storageAbsorbRate). They
+ * lived in different modules with nothing tying them together, which is
+ * exactly how the sink half stayed dimensionally wrong for so long - it min'd
+ * an e/t rate against an absolute energy until spec 46. This is their ONE
+ * home: one storage read in, both rates out, so the pair cannot drift and the
+ * invariants have somewhere to be tested.
+ *
+ * The pressure metaphor is exact, and the scenarios pin it: the source RISES
+ * and the sink FALLS with the stock, and at least one of them is always open
+ * (a bank that could neither give nor take would strand the colony with
+ * income it cannot bank and savings it cannot spend). Both saturate - the
+ * source at MAX_SURPLUS_DRAW, the sink above whatever supply the routing pass
+ * has - so the bank is a plain buffer through the middle of its range and a
+ * regulator only near the two ends.
+ *
+ * THE CAVEAT IS STRUCTURAL, NOT ARITHMETIC. Nothing here stops the two halves
+ * being applied to each other; that guard lives where routing happens
+ * (CorpPlanner.routeToSinks gives the bank a non-deposit ROLE, so a storage
+ * sink only ever draws deposit-class sources and bank -> its own store is
+ * unrepresentable). Deliberately NOT encoded here: a rate pair is the wrong
+ * place for a routing rule, and the role-based guard already holds for every
+ * source class instead of special-casing the bank.
+ *
+ * ASYMMETRY, ON PURPOSE: the source subtracts the liquidity reserve; the sink
+ * has no mirror-image "fill target". Banking beyond a level is not something
+ * the colony refuses - storage sits at the BOTTOM of the value ladder (value
+ * 1), so it already receives only what nothing else wants, and that ladder
+ * position is the reserve's true mirror. The rate-shaped alternative was
+ * built and measured: spec 38 phase C claimed a refill through the storage
+ * sink's RESERVE and was retired the same day (M10: unbudgeted burns ate the
+ * claim before the bank saw it, 76k -> 27.5k straight through the target).
+ * The bank holds its floor by being the residual claimant, not by claiming a
+ * rate.
+ */
+export function bankPressure(stock: number, ullage: number, reserveTarget: number): BankPressure {
+  return {
+    source: bankSurplusRate(stock, reserveTarget),
+    sink: storageAbsorbRate(ullage)
+  };
 }
 
 /**

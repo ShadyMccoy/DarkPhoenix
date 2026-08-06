@@ -609,6 +609,36 @@ describe("economy/flowAdapter - consumption-constrained sinks (spec 46)", () => 
     expect(controllerUpgradeCap("W0N0"), "below 8 the physical estimate (or Infinity) rules").to.equal(Infinity);
   });
 
+  it("storageBankPressure gives a room's SOURCE and SINK halves off ONE read - they cannot drift", async () => {
+    // The owner's model wired: the emitted bank source's rate IS the
+    // pressure's source half, and the storage sink's capacity IS its sink
+    // half, for the same room at the same instant. Read separately (as they
+    // were before) nothing forced them to agree - which is how the sink half
+    // stayed dimensionally wrong until spec 46.
+    const { storageBankPressure, detectBankSources, buildColonyProblem } = await import(
+      "../../../src/economy/flowAdapter"
+    );
+    const reserveTarget = 30_000;
+    g.Memory.warchestTarget = reserveTarget;
+    // 970k banked of 1M: BOTH halves live and non-saturated on the sink side
+    // (30k of room -> 20 e/t) while the source sits at its guard.
+    g.Game.rooms = { W0N0: stagedRoom("W0N0", 970_000, 30_000, 8) };
+
+    const pressure = storageBankPressure("W0N0")!;
+    expect(pressure.sink, "30k of room over one generation").to.be.closeTo(20, 1e-9);
+    expect(pressure.source, "970k against a 30k target, guarded").to.be.greaterThan(0);
+
+    // the emitted source carries the pressure's source half...
+    const emitted = detectBankSources().find(s => s.id === "bank-W0N0")!;
+    expect(emitted.rate).to.be.closeTo(pressure.source, 1e-9);
+    // ...and the assembled sink carries its sink half (min'd with supply,
+    // which is 20 e/t of mining here, so the absorb binds at neither)
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    const store = problem.sinks.find(s => s.kind === "storage")!;
+    expect(store.capacity).to.be.closeTo(Math.min(20, pressure.sink), 1e-9);
+  });
+
   it("END-TO-END: RCL8 + full storage assembles the consumption-constrained problem", async () => {
     const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
     // Full storage, brimming warchest (way above the 30k target -> fat bank

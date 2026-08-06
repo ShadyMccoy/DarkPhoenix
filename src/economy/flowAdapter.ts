@@ -55,7 +55,6 @@ import {
   minerOverhead,
   projectAbsorbRate,
   spawnEnergyCeiling,
-  storageAbsorbRate,
   workPartsForEnergyRate,
   WARTIME_BACKLOG_THRESHOLD,
   ANTI_DOWNGRADE_RESERVE
@@ -88,7 +87,9 @@ export { ANTI_DOWNGRADE_RESERVE };
  * module); re-exported here for the existing import sites.
  */
 import {
+  BankPressure,
   bankFedControllerRate,
+  bankPressure,
   bankToTransientSource,
   bankSourceId,
   controllerFloorRate,
@@ -746,6 +747,35 @@ export function storageRoomRemaining(roomName: string): number {
   return storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? Infinity;
 }
 
+/**
+ * THE BANK'S TWO-SIDED PRESSURE for a room, off ONE live storage read (owner
+ * 2026-08-05: "model the energy in the storage as a source and the ullage as
+ * a sink"). `bank.bankPressure` is the law; this is its world lens - the
+ * stock becomes the surplus draw the bank OFFERS and the ullage becomes the
+ * rate it can ACCEPT, from the same store at the same instant, so a room's
+ * two halves can never be read a tick or a formula apart.
+ *
+ * Undefined without a live storage to read (harness/unit paths), which the
+ * sink call site resolves to Infinity - the uncapped soak, unchanged. Not
+ * gated on `storage.my`, matching storageRoomRemaining, the read it replaces
+ * on the sink side; detectBankSources keeps its own `.my` gate on the source
+ * side. That asymmetry is PRE-EXISTING and deliberate to preserve here (a
+ * foreign storage presenting sink capacity is its own question - we cannot
+ * transfer into one, so it arguably should present zero, but changing it is a
+ * behavior change and belongs with the evidence that motivates it).
+ */
+export function storageBankPressure(roomName: string): BankPressure | undefined {
+  if (typeof Game === "undefined" || !Game.rooms) return undefined;
+  const storage = Game.rooms[roomName]?.storage;
+  if (!storage) return undefined;
+  const reserveTarget = resolveReserveTarget(typeof Memory !== "undefined" ? Memory.warchestTarget : undefined);
+  return bankPressure(
+    storage.store?.[RESOURCE_ENERGY] ?? 0,
+    storage.store?.getFreeCapacity?.(RESOURCE_ENERGY) ?? Infinity,
+    reserveTarget
+  );
+}
+
 /** Energy standing in a room's storage (0 without one; harness-safe 0). */
 export function storageRoomStock(roomName: string): number {
   if (typeof Game === "undefined" || !Game.rooms) return 0;
@@ -1233,9 +1263,12 @@ export function buildColonyProblem(
             )
           : kind === "storage"
           ? // Soak the surplus, but only as fast as the bank's remaining room
-            // can absorb it: the ONE drain law's absorb half (spec 46,
-            // primitives.storageAbsorbRate = ullage/1500 - the mirror of the
-            // stock/1500 consumers drain by). Far from full the absorb rate
+            // can absorb it: the SINK half of the storage's two-sided pressure
+            // (spec 46 + the 2026-08-05 pair - bank.bankPressure over
+            // primitives.storageAbsorbRate = ullage/1500, the mirror of the
+            // stock/1500 the SOURCE half drains by). The same read also yields
+            // the bank source's rate (detectBankSources), so a room's give and
+            // take can never be a formula apart. Far from full the absorb rate
             // dwarfs supply, so min(totalSupply, huge) = totalSupply and the
             // old "soak excess" behavior is unchanged; over the last
             // ~1500xSupply energy of room the sink RATE tapers linearly to
@@ -1244,7 +1277,7 @@ export function buildColonyProblem(
             // storage presents zero capacity - the owner's defund trigger
             // (mining beyond total sink capacity has no home). No live
             // storage to read (harness) stays Infinity -> unchanged.
-            Math.max(0, Math.min(totalSupply, storageAbsorbRate(storageRoomRemaining(sink.position.roomName))))
+            Math.max(0, Math.min(totalSupply, storageBankPressure(sink.position.roomName)?.sink ?? Infinity))
           : controllerRoutingCapacity(
               sink,
               totalSupply,
