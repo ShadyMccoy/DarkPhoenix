@@ -272,15 +272,25 @@ function mkSizingWorld(sourceLinkCount: number, banked: number) {
 
 describe("ControllerFeederCorp body drain-floor sizing (spec 02 anti-collapse)", () => {
   afterEach(cleanupGlobals);
-  it("sizes the link-fed body to the core drain: 2 source links (save regime) -> needs >1 CARRY", () => {
+  it("sizes the link-fed body to the core drain, DERIVED from each link's range", () => {
     mkSizingWorld(2, 5000); // banked < reserve: save regime, relay ~15 e/t
     const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
     corp.getSpawnDemand({ tick: 1000, energyCapacity: 1800 } as any);
     const s = corp.lastSizing as any;
-    // 2 source links * (10 income + 30 deposit headroom) = 80 e/t drain.
-    expect(s.coreDrain, "drain floor = 2 * PER_LINK_SOURCE_DRAIN").to.equal(80);
-    // parkedRelayCarry(80) * 1.2 = 3.84 -> 4 CARRY (old code sized to relay 15 -> 1 CARRY).
-    expect(s.neededCarry).to.equal(4);
+    // NO COPIED CONSTANT (2026-08-06). This read `2 * (10 + 30) = 80` from a
+    // literal the feeder was documented to "keep in sync" with the planner by
+    // hand - a coupling that went stale the moment the flat deposit cap was
+    // retired for the link's real fire rate. Per link the drain is now exactly
+    // what that link can PUSH: its own source's 10 e/t plus the deposit
+    // headroom on top, which is LINK_CAPACITY/range by construction.
+    //   slink0 (11,12) -> core (26,25): chebyshev 15 -> 800/15 = 53.33
+    //   slink1 (31,12) -> core (26,25): chebyshev 13 -> 800/13 = 61.54
+    expect(s.coreDrain, "sum of both links' fire rates").to.be.closeTo(800 / 15 + 800 / 13, 1e-9);
+    expect(s.coreDrain, "and strictly above the constant it replaced").to.be.greaterThan(80);
+    // The body still follows the drain, and the spec-45 volley floor still
+    // dominates it - the point of the change is that the number is derived,
+    // not that the feeder gets bigger.
+    expect(s.neededCarry).to.be.at.least(Math.ceil((800 / 15 + 800 / 13) * (2 / 50)));
   });
 
   it("no source links -> no drain floor, the body is unchanged (relay only)", () => {

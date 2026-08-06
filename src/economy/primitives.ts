@@ -1321,11 +1321,16 @@ export function towerRefillBelow(capacity: number): number {
 // ---------------------------------------------------------------------------
 
 /**
- * A deposit port's v1 blast-radius CAP (e/t). Bounds how much remote flow the
- * plan may route onto ONE port link regardless of geometry - the conservative
- * bound the spec-26 stage-4 port was given, kept unchanged.
+ * Deposit headroom (e/t) to assume for a port whose range to the core is
+ * UNKNOWN - harness paths with no `getRangeTo`, and nothing else.
+ *
+ * This is the spec-26 v1 blast-radius constant in the one role it is still
+ * right for. It was a `min` laid over the physics until 2026-08-06; as a
+ * ceiling it was measurably the binding constraint on both live ports (see
+ * `depositPortHeadroom`), but with no geometry there is no fire rate to
+ * compute and guessing high would over-route into an unmeasured link.
  */
-export const DEPOSIT_PORT_HEADROOM_CAP = 30;
+export const DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK = 30;
 
 /**
  * How much remote deposit flow a port link can actually absorb (e/t).
@@ -1350,13 +1355,30 @@ export const DEPOSIT_PORT_HEADROOM_CAP = 30;
  * burstiness, never a rate deficit). Range-awareness is therefore the
  * PREREQUISITE for edge links, not a refinement of them.
  *
- * An unknown range (harness, no geometry) falls back to the cap, so every
- * existing caller keeps its behaviour.
+ * AND THE FLAT CAP WENT WITH IT (owner 2026-08-06, measured t72819265). The
+ * range rule above was added UNDER a surviving `min(30, ...)`, which left the
+ * constant binding on every port closer than range 20 - both of ours:
+ *
+ *     port (46,11)  range 14  fires 57.14  own source 10  ->  physics 47.14
+ *     port (43,38)  range 13  fires 61.54  own source 10  ->  physics 51.54
+ *
+ * The plan routed EXACTLY 30.00 to each (three remote routes apiece, the cap to
+ * the decimal) while DEP reported 8 sources wanting in and the links ran at rho
+ * 0.70 / 0.65. 38.68 e/t of deposit flow refused by a constant - and the
+ * refused sources walk the long way at ~30 CARRY parts per 10 e/t against ~11
+ * via the port, which in a colony running spawn-bound at 0.91x the physical
+ * ceiling with 23.5 e/t already forgone is a mined-vs-not-mined difference, not
+ * a cost one. CLAUDE.md: *"the planner prices - it doesn't gate."* The fire
+ * rate is a price the physics sets; 30 was a gate.
+ *
+ * An unknown range (harness, no geometry) falls back to
+ * `DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK` - see there for why the conservative
+ * constant is still right in that one role.
  */
 export function depositPortHeadroom(rangeToCore: number | undefined, ownSourceRate: number): number {
-  if (rangeToCore === undefined || rangeToCore <= 0) return DEPOSIT_PORT_HEADROOM_CAP;
+  if (rangeToCore === undefined || rangeToCore <= 0) return DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK;
   const fireRate = LINK_CAPACITY / rangeToCore;
-  return Math.max(0, Math.min(DEPOSIT_PORT_HEADROOM_CAP, fireRate - ownSourceRate));
+  return Math.max(0, fireRate - ownSourceRate);
 }
 
 /** A dropped pile loses ceil(amount / this) energy per tick (Screeps ENERGY_DECAY). */

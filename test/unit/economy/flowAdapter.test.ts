@@ -456,7 +456,8 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
   });
 
   it("detectLinkDepositPorts emits a source-link port with a staffed core drain, excludes core & controller links", async () => {
-    const { detectLinkDepositPorts, DEPOSIT_PORT_HEADROOM } = await import("../../../src/economy/flowAdapter");
+    const { detectLinkDepositPorts } = await import("../../../src/economy/flowAdapter");
+    const { LINK_CAPACITY, SOURCE_RATE } = await import("../../../src/economy/primitives");
     (global as any).FIND_MY_STRUCTURES = 108;
     (global as any).FIND_SOURCES = 105;
     (global as any).STRUCTURE_LINK = "link";
@@ -466,6 +467,10 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
       y,
       roomName: "W0N0",
       inRangeTo: (o: any, range: number) => cheb({ x, y }, o) <= range,
+      // Range to the core is what SETS the headroom since the flat cap was
+      // retired (2026-08-06) - a mock without it silently exercises the
+      // unknown-geometry fallback instead of the physics.
+      getRangeTo: (o: any) => cheb({ x, y }, o.pos ?? o),
       findInRange: (_t: number, range: number, o?: any) => {
         const near = links.filter(l => cheb(l.pos, { x, y }) <= range);
         return o?.filter ? near.filter(o.filter) : near;
@@ -495,7 +500,12 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
     expect(p.pos, "port sits on the source link").to.deep.equal({ x: 26, y: 26, roomName: "W0N0" });
     expect(p.drainSourceId, "drained by the owning source's hauler").to.equal("source-SRC1");
     expect(p.drainFrom, "drain emerges at the core link").to.deep.equal({ x: 11, y: 10, roomName: "W0N0" });
-    expect(p.headroom).to.equal(DEPOSIT_PORT_HEADROOM);
+    // HEADROOM IS THE PHYSICS, NOT A CONSTANT. core(11,10) -> port(26,26) is
+    // chebyshev 16, so the link fires 800/16 = 50 e/t; its own adjacent source
+    // lands in the same link and comes off first, leaving 40 for deposits. The
+    // retired flat cap would have answered 30 here.
+    expect(p.headroom, "fire rate less the port's own source").to.be.closeTo(LINK_CAPACITY / 16 - SOURCE_RATE, 1e-9);
+    expect(p.headroom, "and that is strictly more than the cap it replaced").to.be.greaterThan(30);
   });
 
   it("detectBankSources falls back to BASE_RESERVE before the first solve publishes a target", async () => {

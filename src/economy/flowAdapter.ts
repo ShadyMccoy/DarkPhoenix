@@ -57,7 +57,6 @@ import {
   workPartsForEnergyRate,
   WARTIME_BACKLOG_THRESHOLD,
   ANTI_DOWNGRADE_RESERVE,
-  DEPOSIT_PORT_HEADROOM_CAP,
   depositPortHeadroom,
   SOURCE_RATE
 } from "./primitives";
@@ -653,12 +652,6 @@ export function detectLinkHaulPositions(graph: FlowGraph): Map<string, Position>
  * Requires a storage hub (the port is a shortcut TO that hub). Live default for
  * buildColonyProblem; injectable for tests.
  */
-/** v1 conservative per-port deposit cap (e/t) - now the CEILING that
- * `depositPortHeadroom` applies range-awareness under, not the headroom
- * itself. Kept exported: the feeder's PER_LINK_SOURCE_DRAIN is documented to
- * stay in sync with it. */
-export const DEPOSIT_PORT_HEADROOM = DEPOSIT_PORT_HEADROOM_CAP;
-
 export function detectLinkDepositPorts(): DepositPort[] {
   // SOURCE-LINK PORTS (spec-26 stage 4 redesign, owner 2026-07-23): a remote
   // hauler deposits at a home-room SOURCE link it passes (measured: 3 routes,

@@ -39,7 +39,9 @@ import { roomHasFlowMiner } from "./censusLens";
 import { stampControllerFeederRegime } from "./regimes";
 import {
   CARRY_MOVE_PAIR_COST,
+  SOURCE_RATE,
   carryPartsFor,
+  depositPortHeadroom,
   maxCarryPairs,
   parkedRelayCarry,
   volleyServiceCarry
@@ -72,18 +74,6 @@ const CONTROLLER_FEED_TARGET = 2000;
  * at or above it the feeder is the linchpin and outranks the marginal miner.
  */
 const FEEDER_INCOME_FIRST_FLOOR = 2000;
-
-/**
- * Per-source-link drain the feeder must be able to move core -> storage (spec 02
- * sole-operator floor). An owned-room source produces SOURCE_ENERGY_CAPACITY /
- * ENERGY_REGEN_TIME = 3000/300 = 10 e/t, and its link may double as a spec-26
- * DEPOSIT PORT receiving remote drops (DEPOSIT_PORT_HEADROOM = 30 e/t). Both
- * emerge at the core and must be banked by the feeder, or the core backs up and
- * source-link volleys strand (the spec-26 gridlock). A generous, cheap
- * over-estimate: at the parked 1-tile leg even 80 e/t is ~4 CARRY. Keep the 30
- * in sync with flowAdapter.DEPOSIT_PORT_HEADROOM.
- */
-const PER_LINK_SOURCE_DRAIN = 10 + 30;
 
 /**
  * ControllerFeederCorp fields the shuttle fleet (usually one feeder; more only
@@ -418,15 +408,39 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
    * spec-26 deposit-port headroom. Zero for a room with no source links (the
    * core carries only the controller relay then). A cheap over-estimate; an
    * oversized feeder simply idles when the core is at target.
+   *
+   * DERIVED FROM THE PORT'S OWN GEOMETRY, not a copied number. This read
+   * `linkServed * (10 + 30)` with a docblock asking the next editor to "keep
+   * the 30 in sync with flowAdapter.DEPOSIT_PORT_HEADROOM" - a manual coupling
+   * that went stale the moment the flat cap was retired for the fire rate
+   * (2026-08-06). The port's headroom is a function of ITS range to the core
+   * and the feeder can see that geometry, so it asks the same primitive the
+   * planner asks and the two cannot disagree again.
+   *
+   * Per link the drain is exactly what that link can PUSH into the core -
+   * `SOURCE_RATE + depositPortHeadroom(range)` collapses to `LINK_CAPACITY /
+   * range` wherever the fire rate clears the source rate. With no geometry
+   * (harness paths) the headroom falls back to the conservative 30 and this
+   * returns 10 + 30 per link, bit-identical to the constant it replaced.
+   *
+   * The floor is rarely what binds: since spec 45 the body also carries
+   * `volleyServiceCarry(inboundSenders)` (2 senders = 32 CARRY), against which
+   * even 100 e/t over the parked 1-tile leg is ~5 CARRY.
    */
   private coreDrainRate(room: Room): number {
     const core = coreLink(room);
     if (!core) return 0;
-    let linkServed = 0;
+    let drain = 0;
     for (const src of room.find(FIND_SOURCES)) {
-      if (sourceLink(src.pos, core.id)) linkServed++;
+      const link = sourceLink(src.pos, core.id);
+      if (!link) continue;
+      // The source's own income, plus whatever remote deposit flow its link
+      // can still fire on top of it - both emerge at the core and both must be
+      // banked, or the core backs up and volleys strand (spec-26 gridlock).
+      const range = typeof link.pos.getRangeTo === "function" ? link.pos.getRangeTo(core.pos) : undefined;
+      drain += SOURCE_RATE + depositPortHeadroom(range, SOURCE_RATE);
     }
-    return linkServed * PER_LINK_SOURCE_DRAIN;
+    return drain;
   }
 
   /**
