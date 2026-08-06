@@ -218,42 +218,41 @@ hubVolleyAvg 378 → 500 of 800, coreEmptyShare 0.26 → 0.276. Senders blocked
 be both saturated and idle, which is what makes this sequencing rather than
 capacity.
 
-**Leg 1 — `holdCoreRelay` (execution/linkRouting). BUILT WRONG, THEN
-CORRECTED the same day — the wrong version is the more useful record.**
+**Leg 1 — `holdCoreRelay` (execution/linkRouting). The rule survived TWO
+wrong justifications; both are recorded because the reasoning is the durable
+part.**
 
-*v1 (wrong):* hold the relay whenever any port stood loaded and CTRL had
-threshold room, justified on hop count and the 3% tax, per this spec's own
-"ports outrank the core relay for CTRL's free space" framing.
+*v1:* hold the relay whenever a port stood loaded, to reserve CTRL's free
+space for the cheaper one-hop direct fire — hop count and the 3% tax, per
+this spec's original framing. **Owner 2026-08-06:** *"Leg 1 HoldCoreRelay is
+only good if it increases throughput. Ie if the controller link is closer and
+empty enough. It might be rare. Energy tax is less important."* Right on both
+counts, and the two paths never even competed for a cooldown — the port
+spends its own, the relay spends the core's.
 
-*The owner's correction (2026-08-06):* "Leg 1 HoldCoreRelay is only good if
-it increases throughput. Ie if the controller link is closer and empty
-enough. It might be rare. Energy tax is less important." Chasing that down
-found the rule was wrong in a way that FOUGHT ITS OWN SIBLING LEG:
+*v2:* hold to protect the core's DRAINAGE — a clamped fire spends the core's
+whole cooldown, so it cannot drain again for LINK_COOLDOWN × range ticks,
+costing the landing room arrivals need. **Owner, same day:** *"No the core
+link can always be tendered to the storage."* Also right, and it dissolves
+the argument entirely: the FEEDER is the core's always-available drain (sole
+bidirectional operator, and leg 2 makes it pre-drain to zero ahead of an
+inbound volley). **Landing room is the feeder's job, never the relay's** — so
+the relay's cooldown was never protecting it, and the sibling-leg conflict
+v2 claimed to have found does not exist either.
 
-- The core→CTRL relay is one of the core link's two DRAIN paths. Holding it
-  keeps the core FULLER — exactly when leg 2 is emptying the core to give
-  inbound volleys somewhere to land. The measured defect is hubClampShare
-  0.625, ports clamped by a FULL core, so a rule that slows core drainage
-  attacks the wrong side of it.
-- The tax was never the argument, and the two paths do not even compete for
-  the same cooldown: the port spends its own, the relay spends the core's.
+*What survives* is narrow and is exactly the criterion the owner named: the
+relay's own DELIVERED ENERGY PER CORE COOLDOWN. The engine clamps a transfer
+to the target's free capacity but charges `cooldown += LINK_COOLDOWN * range`
+IN FULL, so firing into what a direct volley left this tick buys a sliver at
+the price of a whole cooldown, and the relay cannot feed CTRL again until it
+expires. Holding one beat and firing a full volley delivers strictly more
+energy per cooldown. Same rule `routeSourceVolley` step 4 applies to ports —
+one doctrine, both senders.
 
-*v2 (built):* what they DO contend for is CTRL's free space WITHIN ONE TICK,
-and the engine makes that expensive in exactly one way — a transfer is
-CLAMPED to the target's free capacity while `cooldown += LINK_COOLDOWN *
-range` is charged IN FULL. So when a direct volley lands in CTRL this tick
-and the relay fires into the remainder, the core pays its whole cooldown to
-move a sliver and cannot drain again for LINK_COOLDOWN × range ticks — which
-is precisely the landing room the arrivals needed. The rule is therefore the
-SAME one `routeSourceVolley` step 4 applies to ports: never pay a full
-cooldown for less than a worthwhile volley.
-
-`runLinks` accumulates `incomingDirect` (energy direct fires land in CTRL
-this tick) through the port loop and passes it to the hold. With no direct
-fire inbound the rule reduces to the pre-existing behavior BIT FOR BIT — so
-the warchest carve-out v1 needed is gone: policy never enters a purely
-physical rule. And per the owner it should be RARE, firing only when a direct
-volley genuinely crowds the relay out.
+This is a MINOR optimization, not the fix for the clamping defect (leg 2 is),
+and it should fire RARELY. `runLinks` accumulates `incomingDirect` through
+the port loop; with no direct fire inbound the rule reduces to the
+pre-existing behavior bit for bit, which is why it needs no policy carve-out.
 
 **Leg 2 — arrivals-first at the core buffer (corps/nodeEnergy).** Rather than
 patching the load gate and the drain direction separately, the fix rides the

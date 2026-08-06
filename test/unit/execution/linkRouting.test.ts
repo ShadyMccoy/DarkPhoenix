@@ -133,39 +133,26 @@ describe("routeSourceVolley - throughput per cooldown (owner 2026-07-29)", () =>
 });
 
 /**
- * THE RELAY'S COOLDOWN IS THE SCARCE THING (spec 45 leg 1, CORRECTED by the
- * owner 2026-08-06: *"Leg 1 HoldCoreRelay is only good if it increases
- * throughput. Ie if the controller link is closer and empty enough. It might
- * be rare. Energy tax is less important."*).
+ * WHAT THE RELAY HOLD IS ACTUALLY FOR (spec 45 leg 1, after two owner
+ * corrections on 2026-08-06).
  *
- * The first implementation held the relay whenever any port stood loaded and
- * CTRL had threshold room, justified on hop count and the 3% tax. That was
- * wrong twice over:
+ * v1 reserved CTRL's free space for the cheaper one-hop port fire (hop count,
+ * 3% tax). Owner: *"only good if it increases throughput... Energy tax is
+ * less important."*
  *
- * 1. **It contradicted leg 2.** The core->CTRL relay is one of the core
- *    link's two DRAIN paths. Holding it keeps the core fuller - exactly when
- *    leg 2 is emptying the core to give inbound volleys somewhere to land.
- *    The measured defect is hubClampShare 0.625 (ports clamped by a FULL
- *    core), so a rule that slows core drainage attacks the wrong side.
- * 2. **The tax is not the argument.** Per the owner, throughput is. And the
- *    two paths do not even compete for the same cooldown - the port spends
- *    its own, the relay spends the core's.
+ * v2 claimed the hold protected the core's DRAINAGE - a clamped fire spends
+ * the core's whole cooldown, so it cannot drain again for LINK_COOLDOWN x
+ * range ticks. Owner: *"No the core link can always be tendered to the
+ * storage."* The FEEDER is the core's always-available drain (sole
+ * bidirectional operator; leg 2 makes it pre-drain to zero ahead of a
+ * volley), so landing room is never the relay's responsibility.
  *
- * What they DO contend for is CTRL's free space WITHIN ONE TICK, and the
- * engine's rule makes that contention expensive in exactly one way: a
- * transfer is CLAMPED to the target's free capacity but
- * `cooldown += LINK_COOLDOWN * range` is charged IN FULL. So if a direct port
- * volley lands in CTRL this tick and the relay fires into what is left, the
- * core pays its whole cooldown to move a sliver - and cannot drain again for
- * LINK_COOLDOWN x range ticks, which is precisely the landing room arrivals
- * need.
- *
- * So the honest rule is the SAME one `routeSourceVolley` step 4 already
- * applies to ports: do not pay a full cooldown for less than a worthwhile
- * volley. No warchest carve-out is needed any more - with no direct fire
- * inbound the rule reduces to the pre-existing behavior exactly, so policy
- * never enters it. And the owner is right that it should be RARE: it fires
- * only when a direct volley genuinely crowds the relay out.
+ * What survives is narrow and is the owner's own criterion: the relay's
+ * DELIVERED ENERGY PER CORE COOLDOWN. The engine clamps the transfer but
+ * charges the cooldown in full, so firing into what a direct volley left buys
+ * a sliver at the price of a whole cooldown and blocks the next CTRL feed.
+ * Same rule routeSourceVolley step 4 applies to ports. A minor optimization -
+ * leg 2 is the fix for the clamping defect - and it should fire rarely.
  */
 describe("holdCoreRelay (spec 45 leg 1: never spend the core cooldown on a dribble)", () => {
   it("HOLDS when a direct volley leaves the relay less than a worthwhile fire", () => {
