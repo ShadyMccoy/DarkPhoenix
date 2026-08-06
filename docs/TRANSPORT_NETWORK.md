@@ -958,15 +958,17 @@ Claiming a *new* room and taking it to RCL4 costs ~180k for +25 e/t — a 7,200-
 payback, **roughly 50x better ROI than the 7→8 step.** Purely economically,
 expansion strictly dominates RCL progression, and it is not remotely close.
 
-Worse for a GCL-focused player: GCL accrues from controller upgrading anywhere,
-1:1 with energy, but **RCL8 caps upgrading at 15 e/t** (§11). An RCL8 room is a
-*bad* GCL farm; sub-RCL8 rooms are unlimited ones.
+Once you are *at* RCL8, the 15 e/t cap (§11) also makes the room a poor GCL farm;
+sub-RCL8 rooms are unlimited ones. The journey there is fine — control points
+accrue 1:1 regardless of RCL — but the destination is a slow place to keep
+farming from.
 
-So state the trade plainly: **rushing RCL8 is an economically irrational,
-militarily rational move.** You are buying a weapon, not an investment. That is
-coherent if overwhelming other players is the goal — but it should be a decision,
-not a side effect, and it should not be justified on economic grounds because the
-economics say the opposite.
+> **Superseded by §13.4.** The comparison above prices a new room at its ~180k
+> development cost while ignoring the ~19.7M of GCL required to claim it. Once
+> that is included, the rush is *cheaper* than expansion at five rooms, and the
+> GCL curve forces the surplus upgrading to go somewhere regardless. The honest
+> verdict is not "economically irrational" but **"economically neutral, and
+> decided on capability"** — see §13.4 for the corrected arithmetic.
 
 **If the goal is purely military, price RCL7 first.** It costs 5.4M against
 16.4M — a third — and delivers 6 labs, 2 spawns, and 5,600 spawn capacity. The
@@ -1133,7 +1135,156 @@ Ranked, for a donor with surplus beyond the target's absorption:
 
 ---
 
-## 13. What this implies for the planner
+## 13. The income statement
+
+Consolidating everything above into one P&L, for the five-room concentration
+posture of §12: one target room being rushed RCL4→8, four RCL6 donors. All
+figures **energy per tick**. Derived from the cost laws in §4 and §7, not
+measured — treat the structure as sound and the coefficients as ±20%.
+
+### 13.1 Consolidated
+
+```
+REVENUE
+  Local sources          10 × 10 e/t                        100.0
+  Remote sources         14 × 10 e/t                        140.0
+                                                          ───────
+  Gross energy income                                       240.0
+
+COST OF GOODS SOLD
+  Miner bodies           24 × 650e / 1500t                  (10.4)
+  Hauling                8,500 e·tiles/t × 0.0026           (22.1)
+  Remote reservation     9 rooms × 1.18                     (10.6)
+                                                          ───────
+  GROSS PROFIT                                              196.9    82.0%
+
+OPERATING EXPENSES
+  Structure decay & repair                                   (7.5)
+  Defense response                                          (10.0)
+  Anti-downgrade upgrading, donors                           (4.0)
+                                                          ───────
+  OPERATING SURPLUS                                         175.4    73.1%
+
+TRANSPORT — the cost of concentration
+  Terminal tax           145.2 shipped @ 6.45%               (9.4)
+                                                          ───────
+  Available at the target                                   166.0
+
+COST OF THE OBJECTIVE
+  Upgrader bodies        160 WORK sustained                 (12.0)
+  Link tax               154.0 fuel @ 3%                     (4.6)
+                                                          ───────
+  NET CONTROLLER PROGRESS                                   149.4    62.3%
+```
+
+At 149.4 e/t, RCL4→8 (**16,200,000** exactly) takes **108,400 ticks**.
+
+### 13.2 Segment view
+
+| | donor ×4 (RCL6) | target (RCL4→8) |
+|---|---|---|
+| local sources | 20.0 | 20.0 |
+| remote sources | 30.0 | 20.0 |
+| **revenue** | **50.0** | **40.0** |
+| miner bodies | (2.2) | (1.7) |
+| hauling | (4.7) | (3.4) |
+| reservation | (2.4) | (1.2) |
+| decay & repair | (1.5) | (1.5) |
+| defense | (2.0) | (2.0) |
+| anti-downgrade | (1.0) | — |
+| **operating surplus** | **36.2** | **30.2** |
+| terminal tax | (2.3) | — |
+| **contributed to objective** | **33.9** | **30.2** |
+
+Four donors contribute 135.6, the target 30.2. Against that pool: upgrader
+bodies (12.0) and link tax (4.6), leaving **149.2** of controller progress.
+
+### 13.3 Where the 37.7% goes
+
+90.6 e/t never reaches the controller. Ranked:
+
+| line | e/t | share of loss | share of gross |
+|---|---|---|---|
+| **hauling** | 22.1 | 24.4% | 9.2% |
+| **upgrader bodies** | 12.0 | 13.2% | 5.0% |
+| remote reservation | 10.6 | 11.7% | 4.4% |
+| miner bodies | 10.4 | 11.5% | 4.3% |
+| defense | 10.0 | 11.0% | 4.2% |
+| terminal tax | 9.4 | 10.4% | 3.9% |
+| decay & repair | 7.5 | 8.3% | 3.1% |
+| link tax | 4.6 | 5.1% | 1.9% |
+| anti-downgrade | 4.0 | 4.4% | 1.7% |
+
+Four readings worth having:
+
+**Hauling is the largest single cost in the empire**, at 9.2% of gross — which
+retroactively justifies every line of §7. It is also the one that responds to
+engineering rather than to strategy.
+
+**Transport is not the problem.** Terminal plus link tax is 14.0 e/t — 15% of all
+losses, 5.8% of gross. §12.7's claim that the cost of concentration is cheap
+holds up: you could eliminate transport entirely and recover less than 6%.
+
+**Reservation costs more than the terminal tax.** A CLAIM part is 600 energy for
+600 ticks of life — **exactly 1 e/t, permanently, per part** — and it is the most
+underestimated line on this statement.
+
+**Upgrader bodies exceed the entire transport bill.** Which points at boosts:
+XGH2O doubles upgrade per WORK, halving the fleet from 12.0 to 6.0 e/t. But that
+needs ~2,400 units per 1,500 ticks — ~173,000 units across the whole rush, an
+industrial program well beyond what §12.8's market can supply. **Don't boost
+upgraders for the energy.** Boost them because halving the creep count doubles the
+absorption ceiling against the target's one-spawn constraint (§12.4) — 240 e/t
+becomes ~480. That is a spawn-capacity argument, not an efficiency one.
+
+### 13.4 The capital account — and a correction to §12.3
+
+§12.3 called the rush "economically irrational," priced against claiming a new
+room at ~180k. **That comparison was wrong**, because it ignored the GCL a new
+room requires. Correcting it materially strengthens the case for concentration.
+
+**Controller spending is not an expense — it buys two assets at once.** Every
+energy into any controller yields RCL progress in that room *and* GCL progress
+empire-wide, 1:1 and RCL-independent. GCL gates room **count**, not room
+**level**.
+
+GCL n requires `(n−1)^2.4 × 10⁶` control points, so the marginal room costs:
+
+| | GCL requirement | marginal cost of the next room |
+|---|---|---|
+| GCL 5 (5 rooms) | 27.9M | — |
+| GCL 6 (6 rooms) | 47.6M | **19.7M** |
+| GCL 7 (7 rooms) | 73.7M | 26.1M |
+| GCL 8 (8 rooms) | 106.7M | 33.0M |
+
+**A 6th room costs 19.7M. Taking a room RCL4→8 costs 16.2M.** At five rooms the
+rush is *cheaper than expansion*, not 50x worse — the opposite of what §12.3
+said.
+
+And the GCL curve does something stronger than permit the strategy; it very
+nearly forces it. Holding 5 rooms requires 27.9M of controller spend, but
+bringing 5 rooms to RCL6 costs only 9M. **The remaining 18.9M has to go
+somewhere**, and 16.2M of it takes one room to RCL8 with change left over. So the
+real choice at GCL 5 is not whether to spend it, but how to shape it:
+
+| the same 27.9M, distributed two ways | max single creep |
+|---|---|
+| spread evenly — **5 × RCL7** | 5,600 everywhere |
+| **concentrated — 1 × RCL8 + 4 × RCL6** | **12,900** in one, 2,300 in four |
+
+Both cost identically, both yield identical GCL, and total income differs by
+under 10% (one room at +45 e/t against four at +10 each). **Economics is a wash;
+the decision is made entirely by the convexity argument of §12.1** — and 12,900
+beats 5,600 decisively, because combat is settled by your best creep.
+
+The cost is now sharper too, and it is exactly §12.5's risk: your donors sit at
+RCL6 with 2,300 spawn capacity and 2 towers, rather than RCL7 with 5,600 and 3.
+Which is precisely why §12.9's rampart sink is not optional bookkeeping — it is
+how you pay for the shape you chose.
+
+---
+
+## 14. What this implies for the planner
 
 Stated as arc costs, ready to price:
 
@@ -1189,11 +1340,18 @@ And the judgements that don't reduce to a table:
     which is 0.015% of a terminal's build cost. Only roads and ramparts are
     worth dismantling.
 12. **If the empire is funding one room's ascent (§12), say so explicitly and
-    let it reorder everything.** Serial beats parallel by ~4x on time-to-first-
-    RCL8, the transport tax to enable it is ~10%, and the target's links,
-    terminal placement, and sink ranking all invert. But price it honestly: the
-    7→8 step has a ~583,000-tick payback against ~7,200 for a new room, so this
-    is a military purchase and must be justified as one — never on economics.
+    let it reorder everything.** Serial beats parallel by ~4x on
+    time-to-first-RCL8, the transport tax to enable it is ~6% of gross, and the
+    target's links, terminal placement, and sink ranking all invert.
+13. **Price controller spending as a joint product, never as an expense**
+    (§13.4). It buys RCL progress *and* GCL 1:1, and GCL gates room count rather
+    than room level. At five rooms a 6th room costs 19.7M of GCL against 16.2M
+    to take a room RCL4→8 — so concentration is economically neutral, not
+    irrational, and the choice is settled on capability convexity alone.
+14. **Budget against the 62% figure, not the 100%** (§13.1). Only 62.3% of
+    harvested energy reaches the controller; hauling alone takes 9.2% and
+    reservation takes more than the terminal tax does. A plan priced off gross
+    harvest over-states delivery by 60%.
 
 ### Open questions worth measuring
 
