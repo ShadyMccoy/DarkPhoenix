@@ -46,6 +46,7 @@
     "cons-link-farthest-source": "pass",
     "cons-one-site-at-a-time": "pass",
     "cons-pocket-container-exact-tile": "pass",
+    "cons-rcl8-full-bank-contracts-mining": "pass",
     "cons-repair-critical-during-build": "pass",
     "cons-repair-road-fraction": "pass",
     "cons-repair-starts-below-60": "pass",

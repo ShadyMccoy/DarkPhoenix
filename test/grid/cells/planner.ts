@@ -568,3 +568,86 @@ export const plannerCells: GridCell[] = [
     ],
   },
 ];
+
+/**
+ * THE CONSUMPTION-CONSTRAINED REGIME (spec 47) - the live ratchet the spec
+ * named as its own open item.
+ *
+ * Every other cell stages a colony whose problem is PRODUCTION. These stage
+ * the inversion: an RCL8 controller (game-capped at 15 e/t by
+ * `controllerMaxUpgradeRate`) above a storage with almost no room left, so
+ * the two sink caps bind at once and consumption - not mining - is what the
+ * economy has to size to. No flag is involved anywhere; the contraction has
+ * to fall out of the planner's dependency chain, and what these assert is
+ * exactly that chain's observable consequence in a live bot.
+ *
+ * Staged, not organic, for the usual grid reason: reaching a 995k bank
+ * honestly is ~25,000 ticks of sim to observe a decision that is made in one
+ * solve.
+ */
+const rcl8Room = (roomName: string) =>
+  new RoomBuilder(roomName).border().controller(25, 10).source(15, 30).source(35, 30).toRoom();
+
+/** Extensions enough that the controller's PHYSICAL burn cap clears 15 e/t -
+ *  otherwise the parking/WORK estimate binds first and the cell would pass
+ *  for the wrong reason (it would not be testing the game rule at all). */
+const EXT_RCL8: Array<{ x: number; y: number }> = [];
+for (const y of [19, 21, 23]) for (let x = 18; x <= 32; x += 2) EXT_RCL8.push({ x, y });
+
+export const consumptionConstrainedCells: GridCell[] = [
+  {
+    id: "cons-rcl8-full-bank-contracts-mining",
+    tier: 8,
+    avenue: "planning-economy",
+    // One full solve cadence (50) plus publication and a margin.
+    window: 160,
+    rooms: { home: rcl8Room },
+    bot: { x: 25, y: 25 },
+    controller: { level: 8 },
+    structures: [
+      // 995k of 1M: ullage 5,000 -> storageAbsorbRate 3.33 e/t against 20 e/t
+      // of local mining. The hub can no longer take what the room produces.
+      { type: "storage", x: 24, y: 25, energy: 995_000 },
+      ...EXT_RCL8.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 200 })),
+    ],
+    creeps: [
+      { name: "decoy", x: 20, y: 20, body: ["carry", "move"], memory: { workType: "haul" } },
+    ],
+    assertions: [
+      eventually("the plan publishes under the regime (a solve landed)", (s) => planCorps(s).length > 0),
+      // THE GAME RULE. work == allocated e/t for upgrading (1 e/t per WORK),
+      // so an upgrade corp above 15 means the RCL8 throttle was not priced.
+      always(
+        "upgrading never exceeds the RCL8 cap of 15 e/t",
+        (s) => {
+          const upgrade = planCorps(s).filter((c) => c.kind === "upgrade");
+          return upgrade.every((c) => (c.work ?? 0) <= 15);
+        },
+        60
+      ),
+      // THE CONTRACTION. Two sources stand, but the hub admits ~3.33 e/t, so
+      // the far source's route cannot be funded and its miner demotes. A plan
+      // that still commissions both is mining into a bank with no room.
+      eventually("mining contracts below the standing source count", (s) => {
+        if (s.tick < 60) return false;
+        const mines = planCorps(s).filter((c) => c.kind === "mine");
+        const sources = s.objects().filter((o) => o.type === "source").length;
+        return sources === 2 && mines.length < sources;
+      }),
+      // THE CHAIN, OBSERVED LIVE: a hauler needs a source AND a sink. Every
+      // published haul must belong to a source the plan still mines - the
+      // invariant the unit scenarios pin, here against a real bot.
+      always(
+        "every hauled source is still a mined source (no orphan routes)",
+        (s) => {
+          const corps = planCorps(s);
+          const mined = new Set(corps.filter((c) => c.kind === "mine").map((c) => c.sourceId));
+          return corps
+            .filter((c) => c.kind === "haul")
+            .every((h) => typeof h.fromId !== "string" || !h.fromId.startsWith("source-") || mined.has(h.fromId));
+        },
+        60
+      ),
+    ],
+  },
+];

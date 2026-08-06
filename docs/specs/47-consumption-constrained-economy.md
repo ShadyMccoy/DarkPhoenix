@@ -278,11 +278,17 @@ plan and runtime agree by construction, which is worth more than the energy
 
 ## 5. Non-goals / open
 
-- **Live soak.** No grid cell stages a near-full storage today (cells stage
-  8k–120k of 1M — the taper is invisible there by design). A `cons-rcl8-*`
-  cell staging a near-full bank + level-8 controller is the natural next pin
-  if the live reaction wants a ratchet; the unit scenario is the contract
-  meanwhile.
+- ~~**Live soak.** No grid cell stages a near-full storage today.~~
+  **CLOSED 2026-08-06:** `cons-rcl8-full-bank-contracts-mining` (T8,
+  planning-economy, 160t) stages a level-8 controller over a 995k/1M storage —
+  ullage 5,000, so the hub absorbs 3.33 e/t against 20 e/t of local mining, and
+  both sink caps bind at once. It asserts the game rule (upgrading never
+  exceeds 15 e/t), the contraction (mining falls below the standing source
+  count), and the dependency chain observed live (every published haul belongs
+  to a source the plan still mines). Green on three consecutive runs and
+  ratcheted into `baseline.json`. Enough extensions are staged that the
+  controller's PHYSICAL burn estimate clears 15, so the cell tests the game
+  throttle rather than passing on the parking bound.
 - **Miner-side throttling at partial routing.** The marginal source still
   mines its full rate while shipping its routed share; the un-shipped
   residual stands at the mouth (bounded to ~one source by the taper).
