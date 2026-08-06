@@ -164,12 +164,24 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
 //    exactly the occupied rooms' rates; forgone shrinks by the same amount.
 /**
  * #13 (owner 2026-08-06): ADDITIVE only - a TARGETS block under the residual
- * stating the owner's two standing objectives (*"minimal foregone mining.
- * 50%+ net energy hitting the controller"*) as measured ratios. No existing
- * account line changed meaning, so prior windows stay comparable line by line;
- * the stamp moves because the report SET did.
+ * stating the owner's two standing objectives as measured ratios.
+ *
+ * #14 (owner 2026-08-06, same day): the controller ratio's DENOMINATOR is
+ * corrected from `mined - fleet` to CAPACITY. *"42/110 is less than 50"* -
+ * and the owner is right on both the arithmetic and the principle. #13 read
+ * 42.20/45.78 = 92% MET while the owner read 42.20/110 = 38% MISS, off the
+ * same account. Of the four defensible denominators
+ *
+ *     capacity 110.00 -> 38.4%   gross mined 87.70 -> 48.1%
+ *     mined-fleet 45.78 -> 92.2%  mined-fleet-losses 27.60 -> 152.9%
+ *
+ * #13 took the second-most-flattering. A bar cleared at 92% cannot fail,
+ * which is the definition of a useless target. CAPACITY is the honest one: it
+ * charges forgone mining, the fleet AND the losses to the same ratio, so the
+ * number moves when any of the three does. Prior windows' TARGET lines are
+ * NOT comparable across this bump; every other account line is unchanged.
  */
-export const METHODOLOGY = 13;
+export const METHODOLOGY = 14;
 
 export interface LedgerRow {
   id: string;
@@ -2997,11 +3009,13 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     // leaving "back to where it was" to memory.
     ...(() => {
       const forgone = grossCapacity - grossPlan;
-      // NET energy = what is left of the mined gross once the fleet is paid.
-      // Losses are deliberately NOT subtracted here: they are the thing we are
-      // trying to eliminate, so charging them to the denominator would flatter
-      // the ratio exactly as they got worse.
-      const net = grossPlan - perTick(spawnTotal);
+      // THE DENOMINATOR IS CAPACITY (#14). Everything the colony could have
+      // mined; the controller's share of it therefore charges forgone mining,
+      // the fleet and the losses to ONE ratio, so the number moves when any of
+      // the three does. Netting the fleet out first (as #13 did) hands back
+      // the largest single deduction and reads 92% while the same account
+      // reads 38% against capacity.
+      const net = grossCapacity;
       const rawShare = net > 1e-9 ? score / net : 0;
       // Bank-funded delivery is not sustainable delivery. `bankDelta` is
       // positive when banking, negative when drawing down, so subtracting it
@@ -3022,11 +3036,42 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
                 `   ${forgone <= 2 ? "MET" : forgone <= 5 ? "close" : "MISS"}`
             ]
           : []),
-        `    net energy = mined ${grossPlan.toFixed(2)} - fleet ${perTick(spawnTotal).toFixed(2)} = ${net.toFixed(2)} e/t`,
-        `    controller / net                   ${pct(rawShare)}    target >=50%` +
-          `   ${rawShare >= 0.5 ? "MET" : "MISS"}`,
+        `    controller / CAPACITY              ${pct(rawShare)}    target >=50%` +
+          `   ${rawShare >= 0.5 ? "MET" : "MISS"}   (${score.toFixed(2)} of ${net.toFixed(2)})`,
         `    ...INCOME-FUNDED only              ${pct(fundedShare)}    target >=50%` +
           `   ${fundedShare >= 0.5 ? "MET" : "MISS"}   <- the one that lasts`,
+        // WHERE THE REST OF CAPACITY WENT, so a MISS is actionable rather than
+        // just a verdict. These are exactly the deductions #13 netted out of
+        // its denominator before reporting - naming them is the whole reason
+        // the honest denominator costs nothing in diagnosability.
+        //
+        // Each term prints only when it is MEASURED: forgone under the same
+        // gate as the line above (an unmeasured heldFrac makes `forgone` a
+        // fabricated zero), losses under `rotKnown`. An absent term is absent,
+        // never a flattering zero.
+        //
+        // The terms CLOSE TO CAPACITY by construction, which is why `piles`
+        // (a SOURCE, not a use, whenever the ground stock draws down) and the
+        // residual ride along: a waterfall whose shares sum past 100% would
+        // reintroduce the exact "which number do I trust" question the honest
+        // denominator exists to end.
+        "      of capacity: " +
+          [
+            ...(minedKnown || forgoneKnown ? [["forgone", forgone] as const] : []),
+            ["piles", pileDelta] as const,
+            ["fleet", perTick(spawnTotal)] as const,
+            // TRANSPORT, not a loss (owner 2026-08-02) - but it is still
+            // capacity that never reaches a sink, so the waterfall carries it
+            // or it closes 1.21 short on any link-served room.
+            ...(linkTaxKnown ? [["linktax", linkTax] as const] : []),
+            ...(rotKnown ? [["losses", meteredLosses] as const] : []),
+            ["build", build] as const,
+            ["bank", bankDelta] as const,
+            ["controller", score] as const,
+            ["resid", residual] as const
+          ]
+            .map(([label, v]) => `${label} ${v.toFixed(2)} (${pct(v / net)})`)
+            .join("  "),
         ""
       ];
     })(),

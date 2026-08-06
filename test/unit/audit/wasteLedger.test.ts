@@ -2515,10 +2515,163 @@ describe("methodology #10: the recovery P&L (cure vs illness, published)", () =>
     expect(detail).to.include("5.0");
   });
 
-  it("the header stamps methodology #13 (additive TARGETS block; #12 capacity rule unchanged)", () => {
+  it("the header stamps methodology #14 (TARGETS denominator = capacity; #12 capacity rule unchanged)", () => {
     const { cap, base } = rig(zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    expect(text).to.include("[methodology #13]");
+    expect(text).to.include("[methodology #14]");
+  });
+});
+
+/**
+ * THE CONTROLLER TARGET'S DENOMINATOR IS CAPACITY (methodology #14, owner
+ * 2026-08-06: *"42/110 is less than 50"*).
+ *
+ * #13 shipped the owner's *"50%+ net energy hitting the controller"* target
+ * with `net = mined - fleet`. Against the t72819265 account that read
+ * 42.20/45.78 = **92% MET** while the owner, reading the same account, got
+ * 42.20/110.00 = **38% MISS**. Four denominators were defensible:
+ *
+ *     capacity          110.00 ->  38.4%      gross mined   87.70 ->  48.1%
+ *     mined - fleet      45.78 ->  92.2%      ...- losses   27.60 -> 152.9%
+ *
+ * #13 took the second-most-flattering. A target cleared at 92% - and one that
+ * a WORSE colony clears more easily, because shrinking the fleet shrinks the
+ * denominator - measures nothing. CAPACITY charges forgone mining, the fleet
+ * and the losses to one ratio, so the number moves when any of the three does.
+ *
+ * These tests pin the ARITHMETIC, not the live reading: the denominator must
+ * be the capacity figure the account already prints, and the deduction
+ * waterfall must sum back to it.
+ */
+describe("methodology #14: the controller target is scored against CAPACITY", () => {
+  const shell = { windowTicks: 5, pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneLost: 0, tombstoneRecovered: 0, tombstoneStock: 0 };
+  const zero = { pileDecay: 0, structureDecay: 0, repairSpend: 0, tombstoneGross: 0, tombstoneRecovered: 0 };
+  const render = (): string => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    cap.data.core.losses = { ...shell, cumulative: zero };
+    base.data.core.losses = { ...shell, cumulative: zero };
+    return formatAccounts(cap, base, computeLedger(cap, base));
+  };
+  const lineWith = (re: RegExp): string => {
+    const l = render()
+      .split("\n")
+      .find(x => re.test(x));
+    expect(l, `a line matching ${re} exists`).to.not.equal(undefined);
+    return l as string;
+  };
+  const nums = (line: string): number[] => (line.match(/-?\d+\.\d+/g) ?? []).map(Number);
+  // "label V.VV (P%)" - the waterfall's term encoding, parsed once.
+  const waterfall = (): Array<{ label: string; v: number; pct: number }> => {
+    const re = /([a-z]+) (-?\d+\.\d\d) \((-?\d+)%\)/g;
+    const line = lineWith(/of capacity:/);
+    const out: Array<{ label: string; v: number; pct: number }> = [];
+    for (let m = re.exec(line); m; m = re.exec(line)) out.push({ label: m[1], v: Number(m[2]), pct: Number(m[3]) });
+    return out;
+  };
+
+  it("the target line names CAPACITY as its denominator, not a netted figure", () => {
+    const line = lineWith(/controller \/ CAPACITY/);
+    expect(line).to.include("target >=50%");
+    expect(line).to.match(/MET|MISS/);
+  });
+
+  it("its denominator EQUALS the capacity the account already publishes - one number, not two", () => {
+    // The revenue section prints mining capacity; the target must reuse it
+    // rather than derive a second one that can drift.
+    const capLine = lineWith(/mining capacity/);
+    const tgtLine = lineWith(/controller \/ CAPACITY/);
+    const shown = nums(tgtLine);
+    const denom = shown[shown.length - 1];
+    expect(denom, "the '(score of DENOM)' tail is the published capacity").to.be.closeTo(nums(capLine)[0], 0.01);
+  });
+
+  it("the verdict agrees with the ratio it prints - no MET on a sub-50% share", () => {
+    const line = lineWith(/controller \/ CAPACITY/);
+    const share = Number((line.match(/(\d+)%/) ?? [])[1]);
+    expect(Number.isFinite(share), "the percent is parseable").to.equal(true);
+    expect(line.includes("MET"), `verdict must match ${share}%`).to.equal(share >= 50);
+  });
+
+  it("publishes the deduction waterfall, so a MISS says WHERE capacity went", () => {
+    // The whole point of the honest denominator: it refuses to hide the
+    // deductions #13 netted out before reporting.
+    const line = lineWith(/of capacity:/);
+    for (const term of ["fleet", "build", "bank", "controller"]) expect(line, `names ${term}`).to.include(term);
+  });
+
+  it("the waterfall CLOSES to capacity - the shares cannot sum past 100%", () => {
+    // A waterfall that overshoots its own denominator is two books again.
+    // `piles` and `resid` are carried for exactly this reason.
+    const capacity = nums(lineWith(/controller \/ CAPACITY/)).slice(-1)[0];
+    const summed = waterfall().reduce((a, t) => a + t.v, 0);
+    expect(summed, `terms must sum to capacity ${capacity}`).to.be.closeTo(capacity, 0.02);
+  });
+
+  it("...and closes on a LINK-SERVED capture too - the fixture above has no links", () => {
+    // SIM BLIND SPOT, caught in the act: the pair above carries no link
+    // network, so a waterfall missing the LINK TRANSFER TAX closed there and
+    // ran 1.21 e/t short on the live t72819265 window. A closure invariant
+    // proven only on a link-free capture proves the wrong thing.
+    const capL = fixture("shard1-t72819265.json");
+    const baseL = fixture("shard1-t72812126.json");
+    const text = formatAccounts(capL, baseL, computeLedger(capL, baseL));
+    const lines = text.split("\n");
+    const tgt = lines.find(l => /controller \/ CAPACITY/.test(l))!;
+    const wf = lines.find(l => /of capacity:/.test(l))!;
+    expect(wf, "the live capture is link-served").to.include("linktax");
+    const capacity = Number((tgt.match(/-?\d+\.\d+/g) ?? []).slice(-1)[0]);
+    const re = /([a-z]+) (-?\d+\.\d\d) \((-?\d+)%\)/g;
+    let summed = 0;
+    for (let m = re.exec(wf); m; m = re.exec(wf)) summed += Number(m[2]);
+    expect(summed, `terms must sum to capacity ${capacity}`).to.be.closeTo(capacity, 0.02);
+  });
+
+  it("every waterfall term is the account's OWN published figure - never a second derivation", () => {
+    // Closure to capacity cannot be asserted here (this fixture carries no
+    // spawn ring, and the account itself prints an `unattributed` line for
+    // exactly that reason). What MUST hold is that each term restates a number
+    // the statement already publishes, so the two can never quietly disagree.
+    const terms = new Map(waterfall().map(t => [t.label, t]));
+    const actualOf = (label: string): number => {
+      const l = lineWith(new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+      const n = nums(l);
+      return n.length >= 3 ? n[1] : n[0]; // BUDGET ACTUAL VARIANCE since #9
+    };
+    expect(terms.get("controller")!.v).to.be.closeTo(actualOf("controller (score)"), 0.01);
+    expect(terms.get("bank")!.v).to.be.closeTo(actualOf("to/(from) bank"), 0.01);
+    expect(terms.get("build")!.v).to.be.closeTo(actualOf("construction (site progress)"), 0.01);
+  });
+
+  it("each term's PERCENT is that term over capacity - the shares cannot drift from the values", () => {
+    const capacity = nums(lineWith(/controller \/ CAPACITY/)).slice(-1)[0];
+    const terms = waterfall();
+    expect(terms.length, "the waterfall parsed at all").to.be.at.least(3);
+    for (const t of terms) expect(t.pct, `${t.label}: ${t.v} of ${capacity}`).to.equal(Math.round((t.v / capacity) * 100));
+  });
+
+  it("an UNMEASURED loss term goes ABSENT, never a flattering zero", () => {
+    const cap = JSON.parse(JSON.stringify(cap72411542));
+    const base = JSON.parse(JSON.stringify(cap72404213));
+    delete cap.data.core.losses;
+    delete base.data.core.losses;
+    delete cap.data.core.sourceDropped;
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const line = text.split("\n").find(l => /of capacity:/.test(l));
+    expect(line, "the waterfall still renders without loss meters").to.not.equal(undefined);
+    expect(line).to.not.include("losses");
+  });
+
+  it("an UNMEASURED forgone goes ABSENT too - the pre-existing 'no fabricated forgone' invariant holds", () => {
+    const old = JSON.parse(JSON.stringify(cap72411542));
+    old.data.corps.corps.forEach((c: any) => {
+      if (c.sizing) delete c.sizing.heldFrac;
+      if (c.kind === "harvest") delete c.produced;
+    });
+    const text = formatAccounts(old, JSON.parse(JSON.stringify(cap72404213)), computeLedger(old, cap72404213));
+    expect(text).to.not.include("forgone");
+    // ...but the target itself survives: capacity and the score are still known.
+    expect(text).to.include("controller / CAPACITY");
   });
 });
 
@@ -2600,3 +2753,4 @@ describe("P12 valve coherence (published allocation vs the phase-D law)", () => 
     expect(p12.detail).to.contain("spawn sink"); // and so is the parked-claim culprit
   });
 });
+
