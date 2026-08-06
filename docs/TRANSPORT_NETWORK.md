@@ -24,6 +24,13 @@ more than ~1.6 e/t, ever), terminals are 4x cheaper than creeps for any
 cross-room hop and cannot be interdicted, and the terminal's *position inside
 its room* is a completely free variable that almost everyone spends wrong.
 
+**The energy scale is also the wrong scale.** CPU binds first, and on CPU the
+ordering is far more lopsided: a link pair and a maximum-size hauler move the
+same ~18 e/t across a room, and the link costs **1/15th the CPU** (§7). Creep
+capacity is CPU-free, so body size buys 16x and then stops dead at 50 parts;
+links buy another 15x past that wall. Both levers are the same size and they
+multiply.
+
 ---
 
 ## 2. Correcting the premise
@@ -50,7 +57,7 @@ whose terminals hug their far outer edges (≈98 tiles apart) pay **exactly the
 same 3.28%**. The last 96 tiles are free.
 
 That is the exploitable asymmetry. It just doesn't point where you thought —
-see §7, because the naive reading of it ("maximize send distance") is worth
+see §8, because the naive reading of it ("maximize send distance") is worth
 nothing, and the correct reading is worth more than a link pair.
 
 ---
@@ -226,22 +233,160 @@ What the same link pair actually displaces, at 10 e/t over 47 tiles:
 |---|---|
 | body parts | **~28** (0.355 e/t per part at that range) |
 | capital in bodies | ~1,400 energy, recycled every 1500 ticks |
-| CPU | **~0.3 CPU/tick** |
+| CPU | **~0.12 CPU/tick** — and 15x that at full duty; see §7 |
 | spawn uptime | **~5.6%** of a single spawn |
 
 **Price links on CPU and spawn throughput, not on energy.** In Screeps at scale
 CPU is the binding constraint and energy is not, which means the correct shadow
 price makes links look far better than the 0.92 e/t suggests — but for the right
-reason. A planner that evaluates a link on its energy tax alone will
+reason. §7 does that accounting properly and the ratio is **15x on CPU**, against
+1.7x on energy. A planner that evaluates a link on its energy tax alone will
 systematically under-build them, and one that credits it with "eliminating
-haulers" will over-build them (see §8: links concentrate haulers, they don't
+haulers" will over-build them (see §9: links concentrate haulers, they don't
 eliminate them).
 
 ---
 
-## 7. Terminal geometry — and where your free 98 tiles actually pays
+## 7. The CPU accounting: energy per intent
 
-### 7.1 There is no routing problem
+Energy tax is the wrong currency for this comparison at scale, because CPU binds
+long before energy does. The CPU law is simple, and it explains everything else:
+
+> An intent costs 0.2 CPU. **Moving costs one intent per tile regardless of what
+> the creep is carrying.** So CPU efficiency is exactly *energy delivered per
+> intent*, and the enemy is movement, not cargo.
+
+Which means creep **capacity is CPU-free**. That is the observation worth
+building on.
+
+### 7.1 One maximum-size hauler crossing a room
+
+50 parts on roads is 33 CARRY : 17 MOVE — 1,650 capacity, 2,500 energy, and it
+still moves 1 tile/tick loaded (33 fatigue against 34 reduction). Over a 45-tile
+crossing:
+
+| | |
+|---|---|
+| move intents | 90 (45 out loaded, 45 back empty) |
+| withdraw + transfer | 2 |
+| **total** | **92 intents = 18.4 CPU** |
+| delivered | 1,650 |
+| **CPU per 1,000 energy** | **11.2** |
+| throughput | 17.9 e/t |
+| **CPU per tick** | **0.20** |
+
+That last line is the general result: **a moving creep costs ~0.2 CPU/tick no
+matter how big it is**, because it fires one move intent per tick either way.
+
+### 7.2 The same work by link
+
+A link pair at range 45 delivers 776 per 45-tick cooldown — **17.8 e/t, within
+1% of the max hauler above.** Apples to apples:
+
+| | intents per 776 delivered |
+|---|---|
+| sender `transferEnergy` | 1 |
+| hub drain: withdraw + transfer | 2 |
+| **total** | **3 = 0.6 CPU** |
+| **CPU per 1,000 energy** | **0.77** |
+| **CPU per tick** | **0.013** |
+
+**One max hauler and one link pair move the same 17.8 e/t across a room. The link
+costs 1/15th the CPU.**
+
+Directly: a hauler round trip is 92 intents, a fully loaded link transmission
+with its drain is 3. **≈31 link transmissions per hauler crossing** — and those
+31 deliver **24,000 energy against the hauler's 1,650. 14.6x the energy for
+identical CPU.**
+
+### 7.3 Why you cannot actually spend that
+
+Those 31 transmissions take 31 × 45 = **1,395 ticks** on one pair, against the
+hauler's 92. The link is 15x cheaper per energy and 15x slower per unit; the
+product is conserved. Each is simply one unit of ~18 e/t, and only the CPU
+differs.
+
+**To spend the CPU saving you need concurrency — ~15 link pairs to match one
+max hauler's tempo.** RCL8 gives you 6 links.
+
+### 7.4 So: multiple links sending across the room
+
+Cooldown is charged to the **sender** only, and a receiver absorbs from any
+number of senders in the same tick. So the throughput-maximizing RCL8 topology
+is a **5 → 1 star**, not three independent pairs:
+
+| topology @ range 45 | throughput | CPU/tick |
+|---|---|---|
+| 3 independent pairs | 53 e/t | 0.046 |
+| **5 → 1 star** | **89 e/t** | **0.067** |
+| equivalent max haulers (5×) | 89 e/t | **1.00** |
+
+Still 15x. The constraint that bites is the **receiver's 800 cap**: a second
+sender firing into a partly-full hub moves only what fits and the remainder is
+not sent, so a star needs its drain to keep pace and its senders sequenced. A
+stationary creep adjacent to both hub link and storage does one withdraw and one
+transfer per tick — 800 e/t of drain if those share a tick, 400 e/t if they must
+alternate. Either is far above the 89 e/t a star produces, and it is 2 intents
+per 800 under both readings, so the CPU figures hold either way.
+
+The number that matters: **89 e/t of in-room link bandwidth against a room's own
+source output of 20 e/t.** At RCL8, link bandwidth is not scarce — it is ~4x
+oversupplied. What is scarce is link *count* (how many distinct routes you can
+serve), and the fact that none of them leave the room.
+
+### 7.5 The two levers are the same size, and they multiply
+
+| mode, 45-tile crossing | CPU per 1,000 energy |
+|---|---|
+| 3-part hauler (100 capacity) | 184 |
+| 12-part hauler (400 capacity) | 46 |
+| **50-part hauler (1,650 capacity)** | **11.2** |
+| **link pair** | **0.77** |
+
+Body size buys **16x** and then stops dead at `MAX_CREEP_SIZE`. Links buy
+**15x** past that wall. Together, ~240x.
+
+Two things to act on. **Body size is the cheaper lever and should always be
+pulled first** — it costs only spawn energy and spawn time, against a link's
+5,000 energy and one of six slots. And **the wall is real**: once haulers are at
+50 parts there is no creep-side CPU optimization left at all, and every further
+unit of throughput costs a flat 0.2 CPU/tick. That is the point where links stop
+being optional.
+
+The binding limit on hauler size is the route, not the cap — a 1,650-capacity
+creep needs `flow × 2d ≥ 1650` to stay busy. Two sources at 45 tiles put 1,800
+energy in flight, so long routes naturally land at or above max size, and short
+routes should not pretend to.
+
+### 7.6 The residual: what creeps must still do
+
+Nothing but a creep can fill an extension, and RCL8 has 60 of them holding
+12,000 energy. But extension refill is **transfer-dominated rather than
+movement-dominated** — 200 energy per intent, moves amortized across many
+transfers — so it is much better than its reputation:
+
+| filler pattern | CPU per 1,000 energy |
+|---|---|
+| roaming filler (~100 moves per 12k refill) | 2.8 |
+| **stationary filler, link-fed, zero moves** | **1.1** |
+
+A parked filler is **link-competitive**. That is the entire argument for the
+fast-filler nest layout: it deletes movement intents, and movement intents are
+the whole cost.
+
+### 7.7 Caveat — this accounting is a floor for links
+
+Everything above counts engine intents at 0.2 CPU. Your own code sits on top and
+is wildly asymmetric: a hauler carries pathfinding, a state machine, and traffic
+resolution, typically another 0.1–0.3 CPU/tick, while a link's logic is "check
+cooldown, check full, fire." **15x is a lower bound; real implementations should
+see 20–30x.**
+
+---
+
+## 8. Terminal geometry — and where your free 98 tiles actually pays
+
+### 8.1 There is no routing problem
 
 Because `e^(-a/30) × e^(-b/30) = e^(-(a+b)/30)`, an `a`-room hop followed by a
 `b`-room hop costs **exactly** what the direct `(a+b)`-room send costs. The
@@ -262,7 +407,7 @@ internal tax; radius 6 (169 rooms) averages ~13%. **Terminal tax does not
 meaningfully constrain empire shape at any realistic scale.** Do not let it drive
 expansion decisions.
 
-### 7.2 The fan-in / fan-out asymmetry
+### 8.2 The fan-in / fan-out asymmetry
 
 Cooldown is charged to the **sender**. A terminal can receive from any number of
 terminals in the same tick, but can only send once per 10 ticks.
@@ -273,7 +418,7 @@ the issue (300k per send); **latency** is. Fine for economy, potentially fatal
 for reinforcement under attack — build the network hub-inbound, and accept that
 outbound broadcast is slow.
 
-### 7.3 Where to actually put the terminal
+### 8.3 Where to actually put the terminal
 
 The free in-room position is real. The naive use of it — "maximize send
 distance" — is worth exactly zero, because nothing in the game rewards send
@@ -308,7 +453,7 @@ ratio of remote-inbound flow to local-consumption flow.
 
 ---
 
-## 8. Second-order mechanics that change the shape
+## 9. Second-order mechanics that change the shape
 
 **The link hub is a concentrator, not an eliminator.** A hub link receiving from
 three source links at range 20 takes 3×800 per 20 ticks = 120 e/t of arrivals,
@@ -343,7 +488,7 @@ buffers deliberately full rather than treating the terminal as a pass-through.
 
 ---
 
-## 9. The value-density corollary
+## 10. The value-density corollary
 
 Terminal cost is a **flat energy charge per unit shipped, regardless of what the
 unit is worth.**
@@ -374,7 +519,7 @@ you model that or not.
 
 ---
 
-## 10. What this implies for the planner
+## 11. What this implies for the planner
 
 Stated as arc costs, ready to price:
 
@@ -390,24 +535,42 @@ And the judgements that don't reduce to a table:
 
 1. **Never creep-haul across a room boundary when both ends have terminals.**
    4x on tax, and terrain- and hostility-blind.
-2. **A link pair's justification is ~28 body parts, ~0.3 CPU/tick, and ~6% of a
-   spawn — not its ≤1.6 e/t.** Any evaluator scoring links on energy will
-   under-build them.
-3. **Terminal placement is a free 2,500-tile choice.** Solve the flow-weighted
+2. **Price links on CPU: 0.77 vs 11.2 CPU per 1,000 energy against a max hauler,
+   a 15x edge — not the 1.7x their energy tax implies.** Any evaluator scoring
+   links on energy alone will systematically under-build them.
+3. **Pull body size before building links.** 3 parts → 50 parts is 16x on CPU
+   and costs only spawn energy, against a link's 5,000 energy and one of six
+   slots. But size is capped: at 50 parts creep-side CPU optimization is
+   exhausted and every further unit of throughput costs a flat 0.2 CPU/tick.
+   Size haulers by `flow × 2d` so they actually fill.
+4. **Prefer stationary creeps wherever a creep is unavoidable.** CPU cost is
+   movement intents; a link-fed filler that never moves runs 1.1 CPU/1,000e
+   against a roaming filler's 2.8, which is link-competitive.
+5. **Build in-room links as a 5 → 1 star, not as independent pairs.** Cooldown is
+   sender-charged, so a star is 89 e/t against three pairs' 53 e/t for the same
+   6 links — but it needs sender sequencing, because a receiver at 800 silently
+   drops the overflow.
+6. **Terminal placement is a free 2,500-tile choice.** Solve the flow-weighted
    1-median over its incident creep routes; for export rooms that is *not*
    beside storage.
-4. **Don't route terminal traffic.** The graph is complete and relaying is
+7. **Don't route terminal traffic.** The graph is complete and relaying is
    provably neutral. Any multi-hop terminal logic is dead code.
-5. **Terminal tax should never drive expansion geometry.** At radius 6 it is 13%.
+8. **Terminal tax should never drive expansion geometry.** At radius 6 it is 13%.
    It is not the constraint anyone thinks it is.
-6. **Prefer exporting product over exporting energy**, and check the market
+9. **Prefer exporting product over exporting energy**, and check the market
    before shipping energy more than ~3 rooms.
 
 ### Open questions worth measuring
 
-- The CPU shadow price that makes link builds pay (spec 29 territory) — §6
-  gives the physical displacement, not the price.
-- Whether the hub-drain creep is actually staffed to 800 e/t in practice, or
-  whether hub stalling is silently capping link duty cycle (§8).
+- The CPU shadow price itself (spec 29 territory). §7 gives the physical ratio —
+  15x — but not what a CPU-tick is worth in energy, which is what actually
+  decides whether a 10,000-energy link build clears the bar.
+- Whether the hub-drain creep is actually staffed to keep pace, or whether hub
+  stalling is silently capping link duty cycle (§7.4, §9). A stalled hub would
+  make every throughput figure here an overstatement and would not show up in
+  any energy metric.
 - Whether any live room is a net terminal exporter by enough margin to justify
-  the §7.3 offset, or whether that is theory without a subject.
+  the §8.3 offset, or whether that is theory without a subject.
+- Measured CPU per creep-tick for our haulers against the 0.2 intent floor —
+  §7.7 assumes 0.1–0.3 of code overhead on top, and that ratio decides how much
+  the link numbers understate.
