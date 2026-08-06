@@ -207,16 +207,44 @@ describe("fiscal archive", () => {
       ).to.deep.equal([]);
     });
 
-    (haveFixtures ? it : it.skip)("a record fits the sweep inside the published segments", () => {
-      const c = load("72823437");
-      const rec = pruneToRecord(c.tick, c.data.core, c.data.flow, c.data.corps, { pct: 0, cycle: 0 });
-      const bytes = JSON.stringify(rec).length;
+    (haveFixtures ? it : it.skip)("a WHOLE 21-month sweep fits inside the published segments", () => {
       // 22 snapshots bracket the 21-month ramp. They must SHARD into the
-      // segments we actually publish, or the tail of the sweep is unreadable.
-      const full = Array.from({ length: 22 }, (_, i) => ({ ...rec, t: i * 1500 }));
-      expect(shard(full).length, `record is ${bytes}B; 22 months need more segments than published`).to.be.at.most(
+      // segments we actually publish - `trim` absorbs an overflow by evicting
+      // the OLDEST months, which are the low-handicap controls, so an overflow
+      // silently deletes the most valuable half of the comparison.
+      //
+      // The counters must GROW across the ring or this test lies. Replicating a
+      // single record 22 times passed at a 90 KB budget while the realistic ring
+      // needed three shards: the cumulative meters accrue in floating point, and
+      // full-precision floats are ~17 chars where 9 carry every digit the
+      // account prints. That is why snapshots round and why this builds a
+      // ramping ring instead of copying one.
+      const [A, B] = captures.map(load);
+      const span = B.tick - A.tick;
+      const grow = (a: any, b: any, k: number): any => {
+        if (typeof a === "number" && typeof b === "number") return a + (b - a) * k;
+        if (a && typeof a === "object") {
+          const out: any = Array.isArray(a) ? [] : {};
+          for (const key of Object.keys(a)) out[key] = grow(a[key], b?.[key] ?? a[key], k);
+          return out;
+        }
+        return b ?? a;
+      };
+      const ring = Array.from({ length: 22 }, (_, i) =>
+        pruneToRecord(
+          i * 1500,
+          grow(A.data.core, B.data.core, (i * 1500) / span),
+          B.data.flow,
+          grow(A.data.corps, B.data.corps, (i * 1500) / span),
+          { pct: Math.min(i, 20), cycle: 0 }
+        )
+      );
+      const kb = (JSON.stringify(ring).length / 1024).toFixed(1);
+      const shards = shard(ring);
+      expect(shards.length, `a 22-month ring is ${kb} KB and needs ${shards.length} segments`).to.be.at.most(
         ARCHIVE_SEGMENTS.length
       );
+      for (const s of shards) expect(JSON.stringify(s).length).to.be.at.most(BYTE_BUDGET);
     });
 
     (haveFixtures ? it : it.skip)("carries the handicap that produced the month", () => {

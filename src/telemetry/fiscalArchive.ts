@@ -134,19 +134,65 @@ export function disarmSweep(): void {
 export const MAX_RECORDS = 24;
 
 /**
- * Per-segment byte ceiling. Screeps rejects a segment write over 100 KB; 90 KB
- * leaves headroom for the wrapper fields and for a record that widens when the
- * colony claims another room. At the measured ~6.8 KB/record that is ~13 months
- * per segment, so the two-segment shard holds the whole sweep.
+ * Per-segment byte ceiling. Screeps rejects a segment write over 100 KB (102,400
+ * bytes); 95 KB leaves ~7 KB for the wrapper fields.
+ *
+ * Sized against a SIMULATED full sweep, not an estimate from one record: 22
+ * months of real-capture-derived snapshots with the cumulative meters growing
+ * month over month come to ~152 KB, so the two segments hold the whole ramp with
+ * ~25% headroom. The first attempt budgeted 90 KB against a single record
+ * replicated 22 times and looked fine while the realistic ring needed three
+ * shards - which `trim` would have absorbed by evicting the OLDEST months, i.e.
+ * exactly the low-handicap controls the sweep exists to compare against.
  */
-export const BYTE_BUDGET = 90000;
+export const BYTE_BUDGET = 95000;
 
 /** The segments the ring is sharded across, in order. */
 export const ARCHIVE_SEGMENTS = [TELEMETRY_SEGMENTS.FISCAL, TELEMETRY_SEGMENTS.FISCAL2];
 
+/**
+ * Round to 6dp. For the SMALL-magnitude rates - per-tick spawn parts, the parts
+ * ledger - where 2dp is not a rounding but a deletion: a hauler's spawnParts is
+ * ~0.0028 p/t, so 2dp stores 0.00 and the entire evacuation budget reads zero.
+ * Measured: the round-trip's bank line moved 1.64 e/t before this split existed.
+ */
+function r6(n: number | undefined): number | undefined {
+  return n === undefined || !Number.isFinite(n) ? undefined : Math.round(n * 1e6) / 1e6;
+}
+
 /** Round to 2dp - these are report figures, not physics. Keeps the ring small. */
 function r2(n: number | undefined): number | undefined {
   return n === undefined || !Number.isFinite(n) ? undefined : Math.round(n * 100) / 100;
+}
+
+/**
+ * Round every number in a nested structure to 2dp.
+ *
+ * Not cosmetic - it is a CAPACITY control, and it was measured. The cumulative
+ * meters accrue in floating point (`structureDecay: 471087.69000005425`), so a
+ * full-precision snapshot serialises ~17 characters per counter where 9 carry
+ * every digit the account prints. Simulating a whole 21-month sweep put the ring
+ * at 179.6 KB - three shards against the two segments we publish - so `trim`
+ * would have quietly evicted the OLDEST months, which are exactly the
+ * low-handicap controls the experiment exists to compare against.
+ *
+ * These are energy totals in the thousands; 0.01 is far below the resolution of
+ * any line the account prints.
+ */
+function roundDeepAt(v: unknown, scale: number): unknown {
+  if (typeof v === "number") return Number.isFinite(v) ? Math.round(v * scale) / scale : v;
+  if (Array.isArray(v)) return v.map(x => roundDeepAt(x, scale));
+  if (v && typeof v === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = roundDeepAt(x, scale);
+    return out;
+  }
+  return v;
+}
+
+/** 2dp deep-round, for the large cumulative meters. */
+function roundDeep(v: unknown): unknown {
+  return roundDeepAt(v, 100);
 }
 
 /** Short source key: the tail of the id, enough to join rows across months. */
@@ -196,9 +242,9 @@ function pruneCumulative(c: Record<string, unknown> | undefined): Record<string,
     "pileTicksSmall"
   ];
   const out: Record<string, unknown> = {};
-  for (const k of keep) if (c[k] !== undefined) out[k] = c[k];
+  for (const k of keep) if (c[k] !== undefined) out[k] = roundDeep(c[k]);
   // Role attribution is 4 keys and answers "which fleet is dying" - cheap, kept.
-  if (c.tombstoneByRole !== undefined) out.tombstoneByRole = c.tombstoneByRole;
+  if (c.tombstoneByRole !== undefined) out.tombstoneByRole = roundDeep(c.tombstoneByRole);
   return out;
 }
 
@@ -267,7 +313,7 @@ export interface FiscalArchiveRecord {
   pct?: number;
   /** Sweep cycle index at this boundary. */
   cyc?: number;
-  gcl?: { p: number; l: number };
+  gcl?: { p?: number; l: number };
   cpu?: { u?: number; b: number };
   /** Dynamic warchest/reserve target. */
   wt?: number;
@@ -409,10 +455,10 @@ export function pruneToRecord(
     t: tick,
     pct: sweep?.pct,
     cyc: sweep?.cycle,
-    gcl: gcl ? { p: gcl.progress, l: gcl.level } : undefined,
+    gcl: gcl ? { p: r2(gcl.progress), l: gcl.level } : undefined,
     cpu: cpu ? { u: r2(cpu.used), b: cpu.bucket } : undefined,
     wt: core.warchestTarget as number | undefined,
-    ss: core.spawnSpend,
+    ss: roundDeep(core.spawnSpend),
     lo: {
       w: losses.windowTicks,
       pd: r2(losses.pileDecay as number),
@@ -423,8 +469,8 @@ export function pruneToRecord(
       ts: r2(losses.tombstoneStock as number),
       c: pruneCumulative(losses.cumulative as Record<string, unknown> | undefined)
     },
-    sb: core.sourceBuffers,
-    sd: core.sourceDropped,
+    sb: roundDeep(core.sourceBuffers),
+    sd: roundDeep(core.sourceDropped),
     rm: rooms.map(r => [
       r.name,
       r.rcl,
@@ -436,7 +482,7 @@ export function pruneToRecord(
       r.siteCount,
       r.energyAvailable
     ]),
-    bp: core.bodyParts,
+    bp: roundDeep(core.bodyParts),
     sp: spawns.map(s => [
       s.name,
       r2(s.utilization as number),
@@ -455,7 +501,7 @@ export function pruneToRecord(
       s.nodeId
     ]),
     fsum: pruneSummary(flow?.summary as Record<string, unknown> | undefined),
-    fpl: flow?.partsLedger,
+    fpl: roundDeepAt(flow?.partsLedger, 1e6),
     // sourceId is kept INTACT: the ledger classifies a route by its prefix
     // ("bank-", "scavenge-"), so a truncated id would silently reclassify
     // transient haulers as source routes.
@@ -471,7 +517,7 @@ export function pruneToRecord(
       r2(h.carryParts as number),
       r2(h.flowRate as number),
       h.distance,
-      h.spawnParts,
+      r6(h.spawnParts as number),
       // `port` is a POSITION in the segment, not a boolean; the budget only
       // tests it for truthiness, so it archives as a flag.
       h.port ? 1 : 0
@@ -483,7 +529,7 @@ export function pruneToRecord(
       s.priority,
       r2(s.demand as number),
       r2(s.workParts as number),
-      s.spawnLoad,
+      r6(s.spawnLoad as number),
       s.spawnDist
     ]),
     // Every ADJUDICATED candidate - funded, over-budget and defunded alike.
@@ -511,9 +557,9 @@ export function pruneToRecord(
           String(c.id).slice(-6),
           c.kind,
           c.creepCount,
-          c.bodyParts,
-          c.body,
-          c.produced,
+          roundDeep(c.bodyParts),
+          roundDeep(c.body),
+          roundDeep(c.produced),
           sz.linkFed === true ? 1 : 0,
           // The feeder's planned relay - the controller-link hop's budget.
           r2(sz.planFlow as number),
