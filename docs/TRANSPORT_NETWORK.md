@@ -8,6 +8,17 @@ Everything here is derived from published Screeps constants. No simulation was
 run; treat the numbers as analytic, and the break-evens as ±20% given duty-cycle
 and pathing slop.
 
+**Where this sits.** [GRAND_STRATEGY.md](GRAND_STRATEGY.md) is the doctrine —
+value-per-intent, the concentration engine, peace-as-CPU-optimal. This document
+supplies the arc costs and the intent accounting that doctrine assumes but never
+derived. The actionable programme is
+[spec 46](specs/46-concentration-of-force.md); the intent-cost table §7 produces
+is fed to [spec 29](specs/29-cpu-as-costed-resource.md), which asked for exactly
+it. Two reconciliations were forced and are flagged in place: §12.1's military
+framing is **withdrawn** in favour of GRAND_STRATEGY §5–§6, and §13.3's reading of
+upgrade boosts **contradicts GRAND_STRATEGY §2** and is unresolved pending spec
+46's V1.
+
 ---
 
 ## 1. The result in one paragraph
@@ -881,8 +892,17 @@ what you do with surplus when there is nothing left to build.
 
 Watch the fourth row. In a fully-RCL8 empire **every room is a source and none is
 a sink**, so energy shipped between mature rooms merely circulates, paying 3.33%
-every time it moves. That is the real endgame constraint, and it is why power
-processing and the market exist at all.
+every time it moves. That is the real endgame constraint.
+
+**And there is a better answer to it than power processing.**
+[GRAND_STRATEGY §3](GRAND_STRATEGY.md) points out that GCL control points are
+credited on *every* upgrade, forever — so un-claiming and re-claiming a
+controller pays out another ~16.4M. A **bare sink controller** carries no local
+infrastructure (energy and upgraders are imported), so the rotation costs nothing
+to rebuild, and it absorbs at ~1,000 e/t against a parked RCL8 room's 15. That
+dissolves the no-sink problem entirely and converts surplus straight into GCL,
+which is the currency that actually gates the empire. It belongs above power
+processing in the table, and above everything else once no growth target remains.
 
 ---
 
@@ -912,10 +932,18 @@ and only an RCL8 room can build the maximum creep the game permits.
 
 That is the whole argument. **Concentration exists to overcome the one
 non-poolable resource**, and each RCL step is a ~2.3x jump in maximum single-creep
-strength. Combat outcomes are decided by your *best* creep, not your average one,
-so capability is convex in RCL — and by Jensen, for a fixed energy budget a
-concentrated RCL distribution beats a spread one on peak capability. That is the
-formal version of "overwhelms locally-focused bots," and it is correct.
+strength.
+
+> **Correction 2026-08-06.** This section originally closed by justifying
+> concentration on *combat* convexity — capability is convex in RCL, so by Jensen
+> a concentrated distribution beats a spread one on peak fighting strength. That
+> reasoning is sound in isolation and **withdrawn anyway**:
+> [GRAND_STRATEGY §5–§6](GRAND_STRATEGY.md) shows, with engine-verified mechanics,
+> that every offensive branch dead-ends on deliberate rules and that peace is the
+> CPU-optimal policy. The convexity still matters — but as *defensive* depth and
+> as spawn throughput for growth, not as a war plan. **Concentration's value is
+> that it out-grows rivals, not that it out-fights them.** §13.4 gives the
+> economic form of the argument, which is the one that carries.
 
 ### 12.2 Serial dominates parallel, and it is not close
 
@@ -1229,13 +1257,31 @@ holds up: you could eliminate transport entirely and recover less than 6%.
 600 ticks of life — **exactly 1 e/t, permanently, per part** — and it is the most
 underestimated line on this statement.
 
-**Upgrader bodies exceed the entire transport bill.** Which points at boosts:
-XGH2O doubles upgrade per WORK, halving the fleet from 12.0 to 6.0 e/t. But that
-needs ~2,400 units per 1,500 ticks — ~173,000 units across the whole rush, an
-industrial program well beyond what §12.8's market can supply. **Don't boost
-upgraders for the energy.** Boost them because halving the creep count doubles the
-absorption ceiling against the target's one-spawn constraint (§12.4) — 240 e/t
-becomes ~480. That is a spawn-capacity argument, not an efficiency one.
+**Upgrader bodies exceed the entire transport bill**, which points at boosts —
+and here this document collides with existing doctrine.
+
+The reading above assumes XGH2O buys *throughput per WORK*, halving the fleet
+from 12.0 to 6.0 e/t while the energy-per-progress stays 1:1. On that reading the
+boost is a modest lever: ~2,400 mineral units per 1,500 ticks, ~173,000 across
+the rush, an industrial programme beyond what §12.8's market supplies. You would
+boost not for the energy but because halving the creep count doubles the
+absorption ceiling against the one-spawn constraint (§12.4) — a spawn-capacity
+argument, not an efficiency one.
+
+> **[GRAND_STRATEGY §2](GRAND_STRATEGY.md) says otherwise, and if it is right the
+> conclusion inverts.** It reports, citing engine internals, that
+> `upgradeController` deducts energy on the *unboosted* WORK count but credits
+> progress on the *boosted* amount — so XGH2O yields **two progress per one
+> energy**, free progress. That would **halve the entire climb**, 16.2M of energy
+> down to 8.1M, dwarfing every other lever here (transport tax is 3.9% of gross;
+> this would be 50%).
+>
+> Unresolved, deliberately. The claim is specific and was said to be verified —
+> but it sits in the same document as the `CONTROLLER_LEVELS[7]` error that our
+> own telemetry disproved, so its verified status no longer carries unaided.
+> **Spec 46's leg V1 settles it, and nothing else should be sequenced ahead of
+> that**: if the free boost holds, minerals for upgrader boosts become the single
+> highest-value line in this statement and the §13.1 bottom line is wrong by 2x.
 
 ### 13.4 The capital account — and a correction to §12.3
 

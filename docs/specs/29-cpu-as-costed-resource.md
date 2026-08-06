@@ -55,6 +55,54 @@ yield and CPU cost diverge most there — which is why the gap surfaced.
   being independent. Bulkhead stays as the safety net; the price prevents hitting
   it.
 
+## The static estimator, already derived (2026-08-06)
+
+The fallback estimator this spec calls for exists now — worked in
+[docs/TRANSPORT_NETWORK.md §7](../TRANSPORT_NETWORK.md), analytic and unmeasured,
+but concrete enough to code against the day this is picked up. It sharpens
+GRAND_STRATEGY §1's sketch ("harvest ≈ 1/source, haul ≈ 2/trip minus links,
+upgrade ≈ 1/static WORK") into numbers.
+
+**The law:** an intent is 0.2 CPU, and **moving costs one intent per tile
+regardless of what the creep carries**. So CPU efficiency is exactly *energy
+delivered per intent*, and the enemy is movement, not cargo. Two consequences do
+most of the work:
+
+- **A moving creep costs ~0.2 CPU/tick no matter how big it is** — it fires one
+  move intent per tick either way. Creep capacity is CPU-free.
+- **CPU is linear in energy·tiles/tick**, the same unit the transport analysis
+  uses for bandwidth-distance. One max hauler (33C:17M) is 825 e·tiles/tick at
+  0.2 CPU/tick, fixing the coefficient at **2.42 × 10⁻⁴ CPU per e·tile/tick**.
+  Energy cost is likewise linear in that unit (2.6 × 10⁻³), so *for routing and
+  placement decisions the two currencies are proportional and no shadow price is
+  needed* — the price is only required where capital sits on the other side.
+
+Per-mode, over a 45-tile room crossing:
+
+| mode | CPU per 1,000 energy |
+|---|---|
+| 3-part hauler (100 capacity) | 184 |
+| 12-part hauler (400 capacity) | 46 |
+| 50-part hauler (1,650 capacity) | 11.2 |
+| link pair (1 send + 2 hub-drain intents) | **0.77** |
+| stationary link-fed filler, zero moves | 1.1 |
+| roaming filler | 2.8 |
+
+**Two levers, the same size, and they multiply.** Body size buys 16x and then
+stops dead at `MAX_CREEP_SIZE`; links buy a further 15x past that wall. Body size
+is the cheaper lever — it costs only spawn energy against a link's 5,000 and one
+of six slots — but once haulers are at 50 parts there is *no* creep-side CPU
+optimization left, and every further unit of throughput costs a flat 0.2
+CPU/tick. That is the point where links stop being optional, and it is exactly
+the kind of preference this spec wants falling out of a price rather than a flag.
+
+Caveat that matters for calibration: this counts **engine intents only**. Own-code
+cost sits on top and is wildly asymmetric — a hauler carries pathfinding, a state
+machine and traffic resolution (another 0.1–0.3 CPU/tick); a link's logic is
+"check cooldown, check full, fire." So the link ratios above are a **floor**, and
+the measured estimator this spec prefers should come in higher. Spec 20 phase 1's
+per-corp CPU metering is the instrument that would settle it.
+
 ## Why deferred (this is the honest part)
 
 CPU is **not** the binding constraint for a small or mid colony — it is
