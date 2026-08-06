@@ -32,6 +32,20 @@ export interface CorpCensusEntry {
    * body so per-commission plan-vs-actual is a single-segment read.
    */
   fleet?: CommissionFleet;
+  /**
+   * THE CORP BUDGET (spec 47), verbatim off the commission envelope: the
+   * declared shape, what the corp draws from the colony, and what it yields.
+   *
+   * Published on segment 4 v17 so the statement can SUM the corps rather than
+   * re-derive what it thinks they cost. Absent for the legacy-registry kinds
+   * (bootstrap, spawning), which carry no commission.
+   *
+   * (This interface and CommissionHost's are structurally the same census row;
+   * the two declarations are pre-existing debt, so both carry these fields.)
+   */
+  commissionShape?: string;
+  consumes?: { energyRate?: number; spawnPartsPerTick: number };
+  produces?: { energyRate?: number; valuePerTick?: number };
 }
 
 /** Live creep count for any corp that exposes the accessor. */

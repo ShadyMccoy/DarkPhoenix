@@ -221,7 +221,12 @@ function publishCorpCpu(tick: number): void {
     if (!cpuThisTick.has(corpId) && !ensureStore().has(corpId)) cpuEma.delete(corpId);
   }
   const top = [...cpuThisTick.entries()]
-    .map(([corpId, row]) => ({ corpId, kind: row.kind, cpu: Number(row.cpu.toFixed(3)), avg: Number((cpuEma.get(corpId) ?? row.cpu).toFixed(3)) }))
+    .map(([corpId, row]) => ({
+      corpId,
+      kind: row.kind,
+      cpu: Number(row.cpu.toFixed(3)),
+      avg: Number((cpuEma.get(corpId) ?? row.cpu).toFixed(3))
+    }))
     .sort((a, b) => b.avg - a.avg)
     .slice(0, CPU_TOP_ROWS);
   const rounded: { [kind: string]: number } = {};
@@ -348,6 +353,16 @@ export interface CorpCensusEntry {
    * body. Absent when the commission declares none (aux kinds, legacy).
    */
   fleet?: Commission["fleet"];
+  /**
+   * THE CORP BUDGET (spec 47), verbatim off the envelope - what this corp draws
+   * from the colony and what it yields back.
+   *
+   * Published so the statement can SUM the corps instead of re-deriving what it
+   * thinks they cost. The reporting layer's parallel reconstruction
+   * (`waste-ledger.planSpawnLoad`) is a second book; this is the first one.
+   */
+  consumes?: Commission["consumes"];
+  produces?: Commission["produces"];
 }
 
 /**
@@ -364,6 +379,8 @@ export function allCommissionedCorps(): CorpCensusEntry[] {
       kind: entry.kind,
       corp: entry.corp,
       commissionShape: entry.commission.shape,
+      consumes: entry.commission.consumes,
+      produces: entry.commission.produces,
       ...(entry.commission.fleet ? { fleet: entry.commission.fleet } : {})
     });
   }
