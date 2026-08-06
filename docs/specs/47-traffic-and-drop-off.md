@@ -717,3 +717,70 @@ own ullage insight from earlier the same day, applied where it actually pays.
 and build the dedicated relay only if the miner's half is not enough — by
 which time spec 39 phase 2 may have landed the buying side and the kind can
 integrate the sanctioned way instead of the debt way.
+
+## OWNER CORRECTIONS 2026-08-06 (three, all of which move the design)
+
+### 1. The relay sizing objective was wrong — it is COOLDOWN, not overflow
+
+*"We always want our link filled as soon as it cools down at the latest ready
+to send a full 800 and not wasting any linking transfers."*
+
+That is a better objective than the one I sized against. I sized the relay to
+clear the OVERFLOW rate (`portWaitFrac x flow` ≈ 4.9 e/t) — enough to stop the
+container backing up. The owner's criterion is **never waste a cooldown**: the
+link must be reloaded to a full volley before it can fire again. A wasted
+cooldown at range 10 is 80 e/t of foregone transfer, which dwarfs the overflow.
+
+```
+  CARRY = (LINK_CAPACITY / range) * PARKED_RELAY_CYCLE_TICKS / CARRY_CAPACITY
+        = 32 / range
+
+  range     5    10    15    20    25    30
+  CARRY   6.4   3.2   2.1   1.6   1.3   1.1
+```
+
+A 1-CARRY miner sustains `CARRY_CAPACITY / 2` = **25 e/t**, so it only keeps up
+at **range ≥ 32** — beyond most in-room geometry — and it owes ~10 e/t to its
+own harvest first. **So "the miner alone drains it" (cycle t72810328) is
+WRONG under the right objective.** The owner's "an extra carry or two depending
+on throughput" is exactly the `32/range` law, and the miner needs +2-3 CARRY at
+typical ranges.
+
+### 2. A deposit port does NOT require an adjacent source
+
+*"I disagree that it's only links with sources. Building links inside our rooms
+near the edge for remote mining is probably a great way to go in a lot of
+cases. And in that case there's no miner, but we still want a tender."*
+
+Correct, and it invalidates a premise I built on twice.
+`detectLinkDepositPorts` only admits a link with `sources.find(s =>
+s.pos.inRangeTo(link.pos, 2))` — a leftover from the spec-26 v1 design where
+the owning source's hauler staffed the drain. An **EDGE LINK** placed purely to
+shorten remote hauls is strictly better geometry (it meets the haulers where
+they enter the room) and has no miner at all.
+
+Two consequences:
+- The port detector must stop requiring an adjacent source.
+- **`PortRelayCorp` is genuinely needed after all.** The reason I retired it —
+  "the miner is already standing there" — fails on both counts now: it is not
+  enough at any realistic range (§1), and at an edge link there is no miner.
+  Its blocker (spec 39's spawn-authority ratchet) therefore has to be solved
+  rather than sidestepped.
+
+### 3. Construction can absorb more — the cap is a SCHEDULE, not a capacity
+
+*"It can absorb more than that though."* Right. The construction sink's demand
+comes from
+
+```
+  projectAbsorbRate(remaining, travel, accelerate)
+      = max(5, remaining / projectBuildHorizon(travel, accelerate))
+```
+
+— remaining work divided by a **build HORIZON**. The measured 17.49 e/t against
+8,135e remaining implies a ~465-tick horizon. That is a policy choice about how
+fast to build, not a limit on how fast builders *could*. And the owner's
+follow-up names the reason it can go faster here: *"we can change the energy
+flow during the construction project — there's a link right there to consume
+from"* — the port container/link is metres from the site, so this project's
+supply leg is unusually cheap.
