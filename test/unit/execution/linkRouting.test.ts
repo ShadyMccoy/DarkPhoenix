@@ -133,50 +133,72 @@ describe("routeSourceVolley - throughput per cooldown (owner 2026-07-29)", () =>
 });
 
 /**
- * ARRIVALS-FIRST SEQUENCING (spec 45 leg 1, owner-directed 2026-08-05).
+ * THE RELAY'S COOLDOWN IS THE SCARCE THING (spec 45 leg 1, CORRECTED by the
+ * owner 2026-08-06: *"Leg 1 HoldCoreRelay is only good if it increases
+ * throughput. Ie if the controller link is closer and empty enough. It might
+ * be rare. Energy tax is less important."*).
  *
- * Measured t72805426: **hubClampShare 0.625** (62.5% of port volleys clamped
- * by a full core) against **coreEmptyShare 0.276** (the core sits empty over
- * a quarter of the time). A buffer cannot be both saturated and idle - that
- * is a SEQUENCING failure, not capacity, and it had worsened from the 0.50
- * clamp share spec 45 was written against.
+ * The first implementation held the relay whenever any port stood loaded and
+ * CTRL had threshold room, justified on hop count and the 3% tax. That was
+ * wrong twice over:
  *
- * One of its two mechanisms is the core->CTRL relay COMPETING with the source
- * ports for the controller link's free space. The relay is the expensive path
- * (two hops, two 3% taxes, and it spends the CORE link's cooldown - a resource
- * every source in the room shares); a port firing DIRECT is one hop and one
- * tax, and PORT B is physically closer to CTRL than to the hub. So when a port
- * stands loaded and ready, CTRL's space belongs to it and the relay must wait
- * one beat.
+ * 1. **It contradicted leg 2.** The core->CTRL relay is one of the core
+ *    link's two DRAIN paths. Holding it keeps the core fuller - exactly when
+ *    leg 2 is emptying the core to give inbound volleys somewhere to land.
+ *    The measured defect is hubClampShare 0.625 (ports clamped by a FULL
+ *    core), so a rule that slows core drainage attacks the wrong side.
+ * 2. **The tax is not the argument.** Per the owner, throughput is. And the
+ *    two paths do not even compete for the same cooldown - the port spends
+ *    its own, the relay spends the core's.
  *
- * The gate must NOT replace the warchest law (spec 45 trap note): below the
- * reserve, `preferControllerDirect` is false, ports bank at the core by
- * production-first doctrine, and the relay is then the ONLY controller feed -
- * holding it there would starve the controller outright.
+ * What they DO contend for is CTRL's free space WITHIN ONE TICK, and the
+ * engine's rule makes that contention expensive in exactly one way: a
+ * transfer is CLAMPED to the target's free capacity but
+ * `cooldown += LINK_COOLDOWN * range` is charged IN FULL. So if a direct port
+ * volley lands in CTRL this tick and the relay fires into what is left, the
+ * core pays its whole cooldown to move a sliver - and cannot drain again for
+ * LINK_COOLDOWN x range ticks, which is precisely the landing room arrivals
+ * need.
+ *
+ * So the honest rule is the SAME one `routeSourceVolley` step 4 already
+ * applies to ports: do not pay a full cooldown for less than a worthwhile
+ * volley. No warchest carve-out is needed any more - with no direct fire
+ * inbound the rule reduces to the pre-existing behavior exactly, so policy
+ * never enters it. And the owner is right that it should be RARE: it fires
+ * only when a direct volley genuinely crowds the relay out.
  */
-describe("holdCoreRelay (spec 45 leg 1: ports outrank the relay for CTRL's space)", () => {
-  it("HOLDS the relay while a loaded port can take CTRL's space directly", () => {
-    expect(holdCoreRelay({ pendingSenders: 1, preferControllerDirect: true, controllerFree: 800, threshold: 100 })).to.equal(true);
+describe("holdCoreRelay (spec 45 leg 1: never spend the core cooldown on a dribble)", () => {
+  it("HOLDS when a direct volley leaves the relay less than a worthwhile fire", () => {
+    // CTRL has 300 free; a port is landing 250 direct this tick. The relay
+    // would move 50 and spend the core's whole cooldown doing it.
+    expect(holdCoreRelay({ coreStore: 800, controllerFree: 300, incomingDirect: 250, threshold: 100 })).to.equal(true);
   });
 
-  it("fires the relay when no port is pending (the relay is the FALLBACK, not the competitor)", () => {
-    expect(holdCoreRelay({ pendingSenders: 0, preferControllerDirect: true, controllerFree: 800, threshold: 100 })).to.equal(false);
+  it("FIRES when the relay still lands a full volley alongside the direct fire", () => {
+    // 800 free, 250 arriving direct -> 550 still there for the relay. Both
+    // deliver; nothing is wasted; the core drains (which is what the landing
+    // zone needs).
+    expect(holdCoreRelay({ coreStore: 800, controllerFree: 800, incomingDirect: 250, threshold: 100 })).to.equal(false);
   });
 
-  it("NEVER holds below the warchest - production-first makes the relay the only CTRL feed (spec 26 stage-2 law)", () => {
-    // Ports bank at the core here; holding the relay would starve the
-    // controller completely. The arrivals-first rule respects the warchest
-    // gate rather than replacing it.
-    expect(holdCoreRelay({ pendingSenders: 3, preferControllerDirect: false, controllerFree: 800, threshold: 100 })).to.equal(false);
+  it("with NO direct fire inbound the rule is the pre-existing behavior, bit for bit", () => {
+    // This is the common case, and it must not change: the relay drains the
+    // core whenever CTRL can take a worthwhile volley.
+    expect(holdCoreRelay({ coreStore: 800, controllerFree: 800, incomingDirect: 0, threshold: 100 })).to.equal(false);
+    expect(holdCoreRelay({ coreStore: 800, controllerFree: 100, incomingDirect: 0, threshold: 100 })).to.equal(false);
+    // CTRL too full for a worthwhile fire: the existing guard already blocks
+    // this, and the rule agrees rather than fighting it.
+    expect(holdCoreRelay({ coreStore: 800, controllerFree: 50, incomingDirect: 0, threshold: 100 })).to.equal(true);
   });
 
-  it("does not hold when CTRL lacks room for a whole volley anyway (holding would buy nothing)", () => {
-    // The port could not fire direct either, so reserving the space is pointless
-    // and the relay's own clamped fire is no worse.
-    expect(holdCoreRelay({ pendingSenders: 2, preferControllerDirect: true, controllerFree: 50, threshold: 100 })).to.equal(false);
+  it("is bounded by what the CORE actually holds - a near-empty core is not a dribble problem", () => {
+    // The core holds 60: it cannot make a threshold volley regardless, and
+    // the pre-existing store guard handles it. The rule must not claim this
+    // as its own case.
+    expect(holdCoreRelay({ coreStore: 60, controllerFree: 800, incomingDirect: 0, threshold: 100 })).to.equal(true);
   });
 
-  it("does not hold without a controller link at all (no space to reserve)", () => {
-    expect(holdCoreRelay({ pendingSenders: 2, preferControllerDirect: true, controllerFree: null, threshold: 100 })).to.equal(false);
+  it("never holds without a controller link (nothing to contend over)", () => {
+    expect(holdCoreRelay({ coreStore: 800, controllerFree: null, incomingDirect: 0, threshold: 100 })).to.equal(false);
   });
 });

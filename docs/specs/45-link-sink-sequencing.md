@@ -218,18 +218,42 @@ hubVolleyAvg 378 → 500 of 800, coreEmptyShare 0.26 → 0.276. Senders blocked
 be both saturated and idle, which is what makes this sequencing rather than
 capacity.
 
-**Leg 1 — `holdCoreRelay` (execution/linkRouting).** The core→CTRL relay
-HOLDS while any port stands loaded (≥ LINK_FIRE_THRESHOLD) and off cooldown
-and CTRL has room for a whole volley. The relay is the expensive feed (two
-hops, two 3% taxes, and it spends the CORE cooldown every source shares);
-the direct fire is one hop and PORT B is physically nearer CTRL. Wired in
-`runLinks` with `pendingSenders` computed BEFORE the fire loop — Screeps
-intents are deferred, so `link.store` still reads its pre-fire value and a
-port that just fired would otherwise count itself as pending.
-**The warchest gate is respected, not replaced** (spec 45 trap note): below
-the reserve `preferControllerDirect` is false, ports bank at the core by
-production-first law, and the relay is then the ONLY controller feed — the
-hold is disabled there, pinned by its own test.
+**Leg 1 — `holdCoreRelay` (execution/linkRouting). BUILT WRONG, THEN
+CORRECTED the same day — the wrong version is the more useful record.**
+
+*v1 (wrong):* hold the relay whenever any port stood loaded and CTRL had
+threshold room, justified on hop count and the 3% tax, per this spec's own
+"ports outrank the core relay for CTRL's free space" framing.
+
+*The owner's correction (2026-08-06):* "Leg 1 HoldCoreRelay is only good if
+it increases throughput. Ie if the controller link is closer and empty
+enough. It might be rare. Energy tax is less important." Chasing that down
+found the rule was wrong in a way that FOUGHT ITS OWN SIBLING LEG:
+
+- The core→CTRL relay is one of the core link's two DRAIN paths. Holding it
+  keeps the core FULLER — exactly when leg 2 is emptying the core to give
+  inbound volleys somewhere to land. The measured defect is hubClampShare
+  0.625, ports clamped by a FULL core, so a rule that slows core drainage
+  attacks the wrong side of it.
+- The tax was never the argument, and the two paths do not even compete for
+  the same cooldown: the port spends its own, the relay spends the core's.
+
+*v2 (built):* what they DO contend for is CTRL's free space WITHIN ONE TICK,
+and the engine makes that expensive in exactly one way — a transfer is
+CLAMPED to the target's free capacity while `cooldown += LINK_COOLDOWN *
+range` is charged IN FULL. So when a direct volley lands in CTRL this tick
+and the relay fires into the remainder, the core pays its whole cooldown to
+move a sliver and cannot drain again for LINK_COOLDOWN × range ticks — which
+is precisely the landing room the arrivals needed. The rule is therefore the
+SAME one `routeSourceVolley` step 4 applies to ports: never pay a full
+cooldown for less than a worthwhile volley.
+
+`runLinks` accumulates `incomingDirect` (energy direct fires land in CTRL
+this tick) through the port loop and passes it to the hold. With no direct
+fire inbound the rule reduces to the pre-existing behavior BIT FOR BIT — so
+the warchest carve-out v1 needed is gone: policy never enters a purely
+physical rule. And per the owner it should be RARE, firing only when a direct
+volley genuinely crowds the relay out.
 
 **Leg 2 — arrivals-first at the core buffer (corps/nodeEnergy).** Rather than
 patching the load gate and the drain direction separately, the fix rides the
@@ -265,7 +289,9 @@ trip it.
 - `hubClampShare` 0.625 → toward 0; `hubVolleyAvg` 500 → toward full 800.
 - `coreEmptyShare` 0.276 → materially UP (an empty core is the goal now: it
   is landing room, not idleness — read it WITH the clamp share, never alone).
-- `directShare` 0.25 → up; `taxRate` 3.37 → down (one hop replacing two).
+- `directShare` 0.25 → up (leg 3's smaller deposit bodies clear ports faster,
+  so ports stand loaded less often); `taxRate` 3.37 → down as a SIDE EFFECT,
+  never as the goal (owner: "energy tax is less important").
 - Deposit-route hauler bodies ≤ 16 CARRY; per-corp `idleSinkAtSinkFrac` down
   at the seven deposit routes; H1 `atSink` (0.05) down.
 - E6 held-mouth count/heldFrac down; L1 mouth share of pile decay down (the

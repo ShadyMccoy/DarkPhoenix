@@ -70,18 +70,9 @@ export function runLinks(): void {
     const preferControllerDirect =
       banked >= resolveReserveTarget(typeof Memory !== "undefined" ? Memory.warchestTarget : undefined);
 
-    // ARRIVALS-FIRST (spec 45 leg 1): count the ports that could take CTRL's
-    // space DIRECTLY this tick, BEFORE any fire. Screeps intents are deferred -
-    // `link.store` still reads its pre-fire value after transferEnergy - so
-    // this must be computed up front rather than re-read below, or a port that
-    // just fired would still count as pending.
-    const pendingSenders = links.filter(
-      l =>
-        l.id !== core.id &&
-        !(ctrl && l.id === ctrl.id) &&
-        l.cooldown === 0 &&
-        l.store[RESOURCE_ENERGY] >= LINK_FIRE_THRESHOLD
-    ).length;
+    // Energy DIRECT port fires land in CTRL this tick - what the relay's own
+    // fire would be clamped by (spec 45 leg 1; see holdCoreRelay).
+    let incomingDirect = 0;
 
     for (const link of links) {
       if (link.id === core.id) continue;
@@ -110,19 +101,21 @@ export function runLinks(): void {
         const wanted = link.store[RESOURCE_ENERGY];
         const amount = Math.min(wanted, target.store.getFreeCapacity(RESOURCE_ENERGY));
         const isDirect = !!ctrl && target.id === ctrl.id;
+        if (isDirect) incomingDirect += amount;
         link.transferEnergy(target);
         recordLinkFire(room.name, isDirect ? "controllerDirect" : "hub", amount, Game.time, isDirect ? undefined : wanted);
       }
     }
 
-    // The relay is the FALLBACK controller feed, not the competitor: while a
-    // port stands loaded and off cooldown, CTRL's space belongs to the cheaper
-    // one-hop direct fire (spec 45 leg 1 - see holdCoreRelay for the measured
-    // clamp-vs-empty evidence and the warchest carve-out).
+    // Hold only when a direct volley landing THIS TICK would clamp the relay
+    // to a dribble - spending the core's whole cooldown for a sliver delays
+    // the next real core drain, which is the landing room arrivals need
+    // (spec 45 leg 1, corrected 2026-08-06; the rule reduces to the
+    // pre-existing behavior when no direct fire is inbound).
     const relayHeld = holdCoreRelay({
-      pendingSenders,
-      preferControllerDirect,
+      coreStore: core.store[RESOURCE_ENERGY],
       controllerFree: ctrl ? ctrl.store.getFreeCapacity(RESOURCE_ENERGY) : null,
+      incomingDirect,
       threshold: LINK_FIRE_THRESHOLD
     });
 

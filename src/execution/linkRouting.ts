@@ -122,48 +122,54 @@ export function routeSourceVolley(ctx: VolleyContext): VolleyTarget {
 
 /** The facts the core->CTRL relay hold reads (pure; see holdCoreRelay). */
 export interface RelayHoldContext {
-  /**
-   * Source/port links standing loaded (>= threshold) and OFF COOLDOWN this
-   * tick - the volleys that could land in CTRL directly if its space is left
-   * for them.
-   */
-  pendingSenders: number;
-  /** The warchest gate (spec 26 stage 2): are ports allowed to fire direct at all? */
-  preferControllerDirect: boolean;
+  /** Energy standing in the CORE link (what the relay could send). */
+  coreStore: number;
   /** CTRL's free capacity, or null when the room has no controller link. */
   controllerFree: number | null;
+  /**
+   * Energy DIRECT port fires will land in CTRL this same tick. Screeps
+   * processes both intents against the same free capacity, so this is what
+   * the relay's own fire would be clamped by.
+   */
+  incomingDirect: number;
   /** Minimum worthwhile volley (LINK_FIRE_THRESHOLD). */
   threshold: number;
 }
 
 /**
- * ARRIVALS-FIRST: should the core->CTRL relay HOLD this tick because a source
- * port can use CTRL's space more cheaply (spec 45 leg 1, owner-directed
- * 2026-08-05)?
+ * Should the core->CTRL relay HOLD this tick because its fire would be
+ * clamped to a dribble (spec 45 leg 1, CORRECTED by the owner 2026-08-06:
+ * "Leg 1 HoldCoreRelay is only good if it increases throughput... It might be
+ * rare. Energy tax is less important")?
  *
- * Measured t72805426: hubClampShare **0.625** against coreEmptyShare
- * **0.276** - the core clamps arriving volleys 62% of the time while sitting
- * empty 28% of the time. A buffer cannot be both saturated and idle, so this
- * is sequencing, not capacity (and it had worsened from the 0.50 clamp share
- * spec 45 was written against).
+ * THE FIRST VERSION WAS WRONG, and worth recording because it was wrong in a
+ * way that fought its own sibling leg. It held the relay whenever a port
+ * stood loaded and CTRL had threshold room, justified on hop count and the 3%
+ * tax. But the core->CTRL relay is one of the core link's two DRAIN paths, so
+ * holding it keeps the core FULLER - exactly when leg 2 is emptying the core
+ * to give inbound volleys somewhere to land. The measured defect is
+ * hubClampShare 0.625, ports clamped by a FULL core; a rule that slows core
+ * drainage attacks the wrong side of it. The tax was never the argument
+ * either: the port spends its own cooldown, the relay spends the core's, so
+ * they do not even compete for that.
  *
- * The relay is the EXPENSIVE controller feed: two hops, two 3% taxes, and it
- * spends the CORE link's cooldown - the one resource every source in the room
- * shares. A port firing direct is one hop, one tax, and PORT B is physically
- * closer to CTRL than to the hub. So while a port stands loaded and ready,
- * CTRL's free space belongs to it and the relay waits one beat; the relay
- * becomes the fallback it should always have been, not the competitor.
+ * What they DO contend for is CTRL's free space WITHIN ONE TICK, and the
+ * engine makes that expensive in exactly one way: a transfer is CLAMPED to
+ * the target's free capacity while `cooldown += LINK_COOLDOWN * range` is
+ * charged IN FULL. So when a direct volley lands in CTRL this tick and the
+ * relay fires into the remainder, the core pays its whole cooldown to move a
+ * sliver and cannot drain again for LINK_COOLDOWN x range ticks - which is
+ * precisely the landing room the arrivals needed.
  *
- * THE WARCHEST GATE IS NOT REPLACED (spec 45 trap note): below the reserve
- * `preferControllerDirect` is false, ports bank at the core by production-first
- * doctrine (spec 26 stage-2 law), and the relay is then the ONLY controller
- * feed - holding it there would starve the controller outright. Nor does it
- * hold when CTRL lacks room for a whole volley anyway: the port could not fire
- * direct either, so reserving the space buys nothing.
+ * Hence the rule is the SAME one routeSourceVolley step 4 applies to ports:
+ * never pay a full cooldown for less than a worthwhile volley. With no direct
+ * fire inbound it reduces to the pre-existing behavior bit for bit, so no
+ * warchest carve-out is needed - policy never enters a purely physical rule -
+ * and it fires only when a direct volley genuinely crowds the relay out,
+ * which (per the owner) should be rare.
  */
 export function holdCoreRelay(ctx: RelayHoldContext): boolean {
-  if (ctx.pendingSenders <= 0) return false;
-  if (!ctx.preferControllerDirect) return false;
-  if (ctx.controllerFree === null || ctx.controllerFree < ctx.threshold) return false;
-  return true;
+  if (ctx.controllerFree === null) return false; // no controller link: nothing to contend over
+  const roomLeft = Math.max(0, ctx.controllerFree - Math.max(0, ctx.incomingDirect));
+  return Math.min(ctx.coreStore, roomLeft) < ctx.threshold;
 }
