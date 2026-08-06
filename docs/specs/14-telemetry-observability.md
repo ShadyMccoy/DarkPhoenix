@@ -9174,3 +9174,77 @@ approach lanes before touching any route size.
 Cycle verdict: **VERIFIED (the delivery prediction confirmed with a 2.1x
 measured swing) + the top line relocated to haulage with three agreeing
 rows.**
+
+## Cycle t72807566 — spec 45 legs VERIFIED: clamping halved, and the traffic premise dissolved with it
+
+Window t72805426 -> t72807566 (2140t; two deploys inside it, so spawn-side
+lines carry reset contamination - named, not excused). The link gauges are
+windowed over their own 249t post-deploy sample and are clean.
+
+**CONFIRMED - the sequencing defect is halved:**
+
+```
+                     baseline      now      prediction
+  hubClampShare        0.625  ->  0.296     toward 0        CONFIRMED
+  coreCongestedShare   0.116  ->  0.068     (implied)       CONFIRMED
+  coreEmptyShare       0.276  ->  0.348     UP = landing room  CONFIRMED
+  coreFillAvg            252  ->    227     (implied)       CONFIRMED
+  taxRate               3.37  ->   3.04     down (side effect) CONFIRMED
+  toHubRate             48.2  ->   49.8     -               throughput UP
+```
+
+**MISSED, and both were MIS-SPECIFIED predictions rather than failures of
+the fix** - worth recording as prediction-quality lessons:
+
+- `hubVolleyAvg` 500 -> 459, predicted "toward full 800". Wrong metric: with
+  the core kept empty and clamping halved, a port fires when it reaches
+  threshold instead of accumulating while blocked. SMALLER, MORE FREQUENT
+  volleys with higher delivered throughput (toHubRate up) is the success
+  shape, not the failure shape. Full volleys are efficiency PER COOLDOWN,
+  which is only the objective when the sender is cooldown-bound.
+- `directShare` 0.25 -> 0.225, predicted up. Also backwards on reflection:
+  leg 2 keeps the core EMPTY, which raises `deliverCore` in
+  routeSourceVolley's throughput comparison, so ports rationally choose the
+  core more often. Direct share falling is a CONSEQUENCE of leg 2 working.
+  Energy still reaches the controller (51.6 e/t) and delivery is exactly on
+  plan, so nothing is lost - the tax is the only thing traded, which the
+  owner already ruled is not the objective.
+
+**THE FINDING - the registered NON-prediction fired:**
+
+```
+  H1 duty     0.74 -> 0.86
+    idleSink  0.26 -> 0.07
+      atSink  0.05 -> 0.03
+      enRoute 0.21 -> 0.04     <- spec 47's entire traffic premise, -81%
+```
+
+Spec 45's deploy note explicitly registered enRoute as NOT predicted to move
+("if it falls anyway, the two were coupled and that is itself a finding").
+It fell 81%. Haulers reading as "idle en route" were largely waiting on a
+CLAMPED LINK NETWORK - a deposit-route hauler whose port is full has nowhere
+to put its load, and from the duty meter that is indistinguishable from
+traffic. Spec 47 is PARKED accordingly: the layout rebuild loses its evidence
+entirely (and it was the only irreversible option), the conduit loses most of
+its case at 4% residual, and the mothership's target (atSink) is now 0.03 -
+not worth a body by the same worthABody discipline it would have been sized
+with. The structure-inventory gap survives on its own merits.
+
+This is the method paying off exactly as designed: the signal was never
+localized, spec 14 said instrument before building, and the thing that
+actually moved it was a fix in a different subsystem. Had spec 47 been built
+first, we would own a tractor-beam conduit for a link scheduling bug.
+
+**Delivery:** controller 45.03 e/t actual vs 44.98 budget (**P7 1.0x**,
++0.05 F). rclProgress +96,374 over 2140t. E6 3 of 12 deferred (was 5 of 13);
+pile decay 7.98 (was 9.06); H1 ground-piled 1,837e.
+
+**STILL OPEN / next:** forgone mining 7.21 -> 17.50 in this window - the one
+line that worsened, against two global resets inside the window, so it is
+NOT yet attributable; the next clean window decides. L1 remains the standing
+FAIL (pile decay 7.98 vs a 0.00 budget - spec 42-A's unpriced-loss gap, not
+a new defect). G1 shows 5.25 e/t still banking.
+
+Cycle verdict: **VERIFIED (clamp share halved on a clean 249t gauge window) +
+a registered non-prediction falsified in the informative direction, which
+parked an entire spec before it was built.**

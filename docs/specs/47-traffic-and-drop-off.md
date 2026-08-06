@@ -127,3 +127,57 @@ direction, as the owner suggested.
 both the localization above and the structure inventory. If the approach
 stalls turn out to be structural rather than behavioural, this is the real
 fix and the others are palliative.
+
+
+## MEASURED 2026-08-06: the traffic premise is mostly DISSOLVED
+
+Spec 45's sequencing legs deployed, and the gauge this spec was built around
+moved with them — **without any traffic mechanism being built.**
+
+```
+                    t72805426        t72807566
+  H1 duty              0.74     ->     0.86
+    idleSink           0.26     ->     0.07
+      atSink           0.05     ->     0.03
+      enRoute          0.21     ->     0.04     <- the whole traffic premise
+```
+
+`enRoute` was the 21% this spec called "approach-lane congestion (traffic /
+standing blocker at the core)" and proposed the conduit, the mothership and
+the layout rebuild to attack. It was explicitly registered as a
+**NON-prediction** of the spec 45 deploy — *"NOT predicted to move: H1's
+enRoute 0.21. That is spec 47's un-localized approach-lane signal and it is a
+DIFFERENT failure; if it falls anyway, the two were coupled and that is
+itself a finding."* It fell by 81%.
+
+So they were coupled, and the honest reading is the one the un-localized
+signal could not give us: haulers standing "idle en route" were largely
+**waiting on a link network that was clamped**, not blocked by each other in
+a lane. A deposit-route hauler whose port is full has nowhere to put its load;
+that reads as delivery-leg idle time and looks exactly like traffic from the
+duty meter alone.
+
+**Consequences for this spec:**
+
+- The **layout rebuild** loses its evidence entirely. It was already last on
+  irreversibility grounds; it is now unmotivated as well. Do not demolish
+  anything on the strength of a signal that has since fallen 81% for an
+  unrelated reason.
+- The **tractor-beam conduit** loses most of its case. 4% residual en-route
+  idle does not pay for entry arbitration and one-way tile enforcement.
+- The **mothership** is unchanged in principle and still the smallest of the
+  three, but its target (`atSink`) is now **0.03**. It is not worth a body at
+  that level — the `worthABody` discipline applies to this mechanism as much
+  as to any other.
+- The **localization stamp** (step 2 of the old order) is no longer urgent.
+  Keep it filed: if en-route idle returns without a link explanation, that is
+  when it earns implementation.
+- The **structure inventory** item survives on its own merits — "does our base
+  have the newest layout" is still unanswerable from telemetry, and that is a
+  gap worth closing regardless of whether a rebuild is ever ordered.
+
+**This spec is therefore PARKED, not cancelled.** The mechanisms are sound
+designs for a problem the colony does not currently have. The lesson worth
+carrying is the one the method already encodes: the signal was never
+localized, and acting on it would have built a traffic system for a link
+scheduling bug.
