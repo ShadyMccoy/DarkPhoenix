@@ -185,7 +185,7 @@ export const CONTROLLER_MAX_UPGRADE_PER_TICK = 15;
 
 /**
  * The controller's game-rule upgrade ceiling (energy/tick) by level - the
- * spec 46 consumption constraint's other half: an RCL8 room's controller sink
+ * spec 47 consumption constraint's other half: an RCL8 room's controller sink
  * can never absorb more than 15 e/t, so with a full storage the whole economy
  * is bounded by consumption and the plan must contract to it. Unknown level
  * (no vision, partial mock) is uncapped: never fabricate a cap from a read we
@@ -465,7 +465,7 @@ export function sustainableConsumptionRate(stock: number, inflow = 0): number {
 }
 
 /**
- * The ABSORB half of the ONE drain law (spec 46, owner 2026-08-05: "take the
+ * The ABSORB half of the ONE drain law (spec 47, owner 2026-08-05: "take the
  * storage ullage / 1500 as the sink rate cap it exposes for the planner"): the
  * energy/tick a storage bank can accept, given its remaining physical room
  * (ullage). The exact mirror of sustainableConsumptionRate's stock/1500 term -
@@ -488,7 +488,7 @@ export function storageAbsorbRate(ullage: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// TERMINAL TRANSFER - the price of inter-room energy (spec 46 phase 1)
+// TERMINAL TRANSFER - the price of inter-room energy (spec 47 phase 1)
 // ---------------------------------------------------------------------------
 
 /** Engine constants (Screeps TERMINAL_*). */

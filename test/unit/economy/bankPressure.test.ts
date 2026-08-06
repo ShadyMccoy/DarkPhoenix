@@ -265,10 +265,10 @@ describe("economy/bank - the pressure pair IN THE PLAN (empty -> full sweep)", (
     for (const a of arc) expect(a.upgrade, `upgrade moved at ${a.stock}`).to.be.closeTo(15, 1e-6);
   });
 
-  it("the contraction is SOURCE BY SOURCE in the taper, not a cliff (the spec 46 property, via the pair)", () => {
+  it("the contraction is SOURCE BY SOURCE in the taper, not a cliff (the spec 47 property, via the pair)", () => {
     // 970k banked -> 30k of room -> 20 e/t of absorb against 40 e/t of mining:
     // the two nearest sources keep their routes, the two farthest lose theirs
-    // and demote. A cliff would drop all four at once (the pre-spec-46 shape).
+    // and demote. A cliff would drop all four at once (the pre-spec-47 shape).
     const plan = planColony(colonyAtBank(970_000));
     expect(plan.miners.map(m => m.sourceId).sort()).to.deep.equal(["m1", "m2"]);
     expect(plan.sinks.find(s => s.sinkId === "store")!.allocated).to.be.closeTo(20, 1e-6);

@@ -5,7 +5,7 @@ import { terminalDeliveredFraction, terminalSendCost } from "../../../src/econom
 import { Position } from "../../../src/types/Position";
 
 /**
- * CROSS-HUB TRANSFER (spec 46 phase 2): the payoff of modelling the storage as
+ * CROSS-HUB TRANSFER (spec 47 phase 2): the payoff of modelling the storage as
  * a source AND a sink (owner 2026-08-05). Once a hub's energy is a source and
  * its ullage is a sink, moving energy between colonies is not a new subsystem
  * in the planner - it is an ordinary route from one hub's source to another
@@ -98,7 +98,7 @@ function twoHubWorld(opts: { terminalRooms?: string[]; bStock?: number } = {}): 
   };
 }
 
-describe("economy/CorpPlanner - cross-hub transfer (spec 46 phase 2)", () => {
+describe("economy/CorpPlanner - cross-hub transfer (spec 47 phase 2)", () => {
   describe("the GATE: no terminals, no transfer (safe to land before the executor)", () => {
     it("without terminalRooms the global anti-pump stands - no BANK fills ANY store", () => {
       const plan = planColony(twoHubWorld());

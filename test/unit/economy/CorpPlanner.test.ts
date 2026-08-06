@@ -871,7 +871,7 @@ describe("economy/CorpPlanner", () => {
     // complete container with no hauler (#19). The trigger is "no home for the
     // energy": total sink capacity < total mined production. In the live
     // economy this only bites once storage tops out (the adapter tapers its
-    // capacity by the absorb law, ullage/1500 -> ~0 when full - spec 46) and
+    // capacity by the absorb law, ullage/1500 -> ~0 when full - spec 47) and
     // the controller is at its cap - otherwise a sink always has room and
     // remotes keep running ("generally we want our remotes running"). Worst
     // net-per-part first, keep at least one so the colony never strands
@@ -919,7 +919,7 @@ describe("economy/CorpPlanner", () => {
     });
   });
 
-  describe("consumption-constrained economy (spec 46: RCL8 controller cap + full storage)", () => {
+  describe("consumption-constrained economy (spec 47: RCL8 controller cap + full storage)", () => {
     // The scenario the colony has never faced: an RCL8 room whose controller
     // is game-capped at 15 e/t and whose storage is FULL (the adapter's
     // absorb law prices its sink at ullage/1500 -> ~0). Consumption, not

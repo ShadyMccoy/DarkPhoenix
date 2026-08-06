@@ -204,7 +204,7 @@ describe("economy/primitives", () => {
     });
   });
 
-  describe("storageAbsorbRate (the absorb half of the ONE drain law - spec 46)", () => {
+  describe("storageAbsorbRate (the absorb half of the ONE drain law - spec 47)", () => {
     it("absorbs the ullage over one creep lifetime: 30k free -> 20 e/t", () => {
       expect(storageAbsorbRate(30_000)).to.be.closeTo(30_000 / CREEP_LIFETIME, 1e-9);
     });
@@ -222,7 +222,7 @@ describe("economy/primitives", () => {
     });
   });
 
-  describe("controllerMaxUpgradeRate (the RCL8 game rule - spec 46)", () => {
+  describe("controllerMaxUpgradeRate (the RCL8 game rule - spec 47)", () => {
     it("RCL8 caps upgrading at the game's 15 e/t (CONTROLLER_MAX_UPGRADE_PER_TICK)", () => {
       expect(controllerMaxUpgradeRate(8)).to.equal(15);
     });

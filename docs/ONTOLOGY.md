@@ -81,7 +81,7 @@ Later families (same rule — one home):
   deadlock (t72488324).
 - **Consumer sizing:** `sustainableConsumptionRate` — consumers are sized from
   ACTUAL stock at their site, never from the goal plan (macro doctrine).
-- **The drain law, both directions** (spec 46): `storageAbsorbRate(ullage) =
+- **The drain law, both directions** (spec 47): `storageAbsorbRate(ullage) =
   ullage / CREEP_LIFETIME` is the ABSORB mirror of that stock/1500 drain — a
   bank fills over one creep generation exactly as a stock empties over one.
   It is the storage SINK's capacity (flowAdapter), which makes the

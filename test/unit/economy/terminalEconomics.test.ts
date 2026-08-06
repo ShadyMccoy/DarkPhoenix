@@ -11,7 +11,7 @@ import {
 } from "../../../src/economy/primitives";
 
 /**
- * THE PRICE OF INTER-ROOM ENERGY (spec 46 phase 1).
+ * THE PRICE OF INTER-ROOM ENERGY (spec 47 phase 1).
  *
  * A terminal is the only mechanism the engine gives us for moving energy
  * between rooms without walking it, and it is what makes the bank pair's

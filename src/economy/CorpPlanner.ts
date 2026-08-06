@@ -246,7 +246,7 @@ export interface ColonyProblem {
   /** Rooms marked hostile by the vision-free defense lens (RoomDiscovery). */
   hostileRooms?: readonly string[];
   /**
-   * Rooms holding a live OWNED TERMINAL (spec 46 phase 2). The ONLY thing
+   * Rooms holding a live OWNED TERMINAL (spec 47 phase 2). The ONLY thing
    * that makes a cross-hub transfer executable, so it is what gates the
    * per-hub anti-pump: a bank may fill ANOTHER hub's storage sink exactly
    * when both rooms can terminal-send. Absent/empty (every world before the
@@ -321,7 +321,7 @@ export interface CommissionedHauler {
    */
   depositPos?: Position;
   /**
-   * A TERMINAL TRANSFER (spec 46 phase 2), not a walking haul: this hub's
+   * A TERMINAL TRANSFER (spec 47 phase 2), not a walking haul: this hub's
    * bank ships to ANOTHER hub's storage through the terminal network. It buys
    * no bodies (carryParts/spawnParts 0) and `flowRate` is the SENDER'S SPEND -
    * the sink accounts the smaller landed amount, the difference being the
@@ -588,7 +588,7 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
   // gated by the sink capacities: with a storage sink soaking `totalSupply`
   // there is always room, so it fires only once storage tops out (flowAdapter
   // tapers its capacity by the absorb law, ullage/1500 -> ~0 when full -
-  // spec 46) and the controller is at its cap (spot-bound, or the RCL8 game
+  // spec 47) and the controller is at its cap (spot-bound, or the RCL8 game
   // throttle). Worst net-per-part first; keep at least one so the colony
   // never strands itself.
   const sinkCapacity = problem.sinks.reduce((sum, k) => sum + k.capacity, 0);
@@ -697,7 +697,7 @@ function routeToSinks(
   const hasStorageSink = sinks.some(s => s.kind === "storage");
   const isDeposit = (id: string): boolean => hasStorageSink && !isBankSourceId(id);
 
-  // CROSS-HUB TRANSFER (spec 46 phase 2, owner 2026-08-05: "model the energy
+  // CROSS-HUB TRANSFER (spec 47 phase 2, owner 2026-08-05: "model the energy
   // in the storage as a source and the ullage as a sink"). Once both halves
   // are first-class, moving energy between colonies is an ORDINARY route from
   // one hub's source to another hub's sink - no new planner subsystem. Three

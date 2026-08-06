@@ -529,7 +529,7 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
 // source AND a sink; miner needs a routed hauler) contracts mining to match
 // consumption - no "storage full" flag anywhere. The planner-side reaction is
 // pinned in CorpPlanner.test.ts ("consumption-constrained economy").
-describe("economy/flowAdapter - consumption-constrained sinks (spec 46)", () => {
+describe("economy/flowAdapter - consumption-constrained sinks (spec 47)", () => {
   const g = globalThis as unknown as { Game?: any; Memory?: any };
   let savedGame: unknown;
   let savedMemory: unknown;
@@ -614,7 +614,7 @@ describe("economy/flowAdapter - consumption-constrained sinks (spec 46)", () => 
     // pressure's source half, and the storage sink's capacity IS its sink
     // half, for the same room at the same instant. Read separately (as they
     // were before) nothing forced them to agree - which is how the sink half
-    // stayed dimensionally wrong until spec 46.
+    // stayed dimensionally wrong until spec 47.
     const { storageBankPressure, detectBankSources, buildColonyProblem } = await import(
       "../../../src/economy/flowAdapter"
     );

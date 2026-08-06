@@ -370,7 +370,7 @@ const CONTROLLER_UPGRADER_CAP = 8;
  * the room's energy capacity (mirrors UpgradingCorp.upgraderTargetCount's
  * parking bound so the sink and the fleet agree) - AND by the game's own RCL8
  * throttle (primitives.controllerMaxUpgradeRate: a level-8 controller accepts
- * 15 e/t, period - spec 46's consumption constraint). The game cap reads only
+ * 15 e/t, period - spec 47's consumption constraint). The game cap reads only
  * `controller.level`, so it survives partial Game state that fails the
  * parking lens. Infinity when Game or the controller is unavailable, so
  * unit/harness paths keep the uncapped default unless a cap is passed
@@ -731,7 +731,7 @@ export function detectBankSources(): PlannerSource[] {
  * when there is no live storage to read (harness/unit paths keep the old
  * "soak totalSupply" behavior unchanged). The storage SINK's ceiling is the
  * absorb law over this number (primitives.storageAbsorbRate: ullage/1500, the
- * mirror of the consumer drain law - spec 46), not the raw stock: while the
+ * mirror of the consumer drain law - spec 47), not the raw stock: while the
  * bank has real room the absorb rate dwarfs supply and it soaks any remote
  * surplus (storage is the hub - owner 2026-07-19 "consumption takes from the
  * storage, so it IS a viable sink for remotes"); as it tops out the sink rate
@@ -1053,7 +1053,7 @@ export function buildColonyProblem(
   // (storageRefillReserve) is nonzero only BELOW the target, where no bank
   // source exists, so claim-and-drain can never coexist either. The storage
   // sink's capacity is the absorb law over its physical room remaining
-  // (storageAbsorbRate, spec 46), so a topping-out bank tapers to zero rate
+  // (storageAbsorbRate, spec 47), so a topping-out bank tapers to zero rate
   // and the surplus mining is defunded rather than rotted.
   const roomsWithStorage = new Set<string>();
   for (const sink of graph.getSinks()) {
@@ -1264,7 +1264,7 @@ export function buildColonyProblem(
           : kind === "storage"
           ? // Soak the surplus, but only as fast as the bank's remaining room
             // can absorb it: the SINK half of the storage's two-sided pressure
-            // (spec 46 + the 2026-08-05 pair - bank.bankPressure over
+            // (spec 47 + the 2026-08-05 pair - bank.bankPressure over
             // primitives.storageAbsorbRate = ullage/1500, the mirror of the
             // stock/1500 the SOURCE half drains by). The same read also yields
             // the bank source's rate (detectBankSources), so a room's give and

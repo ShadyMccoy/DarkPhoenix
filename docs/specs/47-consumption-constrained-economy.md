@@ -1,6 +1,31 @@
-# Spec 46 — The consumption-constrained economy
+# Spec 47 — The consumption-constrained economy
 
-**Status:** LANDED 2026-08-05 (owner-directed).
+**Status:** LANDED 2026-08-05 (owner-directed). Renumbered from 46 on the
+2026-08-06 master merge — master's 46 is
+[Concentration of force](46-concentration-of-force.md).
+
+**Independently corroborated, same week, from the other end.**
+[TRANSPORT_NETWORK.md §11](../TRANSPORT_NETWORK.md) ("The RCL8 inversion: the
+room stops being a sink", 2026-08-06) derives this regime analytically from the
+published constants, having never seen this code: same 15 e/t
+`CONTROLLER_MAX_UPGRADE_PER_TICK` cap, same conclusion that a mature RCL8 room
+runs a 20–50 e/t surplus with nowhere local to go, and the same finding that
+banking is a delay rather than a sink (1.3M of storage+terminal fills in
+~32,000 ticks — "a nine-hour option, not a strategy"). This spec is the
+mechanism; §11 is the arithmetic; [spec 46 §7](46-concentration-of-force.md)
+("Where the surplus goes when the target is full") is the strategy. Two
+places where they now agree and should be kept agreeing:
+
+- **§11.4 names the wash trade this spec's phase-2 guard prevents:** "in a
+  fully-RCL8 empire every room is a source and none is a sink, so energy
+  shipped between mature rooms merely circulates, paying 3.33% every time it
+  moves." That is exactly the lender→lender transfer `canTransfer` refuses.
+- **§11.4 also names the real exit, and it is not another storage:** a
+  **rotating bare sink controller** (GRAND_STRATEGY §3) absorbs ~1,000 e/t
+  against a parked RCL8 room's 15, because GCL control points are credited on
+  every upgrade forever. The transfer machinery here is the delivery mechanism
+  for that; the destination that actually dissolves the problem is a sub-RCL8
+  *controller*, not a hungry *bank*. See §5 for what that implies.
 
 **Owner, 2026-08-05:** *"at RCL eight … upgrade is limited to 15 e/t and our
 storage is full so it has a limit of zero for sink. At this point the economy
@@ -240,12 +265,12 @@ plan and runtime agree by construction, which is worth more than the energy
   - `controllerMaxUpgradeRate`: 15 at level 8; Infinity below; Infinity on
     unknown level.
 - `test/unit/economy/flowAdapter.test.ts` — "consumption-constrained sinks
-  (spec 46)": full storage ⇒ capacity-0 sink; near-full ⇒ ullage/1500 (the
+  (spec 47)": full storage ⇒ capacity-0 sink; near-full ⇒ ullage/1500 (the
   old code exposed full rate there); far-from-full unchanged;
   `controllerUpgradeCap` = 15 at RCL8 even on a partial mock; END-TO-END
   RCL8 + full storage assembles `{controller: 15, storage: 0}`.
 - `test/unit/economy/CorpPlanner.test.ts` — "consumption-constrained economy
-  (spec 46)": full storage ⇒ zero miners/zero mined haulers, consumers fed
+  (spec 47)": full storage ⇒ zero miners/zero mined haulers, consumers fed
   from the bank, everything ≤ 15 + spawn, every drop stamped; partial ullage
   (6 e/t) ⇒ exactly one surviving source shipping 6; the mined fleet is
   MONOTONE in the sink side (0/6/1000 ⇒ 0/1/4 miners); EVERY hauler has a
@@ -265,3 +290,36 @@ plan and runtime agree by construction, which is worth more than the energy
   and the L1 pile lines already measure it.
 - **New consumption.** Labs/terminal/market (specs 22, 31) are the real exit
   from the regime; this spec only makes the colony behave until they exist.
+
+## 6. What the 2026-08-06 strategy merge changes here
+
+Three concrete corrections/refinements the merged analysis forces, none of
+which invalidate what landed:
+
+1. **The best transfer destination is a sub-RCL8 CONTROLLER, not a hungry
+   bank.** Phase 2 routes bank→storage and gates on "the destination hub is
+   not itself lending". TRANSPORT_NETWORK §11.4 ranks the sinks, and "export
+   energy to another RCL8 room" sits at the BOTTOM — it "moves the problem,
+   does not solve it" — while feeding a sub-RCL8 controller is uncapped and
+   *creates* new sinks. The lender→borrower test is a decent proxy (a room
+   still filling its warchest is usually still growing) but the sharper test
+   is the destination's controller headroom, i.e. `controllerMaxUpgradeRate`
+   at the far end. Worth doing when phase 3's executor lands, not before.
+2. **Keep the exact exponential, not the doc's linearization.**
+   TRANSPORT_NETWORK §4.3 recommends "≈3.33% per room step … stop thinking
+   about the exponential" as the planner's arc cost. `terminalSendCost` uses
+   the exact `1 − e^(−d/30)` instead, deliberately: it is the engine's own
+   formula, it costs nothing extra, and at the empire radii §8.1 says we
+   occupy the two agree to within a few percent anyway. Being exact means the
+   plan and the engine can never disagree about a fee — the F1 objective.
+   §8.1's other finding is already honored: the terminal network is a complete
+   graph and there is no shortest-path problem, so phase 2 prices a direct
+   edge only.
+3. **Fan-out serializes, and phase 2 does not model it.** §8.2: cooldown is
+   charged to the SENDER, so "collection is free; distribution serializes at
+   10 ticks per destination". A hub with N transfer routes reaches each every
+   10N ticks. §11.2 measures the practical impact as negligible for economy
+   flows (energy export uses "well under 1% of a terminal's throughput"), so
+   this is a latency note rather than a bug — but a plan that ever emits many
+   outbound routes from one hub should cap them per SENDING ROOM, not per
+   route.
