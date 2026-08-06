@@ -9900,3 +9900,44 @@ Deployed t72821449+ with predictions registered below.
 **Falsifier:** if per-port routing stays at 30.00 after the deploy, the cap was
 not what bound and the constraint is elsewhere in `detectLinkDepositPorts` —
 instrument the port detection, do not re-theorize.
+
+### Grid RATCHET FAILURE t72821449 — attributed to HOST LOAD, plus one real pre-existing red
+
+A full-grid run against the leg-A build reported **bot level 4 -> 0** with 22
+baseline-green cells regressed, 24 of them timeouts. Two attribution runs, per
+the audit method's "a red cell gates a deploy only if it is red BECAUSE of the
+pending change":
+
+```
+  move-upgrader-park-settle   full grid: FAIL      alone, same source: 1/1 PASS
+  cons-link-core-first        alone, leg-A src:  timeout @60/60t
+                              alone, PRE-leg-A:  timeout @60/60t   <- identical
+```
+
+**Leg A is acquitted on both counts.** The first cell is a movement/parking
+assertion in a link-free T1 world - a constant in `depositPortHeadroom` cannot
+reach it - and it passes cleanly the moment it is not competing for CPU. The
+second fails IDENTICALLY on the pre-change source, so it is its own incident
+against the deployed build and must not hold the fix hostage.
+
+**Cause of the mass failure: host load, the documented class.** That grid ran
+concurrently with a live telemetry capture, two webpack builds, a deploy and
+the unit suite, and it started with orphaned mockup processes from a
+previously-killed run still competing for CPU. CLAUDE.md already records the
+shape (*"the mockup meters real CPU against a real bucket, so an armed
+governor couples cell behavior to HOST LOAD - a full grid run drained heavy
+worlds' buckets... and failed six baseline-green cells before this was
+caught"*). 24 timeouts across unrelated tiers is that signature, not a bot
+regression. **Do not run a full grid concurrently with captures, builds or
+deploys** - and kill orphaned `@screeps/engine|storage` processes before
+starting one, because a killed grid leaves them running.
+
+**The baseline was NOT updated from this run**, and must not be: a load-poisoned
+grid cannot ratchet in either direction.
+
+**OPEN INCIDENT (separate, real): `cons-link-core-first` is RED on the deployed
+build.** "the core link site lands beside the storage" never satisfies in 60
+ticks, on both leg-A and pre-leg-A source, while the baseline says green. It
+regressed at some earlier commit - unbisected. It is a link-placement rung, so
+it sits directly upstream of the deposit-port work and should be bisected
+before more link/port behaviour is layered on top.
