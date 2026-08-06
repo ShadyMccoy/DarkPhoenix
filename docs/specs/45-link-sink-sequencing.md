@@ -527,3 +527,71 @@ when it is literally full.** Filed here rather than built blind — the live
 gauges (`idleSinkAtSinkFrac` on deposit routes, `hubVolleyAvg`, `toHubRate`)
 decide whether it is real, and leg 4's registered falsifier already watches
 the same seam.
+
+## What "the core opening up" is worth (owner 2026-08-06)
+
+*"The core opening up properly could be a huge boon."* Priced, and the answer
+splits in a way that matters for where links get built next.
+
+**First, a caveat on the throughput numbers.** At t72811683 the meter read
+`toHubRate` 29.7 (from 44.5) and `hubVolleyAvg` 237 (from 426) — but that is a
+**96-tick window immediately after a global reset**, when every source link is
+refilling. It is far below the ±20-30% single-draw floor and is NOT quotable.
+The clamp/empty/wait numbers ARE (they moved 0.30 → 0.00 and 0.23 → 0.00).
+
+Note also that "clamp 0.000" and "small volleys" are the same fact, not two:
+with `coreEmptyShare` 0.598 the full-volley discipline never has to hold, so
+senders fire the moment they cross `LINK_FIRE_THRESHOLD`. That is leg 4's
+finding in its extreme form.
+
+### Channel 1 — hauler time: 8.6 e/t, measured
+
+The fleet `portWaitFrac` of **0.228** (777t window) priced against each route's
+own hauler value:
+
+```
+  d=38  10.3 e/t x 0.228 = 2.34      d=62   6.3 x 0.228 = 1.45
+  d=46   8.5 e/t x 0.228 = 1.94      d=87   4.5 x 0.228 = 1.04
+  d=95   4.2 e/t x 0.228 = 0.95      d=99   4.0 x 0.228 = 0.91
+  ------------------------------------------------------------
+  TOTAL RECOVERABLE                                    8.6 e/t
+```
+
+Against a colony delivering 48-53 e/t to the controller, that is **~17% more
+delivery capacity** sitting in haulers parked at full links. This is the boon,
+and it is real.
+
+### Channel 2 — link throughput: ZERO for plain source links
+
+A sender fires once per `range` ticks carrying whatever accumulated, so a
+`SOURCE_RATE` (10 e/t) source delivers 10 e/t **at any range** — the SOURCE
+binds, not the link. An open core adds nothing there, which is why the
+throughput half of the boon is smaller than it looks.
+
+**A DEPOSIT PORT is the exception, and it is the interesting one.** It carries
+its own source PLUS the remote drops routed to it (~50 e/t at the measured
+`DEPOSIT_PORT_HEADROOM`):
+
+```
+   range   port can fire   its load   verdict
+       5             160         50   link has room
+      10              80         50   link has room
+      15              53         50   link has room
+      20              40         50   PORT SATURATES
+      25              32         50   PORT SATURATES
+      30              27         50   PORT SATURATES
+```
+
+**The boon concentrates where the port is FAR from the core — which is exactly
+the edge-link geometry the owner wants to build toward** (*"building links
+inside our rooms near the edge for remote mining"*). An edge link is by
+definition far from a core near the spawn, so it is the case where the port
+itself saturates and the core drain stops being the only thing that matters:
+past range ~15 the port cannot fire fast enough regardless of how empty the
+core is.
+
+**Consequence for the edge-link plan:** an edge port at range > 15 needs either
+a lower routed load than `DEPOSIT_PORT_HEADROOM` assumes, or a second link, or
+the container buffer genuinely earns its keep there (this is the `rho >= 1.0`
+saturated band from the sizing law, where a buffer fills once and stays full —
+so it is the ROUTED LOAD that must come down, not the buffer that must go up).
