@@ -81,19 +81,90 @@ infra / defense / consumers / expansion / incursion. The kind should DECLARE its
 reporting category (registration-only, per spec 17), so a new kind classifies
 itself and `ACCOUNT_CLASS_OF_ROLE` is deleted rather than extended.
 
+## 3b. MEASURED 2026-08-06 — the identity, and exactly where it breaks
+
+Established locally with a pure scenario suite
+(`test/unit/economy/corpBudget.test.ts`): stage a `ColonyProblem`, run
+`planColony` -> `commissionsFromPlan`, sum `consumes.spawnPartsPerTick`, compare
+against the plan's own `partsLedger`. No mockup, no capture, milliseconds.
+
+**The good news first: the model is already REAL for two thirds of the plan.**
+Across four staged worlds — home-only, home + two remotes, two spawns, and a
+world carrying a standing infra charge — the identity holds EXACTLY:
+
+```
+SIGMA(commission.consumes.spawnPartsPerTick) === partsLedger.minerLoad + partsLedger.spent
+                                                 delta 0.000000 in all four
+```
+
+So "the colony budget is the sum of the corps" is not aspirational. It is how
+produce and transport already work, and it is why the remaining two gaps are
+worth closing rather than working around.
+
+**GAP 1 — the consume envelope and the fill charge different numbers.**
+`consumerSpawnLoad`'s own docblock claims it is *"the SAME charge the planner's
+parts ledger paid for this sink."* Measured in the construction world:
+
+```
+build commission declares   0.074189 p/t
+the sink fill actually spent 0.041351 p/t      => 1.79x over-declaration
+```
+
+The cause is structural, not a typo: the commission prices construction ALL-IN
+(spec 34 D4 — builder WORK bodies **plus a tanker supply vector** to fuel them),
+while `routeToSinks` charges `chargePerUnit = haul body + workPerUnit` per unit
+routed — the delivery leg and the work, with no crew fuel shuttle. Two
+quantities wearing one name. Note the controller branch deliberately omits the
+vector *because it would double-count* — so the two branches of the same
+function disagree about whether the vector belongs.
+
+**GAP 2 — auxiliary corps declare a budget of ZERO.**
+`proposeHelpers.perRoomAuxiliaryCommission` hardcodes
+`consumes: { spawnPartsPerTick: 0 }` for every auxiliary kind. The colony's
+ledger *does* know the cost — it deducts `infraPartsPerTick` before the fill
+spends anything — but **no corp owns it**. The staged world proves it: 0.05 p/t
+of committed build-rate, deducted from the budget, belonging to no corp row.
+
+That hole is exactly what `waste-ledger.planSpawnLoad` was written to fill by
+re-deriving. The second book is not a reporting whim — it is compensating for a
+sum that is structurally incomplete.
+
+**Both gaps are pinned** by the suite: GAP 1 as a ratio bound (so it cannot
+silently widen), GAP 2 as an explicit assertion that the ledger's infra is
+unowned. Each has a `skip`ped TARGET assertion beside it that states the
+post-fix invariant — the fix flips a red test green rather than being argued.
+
+### A note on the scenario harness
+
+`npm run plan:scenario` is DEAD: `scripts/run-plan-scenarios.ts` imports
+`test/planning/ScenarioRunner`, which no longer exists, and the 25 world files in
+`test/scenarios/*.json` are in a legacy node/resourceNode format that predates
+`ColonyProblem`. Nothing reads them. The working scenario harness is the pure
+planner one used above (and by `organismScenario.test.ts`): stage a
+`ColonyProblem` in TypeScript and run `planColony`. Either revive the runner with
+a format translator or delete the orphans — but do not trust `plan:scenario` as
+a gate; it cannot even compile.
+
+
 ## 4. What lands
 
+0. **Declare the category** — `economy/accountCategory` (LANDED 2026-08-06):
+   kind -> statement line, registration-only, with a test that every kind in the
+   tree is classified. Pure; no behaviour, no methodology change.
 1. **Publish the corp budget** — corps segment gains `shape`, `consumes`,
-   `produces`, plus a declared `reportingCategory` from the kind. (Segment
-   version bump; no behaviour change.)
-2. **Migrate auxiliary kinds onto the budget** — spec 39 phase 4. Until then the
+   `produces`, plus the declared category. (Segment version bump; no behaviour
+   change.) `CorpCensusEntry` already carries `commissionShape`, so this is
+   three fields.
+2. **Close GAP 1** — one derivation for the consumer charge, shared by the
+   commission and the fill. Whichever number is right, both sites must read it.
+3. **Close GAP 2 / migrate auxiliary kinds onto the budget** — spec 39 phase 4. Until then the
    statement must SHOW the split honestly: which categories are summed from corp
    budgets and which are still reconstructed. A half-projected statement that
    hides which half is worse than today's.
-3. **The budget column becomes Σ corps.** `planSpawnLoad` and the per-line budget
+4. **The budget column becomes Σ corps.** `planSpawnLoad` and the per-line budget
    formulas are deleted, not refactored — the whole point is that there is one
    book.
-4. **Every row drills to corp.** Free once corp rows are published: the row IS
+5. **Every row drills to corp.** Free once corp rows are published: the row IS
    the sum of its corps, so the drill-down is the addends. `docs/fiscal/` closes
    gain a per-corp table under each category.
 

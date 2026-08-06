@@ -48,6 +48,9 @@ const PURE: string[] = [
   "depositSavings.ts",
   "ids.ts",
   "proposeHelpers.ts",
+  // Spec 47: the corp -> statement-line map. Constants and a lookup; the
+  // planning core reads it to group its own commissions.
+  "accountCategory.ts",
   // The handicap sweep (spec 45) is PURE by construction: its state is
   // persisted by telemetry/fiscalArchive and mirrored in here, precisely so
   // primitives.ts can resolve the planner's margin through it without the
