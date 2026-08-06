@@ -414,15 +414,44 @@ from it.
   across 13 harvest corps: **flat**, so "held mouths down" is not
   confirmed. Do not quote the forgone line as a leg-4 result.
 
-`toControllerRate` halved (51.63 → 25.81) and that is the one number worth
-NOT reading yet: across the four captures it has gone 29 → 64 → 52 → 26,
-i.e. it swings by 2x between adjacent windows with no code change. A 111t
-sample of a gauge that volatile is not evidence. If it is still at half
-after a full 1500t window, the hypothesis to test first is that the feeder's
-pre-drain (leg 2) empties the core below `LINK_FIRE_THRESHOLD` before the
-core→CTRL relay can ever fire, routing the link network to the BANK instead
-of the CONTROLLER — 79% of controller-link receipts come via that relay
-(`directShare` 0.209).
+`toControllerRate` halved (51.63 → 25.81). I filed a hypothesis here that the
+feeder's pre-drain was emptying the core below `LINK_FIRE_THRESHOLD` and so
+starving the core→CTRL relay. **That hypothesis is RETRACTED** (owner
+2026-08-06: *"We have to assume the tender is working. It's a heart beat.
+It's non negotiable. The body dies slowly if there's issues there."*) — it is
+now a CLAUDE.md doctrine bullet, and it was the wrong question twice over.
+
+First, the heartbeat measurably IS working at this capture: the tender stamps
+`gate "staffed"`, `neededCarry 25 == fieldedCarry 25`, `duty 0.377` over
+1256t; the feeder stamps `gate "staffed"`, `feeders 1/1`, `coreDrain 80`, and
+16 CARRY — exactly its volley-service floor of one full 800 volley.
+
+Second, and this is the part to carry forward: **a drained core is that
+heartbeat working, not congestion.** The core link is a pass-through to
+storage by design, so `coreEmptyShare 0.652` is health, and
+`toControllerRate` is not a controller-supply gauge at all — a healthy
+drained core makes it structurally small. The controller's supply line is
+storage → feeder.
+
+The controller line's actual constraint is FLEET, and the stamps name it
+exactly:
+
+```
+                    t72807566      t72808131
+  upgrader creeps        2              1        <- one died
+  fieldedWork           48             25
+  planAllocated      44.98          54.68        <- and the plan rose
+  workUtil / dryShare  1.00 / 0      1.00 / 0    <- NEVER supply-starved
+  P7 delivered       45.03 e/t     39.33 e/t
+```
+
+Delivery tracks fielded WORK at ~1 e/t per part and nothing else; 39.33 over
+a window straddling the death is the average of 48 and 25. Supply was never
+the binding constraint in either window — `dryShare 0.00` says so directly.
+The corp is already responding correctly (`targetCount 2`, `demand
+"demanded"`, `demandMin 3450`, `hold true` to fund an indivisible full-size
+body), and the builder ahead of it in the spawn queue is the owner's own
+construction-first directive being honoured, not a defect.
 
 **DEPLOYED 2026-08-06** (branch `master`, 298K bundle). Gate at deploy:
 unit 2131 passing, `npm run build` clean, and the trio green —
