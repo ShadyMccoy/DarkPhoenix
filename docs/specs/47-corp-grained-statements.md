@@ -1,121 +1,152 @@
-# 47 — Statements grained by CORP, and for every resource we spend
+# 47 — The colony budget IS the sum of the corp budgets
 
-**Status: BACKLOG 2026-08-06** (owner: *"right now the statement is a little bit
-convoluted. It's fanciful and looks deceiving. We got the mining, the cogs, the
-direct costs and the overhead. These are aggregations of corps for the most
-part. Each corp just fits in one of these categories w a budget... We should be
-able to see all the resources actual like this if we wanted including minerals or
-other resources. As well as spawn body capacities and types and cpu."*)
+**Status: BACKLOG 2026-08-06** (owner: *"Every corp plan is essentially a list of
+inputs and outputs. Thats the corp budget. The colony budget is the sum of the
+corps. Each corps is assigned a reporting category for aggregate overview and
+presentation but the row can be drilled down to the corp level."*)
 
-## 1. The diagnosis is right, and the defect is already in the code's own comments
+## 1. This model already exists. It is `Commission`.
 
-The owner's model — **each corp falls in exactly one category, each category has
-a budget, the statement is the roll-up** — is what the statement *looks* like. It
-is not what it *is*.
+The owner's model is not a feature request — it is a description of a type that
+has been in the tree since the corp framework landed
+(`src/economy/Commission.ts`):
 
-The account aggregates by **ROLE** (`ACCOUNT_CLASS_OF_ROLE`,
-scripts/waste-ledger.ts), because that is the only key the cumulative spawn
-ledger carries (`Memory.spawnLedger.energyByRole`). Role is a lossy proxy for
-corp, in three places we have already written down:
+```ts
+interface Commission {
+  corpId: string;
+  kind: string;
+  shape: CommissionShape;        // produce | transport | consume | auxiliary
+  consumes: CommissionInputs;    // { energyRate, at, spawnPartsPerTick }
+  produces: CommissionOutputs;   // { energyRate, at, valuePerTick }
+  fleet?: CommissionFleet;       // planned parts/load per role
+  assignment: unknown;           // opaque kind payload
+}
+```
 
-- **`tanker` is bought by two kinds.** `extensionTenderKind` (spawn-network
-  refill → infra) and `construction` (crew haulage → really a build cost). The
-  mapping's own comment concedes it: *"the role alone cannot separate them, so
-  both land in infra and the line slightly OVER-states infra during a build
-  campaign."*
-- **`hauler` spans two very different businesses.** Source-route evacuation and
-  standalone scavenge corps both accrue as `hauler`. The SOURCE P&L already has
-  to disclaim it: *"Hauler is LOWER than the evacuation line by the standalone
-  scavenge corps."*
-- **`jack` has no class at all.** Bootstrap creeps print as a dangling
-  `UNCLASSIFIED [jack]` line (−0.45 e/t at t72823437). The energy is counted (it
-  falls into `other`, which rolls into overhead), but the statement shows a
-  category that is not a category.
+Its own header already says it: *"the planner's output for a single corp: what
+the corp consumes (energy-at-a-place, spawn build-time), what it produces
+(energy-at-a-place, or colony value)."* That is "a list of inputs and outputs,
+that's the corp budget", verbatim. `shape` is "assigned a reporting category".
 
-That is the "fanciful and deceiving" the owner is seeing: the statement presents
-a corp-shaped model while computing a role-shaped one, and the two disagree
-exactly where a build campaign or a scavenge fleet is running.
+**So the statement should be a PROJECTION of `Commission[]`, and it is not.**
 
-**The fix is small and the seam already exists.** `SpawningCorp` calls
-`accrueSpawnSpend(role, bodyCost, body.length, {...})` with `buyerCorpId` in
-scope — it already uses it for the `scavenge` sub-counter (methodology #10). Add
-`energyByCorp` / `energyByKind` beside `energyByRole`, let each corp KIND declare
-its account class (registration-only, per spec 17), and the roll-up becomes what
-the owner described: corps → categories → budget vs actual, with no lossy
-mapping in between and no unclassified line.
+## 2. What the statement actually does instead — the second book
 
-## 2. Timing: NOT during the handicap sweep
+`scripts/waste-ledger.ts` builds the budget column by RE-DERIVING it from the
+flow segment's `sources` / `haulers` / `sinks` arrays with its own formulas:
+`minerOverhead(spawnDistance)` for extraction, `spawnParts × CARRY_MOVE_PAIR_COST/2`
+for evacuation, and `planSpawnLoad()` — a ~120-line reconstruction — for
+reservation, infra, defense and consumers.
 
-This changes the chart of accounts, so it bumps `METHODOLOGY` — and spec 41 is
-explicit that **two reports are comparable only at the same stamp.**
+That is a **second book**: the planner decided a number, and the reporting layer
+independently recomputes what it thinks that number was. Every disagreement
+between them shows up as a variance that looks like a colony behaviour and is
+actually an accounting artifact. That is the "fanciful and deceiving" — the
+statement presents itself as the plan's budget while being a reconstruction of
+it.
 
-The spec-45 sweep is running 21 fiscal months to compare income statements
-across handicaps. Re-graining the account at month 12 makes months 1–11
-incomparable to 12–21 and destroys the experiment's only axis.
+It is also the direct cause of the three role-mapping defects logged in the
+previous draft of this spec (`tanker` bought by two kinds and both landing in
+infra; `hauler` spanning evacuation and scavenge; `jack` unclassified): those
+only exist because the reporting layer keys on ROLE, which is all
+`Memory.spawnLedger` carries. With corp rows, role stops being the key and all
+three dissolve rather than being patched.
 
-**Land this at a sweep CYCLE boundary** (`Memory.spawnSweep.cycle` increments,
-handicap wraps to 0), not mid-ramp. Cycle 0 stays at methodology #14; cycle 1
-starts at #15 and is internally comparable. That is also a free A/B on the
-re-graining itself: the same handicaps, measured both ways.
+## 3. The three gaps, precisely
 
-## 3. Scope — four statements, one grain
+**A. The corp budget is not PUBLISHED.** Segment 4 emits
+`{id, kind, type, nodeId, roomName, creepCount, bodyParts, body, fleet, sizing,
+produced, createdAt, lastActivityTick}`. `fleet` (the planned parts/load,
+spec 39 phase 1) is there; **`shape`, `consumes` and `produces` are not**. The
+host cannot sum a book it cannot see, which is why it rebuilds one.
 
-The owner asked for the same treatment across resources, spawn capacity and CPU.
-All four are the same shape: **corps → categories → budget vs actual**, and the
-colony already meters most of the inputs.
+*This is the cheapest fix in the spec and it unblocks the rest: three fields on
+the corps segment.*
 
-### A. Energy, grained by corp (the one above)
+**B. Auxiliary corps are OFF-BUDGET.** `Commission.fleet`'s own doc: *"auxiliary
+commissions are off-budget (the SpawnDirector prices them) and leave it absent
+until their kind migrates (spec 39 phase 4)."* Live, that is 7 of 12 kinds —
+reservation (8 corps), tender, controllerFeeder, raidGuard, scout, coreBuster,
+bootstrap.
 
-Replace the role→class map with corp-kind→class declarations. Keep every current
-line item; only the ATTRIBUTION changes. Expected movements, to be predicted
-before the change lands: infra falls by the construction crew's tanker spend,
-construction rises by the same, evacuation splits into source-route vs scavenge,
-and the UNCLASSIFIED line disappears into bootstrap.
+So **Σ corps ≠ colony budget today**, and it cannot be until spec 39 phase 4
+lands. This is the load-bearing dependency: half the statement's budget comes
+from the corps' own book and half is reconstructed, which is exactly the seam
+that makes it incoherent. Reservation alone is 19.52 e/t at t72823437 — not a
+rounding.
 
-### B. All resources, not just energy
+**C. The reporting category is coarser than the statement.** `shape` has four
+values; the statement has extraction / evacuation / reservation / link /
+infra / defense / consumers / expansion / incursion. The kind should DECLARE its
+reporting category (registration-only, per spec 17), so a new kind classifies
+itself and `ACCOUNT_CLASS_OF_ROLE` is deleted rather than extended.
 
-Today the statement is energy-only. The colony already knows about minerals
-(spec 22 prices mineral EV into node/room EV; `RoomIntel` carries
-`mineralType`/`mineralDensity`/`mineralAmount`), but nothing meters extraction,
-haulage or sale as a P&L.
+## 4. What lands
 
-Needs: a per-resource stock and flow meter (store deltas by resource across the
-room set, the same differencing the energy account already does), and the same
-corp roll-up over it. Minerals, then market credits, then boosts. The residual
-discipline carries over unchanged — a named residual per resource.
+1. **Publish the corp budget** — corps segment gains `shape`, `consumes`,
+   `produces`, plus a declared `reportingCategory` from the kind. (Segment
+   version bump; no behaviour change.)
+2. **Migrate auxiliary kinds onto the budget** — spec 39 phase 4. Until then the
+   statement must SHOW the split honestly: which categories are summed from corp
+   budgets and which are still reconstructed. A half-projected statement that
+   hides which half is worse than today's.
+3. **The budget column becomes Σ corps.** `planSpawnLoad` and the per-line budget
+   formulas are deleted, not refactored — the whole point is that there is one
+   book.
+4. **Every row drills to corp.** Free once corp rows are published: the row IS
+   the sum of its corps, so the drill-down is the addends. `docs/fiscal/` closes
+   gain a per-corp table under each category.
 
-### C. Spawn capacity: bodies and types as a balance sheet
+## 5. Why this generalizes to resources, spawn and CPU
 
-`spawnSpend.partsByRole` and `core.bodyParts` already exist
-(`{total: 670, byPart: {work: 122, move: 244, carry: 275, attack: 15, claim: 14}}`
-at t72823437) — the data is there, the STATEMENT is not. What is missing is the
-budget side: parts/tick planned per corp against parts/tick bought, per part
-TYPE. P4 does this for the colony total; the owner wants it per category.
+The owner's other ask — *"all the resources... including minerals or other
+resources. As well as spawn body capacities and types and cpu"* — is the SAME
+structure with a wider input/output vector, not four separate reports.
 
-This is the sharpest of the four, because spawn build-time is the constraint the
-whole spec-45 experiment is about: a category that over-buys CARRY is invisible
-in an energy statement and obvious in a parts one.
+`CommissionInputs` is `{energyRate, spawnPartsPerTick}` today: already two
+resources (energy and spawn build-time) in one envelope. Widen it to a resource
+map plus CPU and every statement the owner listed is the same projection over the
+same corp rows:
 
-### D. CPU as its own statement
+| statement | the input/output dimension |
+|---|---|
+| energy (today) | `energyRate` in/out |
+| all resources | resource map — minerals (spec 22 prices them, nothing meters them), boosts, market credits |
+| spawn capacity | `spawnPartsPerTick` in, split by part TYPE (`fleet[role].parts` already carries the shape) |
+| CPU | CPU/tick in — spec 20's ledger exists but **`core.corpCpu` reads `null` in captures**, so no CPU line is closeable today; publishing it is step 0 |
 
-Spec 20 built the ledger (`Memory.corpCpu`: per-corp, plus named infrastructure
-buckets, reconciling to `wholeTick`). It is a reconciliation, not a statement,
-and it is **absent from the captures entirely** — `core.corpCpu` read `null` at
-t72823437, so no CPU line can be closed today. First step is publishing it into
-the core segment; the roll-up follows for free once it is there.
+One corp row, several columns. That is the whole design, and it is why B above
+matters more than any individual report: get every corp onto the budget once and
+all four statements follow.
 
-## 4. Acceptance
+## 6. Timing — NOT mid-sweep
 
-Per category, per statement: **budget, actual, variance, and a named residual**
-— the same discipline spec 42 sets for energy. A statement joins the standing
-report set (spec 41) only when it balances by construction and its residual is
-published, never as an extra table of actuals.
+This changes the chart of accounts, so it bumps `METHODOLOGY`, and spec 41 is
+explicit that two reports are comparable only at the same stamp. The spec-45
+sweep is running 21 fiscal months whose ONLY axis is the handicap; re-graining at
+month 12 makes months 1–11 incomparable to 12–21.
 
-## 5. Related
+**Land at a sweep CYCLE boundary** (`Memory.spawnSweep.cycle` increments,
+handicap wraps to 0). Cycle 0 stays at methodology #14, cycle 1 starts at #15 —
+which also makes the re-graining its own free A/B: the same handicaps, measured
+both ways.
 
-- Spec 42 (the energy controller budget) — this is its attribution half: 42 asks
-  every joule to have a named home, 47 asks that home to be a CORP.
-- Spec 17 (ontology layers) — account class becomes a kind declaration, so a new
-  corp kind classifies itself by registration, like everything else.
-- Spec 41 (fiscal periods) — the methodology stamp is the gate; see §2.
-- Spec 45 (handicap sweep) — the experiment this must not land in the middle of.
+## 7. Acceptance
+
+- The budget column of every category equals the sum of its corps' `consumes`
+  (to 1e-9), and that identity is a test, not a report line.
+- Every category row expands to its corp rows; the expansion sums to the row.
+- No line's budget is computed anywhere except the corp that owns it —
+  `planSpawnLoad` and `ACCOUNT_CLASS_OF_ROLE` are gone.
+- Categories still reconstructed (pre-39-phase-4) are LABELLED as such in the
+  statement.
+
+## 8. Related
+
+- **Spec 39 (the plan owns the fleet)** — phase 4 is the hard dependency. This
+  spec is 39's accounting payoff and cannot complete without it.
+- Spec 42 (the energy controller budget) — 42 asks every joule to have a named
+  home; 47 says that home is a CORP and the colony total is their sum.
+- Spec 17 (ontology layers) — reporting category becomes a kind declaration.
+- Spec 41 — the methodology stamp is the gate; see §6.
+- Spec 45 — the experiment this must not land in the middle of.
