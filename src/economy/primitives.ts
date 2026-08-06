@@ -1292,6 +1292,45 @@ export function towerRefillBelow(capacity: number): number {
 // in the meter that reads them or the ledger that prints them.
 // ---------------------------------------------------------------------------
 
+/**
+ * A deposit port's v1 blast-radius CAP (e/t). Bounds how much remote flow the
+ * plan may route onto ONE port link regardless of geometry - the conservative
+ * bound the spec-26 stage-4 port was given, kept unchanged.
+ */
+export const DEPOSIT_PORT_HEADROOM_CAP = 30;
+
+/**
+ * How much remote deposit flow a port link can actually absorb (e/t).
+ *
+ * A port drains by FIRING to the core: at most `LINK_CAPACITY` once per
+ * `LINK_COOLDOWN * range` ticks, so its physical ceiling is
+ * `LINK_CAPACITY / range`. Whatever its own adjacent source produces lands in
+ * the SAME link and comes off that ceiling first.
+ *
+ * WHY THIS STOPPED BEING A CONSTANT (owner 2026-08-06, *"let's build the edge
+ * links"*). A flat 30 is safe for the ports we have - measured t72811683,
+ * PORT A at range 14 fires 57.1 and carries 30 + 10 (rho 0.70), PORT B at
+ * range 13 fires 61.5 and carries 40 (rho 0.65), both inside spec 47's buffer
+ * band. It is NOT safe for a link placed at the far edge of the room:
+ *
+ *     edge (47,25)  range 12  fires 66.7  ->  30 routed = rho 0.45  fine
+ *     edge (25,47)  range 22  fires 36.4  ->  30 routed = rho 0.82  marginal
+ *     edge ( 2,25)  range 33  fires 24.2  ->  30 routed = rho 1.24  SATURATED
+ *
+ * A port routed 30 e/t into a 24.2 e/t drain backs up by construction, and
+ * that is the `rho >= 1.0` band where no buffer helps (spec 47: a buffer fixes
+ * burstiness, never a rate deficit). Range-awareness is therefore the
+ * PREREQUISITE for edge links, not a refinement of them.
+ *
+ * An unknown range (harness, no geometry) falls back to the cap, so every
+ * existing caller keeps its behaviour.
+ */
+export function depositPortHeadroom(rangeToCore: number | undefined, ownSourceRate: number): number {
+  if (rangeToCore === undefined || rangeToCore <= 0) return DEPOSIT_PORT_HEADROOM_CAP;
+  const fireRate = LINK_CAPACITY / rangeToCore;
+  return Math.max(0, Math.min(DEPOSIT_PORT_HEADROOM_CAP, fireRate - ownSourceRate));
+}
+
 /** A dropped pile loses ceil(amount / this) energy per tick (Screeps ENERGY_DECAY). */
 export const ENERGY_DECAY_DIVISOR = 1000;
 

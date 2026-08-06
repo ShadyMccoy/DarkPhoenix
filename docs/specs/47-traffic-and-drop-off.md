@@ -784,3 +784,73 @@ follow-up names the reason it can go faster here: *"we can change the energy
 flow during the construction project — there's a link right there to consume
 from"* — the port container/link is metres from the site, so this project's
 supply leg is unusually cheap.
+
+## Edge links: the RCL wall, and the prerequisite that ships now
+
+*"Let's build the edge links then"* (owner 2026-08-06).
+
+### We cannot place one yet
+
+`LINK_LIMITS` gives **RCL 7 → 4 links**, and W43N23 already has four: the core
+hub, the controller link, and the two source links doing port duty. RCL 8
+gives 6. The controller is at **6,782,455 / 10,935,000 (62%)**, so at ~50 e/t
+that is roughly **83,000 ticks** away. **No edge link can be built in this room
+until then**, and demolishing a working link to free a slot would cost more
+than it buys.
+
+### The two ports we have are ALREADY edge-ish, and already in the buffer band
+
+```
+  PORT A (8f08) at (46,11)   range 14 to core   fires 57.1 e/t
+      load = 30 routed + 10 own source = 40  ->  rho 0.70   BUFFER band
+  PORT B (4a83) at (43,38)   range 13 to core   fires 61.5 e/t
+      load = 40                              ->  rho 0.65   BUFFER band
+```
+
+Both sit at the room's periphery already. Both are squarely in spec 47's
+`0.5 <= rho < 1.0` band — which is exactly where a container earns its 0.233
+e/t, and independently confirms that intervention for the ports we HAVE.
+
+### What actually blocks edge links is the flat headroom — and that ships now
+
+A link at the far edge is a different animal, and `DEPOSIT_PORT_HEADROOM = 30`
+would over-route it into a backlog by construction:
+
+```
+  edge (47,25)  range 12  fires 66.7  ->  30 routed = rho 0.45   fine
+  edge (25,47)  range 22  fires 36.4  ->  30 routed = rho 0.82   marginal
+  edge ( 2,25)  range 33  fires 24.2  ->  30 routed = rho 1.24   SATURATED
+```
+
+A port routed 30 e/t into a 24.2 e/t drain is the `rho >= 1.0` band where **no
+buffer helps** — the routed load has to come down. So range-awareness is the
+PREREQUISITE for edge links, not a refinement of them, and it is buildable
+today.
+
+**Shipped:**
+
+1. **`depositPortHeadroom(rangeToCore, ownSourceRate)`** in primitives —
+   `min(CAP, LINK_CAPACITY/range - ownSource)`, floored at 0. The port's own
+   source comes off first because that energy lands in the same link. Unknown
+   range falls back to the cap, so every existing caller is unchanged; 7
+   red-first pins, including one that the two LIVE ports do not move.
+2. **`detectLinkDepositPorts` no longer requires an adjacent source** (the
+   owner's correction). That gate was a spec-26 v1 leftover — the owning
+   source's hauler was how the drain got STAFFED — and since spec 02 the
+   feeder is the sole core-link operator and staffs it regardless. The
+   requirement outlived its reason while excluding exactly the geometry that
+   serves remote hauls best: a link that meets haulers where they ENTER the
+   room rather than where a source happens to sit. A port with no source now
+   registers, and takes its full range-bounded headroom.
+
+### What remains before an edge link can be turned on
+
+- **RCL 8** (the hard wall above).
+- **The relay.** An edge link has no miner beside it, so the parked tender is
+  mandatory there rather than optional — and it is still blocked on spec 39's
+  spawn-authority ratchet (see the PortRelayCorp entry above). That blocker is
+  now on the critical path for a feature the owner wants, which is a reason to
+  solve it properly rather than route around it.
+- **Siting.** `bestPortContainerTile` already sites a container against
+  weighted approaches; an edge LINK wants the same treatment against the same
+  approach lens, minus the range-2 constraint. Not built.

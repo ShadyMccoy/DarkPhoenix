@@ -56,7 +56,10 @@ import {
   spawnEnergyCeiling,
   workPartsForEnergyRate,
   WARTIME_BACKLOG_THRESHOLD,
-  ANTI_DOWNGRADE_RESERVE
+  ANTI_DOWNGRADE_RESERVE,
+  DEPOSIT_PORT_HEADROOM_CAP,
+  depositPortHeadroom,
+  SOURCE_RATE
 } from "./primitives";
 import { detectRoomStocks, SCAVENGE_RATE_FLOOR, stockToTransientSource } from "./scavenge";
 import { partialPaveRatio } from "./roadEconomics";
@@ -650,9 +653,11 @@ export function detectLinkHaulPositions(graph: FlowGraph): Map<string, Position>
  * Requires a storage hub (the port is a shortcut TO that hub). Live default for
  * buildColonyProblem; injectable for tests.
  */
-/** v1 conservative per-port deposit cap (e/t). Bounds the drain + blast radius
- * while the source-link port stabilises; the measured opportunity is ~30 e/t. */
-export const DEPOSIT_PORT_HEADROOM = 30;
+/** v1 conservative per-port deposit cap (e/t) - now the CEILING that
+ * `depositPortHeadroom` applies range-awareness under, not the headroom
+ * itself. Kept exported: the feeder's PER_LINK_SOURCE_DRAIN is documented to
+ * stay in sync with it. */
+export const DEPOSIT_PORT_HEADROOM = DEPOSIT_PORT_HEADROOM_CAP;
 
 export function detectLinkDepositPorts(): DepositPort[] {
   // SOURCE-LINK PORTS (spec-26 stage 4 redesign, owner 2026-07-23): a remote
@@ -678,15 +683,29 @@ export function detectLinkDepositPorts(): DepositPort[] {
     for (const link of links) {
       if (link.id === core.id) continue; // the hub itself, not a shortcut
       if (ctrl && link.id === ctrl.id) continue; // controller port = v2 (bank-neutral, no drain)
-      // The link's owning source: its hauler already drains the core, so it
-      // staffs the deposit drain. No adjacent source => not a source-link.
+      // AN ADJACENT SOURCE IS NO LONGER REQUIRED (owner 2026-08-06: *"I
+      // disagree that it's only links with sources. Building links inside our
+      // rooms near the edge for remote mining is probably a great way to go in
+      // a lot of cases. And in that case there's no miner, but we still want a
+      // tender."*). The old gate was a spec-26 v1 leftover: the owning
+      // source's hauler was how the drain got STAFFED. Since spec 02 the
+      // feeder is the sole core-link operator and staffs it regardless, so the
+      // requirement outlived its reason and was excluding exactly the geometry
+      // that serves remote hauls best - a link that meets haulers where they
+      // ENTER the room rather than where a source happens to sit.
       const owner = sources.find(s => s.pos.inRangeTo(link.pos, 2));
-      if (!owner) continue;
+      // A port cannot absorb more than it can FIRE, and its own source (if
+      // any) lands in the same link and comes off that first. Flat 30 was safe
+      // for range 13-14; at the far edge of a room it over-routes into a
+      // saturated link - see depositPortHeadroom.
+      const rangeToCore = typeof link.pos.getRangeTo === "function" ? link.pos.getRangeTo(core.pos) : undefined;
+      const headroom = depositPortHeadroom(rangeToCore, owner ? SOURCE_RATE : 0);
+      if (headroom <= 0) continue; // too far to be worth routing anything to
       out.push({
         pos: { x: link.pos.x, y: link.pos.y, roomName },
-        headroom: DEPOSIT_PORT_HEADROOM,
+        headroom,
         drainFrom: { x: core.pos.x, y: core.pos.y, roomName },
-        drainSourceId: `source-${owner.id}`
+        ...(owner ? { drainSourceId: `source-${owner.id}` } : {})
       });
     }
   }
