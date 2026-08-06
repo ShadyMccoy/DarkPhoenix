@@ -223,13 +223,46 @@ middle one is the engine's:
    terminal and stops — a new fidelity gap of exactly the kind the phasing
    exists to prevent, so detection stays UNWIRED until it has an answer.
 
-Options for leg 3, none yet chosen: give the tender an explicit drain mode
-(smallest code, touches a live corp's refill SLA — trap-list territory); make
-the terminal a second withdraw source behind `coreDepot` (widest blast
-radius); or count terminal stock as part of the hub's bank in
-`storageBankPressure` and let the destination's consumers draw it directly
-(cleanest economically — the transfer is complete on arrival — but the
-withdrawers still resolve `coreDepot`, so it needs the same lens work).
+**Leg 3's answer, settled 2026-08-06 by the merged transport analysis: a new
+CORP KIND, not surgery on the tender.** All three options I had listed
+(a tender drain mode, widening `coreDepot`, counting terminal stock as hub
+bank) share a defect — they make an existing corp cover a job that is not
+its job, which the accountability doctrine (ONTOLOGY §4) rejects outright:
+"each corp needs to do their job, not cover for each other." The tender's job
+is extensions and spawn from the depot. The depot⇄terminal pair is a
+different job.
+
+TRANSPORT_NETWORK §11.1 specifies the operator almost exactly:
+
+> "with storage adjacent the fill is a stationary creep at 2 intents per 800.
+> An RCL8 room can export its entire surplus for ~0.03 CPU/tick."
+
+That is a **parked bidirectional operator** — and the colony already has one
+of those to copy: `ControllerFeederCorp`, "the sole bidirectional core-link
+operator", parked, spawn-direction-biased onto its post, sized from a
+published plan rate. A `hubManager` kind is the same shape one structure over:
+parked between storage and terminal, moving energy OUT on a planned outbound
+transfer and IN on arrival, sole operator of that pair so nothing races it.
+
+Why this is cheap rather than daunting: spec 17 makes kinds
+**registration-only** — one kind file plus one `KINDS` entry, with demand
+policy, body building, orphan rescue and the census all derived from the
+kind's own declarations. If it appears to need an edit anywhere else, that is
+a framework regression to fix at the seam, not hand-wiring to add here.
+
+Sizing falls out of primitives that exist: `parkedRelayCarry` /
+`bufferCarryParts` against the published transfer rate, exactly as the feeder
+sizes against `Memory.controllerAllocations`. The remaining phase-3 work is
+then: the kind, the `Memory.terminalTransfers` publication beside
+`controllerAllocations`, `runTerminals()` on the LinkRunner precedent, and the
+adapter detection that finally arms `terminalRooms` — in that order, because
+detection is the switch and must land last.
+
+One refinement to fold in when it does (spec 47 §6.1): the destination test
+should become the far end's **controller headroom** rather than its bank
+hunger, because TRANSPORT_NETWORK §11.4 ranks "export to another RCL8 room"
+dead last — it moves the problem — while a sub-RCL8 controller is uncapped and
+converts surplus straight into GCL.
 
 Until leg 3 is settled the plan emits no transfers at all: phases 1–2 are a
 strict no-op with `terminalRooms` empty, which is precisely what made them
