@@ -25,6 +25,7 @@ import { getCompletedLedger } from "./cpuLedgerCache";
 import { SPAWN_PARTS_PER_TICK } from "../economy/primitives";
 import { BodyAggregate, CorpCensusEntry } from "./bodyCensus";
 import { TELEMETRY_SEGMENTS } from "./segmentIds";
+import { ContainerCensus, roomContainerCensus } from "./containerCensus";
 
 /**
  * Core telemetry data structure (Segment 0).
@@ -366,6 +367,20 @@ export interface CoreTelemetry {
     siteProgress: number;
     siteTotal: number;
     siteCount: number;
+    /**
+     * CONTAINER TABLE (v35, owner 2026-08-06: *"more information and
+     * instrumentation and telemetry on the containers getting built next to
+     * the links"*). WHICH of the room's five slots are spent and on what -
+     * the first structure inventory in any segment, added because its absence
+     * ended five diagnoses this week at "I cannot tell from telemetry".
+     *
+     * `CONTAINER_LIMIT` is the GAME's cap, so `full` is the gate every
+     * container rung silently stalls on; `ports[].hasContainer` answers
+     * whether a deposit link has the buffer its hauler wait needs; and
+     * `supersededControllerContainer` names a slot a controller LINK has
+     * already made dead. null = the room could not be read.
+     */
+    containers: ContainerCensus | null;
   }[];
 }
 
@@ -461,7 +476,8 @@ export function updateCoreTelemetry(
           return {
             siteProgress: sites.reduce((a, st) => a + (st.progress ?? 0), 0),
             siteTotal: sites.reduce((a, st) => a + (st.progressTotal ?? 0), 0),
-            siteCount: sites.length
+            siteCount: sites.length,
+            containers: roomContainerCensus(room)
           };
         })()
       });
@@ -578,7 +594,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 34, // v33 retained hostile windows; v34 siteLedger - vision-free per-room construction progress (owner 2026-08-05)
+    version: 35, // v34 siteLedger; v35 rooms[].containers - the container table by ROLE, the first structure inventory (owner 2026-08-06)
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {

@@ -67,6 +67,7 @@ import {
   PortApproach,
   containersUnlocked,
   CONTAINER_LIMIT,
+  reclaimableContainer,
   EXTENSION_LIMITS,
   findGridPosition,
   LINK_LIMITS,
@@ -87,6 +88,7 @@ import {
   trunkGateFromSurvey,
   wantsAnotherSpawn
 } from "./constructionPlacement";
+import { roomContainerCensus } from "../telemetry/containerCensus";
 
 /**
  * Serialized state specific to ConstructionCorp
@@ -1275,6 +1277,28 @@ export class ConstructionCorp extends Corp {
       if (portContainer) {
         this.placeSite(room, portContainer.x, portContainer.y, STRUCTURE_CONTAINER);
         return;
+      }
+      // 1.6b CONTAINER SWAP (owner 2026-08-06: *"we should definitely reclaim
+      //      the unused container and have a mechanism for that"*). The
+      //      container table is a HARD GAME CAP, so rungs do not queue behind
+      //      it - they stall silently and forever. This rung gives back the one
+      //      slot a controller LINK has already made dead, and only when a
+      //      deposit port is actually waiting for it. The freed slot places
+      //      next cooldown, exactly like the LINK SWAP above.
+      const reclaim = reclaimableContainer(roomContainerCensus(room));
+      if (reclaim) {
+        const victim = room
+          .lookForAt(LOOK_STRUCTURES, reclaim.pos.x, reclaim.pos.y)
+          .find(s => s.structureType === STRUCTURE_CONTAINER);
+        if (victim) {
+          this.stampSizing({ containerSwap: `retired-controller@${reclaim.pos.x},${reclaim.pos.y}`, energyLost: reclaim.energyLost });
+          console.log(
+            `[Construction] CONTAINER SWAP: retiring the controller container at ` +
+              `${reclaim.pos.x},${reclaim.pos.y} (${reclaim.energyLost}e dropped) - ${reclaim.reason}`
+          );
+          victim.destroy();
+          return; // the freed slot places next cooldown
+        }
       }
     }
 

@@ -76,12 +76,16 @@ describe("Telemetry room energy ledger (segment 0, spec 14 phase 1)", () => {
     new Telemetry().update(undefined, [], undefined);
     const core = JSON.parse(RawMemory.segments[0]);
 
-    expect(core.version).to.equal(34); // v34: siteLedger - vision-free per-room construction progress 2026-08-05
+    expect(core.version).to.equal(35); // v35: rooms[].containers - the container table by ROLE 2026-08-06
     const room = core.rooms[0];
     expect(room.storageEnergy).to.equal(200000);
     // 1500 in the controller-side container + 250 dropped at the input spot
     expect(room.controllerStock).to.equal(1750);
     expect(room.feederActive).to.equal(true);
+    // v35: the container table rides alongside. This harness room wires no
+    // structure finds, so the census degrades to null rather than to a
+    // fabricated empty table - absent and empty are different facts.
+    expect(room, "the container census key is always present").to.have.property("containers");
   });
 
   it("exports the vision-free siteLedger from Game.constructionSites (v34, owner 2026-08-05)", () => {

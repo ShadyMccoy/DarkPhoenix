@@ -17,6 +17,8 @@
  */
 
 import { UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
+import { ContainerCensus } from "../telemetry/containerCensus";
+import { Position } from "../types/Position";
 import { controllerInputSpot, coreDepot } from "./nodeEnergy";
 
 /**
@@ -546,4 +548,47 @@ export function bestPortContainerTile(
     }
   }
   return best ? { x: best.x, y: best.y } : null;
+}
+
+/**
+ * A container slot worth RECLAIMING, or null (owner 2026-08-06: *"yes I think
+ * we should definitely reclaim the unused container and have a mechanism for
+ * that"*).
+ *
+ * `CONTAINER_LIMIT` is the GAME's per-room cap, so container rungs do not
+ * queue - they stall, silently and forever, the moment the table fills. In the
+ * live home room all five slots are spent (2 source + core depot + controller
+ * + recycle pad), which is why the deposit-port rung has never placed anything
+ * and 22.4% of port arrivals still HOLD at a full link.
+ *
+ * The controller container is not a TRADE against the port container - it is
+ * already dead. `controllerInputSpot` returns a controller LINK before it ever
+ * looks at a container, and `findMissingControllerContainer` refuses to build
+ * one while a link stands, so a container there can only predate the link and
+ * nothing reads it.
+ *
+ * PRECEDENT: the LINK SWAP rung already retires the weakest source link to
+ * free a link-table slot for the controller link. This is that, one table over.
+ *
+ * THREE CONDITIONS, and each is a guard rather than a preference:
+ *  - the table must be FULL. Retiring destroys 5,000e of build; while a rung
+ *    can simply place, it must.
+ *  - something must WANT the slot - here, a deposit port with no buffer.
+ *    Reclaiming for tidiness is pure loss.
+ *  - the census must have PROVEN the container superseded, which it only does
+ *    with a controller link present. Without one the container IS the input
+ *    spot and retiring it strands the upgraders mid-upgrade.
+ */
+export function reclaimableContainer(
+  census: ContainerCensus | null
+): { pos: Position; energyLost: number; reason: string } | null {
+  if (!census || !census.full) return null;
+  if (!census.ports.some(p => !p.hasContainer)) return null;
+  const dead = census.supersededControllerContainer;
+  if (!dead) return null;
+  return {
+    pos: dead.pos,
+    energyLost: dead.energy,
+    reason: "controller link owns the input spot; this container predates it and nothing reads it"
+  };
 }
