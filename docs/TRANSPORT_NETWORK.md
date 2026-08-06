@@ -610,6 +610,35 @@ have 3,000 hits and cost 100,000 — losing one is ~5,000 ticks of a room's net
 income and isolates the room from the network. **Rampart the terminal; don't
 bother with links.**
 
+**Construction is irreversible — there is no liquidation.** `dismantle()` returns
+`0.005 × hits` to the creep and repair costs `0.01 × hits`, so you recover a flat
+50% of energy spent *repairing*. But a structure's hit pool has nothing to do
+with its build cost, and salvage on buildings is therefore ~zero:
+
+| structure | hits | salvage | build cost | recovery |
+|---|---|---|---|---|
+| **terminal** | 3,000 | **15** | 100,000 | **0.015%** |
+| storage | 10,000 | 50 | 30,000 | 0.17% |
+| spawn | 5,000 | 25 | 15,000 | 0.17% |
+| link | 1,000 | 5 | 5,000 | 0.10% |
+| road, plain | 5,000 | 25 | 300 | **8.3%** |
+| rampart | as repaired | `0.005/hit` | `0.01/hit` repaired | **50%** |
+
+The terminal is the worst-salvaging structure in the game — the most expensive
+thing you can build, and among the squishiest. Dismantling one recovers **15
+energy**, and the 10-WORK creep that does it costs 1,000. So §8.5's "100,000
+energy of regret" is not rhetorical: relocating a terminal destroys the entire
+build cost.
+
+Two corollaries that do matter. **Roads and ramparts are the only structures
+worth dismantling**, being hit-dense relative to cost. And a turtled defender's
+ramparts are **a 50%-liquid battery for whoever can stand next to them** —
+repairing to 30M hits sinks 300,000 energy and hands 150,000 back to the
+attacker who dismantles it. Over-investing in rampart hits is storing energy in
+a form the enemy can withdraw. Slowly (50 hits per WORK per tick puts 30M hits
+at ~24,000 creep-ticks unboosted), but the energy is real and belongs in raid
+economics.
+
 **Creep logistics is the attack surface; terminal logistics is not.** Convoys can
 be ambushed, blocked, and starved. Terminal sends have no interception mechanic
 at all. Under contest the creep arc's true cost is 0.26%/tile *plus* expected
@@ -658,7 +687,108 @@ you model that or not.
 
 ---
 
-## 11. What this implies for the planner
+## 11. The RCL8 inversion: the room stops being a sink
+
+At RCL8 the controller hard-caps at **15 e/t**
+(`CONTROLLER_MAX_UPGRADE_PER_TICK`). Below RCL8 a controller is an unbounded
+sink — throw 100 e/t at it with enough upgrader WORK and it all converts to RCL
+progress. At RCL8 that ends, and the room's economics invert.
+
+A mature RCL8 room with remotes:
+
+| | e/t |
+|---|---|
+| local sources (2) | 20 |
+| remotes (3–6) | 30–60 |
+| **income** | **50–80** |
+| controller, capped | 15 |
+| creep replacement, towers, decay repair | 10–20 |
+| **local burn** | **25–35** |
+| **surplus with nowhere local to go** | **20–50** |
+
+Storage (1M) plus terminal (300k) banks 1.3M, which at 40 e/t of surplus fills in
+**~32,000 ticks**. After that the room must export, sell, or convert. Hoarding is
+a nine-hour option, not a strategy.
+
+So the observation is structural rather than incidental: **every RCL8 room with
+remotes becomes a net exporter, and energy export becomes its dominant terminal
+activity.** Four consequences worth planning around.
+
+### 11.1 Export is nearly free; acquisition is where all the CPU goes
+
+A terminal send is one intent — 0.2 CPU per 10-tick cooldown, **0.02 CPU/tick** —
+and with storage adjacent the fill is a stationary creep at 2 intents per 800.
+**An RCL8 room can export its entire surplus for ~0.03 CPU/tick.**
+
+Against the 0.3–1.0 CPU/tick its remote hauling costs (§7), distribution is a
+rounding error. **All CPU optimization belongs on the acquisition side** — bigger
+haulers, links where geometry allows, and above all converting creep hauls into
+terminal hops by claiming remotes (§8.5).
+
+### 11.2 The terminal is idle, which is what makes §9's reserve role free
+
+40 e/t of export split three ways is ~400 energy per send, against 300,000 of
+capacity and a 30,000 e/t nominal ceiling. **Energy export uses well under 1% of
+a terminal's throughput and never comes near the cooldown.**
+
+That spare capacity is not waste — it is exactly what makes the
+strategic-reserve posture from §9 free. Holding a terminal near full costs the
+export role nothing.
+
+### 11.3 It resolves the one-shot placement problem
+
+§8.5 worried that terminal placement is a forecast made at RCL6, when `X ≈ 0`,
+about a payoff that only arrives at RCL8. The RCL8 arithmetic closes that gap.
+Substituting `X = 20 + f_R − 30 = f_R − 10` into the gate:
+
+```
+V = min( X, f_R, 2f_R − X ) · t  =  X · t          for any f_R > 10
+```
+
+**For a mature RCL8 room the offset value is simply export rate × shift
+distance** — the awkward `X > 2f_R` regime never applies. And `X` grows
+monotonically with remote count, which is a *geographic* fact known at claim
+time rather than a speculation. So:
+
+> Site every terminal for the room's RCL8 steady state, never its RCL6 present.
+
+At `f_R` = 40, `X` = 30, `t` = 18: **`V` = 540 e·tiles/tick — 1.4 e/t,
+0.13 CPU/tick, ~33 body parts.** Half again the §8.5 example, and the gap widens
+as the room matures.
+
+The forecast that still matters is "how many remotes will this room hold," and
+that is answerable from the map before you claim.
+
+### 11.4 The endgame: exporting energy is the worst option and the default
+
+§10 said shipping energy is the worst possible use of a terminal — a flat energy
+charge per unit, paid in the same commodity, on the lowest-value-density cargo in
+the game. The RCL8 room does exactly that, continuously, by default.
+
+Ranked by what a surplus energy unit is actually worth:
+
+| sink | tax | capacity | notes |
+|---|---|---|---|
+| **power processing** | **0%** | 50 e/t | 50 energy + 1 power → GPL, entirely local |
+| feed a sub-RCL8 controller | 3.33%/room | uncapped below RCL8 | converts to RCL, which creates new sinks |
+| sell locally for credits | the spread | market depth | §10's arbitrage |
+| export energy to another RCL8 room | 3.33%/room | — | **moves the problem, does not solve it** |
+| nukes | — | 5M each | a sink, not an investment |
+
+`PowerSpawn.processPower()` burns 50 energy per power
+(`POWER_SPAWN_ENERGY_RATIO`), i.e. **50 e/t of sink at zero transport tax** —
+precisely the scale of an RCL8 room's surplus, and evidently designed as its
+terminating sink. It needs a power supply chain from highway banks, but where one
+exists it strictly dominates exporting energy.
+
+Watch the fourth row. In a fully-RCL8 empire **every room is a source and none is
+a sink**, so energy shipped between mature rooms merely circulates, paying 3.33%
+every time it moves. That is the real endgame constraint, and it is why power
+processing and the market exist at all.
+
+---
+
+## 12. What this implies for the planner
 
 Stated as arc costs, ready to price:
 
@@ -699,6 +829,13 @@ And the judgements that don't reduce to a table:
    It is not the constraint anyone thinks it is.
 9. **Prefer exporting product over exporting energy**, and check the market
    before shipping energy more than ~3 rooms.
+10. **Treat RCL8 as a role change, not a milestone** (§11). The controller caps
+    at 15 e/t, the room turns net exporter, and its surplus needs a real sink —
+    power processing first, sub-RCL8 controllers second. Energy shipped to
+    another RCL8 room just circulates at 3.33% a hop.
+11. **Never model construction as recoverable.** Salvage is `0.005 × hits`,
+    which is 0.015% of a terminal's build cost. Only roads and ramparts are
+    worth dismantling.
 
 ### Open questions worth measuring
 
@@ -714,3 +851,8 @@ And the judgements that don't reduce to a table:
 - Measured CPU per creep-tick for our haulers against the 0.2 intent floor —
   §7.7 assumes 0.1–0.3 of code overhead on top, and that ratio decides how much
   the link numbers understate.
+- What our RCL8 rooms actually do with surplus, measured against §11's table. If
+  the answer is "bank it until storage caps, then export energy to another RCL8
+  room," the room is paying 3.33% a hop to circulate energy that has no sink
+  anywhere in the empire — which is a planner bug wearing the costume of a
+  healthy export flow, and no energy metric would flag it.
