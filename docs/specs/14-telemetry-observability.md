@@ -9248,3 +9248,82 @@ a new defect). G1 shows 5.25 e/t still banking.
 Cycle verdict: **VERIFIED (clamp share halved on a clean 249t gauge window) +
 a registered non-prediction falsified in the informative direction, which
 parked an entire spec before it was built.**
+
+## Cycle t72809037 — P0: THE HEARTBEAT'S OWN LADDER RUNG WAS INERT
+
+**Window** 906t from t72808131. Methodology #12. The ledger named **L1** as
+TOP LINE (pile decay 6.06 vs a 0.00 budget), but a live incident preempted it,
+and the incident is the one the owner had made doctrine the same day.
+
+### The finding
+
+`controllerFeeder` creeps **0**, `feederActive false`, `wantedFeeders 1`, gate
+`"demand"` — standing **190 ticks unfunded with 153,760 banked**, ranked
+**4th** in the agenda behind two haulers and a coreBuster campaign, while the
+spawn finished 7 other bodies (util 0.96, queueDepth 8).
+
+Owner 2026-08-06: *"We have to assume the tender is working. It's a heart
+beat. It's non negotiable. The body dies slowly if there's issues there."*
+The doctrine's first consequence is that a measurement suggesting the
+heartbeat is failing is **a P0 bug in the heartbeat itself**, never a reason
+for a compensating rule elsewhere. So this preempts L1.
+
+### The mechanism — a rung that could never be reached
+
+`FEEDER_LINCHPIN = 150` exists precisely to implement the doctrine, and its
+docstring states the comparison it intended:
+
+> *"Above the miner band (HarvestCorp: `100 + efficiency*0.5`, efficiency <
+> 100, so miners top out just under 150) so the linchpin outranks the
+> marginal producer."*
+
+**That comparison never happened.** `spawnPriority` adds `INCOME_TIER` (1e6)
+to any demand with `producesIncome` + a `groupId`; the feeder declares
+`producesIncome: false`. So 150 was being compared against **1_000_146**, and
+the first feeder ranked below EVERY income demand, always. The `infrastructure`
+flag does not rescue it — by its own contract it *"never displaces an actual
+buy"*, only pierces holds. The sole rescue was the 300-tick anti-starvation
+lift, i.e. **the heartbeat stops for up to 300 ticks after every death.** That
+is the slow death the owner named, written into the ladder.
+
+`TENDER_BOOTSTRAP = 150` carries the identical claim (*"outbids the whole
+income range ... by VALUE alone"*) and was inert for the identical reason.
+
+### The fix
+
+A declared `linchpin` flag (semantic, not role-keyed — spec 17) lifting the
+demand to `INCOME_TIER + HEARTBEAT`, where `HEARTBEAT = 5_000` sits between
+`STARTED` (1e3) and `BLOCKING` (1e4): **above every scaling producer, below
+every blocking one** — exactly what the rungs always claimed.
+
+The first attempt lifted by `INCOME_TIER` alone and the test still failed,
+1_000_150 against 1_001_146: a started source's scaling top-up carries
+`STARTED`. Racing the miner band on **4 points of value** is the same
+fragility that made the rung inert to begin with, so the ordering is now a
+separator, not a value race.
+
+Declared only in the state each rung was written for: `firstFeeder && !drained`
+(a DRAINED bank keeps `FEEDER_DRAINED` below the miners — income rebuilds
+first, owner 2026-07-24) and the tender's `bootstrap` emergency only. Both stay
+`blocking: false`, so topping the rung can never wall the bank, and both are
+staffing-gated so neither can become the W2N6 blocking STREAM.
+
+### The rest of the window (recorded, not actioned)
+
+An invader core stood in W43N24 and the colony paid for it: creeps **53 → 41**,
+fielded CARRY **375 → 282 (−25%)**, reservation creeps 9 → 3. R1 measured
+**7.74 e/t** of attrition against 0.75 priced (**10.3x**). The carry shortfall
+is what E6 reports — **5 of 11** miner ops deferred (cedc held 100% of the
+window, cee0 99%, cd94 91%) with H1 duty **0.88** and haulers BUSY, so the
+sources back up because there is not enough CARRY fielded, not because haulers
+idle. That is the honest reading of L1's pile decay: a raid-attrition
+transient, and the ledger's own E6 row says it — *"the leak is HAULING (drain
+term / route sizing / churn), not the miner"*.
+
+Two things improved and should not be lost in the above: **P7 controller
+delivery 39.33 → 47.90 e/t** (the upgrader replacement landed; X1 workUtil
+0.99, dry 0.01) and **P1 plan flap 0 sources, stable** — the defund-stranding
+that dominated last cycle's `idleSink` resolved on its own (H1 idleSink
+0.18 → 0.06, atSink 0.02, enRoute 0.04; E2 stranded fleet 0).
+
+**Cycle verdict: FIXED (a doctrine the code claimed but never executed).**

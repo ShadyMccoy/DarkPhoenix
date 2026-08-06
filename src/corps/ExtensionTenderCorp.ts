@@ -825,6 +825,15 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
         // Ladder rungs (spawn/demandLadder.ts): emergency 150 above all
         // income; else 96, above upgrading/building, below mining.
         value: bootstrap ? TENDER_BOOTSTRAP : TENDER,
+        // THE HEARTBEAT LANE (owner 2026-08-06). TENDER_BOOTSTRAP carries the
+        // same claim FEEDER_LINCHPIN does - "it outbids the whole income range
+        // (miners 100-146, haulers 90-110) by VALUE alone" - and was inert for
+        // the same reason: spawnPriority tiers producers by +1e6 and the
+        // tender declares producesIncome false, so 150 lost to 1_000_146.
+        // Scoped to the bootstrap EMERGENCY exactly like the pierce below: an
+        // unconditional lift is what recreated the W2N6 stream, and the
+        // ordinary TENDER rung (96) must stay below mining.
+        linchpin: bootstrap,
         blocking: false, // never hold the spawn - minCost 200 buys instantly at this rank anyway
         // The lane pierces holds/walls ONLY in the bootstrap emergency (dark
         // post + stranded stock - incident t72499165: a walled miner's

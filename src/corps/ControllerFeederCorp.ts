@@ -508,6 +508,14 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
         // below miners (income first). Additional feeders: the old infra
         // tier, just below the tender.
         value: firstFeeder ? (drained ? FEEDER_DRAINED : FEEDER_LINCHPIN) : FEEDER,
+        // THE HEARTBEAT LANE (owner 2026-08-06, measured t72809037). The rung
+        // above is inert without this: spawnPriority adds INCOME_TIER to
+        // producers, so FEEDER_LINCHPIN's 150 was compared against 1_000_146
+        // and the first feeder ranked below EVERY income demand - dead 190
+        // ticks with 153,760 banked, rescued only by the 300-tick starvation
+        // lift. Declared ONLY where the rung was written for: first feeder,
+        // energy present. While DRAINED it stays off so income rebuilds first.
+        linchpin: firstFeeder && !drained,
         blocking: false, // never walls: haulers feed the controller directly until it spawns
         // The first feeder also pierces holds/walls while its post is dark and a
         // real bank stands stranded behind it (the emergency lane, incident
