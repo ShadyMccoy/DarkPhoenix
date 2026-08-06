@@ -164,6 +164,59 @@ silently widen), GAP 2 as an explicit assertion that the ledger's infra is
 unowned. Each has a `skip`ped TARGET assertion beside it that states the
 post-fix invariant — the fix flips a red test green rather than being argued.
 
+### Why scout / raidGuard / coreBuster are NOT just three more of the same
+
+Owner asked the obvious question — why not convert them too, it looks easier.
+They split three ways, and only one of the three is mechanical.
+
+**raidGuard and scout SHOULD be priced, and the reason is sharper than "they
+are missing".** Defense is already priced — but only in ENERGY, at ADMISSION:
+`invaderTax * rate` per remote source (`EXPECTED_RAID_DEFENSE_COST` 750
+amortized over `INVADER_RAID_MEAN_ENERGY`), which reduces each candidate's net
+and can drop a remote whose profit was fictional. There is **no PARTS-side
+counterpart**. Compare reservation, which is priced in BOTH currencies —
+`reserverRoomEnergy()` in the admission tax and `reserverSpawnLoad()` in
+`infraSpawnLoad`. That is the design: the colony is constrained in energy AND in
+spawn build-time, so a standing fleet costs in both books.
+
+So the guard fleet consumes spawn parts the plan never reserves. That is a real
+asymmetry, not a rounding — and adding it does NOT double-count the invader tax,
+because the tax is the other currency.
+
+**But it is a behaviour change, and a sweep-confounding one.** Measured at
+t72823437: the standing guard fleet is 3 creeps / 30 parts = **0.020 p/t against
+a plannable 0.600 — 3.3% of the whole budget.** One handicap step is 1% of the
+physical 0.667 = 0.0067 p/t, so pricing guards is worth **~3 handicap steps**.
+Landing it mid-sweep would move the very quantity spec 45 is varying. Same gate
+as everything else here.
+
+**And it needs a plan-side MODEL, which is the part that is not mechanical.**
+The three depot/remote kinds were extractable because `infraSpawnLoad` already
+contained their terms — the work was decomposition, not invention. There is no
+guard term to extract. `waste-ledger.planSpawnLoad` prices guards from the
+MEASURED standing bodies, which makes its "budget" an actuals-fed number — the
+one thing spec 14's owner directive says not to do yet (*"eventually we will
+feed actuals back to inform the budget, but not quite yet. We have some poor
+behavior that's causing variants that we don't want to encode as the budget"*).
+Copying that into the plan would encode current behaviour as the budget. A
+defensible model (guard detail per hostile-exposed remote × standard body /
+CREEP_LIFETIME) is design work, and guessing it would manufacture exactly the
+undefendable number this spec exists to remove.
+
+**coreBuster and claim are a UNIT mismatch, not a gap.** They are CAPEX —
+one-shot purchases funded from the expansion reserve, which the account already
+segregates below the operating margin (`CAPITAL (funded from the expansion
+reserve, not operating margin)`). A parts-per-TICK standing rate is the wrong
+shape for a thing that is bought once and never replaced on a cadence.
+`claimKind` says so itself: *"the claimer is CAPEX, priced by the SpawnDirector's
+value ranking (held-funded 650), not the flow planner."* They should still carry
+a corp row so the CAPITAL section gets a budget where it currently prints "-",
+but the number wants a capex shape (total cost + a reserve draw), not a rate.
+
+Ordered conclusion: scout and raidGuard are a genuine next slice needing a
+model; coreBuster and claim need a capex-shaped budget line first; none of it
+lands mid-sweep.
+
 ### Gate for phase 4 (2026-08-06)
 
 unit 2251 passing / 20 pending; tsc, lint and build clean; integration
