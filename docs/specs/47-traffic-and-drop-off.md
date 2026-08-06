@@ -609,3 +609,55 @@ difference moves the ranking.
 **Still gated on the port meter.** The scorer is pure and pinned now, so the
 placement policy is settled whichever way the measurement goes; whether a
 container gets built at all waits on `portWaitFrac` from the next capture.
+
+### Is the port tender just a tender/feeder? (owner 2026-08-06)
+
+*"It's kind of a tender or feeder corp no? Can it be generalized?"*
+
+**The two split differently than the question assumes, and the split is the
+useful part.**
+
+**vs `ControllerFeederCorp` — YES, the same shape.** Both are PARKED RELAYS:
+a creep standing adjacent to both a source store and a sink store, sized by
+`parkedRelayCarry(rate)` (withdraw tick + transfer tick, zero travel). The
+feeder stamps `distance: 1` and uses that exact formula in its `linkFed` mode.
+
+**vs `ExtensionTenderCorp` — NO, a different animal.** It walks a CIRCUIT, and
+its sizing law says so:
+
+```
+  tenderDeliveryRate(carry, extensionCapacity, walkTicks)
+      = carried / (1 + 2*walkTicks + unloadTicks)
+```
+
+with fleet COUNT derived from cluster count and capped by `TENDER_FLEET_CAP`.
+Nothing about that transfers to a parked relay. Calling both "tenders" is a
+naming coincidence, not a shared abstraction.
+
+**Most of the generalization already exists**, which is why this needs less new
+machinery than it looks:
+
+| layer | shared? | where |
+|---|---|---|
+| sizing law | **yes** | `parkedRelayCarry` in `economy/primitives` |
+| body shape | **yes** | `buildTankerBody` (CARRY-heavy, minimal MOVE — 4 call sites already) |
+| registration | **yes** | spec 17's kind framework: one kind file + one KINDS entry |
+| run loop | no | the feeder's is ~150 lines with controller policy interleaved |
+
+**DECISION: register a new kind; do NOT merge into the feeder.** Two reasons,
+and the first is the one that settles it:
+
+1. **The feeder is the heartbeat** (owner 2026-08-06, now CLAUDE.md doctrine).
+   Grafting a port relay onto it makes every port bug a heartbeat bug. The
+   thing we just declared non-negotiable is the last place to add an unrelated
+   responsibility.
+2. The feeder carries the ONE VALVE policy — `plannedControllerFlow`,
+   `bankFedControllerRate`, `feederRelayTarget` — which a port relay has
+   nothing to do with and must not inherit.
+
+**On extracting the shared run loop: worth doing, but SECOND.** There is one
+instance today; extracting from the feeder means editing the heartbeat under
+the full gate for a refactor with no behaviour change to show for it. Write the
+port relay's loop small and clean first, then extract once there are two
+implementations to generalise FROM — the seam will be obvious and the diff will
+be provable. Extracting from one instance is guessing at the abstraction.
