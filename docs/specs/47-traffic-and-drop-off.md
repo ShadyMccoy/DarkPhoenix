@@ -854,3 +854,57 @@ today.
 - **Siting.** `bestPortContainerTile` already sites a container against
   weighted approaches; an edge LINK wants the same treatment against the same
   approach lens, minus the range-2 constraint. Not built.
+
+## Owner questions answered from live structures (2026-08-06)
+
+The structure-inventory gap this spec has flagged three times finally blocked a
+direct question, so the room was read from the game API instead. **W43N23: 4
+links, 4 containers, 2 sources**, storage at (36,26):
+
+```
+  link (35,25)  CORE   range 1 to storage   adj source NO    container (36,27)  <- core depot
+  link (41,30)  CTRL   range 5              adj source NO    container NONE
+  link (46,11)  PORT A range 15             adj source YES   container (44,12)  <- range 2
+  link (43,38)  PORT B range 12             adj source YES   container (41,36)  <- range 2
+```
+
+**Q1 — do the deposit links have containers? YES, both.** Placed by
+`bestPortContainerTile`, both at exactly **range 2** — using the tender-bridging
+slack rather than hugging the link, which is the design working as intended.
+Both currently EMPTY, consistent with `portWaits 0`: nothing is backing up, so
+the buffer has not been exercised yet.
+
+**Q2 — do the miners staff them? YES, at these two ports.** Both port links
+report `adj source YES`, so a link-served miner (5W + 1C + 3M) stands at each
+and `HarvestCorp.drainPortBuffer` is the drain. NOTE the standing caveat: at
+these ranges the `32/range` law says 1 CARRY is NOT enough to keep the link
+reloaded (2.1 CARRY at range 15, 2.7 at range 12), so the miner covers the
+container's slow drain but not the reload objective. And an EDGE link has no
+miner at all — which is why `PortRelayCorp` is still needed.
+
+**Q3 — is there a supplemental hauler between an over-provisioned link and the
+core? NO, and the arithmetic says one would not help.**
+
+What exists: `CorpPlanner` prices a **core → storage** drain leg for deposited
+flow (`drainFrom` is the CORE's position, `dDrain` ≈ 1 tile), executed by the
+ControllerFeederCorp. There is no PORT → core hauler; that leg is done by the
+link firing, and excess beyond the fire rate is simply refused by
+`depositPortHeadroom` and routed the long way source → storage.
+
+Priced, the owner's shuttle is not cheaper:
+
+```
+  route   long haul   port + shuttle   CARRY one-leg   CARRY split   delta
+  cee2    d=87        71 + 15              35.2           35.2        +0.0
+  cedc    d=38        25 + 12              15.6           15.6        +0.0
+  cee0    d=46        34 + 15              18.8           20.4        +1.6
+  cd98    d=99        87 + 15              40.0           41.6        +1.6
+```
+
+`carryPartsFor` is `rate * roundTripTicks(d) / CARRY_CAPACITY`, and
+`roundTripTicks` carries a FIXED per-trip term. **Splitting one haul into two
+legs pays that term twice**, so a port→core shuttle is never cheaper in CARRY
+than hauling the same energy the long way — it is a wash on short legs and
+strictly worse on long ones. The link is free only while it can FIRE; past
+that, the excess costs the same by either route, and refusing it (current
+behaviour) is the simpler of two equal options.
