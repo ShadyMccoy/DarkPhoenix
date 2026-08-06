@@ -78,6 +78,11 @@ export interface SerializedCarryCorp extends SerializedCorp {
   dutyIdleSinkAtSink?: number;
   dutyIdleSinkStorageRoom?: number;
   dutySince?: number;
+  /** Deposit-port meter (rolling ~1500t window, survives resets). */
+  portDeposits?: number;
+  portWaits?: number;
+  portFallbacks?: number;
+  portSince?: number;
 }
 
 /**
@@ -121,6 +126,20 @@ export class CarryCorp extends Corp {
    * post-feeder-router pile: atSink 0.21, storage far from full). */
   private dutyIdleSinkStorageRoom = 0;
   private dutySince = 0;
+  /**
+   * DEPOSIT-PORT METER (owner 2026-08-06). `pickStorageDeposit` has three
+   * outcomes for a port-routed hauler - deposit, HOLD at a full port (bounded
+   * by PORT_WAIT_CAP = 30), or give up and haul the residual to the hub - and
+   * NONE of them was measured. That is the whole value of a port buffer: a
+   * container + small tender is worth its 5000e build exactly insofar as it
+   * converts waits and fallbacks into deposits, and without these counters
+   * the build could neither be justified nor verified (spec 14: never guess
+   * twice). Sized like the duty meter: same 1500t rolling window.
+   */
+  private portDeposits = 0;
+  private portWaits = 0;
+  private portFallbacks = 0;
+  private portSince = 0;
 
   /**
    * Where this corp's route picks up - the CarryCorp analogue of HarvestCorp's
@@ -218,6 +237,20 @@ export class CarryCorp extends Corp {
       staged: pickup.staged,
       srcLinkEnergy: pickup.srcLinkEnergy,
       srcLinkCap: pickup.srcLinkCap,
+      // Deposit-port outcomes (see the counters): waitFrac is the share of
+      // port arrivals that found the link FULL, fallbackFrac the share that
+      // gave up and hauled the residual to the hub. Both are what a port
+      // container + tender would convert into deposits.
+      ...(this.portDeposits + this.portWaits + this.portFallbacks > 0
+        ? {
+            portDeposits: this.portDeposits,
+            portWaits: this.portWaits,
+            portFallbacks: this.portFallbacks,
+            portWaitFrac:
+              Math.round((this.portWaits / (this.portDeposits + this.portWaits + this.portFallbacks)) * 1000) / 1000,
+            portMeterTicks: tick - this.portSince
+          }
+        : {}),
       // Duty split (owner 2026-07-25): active vs idle-empty (load leg) vs
       // idle-loaded (deliver leg). Low duty w/ full source buffers = execution
       // loss; high duty w/ full buffers = the plan under-asks (inflow-sized).
@@ -1004,6 +1037,20 @@ export class CarryCorp extends Corp {
       storageFree: storage && storage.my ? storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
       portWaitedTicks
     });
+    // Meter the outcome BEFORE acting on it (decision-site record, spec 14).
+    // Only port-routed trips count: a route with no depositPos has no port
+    // outcome to measure and must not dilute the fractions.
+    if (depositPos) {
+      if (Game.time - this.portSince >= 1500) {
+        this.portDeposits = 0;
+        this.portWaits = 0;
+        this.portFallbacks = 0;
+        this.portSince = Game.time;
+      }
+      if (decision === "port") this.portDeposits += 1;
+      else if (decision === "wait") this.portWaits += 1;
+      else if (decision === "storage") this.portFallbacks += 1;
+    }
     if (decision === "wait" && port) {
       // Hold at the link (owner 2026-07-24): the source link fires to core within
       // its cooldown, so waiting a few ticks beats bouncing to the hub and back.
@@ -1819,6 +1866,10 @@ export class CarryCorp extends Corp {
       spawnId: this.spawnId,
       haulerAssignments: this.haulerAssignments.length > 0 ? this.haulerAssignments : undefined,
       pickupPos: this.pickupPos ?? undefined,
+      portDeposits: this.portDeposits,
+      portWaits: this.portWaits,
+      portFallbacks: this.portFallbacks,
+      portSince: this.portSince,
       dutyAlive: this.dutyAlive,
       dutyActive: this.dutyActive,
       dutyIdleSource: this.dutyIdleSource,
@@ -1843,6 +1894,10 @@ export class CarryCorp extends Corp {
     this.dutyIdleSinkAtSink = data.dutyIdleSinkAtSink ?? 0;
     this.dutyIdleSinkStorageRoom = data.dutyIdleSinkStorageRoom ?? 0;
     this.dutySince = data.dutySince ?? 0;
+    this.portDeposits = data.portDeposits ?? 0;
+    this.portWaits = data.portWaits ?? 0;
+    this.portFallbacks = data.portFallbacks ?? 0;
+    this.portSince = data.portSince ?? 0;
   }
 }
 
