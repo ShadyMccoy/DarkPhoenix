@@ -10056,3 +10056,34 @@ per cycle is a phase sample, not a rate. And the sweep does not FIX the
 mispricing it measures: the standing successor is unchanged — price measured
 per-route replacement overhead into admission, after which the margin is
 redundant rather than merely tuned.
+
+### Same cycle — grid attribution: `multispawn-t7-both-spawns-worked` is RED on the DEPLOYED build
+
+Spot-checking the grid before the spec-45 deploy (the sweep changes a planner
+capacity lens, so the planning cells are the relevant neighbourhood):
+
+```
+plan-t3-budget-subset               [P]  satisfied @ tick 60
+multispawn-t7-both-spawns-worked    [x]  fail @738/800t  "extensions refill before the draining spawn finishes"
+```
+
+Baseline says `pass`, so it is a regression — **but not this change's.** Control
+run on pre-change src (6ce940f, built and re-run): fails IDENTICALLY, same
+assertion, @783/800t. Acquitted per the attribution protocol; it is its own
+incident against the deployed build and must not hold the fix hostage.
+
+Not the host-load class either, and worth saying because that was the last
+grid diagnosis: zero orphaned `@screeps/engine|storage` processes, load average
+0.44 on 4 CPUs, nothing else running. The two earlier assertions in the same
+cell satisfy normally (@36 and @109) — only the extension-refill throughput one
+fails, on both builds.
+
+This is the SECOND baseline-green cell found red on the deployed build
+(`cons-link-core-first` is the first, logged above, also unbisected). Two
+independent silent regressions means the grid has not been run to completion
+recently enough to catch them at their commit. **Bisect both before layering
+more spawn/link behaviour on top** — and note that neither would have been
+caught by the trio, which is the gate that actually runs every cycle.
+
+The spec-45 deploy proceeds: unit 2225 green, the trio green, and the grid's
+planning neighbourhood green with the one failure attributed away.
