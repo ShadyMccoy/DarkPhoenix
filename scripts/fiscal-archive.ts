@@ -231,27 +231,32 @@ export function closeFromArchive(seg: any, dry: boolean): string[] {
     if (cap.data.core.spawnSpend === undefined || base.data.core.spawnSpend === undefined) continue;
 
     const rows = computeLedger(cap, base);
-    const handicap = recs[i].pct;
+    // The OPENING snapshot's handicap - see FiscalArchiveRecord.pct. The sweep
+    // steps at the boundary before the snapshot, so recs[i].pct is the NEXT
+    // month's margin, not this one's.
+    const handicap = recs[i - 1].pct;
+    const cycle = recs[i - 1].cyc;
     const body = [
       `# ${period.label}${isYearEnd(period) ? "  (FISCAL YEAR END)" : ""}`,
       "",
       `**Methodology #${METHODOLOGY}** — reports are only directly comparable at the same stamp.`,
       "",
-      `**Closed from the BOT'S OWN month-boundary archive** (segment 8) — snapshots`,
+      `**Closed from the BOT'S OWN month-boundary archive** (segments 8-9) — snapshots`,
       `**t${base.tick} → t${cap.tick}** (${dt} ticks, ${(coverage * 100).toFixed(0)}% of the period).`,
       "",
       handicap === undefined
         ? "Spawn-capacity handicap: not recorded."
         : `**Spawn-capacity handicap in force this month: ${handicap}%** ` +
           `(planner budgeted ${(100 - handicap).toFixed(0)}% of physical spawn rate)` +
-          (recs[i].cyc === undefined ? "" : `, sweep cycle ${recs[i].cyc}`) +
+          (cycle === undefined ? "" : `, sweep cycle ${cycle}`) +
           ".",
       "",
       "An archived close brackets its period ON the boundary, so coverage is ~100% rather than",
-      "approximate. In exchange the snapshot is PRUNED to the account's inputs: candidates are",
-      "FUNDED-only (the rejected pool is absent, so P&L rows for unfunded sources cannot appear),",
-      "only harvest corps are kept, and there is no intel or blackbox segment. Lines fed by those",
-      "degrade or go absent — none of them read a confident zero.",
+      "approximate. In exchange the snapshot is PRUNED to the account's inputs: unscouted PROSPECT",
+      "candidates are dropped (every adjudicated verdict survives), only the corp kinds the plan",
+      "prices are kept, the per-room loss attribution maps are dropped (so the tombstone \"killed",
+      "where\" / \"recycled why\" decorations go absent), and there is no intel, blackbox or creep",
+      "census — X3 reads a stub. None of these read a confident zero.",
       "",
       "```",
       formatAccounts(cap, base, rows),

@@ -255,7 +255,15 @@ const PRICED_CORP_KINDS = new Set([
 export interface FiscalArchiveRecord {
   /** Tick the snapshot was taken - within a tick or two of the true boundary. */
   t: number;
-  /** Handicap in force during the month ENDING at this tick, percent. */
+  /**
+   * Handicap in force during the month that STARTS at this tick, percent.
+   *
+   * The boundary hook advances the sweep BEFORE the snapshot is taken (so the
+   * month's first re-solve already prices at the new margin), which means a
+   * record's `pct` describes the month ahead of it, not the one behind. A close
+   * spanning recs[i-1] -> recs[i] therefore reports recs[i-1].pct. Getting this
+   * backwards labels every income statement with the NEXT month's handicap.
+   */
   pct?: number;
   /** Sweep cycle index at this boundary. */
   cyc?: number;

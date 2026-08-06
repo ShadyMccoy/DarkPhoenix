@@ -54,6 +54,25 @@ describe("fiscal archive", () => {
       expect((Memory as any).spawnSweep.pct).to.equal(4);
     });
 
+    it("a record's pct is the month AHEAD of it, and the close reads the OPENING one", () => {
+      // The hook steps the sweep BEFORE snapshotting, so the month [B, B+1500)
+      // runs at the pct stamped on B's record - not on B+1500's. A close that
+      // read the closing record would label every income statement with the
+      // NEXT month's handicap, and the sweep would measure a shifted curve
+      // that still looked entirely plausible.
+      MockRawMemory.segments[TELEMETRY_SEGMENTS.CORE] = JSON.stringify({ tick: 0, gcl: { level: 1, progress: 1 } });
+      armSweep(7);
+      onTick(1500, {});
+      takeIfPending();
+      onTick(3000, {});
+      takeIfPending();
+      const [open, close] = getArchive().recs;
+      expect(open.pct, "the month starting at 1500 runs at 8%").to.equal(8);
+      expect(close.pct, "the NEXT month runs at 9%").to.equal(9);
+      // What a close for period [1500,3000) must report:
+      expect(open.pct).to.not.equal(close.pct);
+    });
+
     it("does not re-mark a boundary already snapshotted", () => {
       MockRawMemory.segments[TELEMETRY_SEGMENTS.CORE] = JSON.stringify({ tick: 1500, gcl: { level: 1, progress: 5 } });
       onTick(1500, {});
