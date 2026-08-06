@@ -164,6 +164,20 @@ silently widen), GAP 2 as an explicit assertion that the ledger's infra is
 unowned. Each has a `skip`ped TARGET assertion beside it that states the
 post-fix invariant — the fix flips a red test green rather than being argued.
 
+### Gate for phase 4 (2026-08-06)
+
+unit 2251 passing / 20 pending; tsc, lint and build clean; integration
+`flow-handoff` PASS, `runt-economy` PASS (240s, "upsize PROVEN"),
+`storage-depot` PASS.
+
+`runt-economy` first came back RED at 13 minutes against its usual ~4. It was
+re-run clean and passed identically to its previous green — the red was the
+documented HOST-LOAD class (the mockup meters real CPU against a real bucket,
+so cell behaviour couples to load), self-inflicted by backgrounding the test
+and doing spec edits and a poll loop alongside it. Recorded because the
+temptation on a 13-minute timeout is to go hunting in the diff: **re-run alone
+first**, and only then attribute.
+
 ### A note on the scenario harness
 
 `npm run plan:scenario` is DEAD: `scripts/run-plan-scenarios.ts` imports
