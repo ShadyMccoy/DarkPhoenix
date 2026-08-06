@@ -176,12 +176,38 @@ when A's own hub is full, as an ordinary priced CarryCorp. What phase 2 adds
 is moving **banked** energy, which no hauler executes. Pinned as its own test
 so the two are never conflated.
 
-**Phase 3 — the executor (open).** Adapter detection feeding `terminalRooms`/
-`roomDist`, a `runTerminals()` runner executing `terminal.send` on the
-LinkRunner precedent, and the storage→terminal stocking leg (the tender is the
-natural owner — it is the depot mover and the terminal is a depot structure).
-Until this lands the plan emits no transfers at all, by construction: phases
-1–2 are a strict no-op with `terminalRooms` empty, which is what makes them
+**Phase 3 — the executor (open, and it is bigger than it looks).** The obvious
+parts are easy: adapter detection feeding `terminalRooms`/`roomDist` (the
+`roomLinearDistance` lens already exists), publishing the plan's transfer
+routes to Memory beside `controllerAllocations`, and a `runTerminals()` on the
+LinkRunner precedent — `send` sized to the plan's rate over one cooldown,
+bounded by `terminalDeliveredFraction × held` so the fee is always affordable.
+
+**The blocker is that a transfer needs THREE legs, not one**, and only the
+middle one is the engine's:
+
+1. `storage → terminal` at the source. The tender is the natural owner (it is
+   the depot mover and a terminal is a depot structure); this is a fill-target
+   addition, gated on a planned outflow and ranked LAST so a transfer can
+   never outrank keeping spawn and extensions fed.
+2. `terminal → terminal`. `runTerminals()`. Free of creeps.
+3. `terminal → storage` at the DESTINATION. **This one has no owner.** The
+   tender FILLS structures from `coreDepot`; it does not drain a structure
+   into the depot, and `coreDepot` is a shared lens many corps read, so
+   widening it is not a local change. Without leg 3 the energy lands in B's
+   terminal and stops — a new fidelity gap of exactly the kind the phasing
+   exists to prevent, so detection stays UNWIRED until it has an answer.
+
+Options for leg 3, none yet chosen: give the tender an explicit drain mode
+(smallest code, touches a live corp's refill SLA — trap-list territory); make
+the terminal a second withdraw source behind `coreDepot` (widest blast
+radius); or count terminal stock as part of the hub's bank in
+`storageBankPressure` and let the destination's consumers draw it directly
+(cleanest economically — the transfer is complete on arrival — but the
+withdrawers still resolve `coreDepot`, so it needs the same lens work).
+
+Until leg 3 is settled the plan emits no transfers at all: phases 1–2 are a
+strict no-op with `terminalRooms` empty, which is precisely what made them
 safe to land first.
 
 ## 3. The equilibrium (what "react appropriately" looks like)
