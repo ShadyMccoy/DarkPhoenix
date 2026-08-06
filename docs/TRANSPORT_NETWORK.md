@@ -438,8 +438,9 @@ Which leg that is depends on the room's role, and this is where the standard
   remote → terminal → elsewhere, and storage is a sideshow. Offset the terminal
   toward the inbound remote routes. Moving it 20 tiles down a 60-tile remote
   route cuts that route to 40 tiles: **~33% off the hauler fleet for that
-  remote — 24 body parts, ~1,200 energy of capital, ~0.25 CPU/tick.** That is
-  larger than the entire lifetime energy saving of a link pair.
+  remote — 24 body parts, ~1,200 energy of capital, ~0.1 CPU/tick.** Comparable
+  to a whole link pair, at zero capital cost, since the terminal was going to be
+  built regardless. §8.4 scores it properly; §8.5 says when not to.
 
 Formally it's a flow-weighted 1-median (Weber point) over the creep routes
 incident on the terminal, with the terminal→terminal leg contributing **zero
@@ -450,6 +451,144 @@ Two costs on the offset, both real: a terminal at x≈1 sits next to an exit til
 with 3,000 hits, so it wants a rampart and is easier to snipe; and every
 terminal↔storage movement now pays the offset, so the decision hinges on the
 ratio of remote-inbound flow to local-consumption flow.
+
+### 8.4 Scoring a placement
+
+This is a well-posed optimization with a cheap exact solution, and the objective
+collapses to a single scalar.
+
+**The flows.** Only flows that touch the terminal — and only their *in-room*
+legs — depend on the terminal's position `p`. Everything else is constant and
+drops out of the argmin.
+
+- `f_i` — remote route `i`, entering the room at exit tile `e_i`
+- `s` — storage, fixed
+- `X` — export rate through the terminal, e/t
+- `x_i ∈ {0,1}` — does route `i` deliver to the terminal or to storage
+
+**The objective**, in energy·tiles per tick:
+
+```
+E(p, x) = Σ f_i · [ x_i·d(e_i, p) + (1 − x_i)·d(e_i, s) ]     inbound legs
+        + | Σ x_i f_i  −  X | · d(s, p)                        reconciliation
+```
+
+The second term is the one that is easy to forget, and it is what makes the
+problem non-trivial: whatever the terminal receives beyond what it exports must
+be pushed to storage, and whatever it exports beyond what it receives must be
+pulled from storage. Either way the imbalance crosses `d(s,p)` — exactly the
+distance the offset just created.
+
+**Both currencies are linear in `E`, so there is only one objective.** One
+max hauler is 825 energy·tiles/tick at 0.2 CPU/tick (§7.1), which fixes all
+three conversions:
+
+| per unit of `E` (energy·tiles/tick) | |
+|---|---|
+| energy | `2.6 × 10⁻³` e/t |
+| CPU | `2.42 × 10⁻⁴` CPU/tick |
+| body parts | `1/16.5` = 0.061 |
+
+That is worth stating on its own: **the placement decision needs no CPU shadow
+price.** Energy and CPU are proportional here, so minimizing `E` minimizes both
+at once. A shadow price is only needed for build-or-don't decisions, where a
+capital cost sits on the other side of the scale.
+
+**The score** is the improvement over the reflex placement:
+
+```
+V  =  E(p adjacent to storage)  −  min_p E(p)          [energy·tiles/tick]
+```
+
+Report it in all three units, and normalize by the *full* route burden —
+in-room plus out-of-room legs — or a saving that removes 70% of the in-room leg
+will read as far larger than it is.
+
+**Solving it** is cheap, and belongs at planning time rather than per tick:
+
+1. Flood-fill a path-distance field over the room from `s` and from each `e_i`.
+   Terrain-weighted, or uniform if you assume the route gets paved — the latter
+   is defensible and keeps both currencies linear.
+2. For each buildable candidate `p`, the routing `x*` is greedy: sort routes by
+   `d(e_i,p) − d(e_i,s)` ascending and assign to the terminal until `X` is
+   covered. That is the entire inner problem.
+3. Take the argmin. `O(tiles × routes)` after `routes + 1` flood fills over
+   ~2,500 tiles — negligible, and cacheable essentially forever.
+
+Distances must be **path** distances, never Chebyshev. A tile 20 closer in a
+straight line but behind a wall is worse, and swamp asymmetry moves the optimum
+visibly.
+
+### 8.5 The gate: when the offset is worth anything at all
+
+Collapse to the single-cluster case — aggregate remote flow `f_R` entering at one
+point, terminal shifted `t` tiles from storage toward it — and the score has a
+closed form:
+
+```
+V  =  min( X, f_R, 2f_R − X ) · t
+```
+
+Three regimes, and only the middle one is good:
+
+| | |
+|---|---|
+| `X = 0` — room consumes everything it mines | `V = 0`, **never offset** |
+| `X = f_R` | `V = f_R · t`, **the maximum** |
+| `X ≥ 2 f_R` | `V ≤ 0` — pulling from storage costs more than the inbound leg saves |
+
+So the offset pays only for `0 < X < 2f_R`, and it is best when **export flow
+matches the remote inflow it captures.** You want the terminal to be a
+pass-through: starve it and you pay to pull from storage, flood it and you pay
+to push back.
+
+Worked, for a room with two reserved remotes entering the west side, storage 25
+tiles in, exporting all of it, terminal shifted 18 tiles:
+
+| | |
+|---|---|
+| `f_R` = 20 e/t, `X` = 20 e/t, `t` = 18 | `V` = **360 e·tiles/tick** |
+| energy | **0.94 e/t** |
+| CPU | **0.087 CPU/tick** |
+| body parts | **~22** |
+| share of the full 60-tile route burden | **30%** |
+
+About one link pair's worth of benefit at zero capital cost. That is the honest
+size of it — real, but not transformative.
+
+**Three things that should stop you:**
+
+1. **It is a one-shot decision carrying 100,000 energy of regret.** Terminals
+   cannot be moved, only destroyed and rebuilt at full price, and against
+   `V ≈ 1 e/t` a relocation pays back in ~100,000 ticks — which is to say never.
+   The position is chosen once, at RCL6, on a *forecast* of the room's role. Take
+   the offset only where that role is structurally certain (a dedicated mining
+   colony, a designated forward base), never on observed traffic that might be a
+   phase.
+2. **`f_i` must come from the plan, not from creep positions.** Flows keyed to
+   observed hauling flap with every lost remote and go blind exactly when a route
+   is contested. Read commissions and the `RoomDiscovery` lenses — the same
+   durable-signal rule the stranded-reserver incident established.
+3. **Exposure is not in the objective.** A terminal near an exit tile has 3,000
+   hits, wants a rampart, and needs builder trips to maintain it — another creep
+   route the model does not price. Treat "inside the defended perimeter" as a
+   hard constraint, not a penalty term.
+
+**And the alternative that usually dominates: claim the remote.** Same 20 e/t,
+same room, but routed through a terminal in an *owned* neighbour instead of a
+60-tile creep haul:
+
+| | energy | CPU/tick |
+|---|---|---|
+| baseline — 60-tile creep haul | 3.12 e/t | 0.29 |
+| terminal offset (§8.3) | 2.18 e/t | 0.20 |
+| **claim the remote, terminal hop** | **1.44 e/t** | **0.09** |
+
+Claiming beats offsetting by ~1.5x on energy and ~2x on CPU, and beats the
+baseline by 2.2x and 3.1x, because it replaces the whole long haul with a 3.28%
+teleport. **The offset is what you do when GCL or defensibility says you cannot
+claim.** It is a second-best and should be labelled as one, so it never gets
+mistaken for the strategy.
 
 ---
 
@@ -550,9 +689,10 @@ And the judgements that don't reduce to a table:
    sender-charged, so a star is 89 e/t against three pairs' 53 e/t for the same
    6 links — but it needs sender sequencing, because a receiver at 800 silently
    drops the overflow.
-6. **Terminal placement is a free 2,500-tile choice.** Solve the flow-weighted
-   1-median over its incident creep routes; for export rooms that is *not*
-   beside storage.
+6. **Terminal placement is a free 2,500-tile choice** — but a one-shot one.
+   Score it with §8.4's `E(p,x)`, gate it on `0 < X < 2f_R` (§8.5), and take the
+   offset only where the room's export role is structurally certain. Where GCL
+   allows claiming the remote instead, claim it: that dominates any offset.
 7. **Don't route terminal traffic.** The graph is complete and relaying is
    provably neutral. Any multi-hop terminal logic is dead code.
 8. **Terminal tax should never drive expansion geometry.** At radius 6 it is 13%.
