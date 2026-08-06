@@ -77,6 +77,7 @@ import { disjointInfra } from "./telemetry/cpuReport";
 import { stashCompletedLedger } from "./telemetry/cpuLedgerCache";
 import { errRowCount, flush as blackBoxFlush, lastSpawnTick, record as blackBoxRecord } from "./telemetry/BlackBox";
 import { GovernorPlan, runGovernor } from "./execution/CpuGovernor";
+import { isPlanBudgetBoundary } from "./economy/primitives";
 import { runWatchdogs } from "./telemetry/watchdogs";
 
 // =============================================================================
@@ -334,15 +335,25 @@ export const loop = ErrorMapper.wrapLoop(() => {
   const economyNeedsBootstrap =
     colony.getNodes().length > 0 && !economyHasProducers && !isAnalysisInProgress() && Game.time % 10 === 0;
 
-  // Re-solve the flow economy on a light cadence so it adapts to changes the
-  // initial solve couldn't see: RCL-ups, new construction sites, etc. Without
-  // this the economy stays frozen on its first solution (the expensive spatial
-  // analysis inside is separately gated, so this only re-runs the cheap
-  // rebuild+solve+materialize).
-  // Cadence from the CPU governor: 50 at full operation, stretched when the
-  // bucket falls (the heavy spatial analysis inside is separately gated).
+  // THE MONTH IS THE BUDGET'S TERM (spec 46 phase A, owner 2026-08-05: "we
+  // take the budget/plan and we use that for the next fiscal month... to
+  // avoid thrashing and provide clarity in reporting. It's kind of setting
+  // the plan solving from 50 to 1500 effectively"). The scheduled re-solve
+  // lands on FISCAL MONTH boundaries, so the budget spans exactly the window
+  // the close measures - one plan per close instead of the ~30 the governor's
+  // 50-tick cadence produced, and no more tranche-edge flap between them
+  // (d017 measured flipping funded<->over-budget across consecutive solves).
+  //
+  // This is a FLOOR on SCHEDULED planning, not a freeze: `trigger.force`
+  // below still replans on every durable world change (hostile flip,
+  // expansion step, RCL-up, spawn census), the bootstrap term above keeps its
+  // fast cadence until producers exist, and the reserve pre-pass's
+  // anti-downgrade floor is not calendar-gated. The CPU governor's stretch
+  // still applies where it BINDS - the month interval already exceeds even
+  // the stretched governor cadence, so degradation can only slow this
+  // further, never speed it up.
   const economyNeedsResolve =
-    colony.getNodes().length > 0 && !isAnalysisInProgress() && Game.time % gov.solveInterval === 0;
+    colony.getNodes().length > 0 && !isAnalysisInProgress() && isPlanBudgetBoundary(Game.time);
 
   // EVENT-TRIGGERED REPLANNING (spec 36 item 1): a durable world transition
   // (hostile flip, expansion campaign step, RCL-up, spawn census change)

@@ -456,7 +456,8 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
   });
 
   it("detectLinkDepositPorts emits a source-link port with a staffed core drain, excludes core & controller links", async () => {
-    const { detectLinkDepositPorts, DEPOSIT_PORT_HEADROOM } = await import("../../../src/economy/flowAdapter");
+    const { detectLinkDepositPorts } = await import("../../../src/economy/flowAdapter");
+    const { LINK_CAPACITY, SOURCE_RATE } = await import("../../../src/economy/primitives");
     (global as any).FIND_MY_STRUCTURES = 108;
     (global as any).FIND_SOURCES = 105;
     (global as any).STRUCTURE_LINK = "link";
@@ -466,6 +467,10 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
       y,
       roomName: "W0N0",
       inRangeTo: (o: any, range: number) => cheb({ x, y }, o) <= range,
+      // Range to the core is what SETS the headroom since the flat cap was
+      // retired (2026-08-06) - a mock without it silently exercises the
+      // unknown-geometry fallback instead of the physics.
+      getRangeTo: (o: any) => cheb({ x, y }, o.pos ?? o),
       findInRange: (_t: number, range: number, o?: any) => {
         const near = links.filter(l => cheb(l.pos, { x, y }) <= range);
         return o?.filter ? near.filter(o.filter) : near;
@@ -495,7 +500,12 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
     expect(p.pos, "port sits on the source link").to.deep.equal({ x: 26, y: 26, roomName: "W0N0" });
     expect(p.drainSourceId, "drained by the owning source's hauler").to.equal("source-SRC1");
     expect(p.drainFrom, "drain emerges at the core link").to.deep.equal({ x: 11, y: 10, roomName: "W0N0" });
-    expect(p.headroom).to.equal(DEPOSIT_PORT_HEADROOM);
+    // HEADROOM IS THE PHYSICS, NOT A CONSTANT. core(11,10) -> port(26,26) is
+    // chebyshev 16, so the link fires 800/16 = 50 e/t; its own adjacent source
+    // lands in the same link and comes off first, leaving 40 for deposits. The
+    // retired flat cap would have answered 30 here.
+    expect(p.headroom, "fire rate less the port's own source").to.be.closeTo(LINK_CAPACITY / 16 - SOURCE_RATE, 1e-9);
+    expect(p.headroom, "and that is strictly more than the cap it replaced").to.be.greaterThan(30);
   });
 
   it("detectBankSources falls back to BASE_RESERVE before the first solve publishes a target", async () => {
@@ -635,6 +645,42 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
       3000 / ((1 / 3) * 1482),
       0.1
     );
+  });
+
+  it("WARTIME IS COLONY-WIDE: REMOTE road sites relegate the home controller (owner 2026-08-05: construction is the primary consumer wherever the project stands; the residual BANKS)", () => {
+    // The live gap this pins (t72799968): 24 remote road sites stood while
+    // the home room held zero sites - the per-room wartime lens never armed,
+    // and the controller took the bank-fed allocation while the roads that
+    // would fix the haul economics sat unbuilt. Owner 2026-08-05: "I WANT
+    // construction to be the primary consumer over controller if we have a
+    // construction project. Banking excess it can't consume is fine." The
+    // wartime backlog is now summed COLONY-WIDE; when it stands, every
+    // owned controller relegates to its danger-gated floor, construction
+    // absorbs at its own caps, and the residual banks (storage) - never the
+    // controller.
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    // Two REMOTE road sites, far from every source and hub (un-clustered:
+    // farther from each source than that source's hub), summing 4000 >= the
+    // 3000 anti-flap threshold. Home room stages NO sites - the exact live
+    // shape.
+    graph.addConstructionSite("remoteRoadA", "home", { x: 48, y: 25, roomName: "W1N0" }, 2000);
+    graph.addConstructionSite("remoteRoadB", "home", { x: 48, y: 27, roomName: "W1N0" }, 2000);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+
+    const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
+    const builds = sol.sinkAllocations.filter(a => a.sinkType === "construction");
+    const store = sol.sinkAllocations.find(a => a.sinkType === "storage")!;
+    expect(ctrl.allocated, "home controller relegated by the REMOTE backlog (comfortable timer: floor 0)").to.equal(0);
+    expect(builds.reduce((s, a) => s + a.allocated, 0), "construction absorbs at its own caps").to.be.greaterThan(0);
+    expect(store.allocated, "the residual BANKS - excess construction can't consume goes to storage").to.be.greaterThan(0);
+  });
+
+  it("colony-wide wartime keeps the anti-flap threshold: a lone sub-3000 remote site never relegates", () => {
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    graph.addConstructionSite("loneTile", "home", { x: 48, y: 25, roomName: "W1N0" }, 300);
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+    const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
+    expect(ctrl.allocated, "trivial paving never relegates upgrading (threshold preserved)").to.be.greaterThan(0);
   });
 
   it("WARTIME: a real build-out RELEGATES the controller - the surplus goes to building, not upgrading (owner 2026-07-27)", () => {
@@ -941,6 +987,69 @@ describe("trunk-building sources (owner 2026-07-21: no hauling home until the ro
   });
 
 
+});
+
+/**
+ * THE LIQUIDITY RESERVE IS SIZED FROM *FUNDED* MINING INCOME (the 11->12
+ * remote regression, measured t72788704). warchestTarget's income read
+ * summed every graph source that passes isMinedIncomeId - i.e. every scouted
+ * source whose REAL game id intel has recorded, funded or not. Working the
+ * 12th remote gave vision to unworked neighbor rooms; five of their sources
+ * gained real ids, the income read jumped 110 -> 170 e/t against 120 funded,
+ * and the reserve leapt 77k -> 119k (+42k). bankFedControllerRate (the ONE
+ * VALVE's law: floor + (banked - reserve)/SURPLUS_DRAIN_TICKS) collapsed
+ * 48.9 -> 31.0 with 165k banked, and controller delivery fell 56 -> 34.6 e/t
+ * - scouting was punished as if it were payroll. The reserve covers the
+ * payroll of fleets the plan actually fields; candidates fund nothing, so
+ * only FUNDED verdict rates may size it (same doctrine as the hub-sizing pin
+ * above: t72437535).
+ */
+describe("economy/flowAdapter - warchestTarget publishes from FUNDED income only (t72788704)", () => {
+  const g = globalThis as unknown as { Game?: unknown; Memory?: any };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+    g.Memory = {};
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  it("unfunded real-id prospects never inflate the published reserve target", async () => {
+    const { FlowEconomy } = await import("../../../src/economy/flowAdapter");
+    const { warchestTarget } = await import("../../../src/economy/bank");
+    // 2 near sources fund (20 e/t); 3 FAR real-id sources (x>=325, d=320,
+    // netEnergy < 0) stay unprofitable candidates - the exact shape of the
+    // live incident's scouted-but-never-worked neighbor sources.
+    const economy = new FlowEconomy([
+      homeNode(5),
+      sourceNode("near1", 15),
+      sourceNode("near2", 25),
+      sourceNode("far1", 325),
+      sourceNode("far2", 335),
+      sourceNode("far3", 345)
+    ]);
+    economy.update(0);
+
+    const sol = economy.getSolution()!;
+    const funded = (sol.sourceVerdicts ?? []).filter(v => v.verdict === "funded");
+    expect(funded.map(v => v.sourceId).sort(), "staging check: exactly the near pair funds").to.deep.equal([
+      "source-near1",
+      "source-near2"
+    ]);
+    const fundedRate = funded.reduce((s, v) => s + v.rate, 0);
+    expect(fundedRate).to.be.closeTo(20, 1e-9);
+
+    // The published reserve covers FUNDED income (20 e/t -> the BASE_RESERVE
+    // floor binds), never the 50 e/t candidate pool (which would publish
+    // 700 x 50 = 35,000 and throttle the controller valve for nothing).
+    expect(g.Memory.warchestTarget, "reserve sized from funded income only").to.equal(warchestTarget(fundedRate));
+  });
 });
 
 /**

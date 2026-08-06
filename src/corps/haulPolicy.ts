@@ -112,12 +112,28 @@ export function pickStorageDeposit(params: {
   depositPos?: Position;
   /** Free capacity in the port link right now (0 when full or the link is gone). */
   portFree: number;
+  /**
+   * Free capacity in the port's BUFFER CONTAINER (owner 2026-08-06), or
+   * undefined where no container has been built beside the link. A port link
+   * holds 800e against arrivals measured at 740-1750e (t72809560), so without
+   * a buffer a full port means HOLD for up to PORT_WAIT_CAP and then walk the
+   * residual to the hub anyway. Optional so every room without one keeps the
+   * pre-buffer behaviour bit-for-bit.
+   */
+  portBufferFree?: number;
   /** Free capacity in the storage hub right now. */
   storageFree: number;
   /** Ticks this hauler has already held at a FULL port this trip (0 = not waiting yet). */
   portWaitedTicks?: number;
-}): "port" | "storage" | "wait" | "none" {
+}): "port" | "portBuffer" | "storage" | "wait" | "none" {
   if (params.depositPos && params.portFree > 0) return "port";
+  // THE LINK OUTRANKS ITS OWN BUFFER, and the ordering is not arbitrary:
+  // energy landing in the link leaves by teleport, while energy in the
+  // container still needs the tender to move it across. So the buffer is the
+  // SECOND choice - ahead of waiting, never ahead of the link itself. It also
+  // outranks the hub-full escape valve below: a full hub must not strand a
+  // load the buffer could take.
+  if (params.depositPos && (params.portBufferFree ?? 0) > 0) return "portBuffer";
   // Port full (or no port). If the hub is ALSO full there is nowhere to bank -
   // spill to a hungry spawn/controller (the escape valve; never camp a full port).
   if (params.storageFree <= 0) return "none";

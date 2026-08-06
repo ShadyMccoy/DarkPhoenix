@@ -268,11 +268,15 @@ describe("SPEC 25 PHASE 3: pool crew sizes up to the plan's source-funded cluste
   it("a source-funded cluster fields a BIGGER builder than the horizon rate alone (no residual)", () => {
     // No home sites, no own allocation: all the pool's work is a remote
     // cluster the plan funds at the source's 10 e/t. Without the pool rate
-    // the crew floors at 5 e/t (1 WORK); with it, the crew eats the mine.
+    // the crew floors at 5 e/t (1 WORK); with it, the crew eats the mine -
+    // PLUS the burst headroom (owner 2026-08-05: "why not throw an extra
+    // WORK or two on these guys?" - BUILDER_WORK_HEADROOM on real crews, so
+    // the same crew eats delivery bursts instead of capping at the average;
+    // the 1-WORK floored tail stays headroom-free by the tail guard).
     const without = planFor(0, 0, [], [site(3000)]);
     const withRate = planFor(0, 10, [], [site(3000)]);
-    expect(without.partsNeeded, "no pool rate: floored crew").to.equal(1);
-    expect(withRate.partsNeeded, "source-funded: 10 e/t -> 2 WORK, the whole mine consumed").to.equal(2);
+    expect(without.partsNeeded, "no pool rate: floored crew (no headroom on a 1-WORK tail)").to.equal(1);
+    expect(withRate.partsNeeded, "source-funded: 10 e/t -> 2 WORK + 2 burst headroom").to.equal(4);
   });
 
   it("MAX of the funding tracks, never the sum: a cluster under the horizon cap adds no parts", () => {
@@ -284,8 +288,10 @@ describe("SPEC 25 PHASE 3: pool crew sizes up to the plan's source-funded cluste
     // vision. (Pre-wartime this pinned 6/6; the surplus now doubles the pace.)
     const bankOnly = planFor(100, 0, [site(30_000)], null);
     const bankPlusCluster = planFor(100, 10, [site(30_000)], null);
-    expect(bankOnly.partsNeeded).to.equal(12);
-    expect(bankPlusCluster.partsNeeded, "summing would idle parts; MAX holds the crew at 12").to.equal(12);
+    // 12 supply-sized + 2 burst headroom (owner 2026-08-05) on both sides -
+    // the MAX-not-sum principle is what this pins: the cluster adds NOTHING.
+    expect(bankOnly.partsNeeded).to.equal(14);
+    expect(bankPlusCluster.partsNeeded, "summing would idle parts; MAX holds the crew at 14").to.equal(14);
   });
 
   it("survives serialization: the pool rate round-trips (commission-owned but reset-safe)", () => {

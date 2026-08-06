@@ -8724,3 +8724,1220 @@ t72795700 by decay, earlier by striker) is the standing watch.
 Cycle verdict: **fixed (same-lens defund, methodology #12) + instrumented
 (no silent demand exits, stale-stamp filter) + owner-flag confirmed real
 and attributed.**
+
+## Cycle t72799968 — scouting taxed the controller: the reserve counted prospects as payroll (valve 49→31→4.9→0.00, then reopened 59.7)
+
+The owner's report ("great over 50 e/t, regressed when we expanded 11→12
+remote sources") is confirmed measured — and the correlation is exact but the
+causation is not spawn capacity. warchestTarget's income read summed every
+graph source passing `isMinedIncomeId` — every scouted source whose REAL game
+id intel recorded, funded or not (the t72444684 phantom guard's "accepted
+residual", unbounded at this consumer). The scouting wave that admitted the
+12th remote (d017, net 5.91, d=102) flipped six frontier sources
+(W41N24/25, W42N24/25, W43N25) from intel-phantom to real ids in one step:
+
+```
+t72787778  11 funded  income 110  reserve  77,000  ctrl law 48.9 e/t
+t72788704  12 funded  income 170  reserve 119,000  ctrl law 31.0  (M05→M06 cliff)
+t72798237  12 funded  income 185  reserve 129,500  ctrl law  4.9
+t72799968  11 funded  income 230  reserve 161,000  ctrl law  0.00  ← fully closed
+```
+
+bankFedControllerRate = floor + (banked − reserve)/1500 is the ONE VALVE's
+law, so every newly-scouted real-id source permanently raised the reserve by
+700 × its rate and throttled the published allocation — delivery 56 → 34.6
+(FY4852-M05→M06) → 5.6 e/t (this window, G1: 12.93 e/t banking while the
+controller starved; E4 read "at/near target" because the target itself was
+poisoned). Compounding: 17 → 19 → 22 real ids as vision spread.
+
+**CORRECTION (same cycle, owner question):** the first write-up claimed the
+closed valve "spilled the surplus into construction sinks" — wrong as a
+ladder mechanism, retracted. The bank absorbed the surplus (+12.93/t all
+window), and construction (70) outranks the controller (~43 at 4.66M
+remaining) regardless of the valve, so no energy was redirected. The 0.238
+p/t construction plan tracks the 24 standing remote ROAD SITES
+(source-local clusters at the local source's rate), not the valve. What the
+poisoned reserve did to production is narrower: it held spendableBankSurplus
+at zero, sterilizing the bank — no consumer sizing, no wartime build pace,
+the exact asset-rich-cash-poor failure the dynamic reserve exists to
+prevent. S5 0.97× is haul churn (54% of actual spawn output, +0.116 p/t
+over plan; R1 10.7×, W45N25 miner dead at 39t) plus the road-site build
+plan — an independent line, not a valve symptom. P-6 is RESTATED before
+the check-in data: opening the valve ADDS ~0.05 p/t consumer demand, so S5
+may stay tight short-term; durable relief runs through roads completing →
+paved 2:1 repricing → the haul class (biggest in P4) shrinking. Forgone
+mining is expected back near its ~7-8 e/t baseline only via that haul-side
+path; if it stays elevated with the valve open, H1's carry under-ask is the
+next cycle's top line.
+
+**NOT the spawn-capacity handicap**: none of the SPAWN_PLAN_FRACTION=1.0
+experiment's registered reversion criteria fired (P4 0.83–0.91x, S3 "not a
+stall", X5 home 2%), the 12-source plan is spawn-feasible, and the 12th
+source prices net-positive (its P&L row: +2.56 F this window). The handicap
+stays lifted; S5 0.97× under valve-closure is the watch item to re-read
+post-fix.
+
+**Fix (a419c99, red-first):** the reserve's income basis is now
+`bank.fundedMiningIncome(sourceVerdicts)` — the solve's own funded producer
+rates, the same funded-only doctrine as the hub-sizing fix (t72437535).
+Publish pin: FlowEconomy.update test (candidate-pool 35,000 vs funded
+22,650, red confirmed pre-fix) + fundedMiningIncome unit pins. Gate: unit
+2091-0; trio flow-handoff/runt-economy/storage-depot PASS; grid
+reserve-adjacent 6/6 PASS (haul-t4 bank/feeder/spill, cons-t4, capguard,
+journey); fid-t4/fid-t5 red — control run on pre-change src fails both
+IDENTICALLY (same assertions, full-window), acquitted as the known
+host-load-coupled sandbox class; baseline untouched.
+
+**Deployed ~t72800100. Registered predictions → interim capture t72800193
+(+~90t):** P-1 warchestTarget 161,000 → **77,000** = 700×110 funded ✓ EXACT.
+P-2 published allocation 0.00 → **59.7** = (166,605−77,000)/1500 ✓ EXACT.
+P-3..P-6 (ONE VALVE coherence, delivery ≥30 ramping to 45–60, bank slope
+→~0, construction share draining from 0.238 p/t) pending the +3000t
+check-in. Fiscal closes FY4853-M02 (59%), M03 (115%) written — M03 is the
+terminal closed-valve phase sample.
+
+Cycle verdict: **fixed (funded-income reserve basis, immediate mechanism
+flip confirmed live) + attributed (the 11→12 correlation resolved to the
+reserve seam, spawn-capacity hypothesis falsified with the experiment's own
+criteria) — full-window delivery verification pending.**
+
+**Owner steer (same cycle): attack the underlying cause, not the symptom
+valves.** The pile gate / decay / churn lines are the runtime absorbing a
+PRICING gap: the plan buys remote capacity below its measured cost, so the
+affordable fleet is structurally smaller than the routes need. Two seams,
+both instrumented: raid attrition priced ~1/10th measured (R1 8.38 vs 0.79
+e/t; F1's +0.116 p/t unbudgeted hauler replacement is the subsidy made
+visible), and route carry priced below measured need (H1 under-ask, E6
+drain/route-sizing verdict). The retired SPAWN_PLAN_FRACTION handicap was
+the BLUNT encoding of the same truth — honest per-route costing is the
+sharp one: at true prices the marginal remote (d01f, chronic −1.63 vs its
+own admission net) either clears with its true-size fleet funded or falls
+out, and the pile gate stops managing the mismatch. Next cycle: accrue R1
+windows toward the ≥10-window swap discipline; decompose H1's under-ask
+from the carry pickup stamps and price the dominant term into carryPartsFor
+(red-first). The armed check-in doubles as the CONTROL: with the reserve
+honest, remaining forgone/pile variance IS the remote-cost gap.
+
+### Same cycle, owner challenge #2 — "forgone was 7, jumped to 30, over many months, not invaders": CONFIRMED, invaders acquitted, handicap reversion criteria FIRED
+
+The owner rejected the invader/haul-churn attribution as flimsy. The full
+fiscal series (25 closes, FY4849-M07 → FY4853-M03) adjudicates:
+
+```
+era                     capacity   forgone actual        forgone+decay
+FY4849-M07..FY4851-M10  100 (10)   0.4-14.6, mean ~4.7   ~6-25, bounded
+FY4852-M01..M05         110 (11)   1.0-8.5               9.0-21.6
+FY4852-M06 (12th funds) 120        14.91                 24.5
+FY4853-M02              120        37.90                 44.5   ← the owner's "30"
+FY4853-M03              110        0.00 + decay 26.07    26.1   (line-shift: mined-then-rotted)
+```
+
+Invaders acquitted BY TIMELINE: R1 read 0.70x priced in FY4852-M06 — its
+quietest window in the table — while the climb was already underway; the
+10.7x spike appears only in the final window. A multi-month monotone climb
+cannot be a last-window noise burst. The role-exposure attribution repeated
+the exact "raid story fails the evidence check" failure this spec logged on
+2026-08-03.
+
+What the series DOES support: admission overreach past the MEASURED spawn
+ceiling. Demand arithmetic at FY4853-M03: plan-priced 0.607 p/t + measured
+replacement overhead ~0.14 (F1 haulers +0.116, miners +0.028) ≈ 0.75 vs
+0.667 physical. Spawn meters: utilization 0.97-0.98 with queue depth 4-8
+across t72798237/t72799968/t72800193 (~2000t) — the t72676360 shape,
+LITERALLY the handicap-lift experiment's registered reversion criterion,
+sustained. The unfillable tail starved exactly where fidelity points: F3
+d017 2.0/10 declared, F2 W45N25 38/84p (1900e miner dead at 39t),
+construction −0.140 vs plan. P4's 0.83-0.91x "feasible" was circular — it
+prices the plan's own under-priced demand. The earlier spawn-capacity
+exoneration in this cycle's entry is RETRACTED on that basis: the owner's
+original hypothesis (plan past practical limits) is CONFIRMED for the
+mining line; the reserve bug was the coincident SECOND regression (score
+side), same trigger event.
+
+**Action: SPAWN_PLAN_FRACTION reverted 1.0 → 0.9 per the experiment's own
+protocol** (criteria met ⇒ revert; "the number between 0.9 and 1.0 gets
+measured, not argued"). Red-first: planHeadroom pin flipped to 0.9 (red
+confirmed), constant reverted with the closure evidence on its doc; two
+staged tests re-staged by their own leftover-unchanged convention; golden
+master regenerated — delta is partsLeft −0.0333 in all four worlds, no
+commission/route changes. Successor filed to EARN re-lifting: price
+measured per-route replacement overhead into admission (the F1 gap becomes
+a priced line), making the margin redundant before it is removed.
+
+Registered predictions for the reversion deploy (sequenced AFTER the valve
+check-in reads, so the two changes stay separately attributable): mining
+tranche 0.36 global ⇒ 1-2 lowest-net/part remotes defund (capacity
+110-120 → 100-110); util ≤0.93 and queue ≤3 within ~1500t; F2/F3 gaps
+close on surviving routes; forgone+decay back under ~15 within 3000t;
+score unaffected (the open valve owns it; sheds phantom capacity only).
+
+### Same cycle, owner directives #3 — construction is the PRIMARY consumer colony-wide; actuals do NOT inform budgets yet
+
+**Directive 1 (implemented, red-first): "I WANT construction to be the
+primary consumer over controller if we have a construction project. Banking
+excess it can't consume is fine."** The spec-33 wartime relegation already
+encoded exactly this — but its lens was per-ROOM ("a backlog in the
+controller's room"), and the live backlog at t72799968 was 24 REMOTE road
+sites with home siteCount 0, so the home controller never relegated and the
+bank-fed allocation outbid the very roads that fix the haul economics. The
+wartime backlog is now summed COLONY-WIDE (threshold 3000 kept - a lone
+road tile still never flaps upgrading): while it stands, every owned
+controller relegates to its danger-gated floor, construction absorbs at its
+own caps, and the residual BANKS - never the controller. Red pin: remote
+4000-backlog world, controller relegated to 0, storage takes the residual
+(was 41.75 to the controller); anti-flap control pinned beside it. NOTE for
+the armed check-in: once this deploys, the score predictions (P-2/P-4) are
+SUPERSEDED by design - the controller allocation drops to ~0 while the
+24-site backlog drains, the bank absorbs (E4 slope positive is now the
+INTENDED state), and score resumes on the accumulated surplus when the
+backlog clears. The valve fix stays essential underneath: an honest reserve
+is what makes the post-backlog reopening real.
+
+**Directive 2 (successor re-filed): "Yes eventually we will feed actuals
+back to inform the budget, but not quite yet. We have some poor behavior
+that's causing variants that we don't want to encode as the budget."** The
+earlier successor ("price measured per-route replacement overhead into
+admission") is DEFERRED: current actuals carry defective behaviors (the
+W45N25 fast-respawn loop, defund-window replacement churn) that a
+calibrated budget would enshrine as legitimate cost. Revised order: (1) fix
+the behaviors driving the overhead, measured down (X5/R1 lines); (2) only
+then calibrate admission prices from clean actuals; the 0.9 margin carries
+until (2) lands. This supersedes the "successor filed" line in the
+reversion entry above.
+
+### Cycle t72801151 — valve verification at +1051t; combined deploy (0.9 reversion + colony-wide wartime)
+
+Valve-only verification (capture t72801151): P-1 HOLDS (reserve pinned
+77,000 = 700x110, scouting no longer ratchets it); P-2 TRACKS EXACTLY
+(allocation 41.66 = (139,493-77,000)/1500, the bank draining INTO the
+controller 166.6k -> 139.5k as designed); delivery resumed (rclProgress
++67,238 over ~2900t spanning the closed-valve tail, ~23 e/t and rising);
+P-6 as restated post-correction - spawn still saturated (util 0.98/1.0,
+q 7-8), the valve added consumer demand, relief is the reversion's job.
+Verdict on the valve fix: CONFIRMED live, both immediate predictions exact,
+delivery recovery underway.
+
+Combined bundle DEPLOYED at ~t72801250 (gate: unit 2093-0, trio 3-0 on the
+combined dist). Registered predictions: REVERSION - 1-2 lowest net/part
+remotes defund within a solve (funded -> ~90-100 e/t), warchest follows the
+funded set down, util <=0.93 and queue <=3 within ~1500t, F2/F3 close on
+survivors, forgone+decay < 15 e/t within 3000t. WARTIME - published
+controller allocation -> ~0 while the ~24-site backlog stands (BY DESIGN,
+supersedes P-2/P-4 score expectations), feeder to headroom-only, upgraders
+drain to floor, construction funded at its absorb caps, bank slope positive
+INTENDED. WATCH ITEM: P8 must show actual build consumption - the
+FY4852-M06 CREW IDLE precedent is the named risk class ("poor behavior"
+the owner flagged); if construction is funded but idle with the controller
+relegated, that is the next cycle's incident, not a reason to re-open the
+controller.
+
+### Cycle t72801208 — the combined deploy's first solve caught a PHANTOM FUNDING: intel prospects are not candidates
+
+Immediate reads on the combined deploy (capture +~50t): WARTIME EXACT -
+controller sink demand 0 (was 41.66), three construction sinks at their
+10.0 e/t absorb caps, residual banking. REVERSION - d017 shed as predicted,
+warchest tracked instantly (73,500 = 700 x funded 105).
+
+THE SURPRISE the tightened tranche exposed: `source-intel-W45N23-20-16` -
+an intel PHANTOM (position-only, no real game id) - FUNDED with a miner
+commissioned at d=140, net 1.09, rate 5. Mechanism: the greedy net/part
+fill does not stop at the first budget breach; d017 (net/part 91, parts
+0.065) breached the 0.36 tranche at cum 0.306, then the SMALLER phantom
+(net/part 22, parts 0.050) slipped into the residual gap. Phantom
+economics are fabricated (unreserved 5 e/t guess, no container, no id) -
+and funding one guarantees an id flip when vision lands, orphan/rename
+churn by construction. This is the mechanism behind the W45N25
+misadventure (harvest-6-34, the same positional-id pattern: 84p declared,
+1900e miner dead at 39t, X5's worst row) - the first named "poor behavior"
+under the owner's directive 2, fixed rather than budgeted around.
+
+Fix (red-first): producer selection now applies the SAME isMinedIncomeId
+lens the income guard uses (t72444684, one home) - an intel-id source is
+stamped verdict "prospect" and never enters candidates; it becomes a
+candidate the solve after vision records its real id. Union extended
+(SourceVerdict + "prospect"). Pin: intel source with budget slack never
+funds, both id forms stamped, no phantom routes. Unit 2094-0; trio running
+on the bundle before deploy. The knapsack residual-fill itself stays (for
+REAL candidates it is rational tranche-filling); noted for the record.
+
+### Cycle addendum — the Z-builder existed all along; now it is sized to its fuel
+
+Owner wish: "It would be so great to have a remote builder using that 6k
+energy like to build the road Z-to-A in parallel." Investigation: the wish
+is the owner's OWN 2026-07-21 ruling, already implemented end to end - the
+remote work-room rung fields a pile-funded local builder when road sites
+stand (ConstructionCorp.getSpawnDemand), work()'s remote branch builds any
+local site from local energy (no tankers, buildEnergy uncapped), and the
+plan carries the trunk split (sinks construction-road-A-… 8.52 e/t /
+construction-road-Z-… 1.48 e/t at t72801354). A Z-builder was STANDING in
+W43N21: building-W43N21-construction, one 4-part runt - five sibling
+remote corps in the same shape.
+
+The measured gap was SIZING + VISIBILITY: the Z-plan reused the
+maintenance body (buildUpgraderBody ≤550, 2 WORK; fielded as a 4-part runt
+under scarcity), blind to the 6,004 staged at cd98's mouth - while the
+HOME crew tanker-hauled energy into the very room whose pile was rotting.
+And the remote branch exported NO sizing stamp (sizing.keys=[] on all six
+remote corps - invisible to triage).
+
+Fix (red-first, unit 2098-0): the Z-builder's WORK sizes from the mouth's
+staged stock - the SAME sourceBufferStock lens E6 and the miner gate read
+- at spec 33's wartime burst pace (stock/(CREEP_LIFETIME/3), 5 e/WORK-t),
+clamped 2..5; desiredCost follows (minCost stays the maintenance floor so
+scarcity still fields a starter - the E6 dark-source lesson). The branch
+now stamps {gate: pile-road|pile-container, staged, roadSites, zWork}.
+At cd98's 6.5k: 3 WORK ≈ 15 e/t potential against the pile - the Z-to-A
+parallel build, fueled by energy that was decaying anyway.
+
+### Same session — the budget-staleness trigger removed on the owner's correction (a hazard that wasn't)
+
+Spec 46 phase A briefly shipped a budget-staleness trigger, justified by
+"a month-old controller valve could keep a standing fleet drawing against a
+bank that has since fallen through its reserve." The owner corrected the
+premise: *"I'm ok with eating the surplus. The consumption is sized to
+consume the surplus so it's a very safe allocation."*
+
+Verified in code, not conceded: `SURPLUS_DRAIN_TICKS == CREEP_LIFETIME ==
+PLAN_BUDGET_INTERVAL == 1500`. The draw is (banked − reserve)/1500 e/t held
+for a 1500-tick term, so it consumes EXACTLY the surplus it was priced from
+and lands AT the reserve — with a month of income arriving on top, above it.
+The valve is self-liquidating over precisely the budget's term (bank.ts's
+own design note: "the bodies it funds die naturally as it empties"). The
+hazard cannot arise from this valve; if the bank ever does fall through the
+reserve, the CAUSE is elsewhere and that is the signal worth detecting.
+
+Both the mechanism and its earlier implementation flaw (law-vs-published
+would have re-forced every debounce window forever in the live wartime
+state) are recorded in spec 46. Removed: the thresholds, the snapshot
+fields, `Memory.budgetLawRate`, its publish site, and 6 tests. Phase A is
+now the cadence plus the unchanged spec-36 structural triggers — exactly
+what the directive asked for, and one fewer mechanism than the session
+nearly shipped. Unit 2101-0.
+
+Methodology note for future sessions: this is the second time in one
+session that a mechanism I added to guard a monthly budget was wrong in a
+way the OWNER caught (the first was the ladder story for construction).
+Both times the fix was to delete the mechanism, not patch it — the trap
+list's "question the mechanism, not just its failure" applies to mechanisms
+added defensively, not only to ones that have already failed live.
+
+## Cycle t72804439 — FIRST CLEAN MONTH-CADENCE WINDOW: P1 flap ZERO; the upgrader swarm-cap deadlock found
+
+The first deploy-free window since the cadence shipped (t72802844 -> t72804439,
+1595t, no global resets). Registered prediction CONFIRMED: **P1 plan flap 0
+sources, "stable vs baseline"** - against 3 flips in each of the two prior
+windows, including the d017 tranche-edge flap this spec was written around.
+The funded set held all window; solves landed at the 72804000 boundary. S3
+util 0.97 with "head guard@390 vs bank 2366 AFFORDABLE+IDLE" (not a stall).
+Forgone recovered to 7.21 (was 18.95 in the reset-contaminated window);
+residual back to -6.21 (was -20.81); tombstones 1.40 (was 3.89) with kills
+back inside the raid story (5% in intel-hostile rooms vs 0% before).
+
+**TOP LINE: the controller took 27.32 e/t of a 60.21 budget (P7 0.66x) while
+the residual banked at +14.83 e/t (G1 under-spending; E4 surplus 87,348 and
+climbing).** The stamps name the mechanism exactly, and it is the twin of the
+t72706408 count-vs-capacity bug one gate lower:
+
+```
+allocated 60.206, affordableWork ~30 (the body 5600 capacity COULD build)
+  -> targetCount = ceil(60.21/30) = 2
+bodies actually built at ~14.5 WORK (energy AVAILABLE when the spawn fires;
+  "recycled why: runt-upsize 83%" in the same window confirms it)
+  -> 4 creeps x 14.5 = 58 WORK  <  60.21 allocated  => NOT satisfied
+  -> getCreepCount() 4 >= targetCount*2 = 4          => "swarm-cap", NO demand
+```
+
+The fleet is permanently one body short of its own allocation and CANNOT
+order it, with the parking ring 8 wide and 4 tiles empty. The fleet was
+measured oscillating 4 -> 2 -> 4 bodies across the three captures while
+targetCount sat at 2 in every one. `upgraderFleetSatisfied` (the 2026-08-04
+fix) correctly reports "not satisfied"; the very next line then refuses to
+act on it.
+
+FIX (red-first, unit 2105-0): `upgraderSwarmCap(targetCount, parking,
+fieldedWork, allocated)` - a WORK-SHORT fleet is bounded by the PARKING ring
+(the cap's own stated reason: "parking tiles are few"), a covered fleet keeps
+the tight 2x overlap allowance so a stale/huge allocation still cannot buy a
+swarm. ONLY EVER RELAXES - a ring narrower than the allowance keeps the
+allowance, so no room's replacement is stranded; targetCount is already
+parking-bounded, so the relaxed branch cannot exceed the ring by more than
+that allowance. Stamped as `swarmCap` beside the existing demand verdict.
+
+Registered predictions: upgrader fleet grows past 4 bodies toward 8 parking
+tiles until fieldedWork >= allocated; P7 -> ~1.0x; G1 under-spending closes
+(bank slope -> ~0 or negative as the surplus is consumed); E4 surplus stops
+climbing from 87,348; delivered controller e/t roughly doubles toward the
+60 e/t budget. WATCH: S5 (0.88x, 12% margin) may tighten as upgrader bodies
+join the queue - if it crosses the reversion criteria the ordering between
+consumer growth and spawn headroom is the next question, not a re-cap.
+
+### Owner correction, same cycle — "why do we even need 8 spots at all?" The parking ring was a symptom
+
+Owner 2026-08-05, on the swarm-cap fix shipped minutes earlier: *"With the
+amount of work why do we even need 8 spots at all? We can make creeps big
+enough to avoid that constraint."*
+
+The arithmetic confirms it. At RCL7 capacity (5600) a containerFed upgrader
+packs **39 WORK for 4,450e in 50 parts** - MAX_BODY_PARTS binds, not energy.
+So a 60.21 allocation wants TWO bodies (39 + 21), and `upgraderTargetCount`
+computes exactly 2. The parking ring is irrelevant at that size; it only
+binds on a fleet made of runts.
+
+And runts were being bought. The order size is `min(affordableWork,
+ceil(allocated - fieldedWork))` with NO floor, so once the fleet is near its
+allocation the gap is a 2-6 WORK sliver and the corp spends a whole body on
+it - a body that then holds a parking slot for its full 1500-tick life.
+Measured t72804439: 4 bodies carrying 58 WORK (one ~39 plus three ~6-WORK
+slivers) where two bodies would have carried 60, with "recycled why:
+runt-upsize 83%" in the same window naming the churn that follows. This is
+the upgrader's version of the even-share treadmill the HAULERS were cured of
+on 2026-08-03 - the same disease, on the post nobody re-checked.
+
+FIX: `upgraderWorthABody` delegates to the SAME predicate the cure used
+(corps/recycle.worthABody) rather than inventing a second rule that could
+drift - a deficit under HALF a body share is not worth a purchase, it rides
+to EOL which re-sizes for free. Sizing to the gap is KEPT (it makes the
+second body 21, not a wasteful 39); only the sliver purchase goes. Stamped
+`demand: "sliver"`.
+
+BOOTSTRAP EXEMPT, on the hauler doctrine's own terms ("Bootstrap keeps every
+crank - escape velocity"): the spawn harness caught it immediately - at 800
+capacity a body affords 6 WORK, so a 20 e/t allocation leaves a 2-WORK tail
+and the mature rule would abandon ~10% of the allocation permanently (vs
+~4% at RCL7), in exactly the regime where controller progress is what buys
+the capacity that makes big bodies possible. Maturity is the same lens the
+haulers use: storage-backed. Unit 2111-0.
+
+**The swarm-cap relaxation shipped an hour earlier is now correctly a
+LOW-RCL SAFETY VALVE, not the fix.** It is dormant wherever bodies are big
+(the fleet reaches fieldedWork >= allocated in two bodies and never touches
+the cap); it still matters at RCL2-4 where 4-6 WORK bodies genuinely need
+headcount. Kept, re-scoped, and named as such - the owner's question moved
+the fix one layer down to where the mechanism actually was.
+
+Methodology note, third instance this session: the owner has now twice
+redirected a defensive mechanism to the real cause (the construction ladder
+story, the budget-staleness trigger) and once re-scoped one to its honest
+role. The pattern to carry: when a cap is what's binding, ask what makes the
+cap bind before relaxing the cap.
+
+## Cycle t72805426 — VERIFIED: the controller valve is delivering; the leak moves to the haul side
+
+Window t72804439 -> t72805426 (987t). The registered predictions for the
+upgrader fleet fix are **CONFIRMED**:
+
+```
+                        t72804439        t72805426
+  controller delivered   27.32 e/t        58.16 e/t   (budget 52.16 -> +6.00 F)
+  P7                     0.66x            OVER plan
+  bank slope            +14.83/t         -16.05/t     (160,848 -> 145,003)
+  G1                    UNDER-SPENDING    "72% of the score is income-funded"
+  upgrader demand exit   "swarm-cap"      "staffed"   (fieldedWork 59 >= alloc 52.16)
+```
+
+The fleet reached its allocation and the surplus is now being CONSUMED, which
+is exactly the owner's 2026-08-05 ruling ("I'm ok with eating the surplus")
+playing out: 58 e/t to the controller funded 72% from income and the rest
+from a bank drawing down toward its reserve. rclProgress +57,407 over 987t.
+
+**ATTRIBUTION, honestly bounded.** The big-body rule deployed only ~226t
+before this capture and the fleet shape is UNCHANGED (4 creeps, 59 WORK, 4
+CARRY). So this window measures the SWARM-CAP fix plus natural regrowth, NOT
+the big-body rule - whose own prediction (2 bodies of ~39+21 rather than 4
+of ~15) needs a full spawn generation and is still open. The earlier 27.32
+figure was likewise a window AVERAGE over a period when the fleet was
+rebuilding from 2 creeps/43 WORK; the standing fleet converts ~1:1
+WORK->e/t, which is what 59 WORK / 58.16 e/t now shows.
+
+**Ring caveat**: the blackbox ring spans only 165t after the deploy resets,
+so F1 (1.15x), X5 (0.07) and R1 (8.30x) are computed over that short ring
+and are NOT comparable to full-window readings. Do not act on them until a
+clean ring accumulates.
+
+**NEXT WORK ITEM - the leak moved, and it is the HAUL side.** With the
+controller now consuming 58 e/t the pressure landed downstream, and three
+rows agree on where:
+
+- L1 FAIL: pile decay **11.04 e/t** (up from 9.06) - the worst loss line.
+- E6: **4 of 10 miner ops deferred, three CHRONIC** (cee0 62%, cedc 99%,
+  cd94 90% of window) with buffers 2,087-3,703.
+- H1: duty **0.74**, idleSink 0.26 of which **0.21 is EN-ROUTE** - the row's
+  own verdict is "approach-lane congestion (traffic / standing blocker at
+  the core)", a different failure from the route-sizing story E6 defaults to.
+
+That H1 en-route split is the sharpest NEW signal of the session and it is
+NOT a sizing question - which matters, because two of today's three upgrader
+fixes were sizing fixes and the third (the owner's) showed sizing was the
+wrong layer. Next cycle should read the carry pickup stamps and the core
+approach lanes before touching any route size.
+
+Cycle verdict: **VERIFIED (the delivery prediction confirmed with a 2.1x
+measured swing) + the top line relocated to haulage with three agreeing
+rows.**
+
+## Cycle t72807566 — spec 45 legs VERIFIED: clamping halved, and the traffic premise dissolved with it
+
+Window t72805426 -> t72807566 (2140t; two deploys inside it, so spawn-side
+lines carry reset contamination - named, not excused). The link gauges are
+windowed over their own 249t post-deploy sample and are clean.
+
+**CONFIRMED - the sequencing defect is halved:**
+
+```
+                     baseline      now      prediction
+  hubClampShare        0.625  ->  0.296     toward 0        CONFIRMED
+  coreCongestedShare   0.116  ->  0.068     (implied)       CONFIRMED
+  coreEmptyShare       0.276  ->  0.348     UP = landing room  CONFIRMED
+  coreFillAvg            252  ->    227     (implied)       CONFIRMED
+  taxRate               3.37  ->   3.04     down (side effect) CONFIRMED
+  toHubRate             48.2  ->   49.8     -               throughput UP
+```
+
+**MISSED, and both were MIS-SPECIFIED predictions rather than failures of
+the fix** - worth recording as prediction-quality lessons:
+
+- `hubVolleyAvg` 500 -> 459, predicted "toward full 800". Wrong metric: with
+  the core kept empty and clamping halved, a port fires when it reaches
+  threshold instead of accumulating while blocked. SMALLER, MORE FREQUENT
+  volleys with higher delivered throughput (toHubRate up) is the success
+  shape, not the failure shape. Full volleys are efficiency PER COOLDOWN,
+  which is only the objective when the sender is cooldown-bound.
+- `directShare` 0.25 -> 0.225, predicted up. Also backwards on reflection:
+  leg 2 keeps the core EMPTY, which raises `deliverCore` in
+  routeSourceVolley's throughput comparison, so ports rationally choose the
+  core more often. Direct share falling is a CONSEQUENCE of leg 2 working.
+  Energy still reaches the controller (51.6 e/t) and delivery is exactly on
+  plan, so nothing is lost - the tax is the only thing traded, which the
+  owner already ruled is not the objective.
+
+**THE FINDING - the registered NON-prediction fired:**
+
+```
+  H1 duty     0.74 -> 0.86
+    idleSink  0.26 -> 0.07
+      atSink  0.05 -> 0.03
+      enRoute 0.21 -> 0.04     <- spec 47's entire traffic premise, -81%
+```
+
+Spec 45's deploy note explicitly registered enRoute as NOT predicted to move
+("if it falls anyway, the two were coupled and that is itself a finding").
+It fell 81%. Haulers reading as "idle en route" were largely waiting on a
+CLAMPED LINK NETWORK - a deposit-route hauler whose port is full has nowhere
+to put its load, and from the duty meter that is indistinguishable from
+traffic. Spec 47 is PARKED accordingly: the layout rebuild loses its evidence
+entirely (and it was the only irreversible option), the conduit loses most of
+its case at 4% residual, and the mothership's target (atSink) is now 0.03 -
+not worth a body by the same worthABody discipline it would have been sized
+with. The structure-inventory gap survives on its own merits.
+
+This is the method paying off exactly as designed: the signal was never
+localized, spec 14 said instrument before building, and the thing that
+actually moved it was a fix in a different subsystem. Had spec 47 been built
+first, we would own a tractor-beam conduit for a link scheduling bug.
+
+**Delivery:** controller 45.03 e/t actual vs 44.98 budget (**P7 1.0x**,
++0.05 F). rclProgress +96,374 over 2140t. E6 3 of 12 deferred (was 5 of 13);
+pile decay 7.98 (was 9.06); H1 ground-piled 1,837e.
+
+**STILL OPEN / next:** forgone mining 7.21 -> 17.50 in this window - the one
+line that worsened, against two global resets inside the window, so it is
+NOT yet attributable; the next clean window decides. L1 remains the standing
+FAIL (pile decay 7.98 vs a 0.00 budget - spec 42-A's unpriced-loss gap, not
+a new defect). G1 shows 5.25 e/t still banking.
+
+Cycle verdict: **VERIFIED (clamp share halved on a clean 249t gauge window) +
+a registered non-prediction falsified in the informative direction, which
+parked an entire spec before it was built.**
+
+## Cycle t72809037 — P0: THE HEARTBEAT'S OWN LADDER RUNG WAS INERT
+
+**Window** 906t from t72808131. Methodology #12. The ledger named **L1** as
+TOP LINE (pile decay 6.06 vs a 0.00 budget), but a live incident preempted it,
+and the incident is the one the owner had made doctrine the same day.
+
+### The finding
+
+`controllerFeeder` creeps **0**, `feederActive false`, `wantedFeeders 1`, gate
+`"demand"` — standing **190 ticks unfunded with 153,760 banked**, ranked
+**4th** in the agenda behind two haulers and a coreBuster campaign, while the
+spawn finished 7 other bodies (util 0.96, queueDepth 8).
+
+Owner 2026-08-06: *"We have to assume the tender is working. It's a heart
+beat. It's non negotiable. The body dies slowly if there's issues there."*
+The doctrine's first consequence is that a measurement suggesting the
+heartbeat is failing is **a P0 bug in the heartbeat itself**, never a reason
+for a compensating rule elsewhere. So this preempts L1.
+
+### The mechanism — a rung that could never be reached
+
+`FEEDER_LINCHPIN = 150` exists precisely to implement the doctrine, and its
+docstring states the comparison it intended:
+
+> *"Above the miner band (HarvestCorp: `100 + efficiency*0.5`, efficiency <
+> 100, so miners top out just under 150) so the linchpin outranks the
+> marginal producer."*
+
+**That comparison never happened.** `spawnPriority` adds `INCOME_TIER` (1e6)
+to any demand with `producesIncome` + a `groupId`; the feeder declares
+`producesIncome: false`. So 150 was being compared against **1_000_146**, and
+the first feeder ranked below EVERY income demand, always. The `infrastructure`
+flag does not rescue it — by its own contract it *"never displaces an actual
+buy"*, only pierces holds. The sole rescue was the 300-tick anti-starvation
+lift, i.e. **the heartbeat stops for up to 300 ticks after every death.** That
+is the slow death the owner named, written into the ladder.
+
+`TENDER_BOOTSTRAP = 150` carries the identical claim (*"outbids the whole
+income range ... by VALUE alone"*) and was inert for the identical reason.
+
+### The fix
+
+A declared `linchpin` flag (semantic, not role-keyed — spec 17) lifting the
+demand to `INCOME_TIER + HEARTBEAT`, where `HEARTBEAT = 5_000` sits between
+`STARTED` (1e3) and `BLOCKING` (1e4): **above every scaling producer, below
+every blocking one** — exactly what the rungs always claimed.
+
+The first attempt lifted by `INCOME_TIER` alone and the test still failed,
+1_000_150 against 1_001_146: a started source's scaling top-up carries
+`STARTED`. Racing the miner band on **4 points of value** is the same
+fragility that made the rung inert to begin with, so the ordering is now a
+separator, not a value race.
+
+Declared only in the state each rung was written for: `firstFeeder && !drained`
+(a DRAINED bank keeps `FEEDER_DRAINED` below the miners — income rebuilds
+first, owner 2026-07-24) and the tender's `bootstrap` emergency only. Both stay
+`blocking: false`, so topping the rung can never wall the bank, and both are
+staffing-gated so neither can become the W2N6 blocking STREAM.
+
+### The rest of the window (recorded, not actioned)
+
+An invader core stood in W43N24 and the colony paid for it: creeps **53 → 41**,
+fielded CARRY **375 → 282 (−25%)**, reservation creeps 9 → 3. R1 measured
+**7.74 e/t** of attrition against 0.75 priced (**10.3x**). The carry shortfall
+is what E6 reports — **5 of 11** miner ops deferred (cedc held 100% of the
+window, cee0 99%, cd94 91%) with H1 duty **0.88** and haulers BUSY, so the
+sources back up because there is not enough CARRY fielded, not because haulers
+idle. That is the honest reading of L1's pile decay: a raid-attrition
+transient, and the ledger's own E6 row says it — *"the leak is HAULING (drain
+term / route sizing / churn), not the miner"*.
+
+Two things improved and should not be lost in the above: **P7 controller
+delivery 39.33 → 47.90 e/t** (the upgrader replacement landed; X1 workUtil
+0.99, dry 0.01) and **P1 plan flap 0 sources, stable** — the defund-stranding
+that dominated last cycle's `idleSink` resolved on its own (H1 idleSink
+0.18 → 0.06, atSink 0.02, enRoute 0.04; E2 stranded fleet 0).
+
+**Cycle verdict: FIXED (a doctrine the code claimed but never executed).**
+
+### Registered predictions for the t72809037 deploy (check at +200t or more)
+
+The falsifiers matter more than the confirmations here, because this change
+lifts a demand ABOVE the income tier — the one direction the ladder's whole
+history warns about (the W2N6 blocking stream, the cold-start deadlock).
+
+- **`controllerFeeder` creeps 0 → 1 and `feederActive` false → true.** The
+  direct target. Latency from demand to body should be a handful of ticks, not
+  the 190+ measured (and never the 300-tick starvation lift).
+- **`gate` "demand" → "staffed"** on the feeder's sizing stamp.
+- **E4** bank slope resumes a damped draw with the feeder alive (it read
+  −7.04/t with `feederActive false`, "relay between generations").
+- **NOT predicted to move: E6, L1 pile decay, forgone mining.** Those are the
+  raid-attrition carry shortfall (CARRY 375 → 282) and they recover as the
+  fleet rebuilds, on their own clock. If they improve, that is coupling, not
+  this fix, and must not be claimed for it.
+
+**FALSIFIERS — any one of these means HEARTBEAT (5000) is set too high:**
+
+1. A blocking FIRST MINER or first hauler is displaced by a feeder/tender in
+   the agenda (the tier is explicitly below `BLOCKING`; flow-handoff green is
+   the sim guard, this is the live one).
+2. Fielded CARRY recovery *slows* versus the pre-deploy trend — the raid
+   rebuild is income work and must not be crowded out by the lift.
+3. Feeder/tender demands appear MORE than staffing-gated frequency, i.e. the
+   lift turns a one-body demand into a stream (X5 churn on the infra roles).
+
+If (1) or (3) fires, the fix is to narrow the DECLARATION, not to lower the
+tier: the tier expresses the doctrine correctly, and a state where the
+heartbeat should not be lifted is a state the corp should not declare
+`linchpin` in.
+
+### Deploy verification t72809447 (+410t): heartbeat alive, but ATTRIBUTION WITHHELD
+
+```
+             creeps   CARRY   WORK   feeder   feederActive   rclProgress   storage
+  t72808131     53     375    129      1          true         6623076     160135
+  t72809037     41     282    113      0          FALSE        6666473     153760
+  t72809447     50     282    115      1          true         6689008     147021
+```
+
+- **Feeder 0 → 1, `feederActive` false → true, gate "demand" → "staffed"**,
+  16 CARRY (its volley-service floor), and **queue depth 0 on BOTH spawns** —
+  the 8-deep backlog cleared.
+- **`rclProgress` +22,535 over 410t = 54.96 pts/t against a plan allocation of
+  54.19 — P7 ≈ 1.01x.** The best plan-vs-actual reading this program has
+  recorded on the controller line.
+- Fleet rebuilding: creeps 41 → 50, reservation 3 → 8, coreBuster 0 → 3 (the
+  campaign is running). CARRY flat at 282 — the raid shortfall has stopped
+  deepening but has not yet recovered, exactly as predicted for E6/L1.
+
+**ATTRIBUTION IS WITHHELD, and this is the honest part.** The feeder demand
+stood `since 72808847`; `STARVATION_THRESHOLD` is 300 ticks, so the
+anti-starvation backstop would have lifted it at ~t72809147 **whether or not
+this fix shipped** — and the deploy landed in that same neighbourhood. So the
+revival is NOT evidence for the change. What the fix alters is the latency of
+the NEXT death, which this window does not contain.
+
+The fix is proven where it can be: 6 red-first unit assertions, and four grid
+cells green including the two that guard falsifier (1) —
+`spawn-first-miner-outranks-all` [P] and
+`spawn-93-fresh-miner-beats-scaling-hauler` [P] ("the first fresh creep is B's
+first miner" @ tick 11), plus `haul-t4-feeder-fields-for-bank` [P] (feeder
+fielded @ tick 11) and `haul-t4-tender-death-failsafe` [P] (replacement tender
+@ tick 44). BOT LEVEL 4 unchanged.
+
+**No falsifier tripped**: no blocking miner displaced, no infra stream (tender
+1, feeder 1, staffing-gated as designed), CARRY not falling further.
+
+**The live measurement that decides it is the next feeder death** — record
+demand-to-body latency then. Pre-fix it was 190+ ticks and rising toward the
+300-tick backstop; post-fix it should be a handful.
+
+**Cycle verdict: FIXED + INSTRUMENTED, live attribution PENDING one death.**
+
+## Cycle t72810328 — THE PORT METER PAID FOR ITSELF IN ONE WINDOW
+
+**Window** 881t from t72809447, methodology #12, full ring. Ledger TOP LINE is
+**L1** again (pile decay 8.80 vs a 0.00 budget) — and this time the chain from
+that number to its mechanism is complete, because the meter shipped last cycle
+returned its first data.
+
+### The colony is otherwise the healthiest it has measured
+
+**P7 controller 53.01 e/t vs a 50.92 plan — +2.09 FAVOURABLE**, the first time
+delivery has come in ABOVE the allocation. Forgone mining **0.00** (mined
+100.00 of a 100.00 capacity). H1 duty **0.94**. P1 flap **0**, E2 stranded
+**0**, E5 runts **0**, X3 untracked 2. The heartbeat fix holds: `feederActive
+true`, and the bank is drawing down (−4.67/t) rather than rotting.
+
+### The whole of L1 localizes to ONE source, and the meter names why
+
+E6 reports **1 of 10** miner ops deferred: `cedc`, buffered **3045** against a
+2000 container cap, `gate "buffer-full"`, held **100% of the window** —
+CHRONIC across three captures.
+
+It is not a sizing miss. `carryNeeded 21`, fielded **20.5** — the fleet is
+sized correctly and the hauler is BUSY (`duty 0.892`, `idleSource 0.002`). But:
+
+```
+  departs {full: 4} over 440t x 1023e/trip  =  9.30 e/t delivered
+  the source produces                          10.00 e/t
+  ------------------------------------------------------------
+  DEFICIT                                       0.70 e/t   -> the pile never clears
+```
+
+And the new port meter says exactly where the 0.70 goes:
+
+```
+  portDeposits 173   portWaits 24   portFallbacks 0   portWaitFrac 0.122
+  duty 0.892, idleSink 0.106 (atSink 0.034)   <- the idle IS at the sink
+```
+
+**12.2% of this hauler's at-port decision ticks are spent held at a FULL port
+link.** That stretches its round trip from ~80 ticks to ~110, which drops
+delivery below the source's production rate, which is why a pile that looks
+static (3205 → 3045 over 768t) never actually clears — it sits above the
+container cap rotting, and that rot is L1's top line.
+
+**One capture, one gauge, and "the pile is stuck" became a measured causal
+chain.** That is the whole argument for instrumenting before building: the
+meter cost a telemetry-only deploy and immediately converted the cycle's
+biggest number into a mechanism with a known fix.
+
+### The fix is the container buffer, and the same number sizes it
+
+The buffer's INFLOW is the **overflow rate**, not the port's flow — the
+container only receives while the link is refusing:
+
+```
+  0.122 x 40 e/t port flow  =  ~4.9 e/t into the container
+  a 1-CARRY link miner is a 25 e/t parked relay (invert parkedRelayCarry),
+  ~15 e/t spare after its own 10 e/t harvest
+  ->  4.9 << 15 : the miner alone drains it, no relay body needed
+```
+
+So the dedicated relay corp — blocked on spec 39's spawn-authority ratchet
+(see spec 47) — is **not needed at this flow**, and the owner's earlier ullage
+insight carries the whole leg. Shipped as an opportunistic drain in
+`HarvestCorp`: strictly gated on the link having room and on spare CARRY
+*after* this tick's harvest, so the drain can never displace the mining it
+serves. No new corp, no new demand site, no new body.
+
+That closes legs A (placement), B (the hauler's drop) and C (the drain), so
+the three deploy together.
+
+### Registered predictions
+
+- **`portWaitFrac` 0.122 → toward 0** on port-routed corps once a container
+  stands. THE direct target.
+- **`cedc` delivery 9.30 → above 10.00 e/t**, and its buffer below the 2000
+  cap. This is the one that matters: the pile only clears if delivery exceeds
+  production.
+- **L1 pile decay 8.80 → down.** NOT to zero — cedc is ~2 e/t of it and other
+  mouths carry the rest.
+- **NOT predicted to move**: P7 (already +2.09 F), forgone (already 0.00).
+  Any change there is coupling, not this fix.
+
+**FALSIFIER:** if `portWaitFrac` falls while `cedc` delivery does NOT rise, the
+wait was not what was costing the trips and the container bought parked energy
+instead of hauler time — the exact net-negative the "do not deploy A+B alone"
+note warned about. Revert the placement rung in that case, not the meter.
+
+**Cycle verdict: DIAGNOSED — a top-line leak reduced to a measured mechanism
+by an instrument shipped one cycle earlier, with the fix built and gated.**
+
+## Cycle t72811290 — PREDICTIONS REFUTED (attributably), and a self-inflicted regime change
+
+**Window** 962t from t72810328, methodology #12, full ring. The window
+straddles the legs-A+B+C deploy AND a plan regime change, so attribution is
+the whole job here.
+
+### The registered predictions FAILED. All of them.
+
+```
+                        predicted        measured
+  portWaitFrac (cedc)   -> toward 0      0.122 -> 0.253   WORSE (2x)
+  cedc delivery         -> above 10.00   buffer 3045 -> 4479, held 95%
+  L1 pile decay         -> down          8.80 -> 10.64    WORSE
+  forgone (not pred.)   -> flat 0.00     0.00  -> 24.13
+```
+
+**And they are attributable, which is what makes the cycle worth something.**
+
+1. **The containers are not built.** `siteLedger W43N23 {n: 2, rem: 8135,
+   done: 1865}` — 18.6% of a 10,000e project. Leg B's buffer branch is gated
+   on `portBufferFree` being defined, and with no container standing the path
+   is bit-identical to before (pinned by test). **The fix could not have acted
+   yet**, so nothing here falsifies it.
+2. **Deposit flow rose 33%.** P1 flapped 2 sources back IN (4adbcd8d,
+   4adbcd8e defunded→funded), capacity 100 → 120, and DEP went from *"8f08
+   40.0 x4, 4a83 20.0 x2 | 60 e/t over 6 routes"* to *"4a83 40.0 x4, 8f08
+   40.0 x4 | 80 e/t over 8 routes"*. The spec-47 sizing law says
+   `rho = R * range / 800`, so a third more flow through the same two ports
+   means proportionally more collisions. **The rise is the flow, not the fix.**
+
+### The meter is now fleet-wide, and it makes the container case STRONGER
+
+Last cycle had one corp at 0.122. Seven now report:
+
+```
+  cee0 0.392   cd94 0.311   cd98 0.250   cedc 0.253
+  d01f 0.225   cee2 0.181   c9f9 0.000    (fallbacks: 0 everywhere)
+```
+
+**Roughly a quarter of all at-port decision ticks are spent held at a full
+port link** — double what the single-corp reading suggested, across both
+ports. Zero fallbacks means every wait resolves inside `PORT_WAIT_CAP`, so
+this is pure lost hauler time, exactly the currency the container buys back.
+
+### THE SELF-INFLICTED PART, and it is the finding to act on
+
+The container placement rung placed **two 5,000e sites**. That backlog trips
+the colony-wide wartime lens, and wartime relegates the controller by ZEROING
+its sink demand:
+
+```
+  sink          demand   allocated   value
+  spawn          26.00      26.00     100
+  spawn          18.45      18.45     100
+  construction    7.43       7.43      70
+  construction   10.06      10.06      70
+  storage       398.75     104.03       1     <- 104 e/t to a value-1 sink
+  controller      0.00       0.00      43.4   <- asks for nothing
+```
+
+**Construction can only absorb 17.49 e/t. The other ~104 goes to STORAGE at
+sink value 1, while the controller at value 43.4 demands zero.** The ladder
+never gets to compare them, because a zeroed DEMAND is not a relegated RANK.
+P12 fails on exactly this (published 0.00 vs `bankFedControllerRate` 28.75).
+
+**This is NOT a bug, and I am not patching it unilaterally.**
+`flowAdapter.test.ts` pins `wartime -> 0` deliberately (owner 2026-07-27:
+*"surplus ... normally for upgrading, but now for building"*), and the owner
+restated it 2026-08-06: construction primary, *"banking excess it can't
+consume is fine."* Both readings are the owner's. What is NEW is the measured
+consequence: the rule was written when "build gets everything" implied build
+could USE everything, and here it can use 17.49 of 121.
+
+**The open question for the owner** — the code comment already claims
+*"Relegated != off - the anti-downgrade floor still holds"*, which is false
+whenever the downgrade timer is comfortable (the floor is 0). Relegating by
+VALUE instead of by DEMAND would keep construction primary (70 > 43.4) AND
+give the controller the residual ahead of storage (1). That is a sink-value
+change, and CLAUDE.md says never nudge one in isolation — so it is filed, not
+built.
+
+Duration matters: 8,135e remaining at ~1.94 e/t measured build is **thousands
+of ticks** of zero controller allocation. Riding it per the standing rule
+(a live regression that buys understanding is a good trade; this threatens the
+score, not the instrument).
+
+**Cycle verdict: REFUTED-BUT-ATTRIBUTABLE + a self-inflicted regime change
+named with data.** No code shipped: the fix under test has not had a chance to
+act, and the one thing worth changing is the owner's own pinned directive.
+
+## Cycle t72811683 — THE DOUBLE-ORDER BUG WAS DOING REAL WORK
+
+**Window** 393t from t72811290. The blackbox ring covers only **93 ticks**
+post-reset with 7 receipts, so the ENERGY ACCOUNT's "measured at the spawn"
+lines are not quotable this cycle — per the capture discipline, stated rather
+than printed off seven receipts. Everything below is plan-side or stamp-side
+and does not depend on the ring.
+
+### The link congestion cleared completely
+
+```
+                          1 feeder (16 CARRY)    2 feeders (32 CARRY)
+  coreEmptyShare              0.279..0.375            0.598
+  coreFillAvg                 178..233                 91.1
+  hubClampShare               0.275..0.296            0.000
+  portWaitFrac (fleet)        0.228                   0.000
+```
+
+Fleet-wide **zero waits across 127 port deposits**, and zero clamped hub
+volleys. That is the registered `portWaitFrac -> 0` prediction confirmed.
+
+### But NOT by the container — by the bug I just fixed
+
+A container DID finish in this window (sites 2 → 1, remaining 8135 → 1535).
+It is not what did this: `portWaits 0` **and** `portFallbacks 0` mean the port
+link never filled, so **the buffer was never asked to absorb anything.**
+
+What changed is that the core is being drained by **two** feeders instead of
+one — the double-order from last cycle. **Port congestion was DOWNSTREAM of
+the core drain all along**: a port link empties by firing into the core, so a
+core that always has room means a port that never backs up. The container
+addressed a symptom one level below its cause.
+
+The double-order was a bug in the staffing lens, and it was also, accidentally,
+the correct fleet size.
+
+### The consequence I am walking into deliberately
+
+`staffedFeeders()` (deployed t72811290) stops the double-order. **When the
+current pair ages out, the fleet returns to one 16-CARRY feeder and this gain
+should revert.** That is a live regression I am choosing NOT to pre-empt,
+because it is the cleanest A/B this program has been handed: the fleet size
+changes on its own clock with nothing else moving.
+
+**Registered prediction:** as `feeders` 2 → 1, `coreEmptyShare` falls back
+toward 0.3, `hubClampShare` returns toward 0.28, `portWaitFrac` toward 0.2.
+**If it does, the feeder's sizing law is under-stated and that is the fix.**
+If it does NOT, the second feeder was coincidental and the real cause is
+elsewhere — in which case do not raise the floor.
+
+### Why the sizing law is suspect but NOT yet changed
+
+`volleyServiceCarry()` floors the feeder at 16 CARRY on the premise that it
+"clears one full LINK_CAPACITY volley in ONE parked withdraw+transfer cycle" —
+about **400 e/t** against a stamped `coreDrain` of **80 e/t**. A 400 e/t body
+cannot be the binding constraint on an 80 e/t drain, so the LAW is probably not
+what is wrong: the **execution** is, and nothing measured it.
+
+Shipped this cycle instead of a constant change: a feeder **throughput meter**
+(`movedPerTick`, `moveActiveFrac`) on the same 1500t rolling window as the duty
+meter. Next window says whether the feeder achieves anything like its parked
+cycle, which localises the gap to the run loop (travel, mode flapping, the
+controller leg) rather than leaving the constant to be guessed at twice.
+Telemetry-only: unit 2156, build clean.
+
+### Standing state
+
+Controller sink demand still **0.00** (wartime, 1535e of container left);
+storage 127125 → 123710. The spec-48 gross-vs-net question is unchanged and
+still the owner's call.
+
+**Cycle verdict: INSTRUMENTED — a confirmed prediction re-attributed to the
+opposite cause, with the A/B that settles it already running.**
+
+## Cycle t72812126 — the spawn is the wall, and haul EFFICIENCY is the only lever left
+
+**Window** 443t, methodology #13.
+
+### First, a correction I owe two previous cycles
+
+I withheld the income statement at t72811683 and t72812126 on the grounds that
+the blackbox ring was thin after a deploy. **That was wrong.** Spec 42 already
+solved this: `spawnLedger` publishes CUMULATIVE spend by role into Memory, and
+the account differences two captures (`spawnSpanned`), so every "measured at
+the spawn" line spans the FULL capture window regardless of resets. Verified
+monotonic across all three captures. The ring only bounds the per-corp SOURCE
+P&L and X5 churn. **Two statements were readable and I did not print them.**
+
+### The targets, now that they print
+
+```
+  TARGETS
+    forgone mining                     3.59 e/t   target ~0   close
+    net energy = mined 96.41 - fleet 32.17 = 64.24 e/t
+    controller / net                   27%   target >=50%   MISS
+    ...INCOME-FUNDED only              27%   target >=50%   MISS
+```
+
+**Forgone is nearly fixed: 24.13 → 3.59.** Mining is not the problem any more.
+The controller is: 48.60 → **17.34 e/t**, 27% of net against a 50% bar.
+
+### Where the energy goes instead: it rots at the mouths
+
+```
+  ground pile decay        18.17 e/t   (was 8.80)   avg 9.8 piles standing
+  E6  5 of 10 miner ops deferred, ALL CHRONIC:
+      cee0 4220 held 84%   cedc 4000 held 100%   cee2 4404 held 69%
+      cd94 3002 held 89%   d01f 2684 held 97%
+```
+
+18.17 e/t is **19% of gross mining** burning on the ground — the largest single
+line in the account and L1's top line at 72x its (zero) budget.
+
+### And the spawn cannot buy its way out
+
+```
+  S5  building 0.639 p/t of 0.667 physical  =  96% of ceiling, 4% surge margin
+  F1  haulers 0.414 p/t vs 0.312 planned    =  ALREADY over-building haulers
+```
+
+This is the finding that reframes the work. The colony is **already spending
+its spawn on haulers above plan and is at 96% of the physical ceiling**, and
+the piles grow anyway. So hauling capacity **cannot be bought** — there is no
+spawn left to buy it with.
+
+The only remaining lever is haul EFFICIENCY: the same delivered energy for
+fewer CARRY parts. That is exactly what deposit ports do (DEP: 80 e/t over 8
+routes, ~990 tile·e/t, **31.8 CARRY parts = 16%** of the source-route fleet),
+and exactly why the owner's edge links matter — they are not a nicety, they are
+the only affordable path to the controller target while S5 is at 0.96.
+
+**The causal chain, end to end:**
+
+```
+  spawn at 96% ceiling  ->  no more hauling can be bought
+      ->  5 of 10 mouths chronically over cap
+          ->  18.17 e/t rots on the ground
+              ->  controller gets 17.34 (27% of net, target 50%)
+```
+
+### The feeder meter's first reading (shipped last cycle)
+
+`movedPerTick 131.28`, `moveActiveFrac 0.481` on the 32-CARRY pair — about
+**65 e/t per feeder**, idle half the time. Against the stamped `coreDrain` of
+80 e/t that says a SINGLE 16-CARRY feeder sits right at the edge of
+sufficiency, which fits the A/B's premise. The 48% idle is not waste: spec 45
+already rules that a service creep's idleness between volleys is the price of
+hauler duty.
+
+**The A/B has NOT run yet** — `feeders` is still 2 at all three captures; the
+pair has not aged out. `coreEmptyShare` 0.565 and `hubClampShare` 0.091 are
+holding meanwhile.
+
+### Methodological note: stop deploying every cycle
+
+The link meter and port meter are heap-resident and DO reset on a global
+reset. Deploying on three consecutive cycles reset them three times, which is
+why several gauges only ever report 90-450 tick windows. The account survives
+(cumulative), the gauges do not. **Deploy when there is something to ship, not
+once per audit** — the instrument needs quiet windows more than it needs
+patches.
+
+**Cycle verdict: DIAGNOSED — forgone essentially fixed (24.13 → 3.59), and the
+controller shortfall re-attributed to a spawn ceiling that makes haul
+efficiency the only affordable lever.** No code shipped: the diagnosis says
+buy nothing, and the fix it points to (deposit ports / edge links) is already
+the standing plan.
+
+## Cycle t72819265 — THE A/B RAN, AND IT CONFIRMED THE PREDICTION
+
+**Window 7,139 ticks** — nearly five fiscal months, and the first properly long
+window this program has had. That is a direct result of NOT deploying last
+cycle: the blackbox went 1,054 → 39,395 bytes and the link meter spans 7,223t
+instead of 84t. The methodological note from last cycle paid off immediately.
+
+### The targets, on a window that can carry them
+
+```
+  forgone mining                     22.30 e/t   target ~0      MISS
+  net energy = mined 87.70 - fleet 41.92 = 45.78 e/t
+  controller / net                   92%   target >=50%   MET
+  ...INCOME-FUNDED only              97%   target >=50%   MET
+```
+
+**The controller target is comfortably met** — P7 reads **1.16x** (42.20 e/t
+against a 36.4 plan). Last cycle's 27% was a 443-tick artifact and should not
+have been read as a state. **Forgone mining is now the entire gap**, exactly as
+the owner framed it.
+
+### The A/B: prediction CONFIRMED, and the mechanism is LATENCY
+
+Registered at t72811683: *"as `feeders` 2 → 1, `coreEmptyShare` falls back
+toward 0.3, `hubClampShare` returns toward 0.28. If it does, the feeder's
+sizing law is under-stated and that is the fix."*
+
+```
+  feeders  CARRY   coreEmptyShare   hubClampShare   movedPerTick   window
+     2       32        0.565            0.091          131.28        84t
+     1       16        0.421            0.268          187.33      7223t
+```
+
+`hubClampShare` landed within **0.008** of the predicted 0.28.
+
+**And the throughput meter shipped for this question settles WHY.** The single
+feeder moves **more** per tick than the pair did (187.33 vs 131.28, active
+0.556 vs 0.481) while the core clamps three times as often. So it is not a
+RATE problem — one creep working harder cannot cover two senders arriving at
+once, it can only serve them **serially**. That is spec 45's own doctrine
+(*"its metric is drain LATENCY, not throughput utilization"*) finally measured
+rather than asserted.
+
+### The fix the A/B earned
+
+`volleyServiceCarry()` floored at ONE volley regardless of topology.
+**It now scales with inbound senders** — N senders can land N volleys inside
+one drain window. `inboundSenders` was already stamped at the decision site;
+it simply was not read. Both plan-side twins (`infraSpawnLoad`,
+`infraSpawnEnergy`) take the same count so price and behaviour stay equal
+(F1); `senders` defaults to 1 so every legacy call site is bit-identical.
+
+One existing pin staged the two-port shape and asserted 16 — precisely the
+case the A/B refutes. Updated with the evidence, plus a new pin that one
+sender still floors at one volley. The BODY remains bounded by the energy
+budget (`maxCarryPairs(2300)` = 23), so the floor states the requirement and
+the budget states what is buyable.
+
+Gate: unit 2170 (7 new, red-first), build clean, trio green.
+
+### The rest of the window
+
+**E6: 0 of 13 deferred** — *"no deferrals, source buffers under threshold"*.
+The chronic pile-up that dominated four cycles is GONE; H1 ground-piled is
+771e (was 2,492-4,232). L1 pile decay fell 18.17 → 11.27 with it.
+
+So forgone's 22.30 is NOT held mouths any more — it is under-staffed
+commissions. F2 shows |gap| 146p with c9f9 32p of 78p and cd98 41p of 77p,
+against R1 at **9.6x** the priced raid tax and X5 churn 0.17 (14% remote
+invader/revoke noise). **Raids are killing remote fleets faster than they are
+replaced**, and that is the next thread — a different mechanism from the
+hauling deficit that came before it.
+
+**Cycle verdict: FIXED — a registered prediction confirmed within 0.008, its
+mechanism identified as latency by an instrument shipped one cycle earlier,
+and the sizing law corrected with both sides of the plan/runtime pair moved
+together.**
+
+### Cycle t72821449 — the mouth piles are the top line, and the fix was sitting undeployed
+
+**Window 1982t (t72819467 → t72821449), methodology #14.** The longest clean
+window in days, and the income statement moved substantially against the
+202-tick phase sample before it:
+
+```
+                          t72819265 (202t)   t72821449 (1982t)
+  forgone mining               23.51                6.23
+  gross mining                 86.49              103.77
+  fleet                        55.20               39.96
+  measured losses              10.00               13.06
+  controller (score)           30.96               36.88
+  controller / CAPACITY          28%                 34%
+  ...income-funded               35%                 39%
+```
+
+Forgone fell 73% — far outside the ±20-30% single-draw band, so it is real and
+not a draw. The controller share's +21% is inside the band and must be carried
+as provisional until a second long window.
+
+**None of it is spec 49 leg A.** The capture reads both deposit ports routed at
+**exactly 30.00 e/t** — the retired flat cap, to the decimal. Leg A was
+committed at 15:02 and not deployed until after this capture, so this window
+measures the pre-Leg-A bundle. The improvement is the earlier volley-floor and
+double-order work aging in.
+
+**TOP LINE: L1, and for once it is not just the zero-budget artifact.** Pile
+decay measured **8.18 e/t against a 0.00 budget** (32.71x, spec 48's known
+defect) — but the level itself nearly doubled from 4.60, and the cause is
+readable in three rows that agree:
+
+```
+  sourceBuffers   20,073e standing at 8 remote mouths
+                  cd8d 4285   cedc 3330   d01f 2315   cd8e 2297
+                  cd94 2049   cee2 1936   cee0 1888   cd98 1882
+  E6              5 of 12 miner ops deferred - cd8d held 100% of window,
+                  cedc 97% CHRONIC
+  H1              duty 0.86, ground-piled 4276e, "haulers BUSY =>
+                  plan under-asks (inflow-sized carry, no drain term)"
+```
+
+Miners gated behind full buffers, haulers busy, energy decaying on the ground
+at 8.18 e/t. That is a HAULAGE deficit, not a mining or a decay problem — and
+the eight piled mouths are near-identical to DEP's eight sources that *"could
+deposit at a home link"* (cee2/cd8e/cd8d/cedc/cee0/cd94 + 2), each saving 12-16
+tiles of haul. The flat cap was refusing exactly those routes.
+
+So leg A is not an efficiency tweak here; it is the drain for the top line.
+Deployed t72821449+ with predictions registered below.
+
+**REGISTERED PREDICTIONS (leg A, check at ~t72823500):**
+
+1. Routed deposit flow per port **30.00 → 40.00**, port routes **6 → 8**.
+   Headroom 47.14 / 51.54 admits four 10 e/t routes apiece; DEP's own detector
+   already proposes "40.0e/t x4" per link. A 5th route (50) fits port B's
+   51.54 but there are only 8 candidates.
+2. The two newly-admitted sources' haul legs shorten by their DEP saving;
+   planned source-route CARRY falls from **251.4**.
+3. The freed CARRY drains the mouths: **total piled falls from 20,073** and
+   **pile decay falls from 8.18 e/t**.
+4. **E6 deferred ops falls from 5/12**; cd8d/cedc stop reading CHRONIC.
+5. RISK, watch for it: more inbound volleys per port means more contention at
+   the core. **hubClampShare rises** and the LINK hub rate rises from 50.2. If
+   clamp goes up without piles coming down, leg A moved the queue rather than
+   drained it, and the volley floor needs re-sizing before more flow is added.
+
+**Falsifier:** if per-port routing stays at 30.00 after the deploy, the cap was
+not what bound and the constraint is elsewhere in `detectLinkDepositPorts` —
+instrument the port detection, do not re-theorize.
+
+### Grid RATCHET FAILURE t72821449 — attributed to HOST LOAD, plus one real pre-existing red
+
+A full-grid run against the leg-A build reported **bot level 4 -> 0** with 22
+baseline-green cells regressed, 24 of them timeouts. Two attribution runs, per
+the audit method's "a red cell gates a deploy only if it is red BECAUSE of the
+pending change":
+
+```
+  move-upgrader-park-settle   full grid: FAIL      alone, same source: 1/1 PASS
+  cons-link-core-first        alone, leg-A src:  timeout @60/60t
+                              alone, PRE-leg-A:  timeout @60/60t   <- identical
+```
+
+**Leg A is acquitted on both counts.** The first cell is a movement/parking
+assertion in a link-free T1 world - a constant in `depositPortHeadroom` cannot
+reach it - and it passes cleanly the moment it is not competing for CPU. The
+second fails IDENTICALLY on the pre-change source, so it is its own incident
+against the deployed build and must not hold the fix hostage.
+
+**Cause of the mass failure: host load, the documented class.** That grid ran
+concurrently with a live telemetry capture, two webpack builds, a deploy and
+the unit suite, and it started with orphaned mockup processes from a
+previously-killed run still competing for CPU. CLAUDE.md already records the
+shape (*"the mockup meters real CPU against a real bucket, so an armed
+governor couples cell behavior to HOST LOAD - a full grid run drained heavy
+worlds' buckets... and failed six baseline-green cells before this was
+caught"*). 24 timeouts across unrelated tiers is that signature, not a bot
+regression. **Do not run a full grid concurrently with captures, builds or
+deploys** - and kill orphaned `@screeps/engine|storage` processes before
+starting one, because a killed grid leaves them running.
+
+**The baseline was NOT updated from this run**, and must not be: a load-poisoned
+grid cannot ratchet in either direction.
+
+**OPEN INCIDENT (separate, real): `cons-link-core-first` is RED on the deployed
+build.** "the core link site lands beside the storage" never satisfies in 60
+ticks, on both leg-A and pre-leg-A source, while the baseline says green. It
+regressed at some earlier commit - unbisected. It is a link-placement rung, so
+it sits directly upstream of the deposit-port work and should be bisected
+before more link/port behaviour is layered on top.

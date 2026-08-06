@@ -27,6 +27,7 @@ import {
   controllerLink,
   coreDepot,
   coreLink,
+  coreInboundPending,
   coreLinkDrainAmount,
   coreLinkLoadRoom,
   controllerInputSpot,
@@ -38,7 +39,9 @@ import { roomHasFlowMiner } from "./censusLens";
 import { stampControllerFeederRegime } from "./regimes";
 import {
   CARRY_MOVE_PAIR_COST,
+  SOURCE_RATE,
   carryPartsFor,
+  depositPortHeadroom,
   maxCarryPairs,
   parkedRelayCarry,
   volleyServiceCarry
@@ -47,6 +50,11 @@ import { bankFedControllerRate, resolveReserveTarget } from "../economy/bank";
 
 export interface SerializedControllerFeederCorp extends SerializedSpawnAnchoredCorp {
   controllerAllocation?: number;
+  /** Throughput meter (rolling ~1500t window, survives resets). */
+  moveEnergy?: number;
+  moveActive?: number;
+  moveAlive?: number;
+  moveSince?: number;
 }
 
 /**
@@ -66,18 +74,6 @@ const CONTROLLER_FEED_TARGET = 2000;
  * at or above it the feeder is the linchpin and outranks the marginal miner.
  */
 const FEEDER_INCOME_FIRST_FLOOR = 2000;
-
-/**
- * Per-source-link drain the feeder must be able to move core -> storage (spec 02
- * sole-operator floor). An owned-room source produces SOURCE_ENERGY_CAPACITY /
- * ENERGY_REGEN_TIME = 3000/300 = 10 e/t, and its link may double as a spec-26
- * DEPOSIT PORT receiving remote drops (DEPOSIT_PORT_HEADROOM = 30 e/t). Both
- * emerge at the core and must be banked by the feeder, or the core backs up and
- * source-link volleys strand (the spec-26 gridlock). A generous, cheap
- * over-estimate: at the parked 1-tile leg even 80 e/t is ~4 CARRY. Keep the 30
- * in sync with flowAdapter.DEPOSIT_PORT_HEADROOM.
- */
-const PER_LINK_SOURCE_DRAIN = 10 + 30;
 
 /**
  * ControllerFeederCorp fields the shuttle fleet (usually one feeder; more only
@@ -128,6 +124,26 @@ export function feederRelayTarget(surplusRate: number, planFlow: number | undefi
 export class ControllerFeederCorp extends SpawnAnchoredCorp {
   /** The plan's controller-side flow (commission-owned, refreshed every round). */
   private controllerAllocation?: number;
+  /**
+   * THROUGHPUT METER (measured t72811683). `volleyServiceCarry()` floors the
+   * body at 16 CARRY on the premise that it "clears one full LINK_CAPACITY
+   * volley in ONE parked withdraw+transfer cycle" - i.e. ~400 e/t. The live
+   * numbers refuse that: with ONE 16-CARRY feeder the core ran fill 178-233,
+   * `hubClampShare` 0.28-0.30 and fleet `portWaitFrac` 0.228; with TWO
+   * (32 CARRY, from the double-order this session fixed) it ran fill 91,
+   * clamp 0.000, waitFrac 0.000. A 400 e/t body cannot be the binding
+   * constraint on an 80 e/t drain, so the SIZING LAW is not what is wrong -
+   * the EXECUTION is, and nothing measured it.
+   *
+   * So: energy actually moved, and the share of alive ticks it moved
+   * anything. Throughput below the parked-cycle premise localises the gap to
+   * the run loop (travel, mode flapping, waiting on the controller leg)
+   * instead of leaving the constant to be guessed at a second time.
+   */
+  private moveEnergy = 0;
+  private moveActive = 0;
+  private moveAlive = 0;
+  private moveSince = 0;
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("moving", nodeId, spawnId, customId);
@@ -150,6 +166,31 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     return this.creepsOfWorkType("feed", { includeSpawning: false });
   }
 
+  /**
+   * STAFFING lens for the DEMAND side - includes bodies still in the spawn.
+   *
+   * Measured t72811290: TWO 1600e feeders bought 48 ticks apart into this same
+   * corp against `wantedFeeders: 1`. A feeder body is 32 parts, ~96 ticks in
+   * the spawn, and while it builds `getFeeders()` (includeSpawning: false)
+   * returns 0 - so the demand re-armed and bought a second one. F1 put the
+   * feeder class at 0.086 p/t against 0.007 planned (12x) and infra spend at
+   * 4.26 vs a 1.51 budget.
+   *
+   * That is the CLAUDE.md staffsPost trap verbatim - the demand side and the
+   * work side must not read different counts - and the sibling of "recycling
+   * counts as staffing ... excluding them double-orders". ClaimCorp and
+   * ReservationCorp already carry both lenses; this one carried only the work
+   * lens and used it for both jobs.
+   *
+   * The two lenses legitimately DIFFER in what they answer: work() needs
+   * creeps that can act THIS TICK (a spawning body cannot relay), while the
+   * demand needs "is one already on the way". One body coming IS one body
+   * staffed.
+   */
+  public staffedFeeders(): number {
+    return this.creepsOfWorkType("feed", { includeSpawning: true }).length;
+  }
+
   public getCreepCount(): number {
     return this.getFeeders().length;
   }
@@ -170,7 +211,26 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     // controller directly, so a dead feeder never starves upgrading.
     stampControllerFeederRegime(room.memory, !!(room.storage && room.storage.my) && feeders.length > 0);
 
-    for (const creep of feeders) this.runFeeder(creep, controller, depot);
+    if (tick - this.moveSince >= 1500) {
+      this.moveEnergy = 0;
+      this.moveActive = 0;
+      this.moveAlive = 0;
+      this.moveSince = tick;
+    }
+    for (const creep of feeders) {
+      const before = creep.store[RESOURCE_ENERGY] ?? 0;
+      this.runFeeder(creep, controller, depot);
+      // Intents resolve at end of tick, so the store still reads pre-action
+      // here; measure the DELTA against last tick's snapshot instead (creep
+      // memory, so it survives a global reset like the duty meter does).
+      const prev = (creep.memory as { feederLast?: number }).feederLast;
+      if (prev !== undefined && prev !== before) {
+        this.moveEnergy += Math.abs(before - prev);
+        this.moveActive += 1;
+      }
+      (creep.memory as { feederLast?: number }).feederLast = before;
+      this.moveAlive += 1;
+    }
   }
 
   /**
@@ -263,8 +323,14 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     const coreEnergy = core.store[RESOURCE_ENERGY];
     const capacity = coreEnergy + core.store.getFreeCapacity(RESOURCE_ENERGY);
     const ctrlFree = ctrlLink.store.getFreeCapacity(RESOURCE_ENERGY);
-    const loadRoom = coreLinkLoadRoom(coreEnergy, capacity, ctrlFree);
-    const drainAmount = coreLinkDrainAmount(coreEnergy, capacity, ctrlFree);
+    // ARRIVALS-FIRST (spec 45 leg 2): a loaded/near-fire source link means a
+    // volley wants this buffer THIS beat, so the target drops to 0 - stop
+    // staging from storage into the landing zone, and PRE-drain what is
+    // already there. One target level still drives both directions, so the
+    // load/drain XOR symmetry and the phase-D valve law are untouched.
+    const inbound = coreInboundPending(core.room, core);
+    const loadRoom = coreLinkLoadRoom(coreEnergy, capacity, ctrlFree, inbound);
+    const drainAmount = coreLinkDrainAmount(coreEnergy, capacity, ctrlFree, inbound);
     const storageFree = storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0;
 
     // Decide direction ONLY when empty-handed: a half-loaded feeder always
@@ -342,15 +408,39 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
    * spec-26 deposit-port headroom. Zero for a room with no source links (the
    * core carries only the controller relay then). A cheap over-estimate; an
    * oversized feeder simply idles when the core is at target.
+   *
+   * DERIVED FROM THE PORT'S OWN GEOMETRY, not a copied number. This read
+   * `linkServed * (10 + 30)` with a docblock asking the next editor to "keep
+   * the 30 in sync with flowAdapter.DEPOSIT_PORT_HEADROOM" - a manual coupling
+   * that went stale the moment the flat cap was retired for the fire rate
+   * (2026-08-06). The port's headroom is a function of ITS range to the core
+   * and the feeder can see that geometry, so it asks the same primitive the
+   * planner asks and the two cannot disagree again.
+   *
+   * Per link the drain is exactly what that link can PUSH into the core -
+   * `SOURCE_RATE + depositPortHeadroom(range)` collapses to `LINK_CAPACITY /
+   * range` wherever the fire rate clears the source rate. With no geometry
+   * (harness paths) the headroom falls back to the conservative 30 and this
+   * returns 10 + 30 per link, bit-identical to the constant it replaced.
+   *
+   * The floor is rarely what binds: since spec 45 the body also carries
+   * `volleyServiceCarry(inboundSenders)` (2 senders = 32 CARRY), against which
+   * even 100 e/t over the parked 1-tile leg is ~5 CARRY.
    */
   private coreDrainRate(room: Room): number {
     const core = coreLink(room);
     if (!core) return 0;
-    let linkServed = 0;
+    let drain = 0;
     for (const src of room.find(FIND_SOURCES)) {
-      if (sourceLink(src.pos, core.id)) linkServed++;
+      const link = sourceLink(src.pos, core.id);
+      if (!link) continue;
+      // The source's own income, plus whatever remote deposit flow its link
+      // can still fire on top of it - both emerge at the core and both must be
+      // banked, or the core backs up and volleys strand (spec-26 gridlock).
+      const range = typeof link.pos.getRangeTo === "function" ? link.pos.getRangeTo(core.pos) : undefined;
+      drain += SOURCE_RATE + depositPortHeadroom(range, SOURCE_RATE);
     }
-    return linkServed * PER_LINK_SOURCE_DRAIN;
+    return drain;
   }
 
   /**
@@ -446,14 +536,20 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     // 0.26, hubClampShare 0.50). Its idle between volleys is the price of
     // hauler duty. infraSpawnLoad prices the same floor (F1).
     const inboundSenders = linkFed ? this.inboundLinkSenderCount(spawn.room) : 0;
-    const volleyFloor = inboundSenders > 0 ? volleyServiceCarry() : 0;
+    // ONE VOLLEY PER SENDER, not one volley total (A/B t72819265). N senders
+    // can land N volleys inside one drain window and a single creep serves
+    // them serially - measured, 1 feeder at 16 CARRY clamped 0.268 while the
+    // accidental 32 clamped 0.091, with the SINGLE feeder moving MORE per tick
+    // (187.33 vs 131.28). Latency, not rate. `inboundSenders` was already
+    // stamped at this decision site; it just was not read.
+    const volleyFloor = volleyServiceCarry(inboundSenders);
     const neededCarry = Math.max(
       1,
       volleyFloor,
       Math.ceil((linkFed ? parkedRelayCarry(effectiveBodyRate) : carryPartsFor(effectiveBodyRate, distance)) * 1.2)
     );
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
-    const feeders = this.getFeeders().length;
+    const feeders = this.staffedFeeders();
     this.lastSizing = {
       tick: ctx.tick,
       gate: feeders >= wantedFeeders ? "staffed" : "demand",
@@ -468,7 +564,15 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
       ...(volleyFloor > 0 ? { volleyFloor, inboundSenders } : {}),
       neededCarry,
       wantedFeeders,
-      feeders
+      feeders,
+      // Throughput vs the parked-cycle premise the volley floor assumes.
+      ...(this.moveAlive > 0
+        ? {
+            movedPerTick: Math.round((this.moveEnergy / this.moveAlive) * 100) / 100,
+            moveActiveFrac: Math.round((this.moveActive / this.moveAlive) * 1000) / 1000,
+            moveMeterTicks: ctx.tick - this.moveSince
+          }
+        : {})
     };
     if (feeders >= wantedFeeders) return [];
     const carry = Math.min(neededCarry, maxCarry);
@@ -501,6 +605,14 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
         // below miners (income first). Additional feeders: the old infra
         // tier, just below the tender.
         value: firstFeeder ? (drained ? FEEDER_DRAINED : FEEDER_LINCHPIN) : FEEDER,
+        // THE HEARTBEAT LANE (owner 2026-08-06, measured t72809037). The rung
+        // above is inert without this: spawnPriority adds INCOME_TIER to
+        // producers, so FEEDER_LINCHPIN's 150 was compared against 1_000_146
+        // and the first feeder ranked below EVERY income demand - dead 190
+        // ticks with 153,760 banked, rescued only by the 300-tick starvation
+        // lift. Declared ONLY where the rung was written for: first feeder,
+        // energy present. While DRAINED it stays off so income rebuilds first.
+        linchpin: firstFeeder && !drained,
         blocking: false, // never walls: haulers feed the controller directly until it spawns
         // The first feeder also pierces holds/walls while its post is dark and a
         // real bank stands stranded behind it (the emergency lane, incident
@@ -517,11 +629,22 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
   }
 
   public serialize(): SerializedControllerFeederCorp {
-    return { ...super.serialize(), controllerAllocation: this.controllerAllocation };
+    return {
+      ...super.serialize(),
+      controllerAllocation: this.controllerAllocation,
+      moveEnergy: this.moveEnergy,
+      moveActive: this.moveActive,
+      moveAlive: this.moveAlive,
+      moveSince: this.moveSince
+    };
   }
 
   public deserialize(data: SerializedControllerFeederCorp): void {
     super.deserialize(data);
     this.controllerAllocation = data.controllerAllocation;
+    this.moveEnergy = data.moveEnergy ?? 0;
+    this.moveActive = data.moveActive ?? 0;
+    this.moveAlive = data.moveAlive ?? 0;
+    this.moveSince = data.moveSince ?? 0;
   }
 }

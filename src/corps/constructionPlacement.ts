@@ -17,6 +17,8 @@
  */
 
 import { UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
+import { ContainerCensus } from "../telemetry/containerCensus";
+import { Position } from "../types/Position";
 import { controllerInputSpot, coreDepot } from "./nodeEnergy";
 
 /**
@@ -449,4 +451,144 @@ export function placementGateOpen(x: {
   if (!x.wantsMore) return false;
   if (x.activeSites === 0) return true; // empty board: unchanged, bootstrap progresses
   return x.hasSurplus; // widen only when the colony can fund the set
+}
+
+/** A hauling route that would deposit at a port, for container siting. */
+export interface PortApproach {
+  /**
+   * The IN-ROOM tile this route ARRIVES AT - the exit tile it enters by for a
+   * remote source, or the source's own haul position when it is same-room.
+   *
+   * It must be in-room, and the caller resolves that. Passing a remote
+   * source's raw position would be a silent geometry bug: room coordinates
+   * restart at 0-49 per room, so a chebyshev between a tile in W42N22 and one
+   * in W43N23 is not a distance at all. The direction a hauler actually comes
+   * from is decided by which EXIT it enters through, which is what this is.
+   */
+  from: { x: number; y: number };
+  /** Energy/tick this route deposits - the weight on its detour. */
+  flowRate: number;
+}
+
+/**
+ * Elect the tile for a DEPOSIT-PORT CONTAINER (owner 2026-08-06: *"it's
+ * important to build the container where it's best accessible to incoming
+ * hauling routes as well as adjacent to the link of course"*).
+ *
+ * THE TENDER IS WHAT MAKES THE TWO REQUIREMENTS COMPATIBLE. Without one, the
+ * container must touch the link, because something has to move energy across
+ * the gap - and the link's own tile is fixed wherever it was built, which may
+ * be nowhere near where haulers arrive. A parked tender relaxes "adjacent to
+ * the link" into "within 2 of it, sharing a parking tile", and that slack is
+ * exactly what buys hauler accessibility. Its second job is decoupling the
+ * container's position from the link's; the throughput was only its first.
+ *
+ * The constraint, from `parkedRelayCarry`'s own premise (a creep "standing
+ * adjacent to both its bank and its sink", withdraw tick + transfer tick, zero
+ * travel): there must be a walkable tile P with `range(P, container) <= 1` AND
+ * `range(P, link) <= 1`. That forces `range(container, link) <= 2`, and no
+ * further.
+ *
+ * WHY THE TILE IS WORTH OPTIMISING rather than taking the first legal one: the
+ * candidate set spans at most ~4 tiles of one-way distance, i.e. ~8 round-trip
+ * tiles. Against a d~50 route that is ~16% more CARRY - the same order as the
+ * entire saving the deposit port exists to produce (DEP: 31.8 CARRY, 16%). A
+ * badly sited container can eat the whole point of the port.
+ *
+ * Score = sum over routes of `flowRate * chebyshev(from, tile)`, minimised -
+ * flow-weighted so the fattest route wins the tie, which is the same weighting
+ * `depositSavings` already uses to rank ports. `from` is the route's ENTRY
+ * TILE (see PortApproach): the cross-room leg up to that exit is identical for
+ * every candidate, so only the in-room remainder can move the ranking, and
+ * measuring it from the exit is both correct and sufficient.
+ *
+ * Pure: takes lenses, never Game/Memory (the module's purity ratchet).
+ */
+export function bestPortContainerTile(
+  link: { x: number; y: number },
+  approaches: readonly PortApproach[],
+  isBlocked: (x: number, y: number) => boolean,
+  isOccupied: (x: number, y: number) => boolean
+): { x: number; y: number } | null {
+  const inBounds = (x: number, y: number): boolean => x >= 1 && x <= 48 && y >= 1 && y <= 48;
+  const cheb = (ax: number, ay: number, bx: number, by: number): number =>
+    Math.max(Math.abs(ax - bx), Math.abs(ay - by));
+  /** Is there a walkable tile adjacent to BOTH the candidate and the link? */
+  const hasParkingTile = (x: number, y: number): boolean => {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const px = x + dx;
+        const py = y + dy;
+        if (px === x && py === y) continue;
+        if (!inBounds(px, py) || isBlocked(px, py)) continue;
+        // The parking tile must not be the link's own tile (a structure), and
+        // must touch the link so the transfer leg is range 1.
+        if (px === link.x && py === link.y) continue;
+        if (cheb(px, py, link.x, link.y) <= 1) return true;
+      }
+    }
+    return false;
+  };
+  let best: { x: number; y: number; score: number } | null = null;
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dy = -2; dy <= 2; dy++) {
+      const x = link.x + dx;
+      const y = link.y + dy;
+      if (dx === 0 && dy === 0) continue; // the link's own tile
+      if (!inBounds(x, y) || isBlocked(x, y) || isOccupied(x, y)) continue;
+      if (!hasParkingTile(x, y)) continue;
+      let score = 0;
+      for (const a of approaches) score += a.flowRate * cheb(a.from.x, a.from.y, x, y);
+      // Tie-break toward the link: a closer container keeps the tender's
+      // parking choice open as the room fills in around it.
+      const tie = cheb(x, y, link.x, link.y);
+      if (!best || score < best.score - 1e-9 || (Math.abs(score - best.score) <= 1e-9 && tie < cheb(best.x, best.y, link.x, link.y))) {
+        best = { x, y, score };
+      }
+    }
+  }
+  return best ? { x: best.x, y: best.y } : null;
+}
+
+/**
+ * A container slot worth RECLAIMING, or null (owner 2026-08-06: *"yes I think
+ * we should definitely reclaim the unused container and have a mechanism for
+ * that"*).
+ *
+ * `CONTAINER_LIMIT` is the GAME's per-room cap, so container rungs do not
+ * queue - they stall, silently and forever, the moment the table fills. In the
+ * live home room all five slots are spent (2 source + core depot + controller
+ * + recycle pad), which is why the deposit-port rung has never placed anything
+ * and 22.4% of port arrivals still HOLD at a full link.
+ *
+ * The controller container is not a TRADE against the port container - it is
+ * already dead. `controllerInputSpot` returns a controller LINK before it ever
+ * looks at a container, and `findMissingControllerContainer` refuses to build
+ * one while a link stands, so a container there can only predate the link and
+ * nothing reads it.
+ *
+ * PRECEDENT: the LINK SWAP rung already retires the weakest source link to
+ * free a link-table slot for the controller link. This is that, one table over.
+ *
+ * THREE CONDITIONS, and each is a guard rather than a preference:
+ *  - the table must be FULL. Retiring destroys 5,000e of build; while a rung
+ *    can simply place, it must.
+ *  - something must WANT the slot - here, a deposit port with no buffer.
+ *    Reclaiming for tidiness is pure loss.
+ *  - the census must have PROVEN the container superseded, which it only does
+ *    with a controller link present. Without one the container IS the input
+ *    spot and retiring it strands the upgraders mid-upgrade.
+ */
+export function reclaimableContainer(
+  census: ContainerCensus | null
+): { pos: Position; energyLost: number; reason: string } | null {
+  if (!census || !census.full) return null;
+  if (!census.ports.some(p => !p.hasContainer)) return null;
+  const dead = census.supersededControllerContainer;
+  if (!dead) return null;
+  return {
+    pos: dead.pos,
+    energyLost: dead.energy,
+    reason: "controller link owns the input spot; this container predates it and nothing reads it"
+  };
 }

@@ -25,6 +25,7 @@ import { getCompletedLedger } from "./cpuLedgerCache";
 import { SPAWN_PARTS_PER_TICK } from "../economy/primitives";
 import { BodyAggregate, CorpCensusEntry } from "./bodyCensus";
 import { TELEMETRY_SEGMENTS } from "./segmentIds";
+import { ContainerCensus, roomContainerCensus } from "./containerCensus";
 
 /**
  * Core telemetry data structure (Segment 0).
@@ -178,6 +179,15 @@ export interface CoreTelemetry {
    * zero sites are omitted.
    */
   remoteSites?: { [roomName: string]: number };
+  /**
+   * ALL of our construction sites by room (v34, owner 2026-08-05: "I want to
+   * stay informed of construction site progress"): count, remaining work and
+   * progress-so-far, from Game.constructionSites - the VISION-FREE global
+   * roster, so a remote road room with no creep standing in it still
+   * reports. remoteSites above stays for old-capture compatibility; this is
+   * the standing progress ledger the P8 build-rate/ETA read derives from.
+   */
+  siteLedger?: { [roomName: string]: { n: number; rem: number; done: number } };
   /**
    * roadRoutes receipts, verbatim per key (v13 - prod t72485595): cd8e's
    * plan price sat 1:1 for three windows after its road stood complete and
@@ -357,6 +367,20 @@ export interface CoreTelemetry {
     siteProgress: number;
     siteTotal: number;
     siteCount: number;
+    /**
+     * CONTAINER TABLE (v35, owner 2026-08-06: *"more information and
+     * instrumentation and telemetry on the containers getting built next to
+     * the links"*). WHICH of the room's five slots are spent and on what -
+     * the first structure inventory in any segment, added because its absence
+     * ended five diagnoses this week at "I cannot tell from telemetry".
+     *
+     * `CONTAINER_LIMIT` is the GAME's cap, so `full` is the gate every
+     * container rung silently stalls on; `ports[].hasContainer` answers
+     * whether a deposit link has the buffer its hauler wait needs; and
+     * `supersededControllerContainer` names a slot a controller LINK has
+     * already made dead. null = the room could not be read.
+     */
+    containers: ContainerCensus | null;
   }[];
 }
 
@@ -452,7 +476,8 @@ export function updateCoreTelemetry(
           return {
             siteProgress: sites.reduce((a, st) => a + (st.progress ?? 0), 0),
             siteTotal: sites.reduce((a, st) => a + (st.progressTotal ?? 0), 0),
-            siteCount: sites.length
+            siteCount: sites.length,
+            containers: roomContainerCensus(room)
           };
         })()
       });
@@ -497,6 +522,22 @@ export function updateCoreTelemetry(
       continue; // partial mocks
     }
     if (count > 0) remoteSites[roomName] = count;
+  }
+
+  // Site ledger (v34): every one of OUR sites, by room, vision-free -
+  // Game.constructionSites is the global roster, so remote road progress
+  // reports even when nobody stands in the room. The P8 read derives build
+  // rate (done delta / dt) and ETA (rem / rate) between captures from this.
+  const siteLedger: NonNullable<CoreTelemetry["siteLedger"]> = {};
+  const allSites = (Game as { constructionSites?: { [id: string]: ConstructionSite } }).constructionSites ?? {};
+  for (const id in allSites) {
+    const site = allSites[id];
+    const roomName = site.pos?.roomName;
+    if (!roomName) continue;
+    const entry = (siteLedger[roomName] ??= { n: 0, rem: 0, done: 0 });
+    entry.n += 1;
+    entry.rem += Math.max(0, (site.progressTotal ?? 0) - (site.progress ?? 0));
+    entry.done += site.progress ?? 0;
   }
 
   // Spawn meter readout (phase 3): measured utilization from the Memory windows.
@@ -553,7 +594,7 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 33, // v32 hostile-at-death; v33 attribution reads RETAINED hostile windows (the home-room clear-lift blindness) 2026-08-05
+    version: 35, // v34 siteLedger; v35 rooms[].containers - the container table by ROLE, the first structure inventory (owner 2026-08-06)
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
@@ -579,6 +620,7 @@ export function updateCoreTelemetry(
     agenda,
     ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
     ...(Object.keys(remoteSites).length > 0 ? { remoteSites } : {}),
+    ...(Object.keys(siteLedger).length > 0 ? { siteLedger } : {}),
     ...(() => {
       // roadRoutes receipts (v13): the exact records the pave-fraction and
       // dedication lenses read, exported verbatim so a stuck pricing names

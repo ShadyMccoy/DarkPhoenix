@@ -90,6 +90,36 @@ export interface SpawnDemand {
    */
   infrastructure?: boolean;
   /**
+   * THE HEARTBEAT LANE (owner 2026-08-06: *"We have to assume the tender is
+   * working. It's a heart beat. It's non negotiable. The body dies slowly if
+   * there's issues there."*). This demand is the drain the whole spend path
+   * assumes exists - the FIRST controller feeder, the tender's refill
+   * bootstrap. It enters the INCOME TIER so its ladder rung is compared
+   * against producers by VALUE, exactly as `FEEDER_LINCHPIN` /
+   * `TENDER_BOOTSTRAP` have always documented, but it never gets the BLOCKING
+   * sub-tier: a fresh source's first miner still leads the critical path.
+   *
+   * WHY THE FLAG IS NEEDED AT ALL (measured t72809037). Those rungs were set
+   * to 150 "above the miner band ... so the linchpin outranks the marginal
+   * producer", but `spawnPriority` adds INCOME_TIER (1e6) to producers and the
+   * feeder declares `producesIncome: false` - so 150 was compared against
+   * 1_000_146 and the rung was INERT. `infrastructure` above does not rescue
+   * it: by its own contract it pierces holds but "never displaces an actual
+   * buy". Live result: feeder creeps 0, `feederActive false`, gate "demand"
+   * standing 190 ticks with 153,760 banked, ranked 4th behind two haulers and
+   * an income-tiered coreBuster campaign while the spawn finished 7 other
+   * bodies - rescued only by the 300-tick starvation lift. A heartbeat that
+   * stops for 300 ticks per death is the slow death the owner named.
+   *
+   * Safe by construction, the same way `infrastructure` is: the class is
+   * staffing-gated (one fielded feeder ends the demand) so it cannot become a
+   * blocking STREAM, and it stays non-blocking so topping the rung can never
+   * wall the bank. The corps declare it only in the state the rung was
+   * written for - FIRST body, energy present (a DRAINED bank keeps
+   * `FEEDER_DRAINED` below the miners: income rebuilds first).
+   */
+  linchpin?: boolean;
+  /**
    * An idle-window filler (task #11, owner 2026-07-18): bought ONLY when the
    * walk reaches the bottom with nothing else to do - never ages into the
    * starved tier, never buys during a hold. Reserved for opportunistic
@@ -419,12 +449,24 @@ export interface ScheduleResult {
 export function spawnPriority(demand: SpawnDemand): number {
   const INCOME_TIER = 1_000_000;
   const BLOCKING = 10_000; // first miner of ANY source / first hauler of a started one - the critical path
+  // The heartbeat sits BETWEEN the two: above every SCALING producer (which
+  // may carry STARTED), below every BLOCKING one. A separator, not a tunable -
+  // the first attempt lifted the linchpin by INCOME_TIER alone and it still
+  // lost 1_000_150 to 1_001_146, because a started source's scaling top-up
+  // carries STARTED. Racing the miner band on 4 points of VALUE is exactly the
+  // fragility that made the rung inert in the first place.
+  const HEARTBEAT = 5_000;
   const STARTED = 1_000; // tiebreak WITHIN a blocking class: finish a started source before a fresh one
   let p = demand.value; // base corp/sink value, ~50-110
   if (demand.groupId !== undefined && demand.producesIncome) {
     p += INCOME_TIER;
     if (demand.blocking) p += BLOCKING;
     if (demand.groupStarted) p += STARTED;
+  } else if (demand.linchpin) {
+    // The heartbeat outranks every SCALING producer and no BLOCKING one -
+    // what FEEDER_LINCHPIN/TENDER_BOOTSTRAP always claimed, now expressed as
+    // a tier instead of a value race it could not win.
+    p += INCOME_TIER + HEARTBEAT;
   } else if (demand.blocking) {
     // Non-income critical work (the first upgrader holding the controller against
     // downgrade): above idle consumption, but still below all income.

@@ -159,10 +159,53 @@ describe("remote source containers (owner 2026-07-21: build from the remote end,
       expect(demands[0].role).to.equal("builder");
     });
 
-    it("fields the builder from the pile signal alone (before the site lands)", () => {
+    it("fields the builder from the pile signal alone (before the site lands) - plus its Z-shuttle past the crossover", () => {
       const { room } = remoteWorld({ pile: 300, roadSites: true });
       Game.rooms = { W2N1: room } as any;
-      expect(mkCorp().getSpawnDemand(ctx).length).to.equal(1);
+      const demands = mkCorp().getSpawnDemand(ctx);
+      // Road frontier at chebyshev 10 from the mouth: past the direct-draw
+      // reach, so the crew is builder + ONE small tanker (owner 2026-08-05:
+      // "it works just like the regular builder fleet ... just smaller").
+      expect(demands.map(d => d.role).sort()).to.deep.equal(["builder", "tanker"]);
+    });
+
+    it("SIZES the Z-builder to its staged fuel (owner 2026-08-05: 'a remote builder using that 6k... build the road Z-to-A in parallel')", () => {
+      // Live shape t72801354: cd98's mouth held 6,004 (container 2000 + pile
+      // ~4000) while the room's 19 road sites were built by the HOME crew at
+      // tanker pace and the local pile-funded builder stood as a 4-part
+      // maintenance runt - sized for the flow share, blind to its actual
+      // fuel. The Z-builder now sizes WORK from the staged stock at spec
+      // 33's wartime burst pace (stock / (CREEP_LIFETIME/3), 5 e/WORK-tick),
+      // clamped 2..5 - and stamps the read (the remote branch exported NO
+      // sizing stamp, invisible to triage).
+      const { room } = remoteWorld({ pile: 6000, roadSites: true, container: { hits: 250_000 } });
+      Game.rooms = { W2N1: room } as any;
+      const corp = mkCorp();
+      const demands = corp.getSpawnDemand({ energyCapacity: 1300 } as any);
+      const builder = demands.find(d => d.role === "builder")!;
+      const tanker = demands.find(d => d.role === "tanker");
+      // staged 6500 (6000 pile + 500 container) -> 6500/(1500/3)=13 e/t
+      // burst -> ceil(13/5)=3 WORK
+      expect(builder.bodyParam, "WORK sized from the staged stock, not the flat 2").to.equal(3);
+      // ...and the Z-shuttle stands beside it (frontier at chebyshev 10:
+      // vector verdict), CARRY sized to the mouth->frontier round trip.
+      expect(tanker, "the Z-shuttle demand stands past the crossover").to.not.equal(undefined);
+      expect(tanker!.bodyParam, "CARRY sized to the leg").to.be.greaterThan(0);
+      const stamp = (corp as any).lastSizing;
+      expect(stamp?.gate, "the remote branch stamps its decision").to.equal("pile-road");
+      expect(stamp?.staged).to.equal(6500);
+      expect(stamp?.zWork).to.equal(3);
+      expect(stamp?.zDist, "mouth->frontier distance stamped").to.equal(10);
+      expect(stamp?.zCarry, "shuttle CARRY stamped").to.be.greaterThan(0);
+    });
+
+    it("a trickle pile keeps the flat 2-WORK body (no burst without fuel)", () => {
+      const { room } = remoteWorld({ pile: 300, roadSites: true });
+      Game.rooms = { W2N1: room } as any;
+      const corp = mkCorp();
+      const demands = corp.getSpawnDemand({ energyCapacity: 1300 } as any);
+      // 300 staged -> burst 0.6 e/t -> WORK stays at the 2 floor
+      expect(demands.find(d => d.role === "builder")!.bodyParam ?? 2).to.equal(2);
     });
 
     it("stands down when the source is settled (container built and healthy)", () => {

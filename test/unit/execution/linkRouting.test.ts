@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { routeSourceVolley, VolleyContext } from "../../../src/execution/linkRouting";
+import { holdCoreRelay, routeSourceVolley, VolleyContext } from "../../../src/execution/linkRouting";
 
 /**
  * Stage-2 acceptance: the routing rule that captures the 0%-direct miss the
@@ -129,5 +129,146 @@ describe("routeSourceVolley - throughput per cooldown (owner 2026-07-29)", () =>
   it("treats a missing range as neutral (legacy callers keep working)", () => {
     const { coreRange, controllerRange, ...noRanges } = full;
     expect(routeSourceVolley(noRanges as any)).to.equal("controllerDirect");
+  });
+});
+
+/**
+ * WHAT THE RELAY HOLD IS ACTUALLY FOR (spec 45 leg 1, after two owner
+ * corrections on 2026-08-06).
+ *
+ * v1 reserved CTRL's free space for the cheaper one-hop port fire (hop count,
+ * 3% tax). Owner: *"only good if it increases throughput... Energy tax is
+ * less important."*
+ *
+ * v2 claimed the hold protected the core's DRAINAGE - a clamped fire spends
+ * the core's whole cooldown, so it cannot drain again for LINK_COOLDOWN x
+ * range ticks. Owner: *"No the core link can always be tendered to the
+ * storage."* The FEEDER is the core's always-available drain (sole
+ * bidirectional operator; leg 2 makes it pre-drain to zero ahead of a
+ * volley), so landing room is never the relay's responsibility.
+ *
+ * What survives is narrow and is the owner's own criterion: the relay's
+ * DELIVERED ENERGY PER CORE COOLDOWN. The engine clamps the transfer but
+ * charges the cooldown in full, so firing into what a direct volley left buys
+ * a sliver at the price of a whole cooldown and blocks the next CTRL feed.
+ * Same rule routeSourceVolley step 4 applies to ports. A minor optimization -
+ * leg 2 is the fix for the clamping defect - and it should fire rarely.
+ */
+describe("holdCoreRelay (spec 45 leg 1: never spend the core cooldown on a dribble)", () => {
+  it("HOLDS when a direct volley leaves the relay less than a worthwhile fire", () => {
+    // CTRL has 300 free; a port is landing 250 direct this tick. The relay
+    // would move 50 and spend the core's whole cooldown doing it.
+    expect(holdCoreRelay({ coreStore: 800, controllerFree: 300, incomingDirect: 250, threshold: 100 })).to.equal(true);
+  });
+
+  it("FIRES when the relay still lands a full volley alongside the direct fire", () => {
+    // 800 free, 250 arriving direct -> 550 still there for the relay. Both
+    // deliver; nothing is wasted; the core drains (which is what the landing
+    // zone needs).
+    expect(holdCoreRelay({ coreStore: 800, controllerFree: 800, incomingDirect: 250, threshold: 100 })).to.equal(false);
+  });
+
+  it("with NO direct fire inbound the rule is the pre-existing behavior, bit for bit", () => {
+    // This is the common case, and it must not change: the relay drains the
+    // core whenever CTRL can take a worthwhile volley.
+    expect(holdCoreRelay({ coreStore: 800, controllerFree: 800, incomingDirect: 0, threshold: 100 })).to.equal(false);
+    expect(holdCoreRelay({ coreStore: 800, controllerFree: 100, incomingDirect: 0, threshold: 100 })).to.equal(false);
+    // CTRL too full for a worthwhile fire: the existing guard already blocks
+    // this, and the rule agrees rather than fighting it.
+    expect(holdCoreRelay({ coreStore: 800, controllerFree: 50, incomingDirect: 0, threshold: 100 })).to.equal(true);
+  });
+
+  it("is bounded by what the CORE actually holds - a near-empty core is not a dribble problem", () => {
+    // The core holds 60: it cannot make a threshold volley regardless, and
+    // the pre-existing store guard handles it. The rule must not claim this
+    // as its own case.
+    expect(holdCoreRelay({ coreStore: 60, controllerFree: 800, incomingDirect: 0, threshold: 100 })).to.equal(true);
+  });
+
+  it("never holds without a controller link (nothing to contend over)", () => {
+    expect(holdCoreRelay({ coreStore: 800, controllerFree: null, incomingDirect: 0, threshold: 100 })).to.equal(false);
+  });
+});
+
+/**
+ * FULL-VOLLEY DISCIPLINE AND THE SENDER QUEUE (owner 2026-08-06: *"Generally
+ * speaking if the tender is big enough it's always a better idea to hold the
+ * volley until you can send a full volley. And even then there may be a queue
+ * so n>1 links don't blockade each other."*).
+ *
+ * Two defects, one principle. The engine clamps a transfer to the target's
+ * free capacity but charges `cooldown += LINK_COOLDOWN * range` IN FULL, so
+ * partial volleys are the waste mechanism:
+ *
+ * 1. **The threshold gate was too weak.** Step 2 banked to the core whenever
+ *    it had merely `threshold` (100) free - so a link holding 800 fired 100
+ *    and spent its ENTIRE cooldown on an eighth of a volley. Holding one beat
+ *    costs nothing now that the tender is big enough to clear the core: the
+ *    feeder floors at one full volley of CARRY (volleyServiceCarry) and leg 2
+ *    pre-drains the core to zero the moment a link stands loaded. The
+ *    chicken-and-egg resolves itself - a loaded link IS the signal that
+ *    empties the core for it.
+ * 2. **n>1 senders blockade each other.** Nothing reserved the target's space
+ *    within a tick, so two loaded links both fired at an 800-free core: the
+ *    first landed 800, the second was clamped to ~0 and paid full cooldown
+ *    for nothing. The queue reserves what each accepted fire consumes.
+ *
+ * THE RELIEF VALVE stays: a SATURATED sender (at its own capacity) cannot
+ * accept its miner's next deposit, so that energy hits the ground and decays.
+ * Income protection outranks cooldown efficiency there, and the old
+ * threshold rule applies - holding a full link to save a cooldown would be
+ * saving the cheaper resource.
+ */
+describe("routeSourceVolley - full-volley discipline (owner 2026-08-06)", () => {
+  const ctx = (over: Partial<VolleyContext> = {}): VolleyContext => ({
+    coreFree: 800,
+    controllerFree: null,
+    controllerUnderPlan: false,
+    threshold: 100,
+    payload: 800,
+    coreRange: 1,
+    ...over
+  });
+
+  it("HOLDS rather than firing a clamped volley: 800 payload into 600 free", () => {
+    // The old rule fired here (600 >= threshold) and spent the whole cooldown
+    // moving 600 of 800 - and the remaining 200 then needed a SECOND full
+    // cooldown to move.
+    expect(routeSourceVolley(ctx({ coreFree: 600 }))).to.equal(null);
+  });
+
+  it("fires when the whole volley fits", () => {
+    expect(routeSourceVolley(ctx({ coreFree: 800 }))).to.equal("core");
+  });
+
+  it("a SMALLER payload still fires into the same space (the queue's second sender)", () => {
+    // 300 fits in 600: the space a held 800-link declined is not wasted.
+    expect(routeSourceVolley(ctx({ coreFree: 600, payload: 300 }))).to.equal("core");
+  });
+
+  it("SCOPE: the discipline is the CORE's only - the controller keeps the throughput rule", () => {
+    // We control the core's drain (the tender), so waiting for its room
+    // always pays. The controller link drains on the upgraders' schedule, and
+    // a PARTIAL volley into a near controller can still beat a full one into
+    // a far core because cooldown scales with range: 600 at range 2 moves
+    // 300/tick, 800 at range 20 moves 40. That comparison stays the
+    // throughput rule's, not the discipline's.
+    expect(
+      routeSourceVolley(ctx({ controllerFree: 600, controllerUnderPlan: true, controllerRange: 2, coreRange: 20 }))
+    ).to.equal("controllerDirect");
+  });
+
+  it("RELIEF VALVE: a SATURATED sender fires partial - its miner's deposit would hit the ground", () => {
+    // The link is full (payload === its capacity), so holding costs INCOME,
+    // which outranks the cooldown it would save.
+    expect(routeSourceVolley(ctx({ coreFree: 300, payload: 800, senderFull: true }))).to.equal("core");
+  });
+
+  it("...but a saturated sender still needs a WORTHWHILE volley's room", () => {
+    expect(routeSourceVolley(ctx({ coreFree: 50, payload: 800, senderFull: true }))).to.equal(null);
+  });
+
+  it("legacy callers with no payload behave exactly as before (no arity regression)", () => {
+    expect(routeSourceVolley({ coreFree: 800, controllerFree: null, controllerUnderPlan: false, threshold: 100 })).to.equal("core");
   });
 });

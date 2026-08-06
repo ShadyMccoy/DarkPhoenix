@@ -76,12 +76,33 @@ describe("Telemetry room energy ledger (segment 0, spec 14 phase 1)", () => {
     new Telemetry().update(undefined, [], undefined);
     const core = JSON.parse(RawMemory.segments[0]);
 
-    expect(core.version).to.equal(33); // v33: hostile-at-death reads retained windows (home clear-lift) 2026-08-05
+    expect(core.version).to.equal(35); // v35: rooms[].containers - the container table by ROLE 2026-08-06
     const room = core.rooms[0];
     expect(room.storageEnergy).to.equal(200000);
     // 1500 in the controller-side container + 250 dropped at the input spot
     expect(room.controllerStock).to.equal(1750);
     expect(room.feederActive).to.equal(true);
+    // v35: the container table rides alongside. This harness room wires no
+    // structure finds, so the census degrades to null rather than to a
+    // fabricated empty table - absent and empty are different facts.
+    expect(room, "the container census key is always present").to.have.property("containers");
+  });
+
+  it("exports the vision-free siteLedger from Game.constructionSites (v34, owner 2026-08-05)", () => {
+    // The global roster reports rooms NOBODY is standing in - the remoteSites
+    // census (visible rooms only) went blind exactly when the crew left.
+    Game.rooms = {} as any;
+    (Game as any).constructionSites = {
+      a: { pos: { roomName: "W43N21" }, progress: 100, progressTotal: 300 },
+      b: { pos: { roomName: "W43N21" }, progress: 0, progressTotal: 300 },
+      c: { pos: { roomName: "W44N23" }, progress: 4900, progressTotal: 5000 }
+    };
+    new Telemetry().update(undefined, [], undefined);
+    const core = JSON.parse(RawMemory.segments[0]);
+    expect(core.siteLedger).to.deep.equal({
+      W43N21: { n: 2, rem: 500, done: 100 },
+      W44N23: { n: 1, rem: 100, done: 4900 }
+    });
   });
 
   it("exports my construction sites' progress sums (v6, ledger P8 'builders not building')", () => {
