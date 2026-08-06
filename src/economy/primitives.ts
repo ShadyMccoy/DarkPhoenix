@@ -487,6 +487,68 @@ export function storageAbsorbRate(ullage: number): number {
   return Math.max(0, ullage) / CREEP_LIFETIME;
 }
 
+// ---------------------------------------------------------------------------
+// TERMINAL TRANSFER - the price of inter-room energy (spec 46 phase 1)
+// ---------------------------------------------------------------------------
+
+/** Engine constants (Screeps TERMINAL_*). */
+export const TERMINAL_CAPACITY = 300_000;
+export const TERMINAL_COOLDOWN = 10;
+export const TERMINAL_MIN_SEND = 100;
+/** Distance-decay constant in the engine's transfer-cost formula. */
+export const TERMINAL_COST_RANGE = 30;
+
+/**
+ * The engine's transfer FEE for sending `amount` energy across
+ * `roomDistance` rooms (Game.market.calcTransactionCost):
+ *
+ *     fee = amount x (1 - exp(-distance / 30))
+ *
+ * The fee is charged ON TOP of the amount - the sender loses amount + fee,
+ * the receiver gains amount - so a transfer is a PRICED edge, not free
+ * routing. Linear in the amount, so it prices exactly as a per-unit tax (the
+ * linkTransferTax shape) and the value router can compare a transfer against
+ * every other use of the same energy.
+ *
+ * Deliberately NOT rounded: the engine ceils at the moment of sending, but a
+ * planning ledger that ceils disagrees with itself by a fraction of a body
+ * (the carryPartsFor rule). The runner rounds when it actually sends.
+ */
+export function terminalSendCost(amount: number, roomDistance: number): number {
+  return amount * (1 - Math.exp(-Math.max(0, roomDistance) / TERMINAL_COST_RANGE));
+}
+
+/**
+ * Energy the SENDER must spend for `delivered` energy to arrive: the amount
+ * plus its fee. This - not the amount that lands - is what the plan charges
+ * the source hub, so a transfer competes honestly against local consumption.
+ */
+export function terminalSpendForDelivery(delivered: number, roomDistance: number): number {
+  return delivered + terminalSendCost(delivered, roomDistance);
+}
+
+/**
+ * Share of spent energy that actually ARRIVES across `roomDistance`
+ * (1 at distance 0, falling monotonically). The efficiency of the edge -
+ * ~87% at 5 rooms, ~78% at 10, ~61% at 30, ~54% at 60 - which is why a near
+ * hub beats a far one by a wide margin and why the fee belongs in the PLAN
+ * rather than hidden in the runner.
+ */
+export function terminalDeliveredFraction(roomDistance: number): number {
+  return 1 / (1 + (1 - Math.exp(-Math.max(0, roomDistance) / TERMINAL_COST_RANGE)));
+}
+
+/**
+ * Sustained e/t a terminal pair can move at one send per cooldown. Pinned to
+ * show the cooldown is NOT the binding constraint: even the MINIMUM send is
+ * 10 e/t and a full one is 30,000, so what actually limits a transfer is how
+ * fast the terminal is restocked from its storage - a hauling problem, not an
+ * engine one.
+ */
+export function terminalThroughput(sendAmount: number = TERMINAL_CAPACITY): number {
+  return sendAmount / TERMINAL_COOLDOWN;
+}
+
 /**
  * Fraction of a crew's EFFECTIVE life (lifetime minus travel) a project
  * should complete within (owner 2026-07-20: "limit the builders to the size

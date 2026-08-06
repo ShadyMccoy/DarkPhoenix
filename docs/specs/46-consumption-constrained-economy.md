@@ -128,6 +128,62 @@ sink in every regime on purpose (a hub must stay open to soak remote surplus,
 #19), which the adapter's own comment states and the anti-pump test proves by
 asserting the sink is present while a bank source stands.
 
+## 2c. Cross-hub transfer: the pair's payoff (phases 1–2 landed, 3 open)
+
+Once a hub's energy is a source and its ullage is a sink, moving energy
+between colonies stops being a new planner subsystem and becomes an ordinary
+route from one hub's source to another hub's sink. Landed in phases so nothing
+is ever promised before it can be executed:
+
+**Phase 1 — the price (landed).** `primitives.terminalSendCost(amount, d) =
+amount × (1 − exp(−d/30))`, the engine's own `calcTransactionCost`, plus
+`terminalSpendForDelivery` and `terminalDeliveredFraction`. The fee is charged
+*on top* of the amount, so a transfer is a **priced edge**, not free routing.
+Linear in the amount, so it prices exactly as a per-unit tax (the
+`linkTransferTax` shape). The gradient is economically real — ~87% of spend
+arrives at 5 rooms, ~78% at 10, ~61% at 30, ~54% at 60 — which is why the fee
+belongs in the PLAN, where the value router can see it, rather than hidden in
+a runner. The cooldown is pinned as *not* binding (even a minimum send is
+10 e/t): what limits a transfer is restocking the terminal, a hauling problem.
+
+**Phase 2 — the plan seam (landed, inert).** Three rules make the route
+correct rather than merely expressible:
+
+1. **The anti-pump becomes per-hub.** The old rule ("no bank fills any storage
+   sink") was stricter than physics: a bank cannot fill its OWN store, but
+   nothing forbids it filling another room's. Tightened to exactly the
+   physical constraint.
+2. **Terminal-gated.** `ColonyProblem.terminalRooms` + `roomDist`; the edge
+   exists only between two rooms that both have a terminal and only when the
+   fee can be priced. Empty/absent — every world until phase 3 — makes the
+   whole block inert and routing byte-identical to the global rule.
+3. **Lender → borrower only.** A hub in surplus is not hungry; letting two
+   surplus hubs fill each other's stores at value 1 would burn the fee twice
+   for zero net movement. The pressure pair states the test directly:
+   `source > 0` means lending, and a lender is never a destination.
+
+Accounting: a transfer buys **no bodies** (`carryParts`/`spawnParts` 0 — the
+engine moves it) and **delivers less than it spends**, by exactly the fee, so
+the plan's delivered totals never over-state a colony shipping energy uphill.
+`CommissionedHauler.transfer` marks the route; `commissionPlan` already skips
+bank sources, so it is never materialized as a CarryCorp — the same shape as
+link-served routes, which the link network executes rather than a hauler.
+
+Discovered while testing, and worth keeping straight: **mined energy already
+cross-banks between hubs today**, with no terminal involved, because a
+deposit-class source may fill any storage sink — A's mining walks to hub B
+when A's own hub is full, as an ordinary priced CarryCorp. What phase 2 adds
+is moving **banked** energy, which no hauler executes. Pinned as its own test
+so the two are never conflated.
+
+**Phase 3 — the executor (open).** Adapter detection feeding `terminalRooms`/
+`roomDist`, a `runTerminals()` runner executing `terminal.send` on the
+LinkRunner precedent, and the storage→terminal stocking leg (the tender is the
+natural owner — it is the depot mover and the terminal is a depot structure).
+Until this lands the plan emits no transfers at all, by construction: phases
+1–2 are a strict no-op with `terminalRooms` empty, which is what makes them
+safe to land first.
+
 ## 3. The equilibrium (what "react appropriately" looks like)
 
 With storage full: absorb 0 ⇒ mined deposits route nowhere ⇒ every mined
