@@ -9829,3 +9829,74 @@ hauling deficit that came before it.
 mechanism identified as latency by an instrument shipped one cycle earlier,
 and the sizing law corrected with both sides of the plan/runtime pair moved
 together.**
+
+### Cycle t72821449 — the mouth piles are the top line, and the fix was sitting undeployed
+
+**Window 1982t (t72819467 → t72821449), methodology #14.** The longest clean
+window in days, and the income statement moved substantially against the
+202-tick phase sample before it:
+
+```
+                          t72819265 (202t)   t72821449 (1982t)
+  forgone mining               23.51                6.23
+  gross mining                 86.49              103.77
+  fleet                        55.20               39.96
+  measured losses              10.00               13.06
+  controller (score)           30.96               36.88
+  controller / CAPACITY          28%                 34%
+  ...income-funded               35%                 39%
+```
+
+Forgone fell 73% — far outside the ±20-30% single-draw band, so it is real and
+not a draw. The controller share's +21% is inside the band and must be carried
+as provisional until a second long window.
+
+**None of it is spec 49 leg A.** The capture reads both deposit ports routed at
+**exactly 30.00 e/t** — the retired flat cap, to the decimal. Leg A was
+committed at 15:02 and not deployed until after this capture, so this window
+measures the pre-Leg-A bundle. The improvement is the earlier volley-floor and
+double-order work aging in.
+
+**TOP LINE: L1, and for once it is not just the zero-budget artifact.** Pile
+decay measured **8.18 e/t against a 0.00 budget** (32.71x, spec 48's known
+defect) — but the level itself nearly doubled from 4.60, and the cause is
+readable in three rows that agree:
+
+```
+  sourceBuffers   20,073e standing at 8 remote mouths
+                  cd8d 4285   cedc 3330   d01f 2315   cd8e 2297
+                  cd94 2049   cee2 1936   cee0 1888   cd98 1882
+  E6              5 of 12 miner ops deferred - cd8d held 100% of window,
+                  cedc 97% CHRONIC
+  H1              duty 0.86, ground-piled 4276e, "haulers BUSY =>
+                  plan under-asks (inflow-sized carry, no drain term)"
+```
+
+Miners gated behind full buffers, haulers busy, energy decaying on the ground
+at 8.18 e/t. That is a HAULAGE deficit, not a mining or a decay problem — and
+the eight piled mouths are near-identical to DEP's eight sources that *"could
+deposit at a home link"* (cee2/cd8e/cd8d/cedc/cee0/cd94 + 2), each saving 12-16
+tiles of haul. The flat cap was refusing exactly those routes.
+
+So leg A is not an efficiency tweak here; it is the drain for the top line.
+Deployed t72821449+ with predictions registered below.
+
+**REGISTERED PREDICTIONS (leg A, check at ~t72823500):**
+
+1. Routed deposit flow per port **30.00 → 40.00**, port routes **6 → 8**.
+   Headroom 47.14 / 51.54 admits four 10 e/t routes apiece; DEP's own detector
+   already proposes "40.0e/t x4" per link. A 5th route (50) fits port B's
+   51.54 but there are only 8 candidates.
+2. The two newly-admitted sources' haul legs shorten by their DEP saving;
+   planned source-route CARRY falls from **251.4**.
+3. The freed CARRY drains the mouths: **total piled falls from 20,073** and
+   **pile decay falls from 8.18 e/t**.
+4. **E6 deferred ops falls from 5/12**; cd8d/cedc stop reading CHRONIC.
+5. RISK, watch for it: more inbound volleys per port means more contention at
+   the core. **hubClampShare rises** and the LINK hub rate rises from 50.2. If
+   clamp goes up without piles coming down, leg A moved the queue rather than
+   drained it, and the volley floor needs re-sizing before more flow is added.
+
+**Falsifier:** if per-port routing stays at 30.00 after the deploy, the cap was
+not what bound and the constraint is elsewhere in `detectLinkDepositPorts` —
+instrument the port detection, do not re-theorize.
