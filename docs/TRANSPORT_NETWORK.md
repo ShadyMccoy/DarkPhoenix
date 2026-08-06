@@ -676,14 +676,101 @@ weight-losing industry, reproduced exactly by the Screeps cost formula, and it
 argues for a genuinely different empire structure than "mine everywhere, ship to
 one hub, process centrally."
 
-The same logic makes the market a transport substitute. `Game.market.deal`
-charges the *caller* the same distance tax, so buying remotely doesn't dodge it —
-but selling to a buyer near you and buying from a seller near your destination
-pays two short-distance taxes plus the bid-ask spread twice, instead of one
-long-distance tax. Break-even is `2 × spread < 1 − e^(−d/30)`; at a 10% energy
-spread that's around **3 rooms**. Beyond that, **the market is cheaper than your
-own terminal network**, and your internal logistics is competing with it whether
-you model that or not.
+### 10.1 The market is a transport network with no distance term
+
+`deal()` charges the **caller** `calcTransactionCost` out of their own terminal.
+`createOrder` charges the **poster** a 5% credit fee (`MARKET_FEE`) and no
+transport at all. That asymmetry is the entire mechanism:
+
+> **Makers pay credits. Takers pay energy.**
+
+Which gives two ways to move energy across the map without paying the
+exponential:
+
+**Taker / taker.** Sell into a buy order near A, buy from a sell order near B.
+You pay two *short* transport legs plus the spread twice — energy cost
+`≈ (d₁ + d₂)/30`, where `d₁` and `d₂` are distances to your counterparties and
+have nothing to do with the distance from A to B.
+
+**Maker / maker.** Post a sell order in A and a buy order in B. Counterparties
+come to you and pay their own transport. **Your energy transport cost is zero.**
+You pay 5% per order in credits, plus the spread, plus fill risk.
+
+Either way, the distance from A to B **appears nowhere in the cost**. A
+terminal's cost is a function of `d`; the market's is a function of order-book
+depth near your endpoints. Those are unrelated quantities.
+
+### 10.2 Where the break-even actually sits
+
+The two currencies are commensurable because **energy's shadow price is its
+market price** — selling is always available, so that is its opportunity cost.
+On that basis maker/maker beats a direct send when:
+
+```
+0.10 (two 5% fees)  +  s (effective spread)   <   1 − e^(−d/30)
+```
+
+| effective spread `s` | direct send becomes the worse option beyond |
+|---|---|
+| 0% | **3.2 rooms** |
+| 10% | **6.7 rooms** |
+| 20% | **10.7 rooms** |
+| 30% | **15.3 rooms** |
+
+Taker/taker with counterparties two rooms out and a 10% spread breaks even near
+**7.8 rooms**, and fills immediately rather than eventually.
+
+Every row depends on **energy order-book depth near both endpoints**, which is
+live and volatile rather than constant. Energy is one of the thinner books on the
+market and a 30% effective spread is not unusual, so measure before trusting the
+table.
+
+Two costs it hides. **Credits are not free** — if credits are your binding
+constraint, which they usually are before labs and boosts are running, then
+paying credits to save energy means paying in the currency you actually lack.
+And you need energy already in the terminal to pay transport *even when the thing
+you are buying is energy*, which is a real bootstrap constraint for a room
+starting from empty.
+
+### 10.3 The reframe that matters more than the arbitrage
+
+The arbitrage is real but second-order. The first-order point is what it does to
+the shape of the problem.
+
+An RCL8 room with surplus and no sink (§11) is going to sell energy locally
+anyway. A developing room is going to buy energy locally anyway. **When both
+happen, energy has moved across the map and nobody routed it** — there was never
+a transport decision, only two independent local pricing decisions.
+
+> The market turns a routing problem into two local pricing problems.
+
+That is structurally the same move as §8.1, where the terminal's complete graph
+dissolves routing rather than solving it. Worth naming as a theme: **almost none
+of the interesting decisions in this domain are routing decisions.** Terminals
+are a complete graph. The market has no distance term. Links are point-to-point
+within one room. The only genuine routing left is creep pathing on the last mile.
+
+### 10.4 The market is public; terminal sends are not
+
+Pure game theory, and it cuts against everything above. `getAllOrders()` exposes
+every order's room, resource, amount and price to every player:
+
+- A large standing **buy** order in room B advertises that B is energy-hungry —
+  which reads as developing, under-defended, and worth visiting.
+- A large standing **sell** order in room A advertises surplus, which reads as a
+  full storage worth taking.
+- A predictable large order is **front-runnable**: a competitor prices just
+  inside yours and takes the flow, or simply prices against a buyer they know has
+  to fill.
+
+Terminal transfers carry no such exposure — `incomingTransactions` shows only
+your own. **Choosing the market over your own terminals converts a private
+logistics operation into a public broadcast of your economic state.** For a room
+whose role you would rather not advertise, that is worth more than 3.33%.
+
+And the reflexive one: this arbitrage exists only because energy is illiquid and
+spatially segmented. Every player who exploits it narrows the spread that made it
+work.
 
 ---
 
@@ -827,8 +914,12 @@ And the judgements that don't reduce to a table:
    provably neutral. Any multi-hop terminal logic is dead code.
 8. **Terminal tax should never drive expansion geometry.** At radius 6 it is 13%.
    It is not the constraint anyone thinks it is.
-9. **Prefer exporting product over exporting energy**, and check the market
-   before shipping energy more than ~3 rooms.
+9. **Prefer exporting product over exporting energy**, and price the market
+   route before any long send. Posting orders costs credits and no transport;
+   dealing costs transport and no fee — so a maker/maker pair moves energy with
+   **zero** distance term (§10.1). Break-even against a direct send is ~3 rooms
+   at zero spread, ~7 at 10% (§10.2). Net it against the intelligence leak:
+   orders are public, terminal sends are not (§10.4).
 10. **Treat RCL8 as a role change, not a milestone** (§11). The controller caps
     at 15 e/t, the room turns net exporter, and its surplus needs a real sink —
     power processing first, sub-RCL8 controllers second. Energy shipped to
