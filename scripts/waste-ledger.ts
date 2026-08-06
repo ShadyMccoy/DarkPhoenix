@@ -162,7 +162,14 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
 //    runtime will actually staff, with the exclusion printed as a memo
 //    line. A #11 capacity (phantom-inclusive) and a #12 capacity differ by
 //    exactly the occupied rooms' rates; forgone shrinks by the same amount.
-export const METHODOLOGY = 12;
+/**
+ * #13 (owner 2026-08-06): ADDITIVE only - a TARGETS block under the residual
+ * stating the owner's two standing objectives (*"minimal foregone mining.
+ * 50%+ net energy hitting the controller"*) as measured ratios. No existing
+ * account line changed meaning, so prior windows stay comparable line by line;
+ * the stamp moves because the report SET did.
+ */
+export const METHODOLOGY = 13;
 
 export interface LedgerRow {
   id: string;
@@ -2983,6 +2990,46 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     "  " + "-".repeat(46),
     L(rotKnown ? "RESIDUAL (repair, tombstones, raids, error)" : "RESIDUAL (decay, rot, raids, error)", residual, 2),
     "",
+    // THE OWNER'S TWO STANDING TARGETS (2026-08-06): *"I really want the income
+    // statement to get back to where it was. Minimal foregone mining. 50%+ net
+    // energy hitting the controller."* Stated here, under the statement they
+    // are targets FOR, so every cycle reports them against a bar instead of
+    // leaving "back to where it was" to memory.
+    ...(() => {
+      const forgone = grossCapacity - grossPlan;
+      // NET energy = what is left of the mined gross once the fleet is paid.
+      // Losses are deliberately NOT subtracted here: they are the thing we are
+      // trying to eliminate, so charging them to the denominator would flatter
+      // the ratio exactly as they got worse.
+      const net = grossPlan - perTick(spawnTotal);
+      const rawShare = net > 1e-9 ? score / net : 0;
+      // Bank-funded delivery is not sustainable delivery. `bankDelta` is
+      // positive when banking, negative when drawing down, so subtracting it
+      // strips the drawdown out of the score (the same arithmetic G1 uses).
+      const funded = score + bankDelta;
+      const fundedShare = net > 1e-9 ? funded / net : 0;
+      const pct = (v: number): string => `${(v * 100).toFixed(0)}%`;
+      return [
+        "  TARGETS (owner 2026-08-06)",
+        // The forgone target is UNMEASURABLE without a mined or heldFrac
+        // reading, and an unmeasurable line must go absent rather than print a
+        // zero - the same invariant the revenue section is pinned to, and the
+        // reason a "0.00 e/t MET" here would be a lie the account already
+        // refuses to tell one line above.
+        ...(minedKnown || forgoneKnown
+          ? [
+              `    forgone mining                     ${forgone.toFixed(2)} e/t   target ~0` +
+                `   ${forgone <= 2 ? "MET" : forgone <= 5 ? "close" : "MISS"}`
+            ]
+          : []),
+        `    net energy = mined ${grossPlan.toFixed(2)} - fleet ${perTick(spawnTotal).toFixed(2)} = ${net.toFixed(2)} e/t`,
+        `    controller / net                   ${pct(rawShare)}    target >=50%` +
+          `   ${rawShare >= 0.5 ? "MET" : "MISS"}`,
+        `    ...INCOME-FUNDED only              ${pct(fundedShare)}    target >=50%` +
+          `   ${fundedShare >= 0.5 ? "MET" : "MISS"}   <- the one that lasts`,
+        ""
+      ];
+    })(),
     `  CONTROLLER VARIANCE BRIDGE  (plan ${bController.toFixed(2)} -> actual ${score.toFixed(2)})`,
     ...(() => {
       // Single-column lines - the three-column renderer above would print two

@@ -2515,10 +2515,10 @@ describe("methodology #10: the recovery P&L (cure vs illness, published)", () =>
     expect(detail).to.include("5.0");
   });
 
-  it("the header stamps methodology #12 (capacity excludes defunded sources)", () => {
+  it("the header stamps methodology #13 (additive TARGETS block; #12 capacity rule unchanged)", () => {
     const { cap, base } = rig(zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    expect(text).to.include("[methodology #12]");
+    expect(text).to.include("[methodology #13]");
   });
 });
 
