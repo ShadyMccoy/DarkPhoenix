@@ -151,6 +151,31 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     return this.creepsOfWorkType("feed", { includeSpawning: false });
   }
 
+  /**
+   * STAFFING lens for the DEMAND side - includes bodies still in the spawn.
+   *
+   * Measured t72811290: TWO 1600e feeders bought 48 ticks apart into this same
+   * corp against `wantedFeeders: 1`. A feeder body is 32 parts, ~96 ticks in
+   * the spawn, and while it builds `getFeeders()` (includeSpawning: false)
+   * returns 0 - so the demand re-armed and bought a second one. F1 put the
+   * feeder class at 0.086 p/t against 0.007 planned (12x) and infra spend at
+   * 4.26 vs a 1.51 budget.
+   *
+   * That is the CLAUDE.md staffsPost trap verbatim - the demand side and the
+   * work side must not read different counts - and the sibling of "recycling
+   * counts as staffing ... excluding them double-orders". ClaimCorp and
+   * ReservationCorp already carry both lenses; this one carried only the work
+   * lens and used it for both jobs.
+   *
+   * The two lenses legitimately DIFFER in what they answer: work() needs
+   * creeps that can act THIS TICK (a spawning body cannot relay), while the
+   * demand needs "is one already on the way". One body coming IS one body
+   * staffed.
+   */
+  public staffedFeeders(): number {
+    return this.creepsOfWorkType("feed", { includeSpawning: true }).length;
+  }
+
   public getCreepCount(): number {
     return this.getFeeders().length;
   }
@@ -460,7 +485,7 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
       Math.ceil((linkFed ? parkedRelayCarry(effectiveBodyRate) : carryPartsFor(effectiveBodyRate, distance)) * 1.2)
     );
     const wantedFeeders = Math.ceil(neededCarry / maxCarry);
-    const feeders = this.getFeeders().length;
+    const feeders = this.staffedFeeders();
     this.lastSizing = {
       tick: ctx.tick,
       gate: feeders >= wantedFeeders ? "staffed" : "demand",
