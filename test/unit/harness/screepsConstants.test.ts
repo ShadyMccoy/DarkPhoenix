@@ -81,6 +81,28 @@ describe("test harness - staged Screeps constants", () => {
     expect(g.FIND_RUINS).to.equal(123);
   });
 
+  it("stages every structureType the source COMPARES against", () => {
+    // An unstaged structureType is not a crash - it is `'tower' === undefined`,
+    // silently false, so the branch never runs and the test passes for the
+    // wrong reason. STRUCTURE_TOWER was absent until 2026-08-06 while
+    // ConstructionCorp compared against it in four places.
+    for (const name of [
+      "STRUCTURE_SPAWN",
+      "STRUCTURE_EXTENSION",
+      "STRUCTURE_STORAGE",
+      "STRUCTURE_CONTAINER",
+      "STRUCTURE_CONTROLLER",
+      "STRUCTURE_ROAD",
+      "STRUCTURE_LINK",
+      "STRUCTURE_TOWER",
+      "STRUCTURE_RAMPART",
+      "STRUCTURE_TERMINAL",
+      "STRUCTURE_INVADER_CORE"
+    ]) {
+      expect(g[name], `${name} unstaged - comparisons against it are silently false`).to.be.a("string");
+    }
+  });
+
   it("stages the body-part and resource constants modules read at import time", () => {
     for (const name of ["WORK", "CARRY", "MOVE", "ATTACK", "RANGED_ATTACK", "HEAL", "TOUGH", "CLAIM"]) {
       expect(g[name], `${name} unstaged`).to.be.a("string");

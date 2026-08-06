@@ -71,12 +71,23 @@ global.FIND_TOMBSTONES = 118;
 global.FIND_DEPOSITS = 122;
 global.FIND_RUINS = 123;
 
-// Structure constants
+// Structure constants - every structureType the source COMPARES against.
+// An unstaged one is not an error, it is `x === undefined` - silently false
+// forever, so the branch it guards never runs and the test passes for the
+// wrong reason. STRUCTURE_TOWER was missing until 2026-08-06 despite
+// ConstructionCorp comparing against it in four places.
 global.STRUCTURE_SPAWN = 'spawn';
 global.STRUCTURE_EXTENSION = 'extension';
 global.STRUCTURE_STORAGE = 'storage';
 global.STRUCTURE_CONTAINER = 'container';
 global.STRUCTURE_CONTROLLER = 'controller';
+global.STRUCTURE_ROAD = 'road';
+global.STRUCTURE_LINK = 'link';
+global.STRUCTURE_TOWER = 'tower';
+global.STRUCTURE_RAMPART = 'rampart';
+global.STRUCTURE_WALL = 'constructedWall';
+global.STRUCTURE_TERMINAL = 'terminal';
+global.STRUCTURE_INVADER_CORE = 'invaderCore';
 
 // Look constants
 global.LOOK_SOURCES = 'source';
