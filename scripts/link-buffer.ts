@@ -238,16 +238,17 @@ console.log(`  ${ownedRepair.toFixed(2)} e/t repair. That converts a full link f
 console.log('  "miner drops and the pile decays" into "miner parks it next door".\n');
 
 console.log("\n=== 10. WHICH LINKS ACTUALLY NEED ONE (the sizing law) ===");
-console.log("Owner 2026-08-06: *\"only links of a certain size (throughput");
-console.log("correlates with waves) would normally require it?\"* - yes, with one");
-console.log("correction: the WAVE AMPLITUDE is quantised and CONSTANT. One arrival");
-console.log(`is always ${LINK_CAPACITY}e (a full volley == a full deposit-route hauler load).`);
-console.log("Throughput does not make waves bigger - it makes them COLLIDE more");
-console.log("often. So the criterion is a utilisation, and RANGE is in it:\n");
-console.log(`      rho = R * range / ${LINK_CAPACITY}      (arrival rate / one-volley-per-cooldown service)\n`);
-// M/D/1: deterministic service (one volley per cooldown), quantised arrivals.
+console.log("Owner 2026-08-06: *\"safe to say only links of a certain size");
+console.log("(throughput correlates with waves) would normally require it?\"* Yes -");
+console.log("but NOT because throughput makes waves bigger. It makes them COLLIDE");
+console.log("more often. The criterion is a utilisation, and RANGE is in it:\n");
+console.log(`      rho = R * range / ${LINK_CAPACITY}   (arrival rate / one-volley-per-cooldown)\n`);
+console.log("  rho is INVARIANT to arrival size, which is why the bands below hold");
+console.log("  whatever the haulers weigh. Arrivals of size S come at R/S per tick,");
+console.log("  and each needs S/800 volleys to clear, so the service rate for them");
+console.log(`  is (${LINK_CAPACITY}/range)/S. rho = (R/S) / (${LINK_CAPACITY}/(S*range)) = R*range/${LINK_CAPACITY} - the S`);
+console.log("  cancels. Only the BUFFER SIZE depends on S (table below).\n");
 const meanQueueLoads = (rho: number): number => (rho >= 1 ? Infinity : (rho * rho) / (2 * (1 - rho)));
-const meanWaitTicks = (rho: number, range: number): number => (rho >= 1 ? Infinity : (rho * range) / (2 * (1 - rho)));
 console.log(row(["R e/t", "range 5", "range 10", "range 20", "range 30"], 14));
 for (const R of [10, 20, 25, 40, 65, 80, 100]) {
   const cells = [5, 10, 20, 30].map(g => {
@@ -257,33 +258,48 @@ for (const R of [10, 20, 25, 40, 65, 80, 100]) {
   console.log(row([R, ...cells], 14));
 }
 console.log("\n  THREE BANDS, and both live extremes already sit in the outer two:");
-console.log("    rho < 0.5   IDLE     nothing to smooth - the link is empty most");
-console.log("                         ticks. Measured: the link-served sources");
-console.log("                         cd90/cd92 buffer 21e and 0e of a 2000 cap.");
-console.log("    0.5-1.0     BUFFER   collisions are frequent but the drain still");
-console.log("                         keeps up on average. THIS is the only band");
-console.log("                         a container earns its 0.233 e/t in.");
-console.log("    rho >= 1.0  SATURATED  a RATE deficit. A buffer fills once and");
-console.log("                         stays full. Measured: 5 remote source");
-console.log("                         containers 4232e ABOVE cap, decaying.");
-console.log("\n  How much: mean queue at rho, in arrival quanta ->");
-console.log(row(["rho", "queue loads", "queue e", "wait t @r10", "container?"], 14));
-for (const rho of [0.5, 0.6, 0.7, 0.8, 0.9]) {
-  const q = meanQueueLoads(rho);
-  console.log(
-    row(
-      [
-        rho.toFixed(2),
-        q.toFixed(2),
-        (q * LINK_CAPACITY).toFixed(0),
-        meanWaitTicks(rho, 10).toFixed(1),
-        q * LINK_CAPACITY <= CONTAINER_CAP ? "covers it" : "UNDERSIZED"
-      ],
-      14
-    )
-  );
+console.log("    rho < 0.5   IDLE       nothing to smooth. Measured: link-served");
+console.log("                           sources cd90/cd92 hold 21e and 0e of 2000.");
+console.log("    0.5 - 1.0   BUFFER     the only band a container earns 0.233 e/t.");
+console.log("    rho >= 1.0  SATURATED  rate deficit; fills once, stays full.");
+console.log("                           Measured: 5 remote containers 4232e OVER cap.");
+
+console.log("\n=== 11. THE ARRIVAL IS NOT 800e - SIZE THE BUFFER TO THE ROUTE ===");
+console.log("Owner 2026-08-06: *\"why is one arrival always 800? Are our haulers in");
+console.log("fact sized that way\"* - they are NOT, and the earlier table was wrong");
+console.log("to assume it. MEASURED per-body CARRY at t72809560:\n");
+const LIVE: [string, number][] = [
+  ["cee2", 14.8], ["cbd8", 15.4], ["d01f", 18.9], ["cee0", 19.7],
+  ["cd94", 20.4], ["cbd5", 23.0], ["cd98", 24.2], ["c9f9", 35.0]
+];
+console.log(row(["route", "CARRY", "arrival e", "fits link?", "buffer for 1"], 14));
+for (const [id, carry] of LIVE) {
+  const arrival = carry * CARRY_CAPACITY;
+  const short = Math.max(0, arrival - LINK_CAPACITY);
+  console.log(row([id, carry.toFixed(1), arrival.toFixed(0), short === 0 ? "yes" : "NO", short.toFixed(0)], 14));
 }
-console.log(`\n  One ${CONTAINER_CAP}e container covers the queue up to rho ~0.8. Past that the`);
-console.log("  queue grows faster than any buffer worth buying - which is the same");
-console.log("  statement as 'a buffer fixes burstiness, never a rate deficit',");
-console.log("  now with the crossover named.\n");
+console.log(`\n  ${LINK_CAPACITY}e is a hard cap on a LINK VOLLEY (the engine clamps a fire), so`);
+console.log("  that half of the old claim stands. For a HAULER it holds only where");
+console.log("  spec 45 leg 3's depositRouteCarryCap is in force - and that fires");
+console.log("  only when isDepositRoute is true, which is NEVER today (DEP is");
+console.log("  read-only). The quantum was a policy that is not switched on.");
+console.log(`\n  So the buffer must cover (arrival - ${LINK_CAPACITY}) before ANY queueing, then the`);
+console.log("  queue on top. Sized against the WORST live route (c9f9, 1749e):\n");
+console.log(row(["rho", "queue e @1749", "+ 1 arrival", "total need", "2000 container?"], 16));
+for (const rho of [0.5, 0.6, 0.7, 0.8]) {
+  const q = meanQueueLoads(rho) * 1749;
+  const need = q + Math.max(0, 1749 - LINK_CAPACITY);
+  console.log(row([rho.toFixed(2), q.toFixed(0), (1749 - LINK_CAPACITY).toFixed(0), need.toFixed(0),
+    need <= CONTAINER_CAP ? "covers it" : "UNDERSIZED"], 16));
+}
+console.log("\n  The old table said one container covers up to rho ~0.8. Against real");
+console.log(`  ${1749}e arrivals it covers only to about rho 0.5-0.6. Size the buffer to`);
+console.log("  the ROUTE's arrival, never to LINK_CAPACITY.\n");
+console.log("  AND A TENSION THIS EXPOSES: leg 3's cap exists to make the quantum");
+console.log(`  ${LINK_CAPACITY}e so a deposit hauler always fits. But the routes DEP would serve`);
+console.log("  are the LONG ones (cd98 d=99, d01f d=95, cee2 d=87) - exactly the");
+console.log("  ones whose efficient body is biggest. Capping them splits each into");
+console.log("  2-3 creeps: same total CARRY, but more spawn EVENTS against a spawn");
+console.log("  already at 0.92x its ceiling. Whether the cap or the buffer is the");
+console.log("  cheaper way to make a big hauler fit a link is an OPEN question, and");
+console.log("  it should be decided before DEP routing is switched on.\n");

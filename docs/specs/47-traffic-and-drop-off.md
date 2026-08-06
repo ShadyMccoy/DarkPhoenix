@@ -442,11 +442,14 @@ not decidable without it. Cheap to close, and it now gates real spend.
 *"Safe to say only links of a certain size (throughput correlates with waves)
 would normally require it?"*
 
-**Yes — with one correction that changes the threshold.** The wave AMPLITUDE
-is quantised and constant: one arrival is always 800e, because a full volley
-and a full deposit-route hauler load are the same number (`LINK_CAPACITY` =
-the leg 3 landing quantum). Throughput does not make waves bigger; it makes
-them **collide more often**. So the criterion is a utilisation, and **RANGE is
+**Yes — with one correction that changes the threshold.** Throughput does not
+make waves bigger; it makes them **collide more often**.
+
+> **CORRECTED 2026-08-06** (owner: *"why is one arrival always 800? Are our
+> haulers in fact sized that way"*). This section originally asserted that one
+> arrival is always 800e. **That was wrong** — see the correction at the end of
+> this spec. `rho` and the three bands survive unchanged (arrival size cancels
+> out of the utilisation); the BUFFER SIZE table below does not. So the criterion is a utilisation, and **RANGE is
 in it** — a far link pays a longer cooldown per volley and therefore needs a
 buffer at half the throughput of a near one:
 
@@ -496,3 +499,64 @@ band). **The verdict flips entirely on range, and range is exactly what
 telemetry cannot tell us** — the structure-inventory gap again. That is now a
 THIRD reason it is the prerequisite: it gates whether to build, where to
 build, and now which band each candidate is even in.
+
+### CORRECTION: the arrival is NOT 800e — size the buffer to the ROUTE
+
+*"Why is one arrival always 800? Are our haulers in fact sized that way?"*
+(owner 2026-08-06). **They are not.** Measured per-body hauler CARRY at
+t72809560:
+
+```
+  route   CARRY   arrival e   fits an 800 link?   buffer needed for ONE
+   cee2    14.8        740          yes                     0
+   cbd8    15.4        770          yes                     0
+   d01f    18.9        945          NO                    145
+   cee0    19.7        985          NO                    185
+   cd94    20.4       1020          NO                    220
+   cbd5    23.0       1150          NO                    350
+   cd98    24.2       1210          NO                    410
+   c9f9    35.0       1750          NO                    950
+```
+
+**Eight of ten routes exceed 800e; the median arrival is ~1,020e.** The
+16-CARRY figure comes from `depositRouteCarryCap` (spec 45 leg 3), which fires
+only when `isDepositRoute` is true — and that is **never today**, because DEP
+routing is read-only. The quantum was a POLICY THAT IS NOT SWITCHED ON, stated
+here as a fact. `LINK_CAPACITY` remains a hard cap on a link VOLLEY (the engine
+clamps a fire), so that half of the claim stands.
+
+**What survives — `rho`, and provably.** Arrival size cancels out of the
+utilisation: arrivals of size `S` come at `R/S` per tick, and each needs
+`S/800` volleys to clear, so their service rate is `(800/range)/S`. Then
+`rho = (R/S) / (800/(S*range)) = R*range/800`. The three bands hold whatever
+the haulers weigh.
+
+**What does not survive — the buffer SIZE.** The buffer must cover
+`(arrival − 800)` before ANY queueing, then the queue on top. Against the worst
+live route (c9f9 at 1,750e):
+
+```
+    rho   queue e   + 1 arrival   total need   2000 container?
+   0.50       437           949         1386     covers it
+   0.60       787           949         1736     covers it
+   0.70      1428           949         2377     UNDERSIZED
+   0.80      2798           949         3747     UNDERSIZED
+```
+
+One container covers to **rho ≈ 0.5–0.6**, not the 0.8 previously claimed.
+**Size the buffer to the route's arrival, never to `LINK_CAPACITY`.**
+
+### The tension this exposes — decide it BEFORE switching DEP on
+
+Leg 3's cap exists to make the quantum 800e so a deposit hauler always fits its
+link. But the routes DEP would serve are the **long** ones — cd98 (d=99),
+d01f (d=95), cee2 (d=87) — which are exactly the ones whose efficient body is
+biggest. Capping those at 16 CARRY splits each into 2-3 creeps: the same total
+CARRY, but more spawn EVENTS against a spawn already at **0.92x its ceiling**
+with 8% surge margin (S5).
+
+So there are two ways to make a big hauler fit a link — **cap the hauler**
+(leg 3, costs spawn events) or **buffer the link** (a container, costs 0.10 e/t
+and a 5000e build) — and which is cheaper is an OPEN question that this spec
+does not yet answer. It must be decided before deposit-port routing is
+activated, because leg 3's cap silently picks one of them.
