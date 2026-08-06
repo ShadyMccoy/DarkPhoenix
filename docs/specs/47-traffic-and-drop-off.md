@@ -286,3 +286,77 @@ Building the buffer first would improve the aggregate while leaving the
 stranding in place — the exact failure this spec already recorded once:
 *"had spec 47 been built first, we would own a tractor-beam conduit for a
 link scheduling bug."*
+
+### Refinement: FREE ULLAGE before bought capacity (owner 2026-08-06)
+
+*"Sometimes the link has a miner next to it with 1 carry. If utilizing ullage
+there would let a hauler depart then probably with it. Kinda cheeky, marginal
+but hey every little bit counts."*
+
+**The fact checks out.** `buildMinerBody(work, cap, linkFed)` gives a
+link-served miner a CARRY part so it can transfer into the link instead of
+dropping, and the live bodies confirm it: `cd90` and `cd92` are both
+**5 WORK + 1 CARRY + 3 MOVE**, parked at their source link for their whole
+life. That is 50e of buffer nobody has to buy.
+
+**The trade is better than "marginal" suggests, and for a reason worth
+naming: it is not about the 50e, it is about WHOSE TICK IS SCARCE.**
+
+```
+  route d   hauler e/t   ullage e/t   trade ratio
+     20        19.0          1.0          19x
+     30        12.9          1.0          13x
+     50         7.8          1.0           8x
+     75         5.3          1.0           5x
+```
+
+Borrowing the miner's CARRY costs it its own deposit slot for the duration —
+its harvest drops and decays at Screeps' `ceil(amount/1000)` = 1 e/t for a
+small pile, until the miner recovers it. A hauler's tick is worth 6-19. So
+the exchange is favourable by **5-19x every time it fires**. That generalises
+into a ladder, and the ladder is the durable part of this idea:
+
+```
+  1. the link's own free capacity            0.000 e/t
+  2. ullage on creeps already standing       ~1 e/t WHILE borrowed, and only
+                                             when it actually frees a hauler
+  3. a bought buffer creep (16 CARRY)        0.567 e/t standing
+```
+
+**Where "marginal" is right:** 50e against the 800e arrival quantum is 6.25%
+of one load, so it converts "wait" into "depart" only when the hauler's
+residual is already ≤50e — about a 6% slice of arrivals. Real, free, and
+small.
+
+### THE CATCH THAT OUTRANKS BOTH REFINEMENTS: deposit ports are not built
+
+Neither the buffer creep nor the ullage loan has anywhere to fire today,
+because **no hauler currently deposits at a link.** DEP is a READ-ONLY
+instrument, and `economy/depositSavings` says so at the top: *"This module
+MEASURES the opportunity before any routing changes ... Read-only knowledge;
+the depositPos plumbing re-activation is a later, data-driven step."* The
+ledger row agrees — *"informational: it sizes the potential lever before the
+depositPos routing is re-activated."*
+
+So today every remote hauler walks past those links to STORAGE, and the
+`atSink` idle it experiences is spatial queueing at the storage tile with
+storage having room — not link capacity at all.
+
+**And the un-built thing is worth more than either refinement.** DEP prices
+7 remote sources that could deposit at a home link: **65 e/t of deposit flow,
+hauls shortened by 8-16 tiles each, ~795 tile·e/t saved.** Compare a 16-CARRY
+buffer's 0.567 e/t of cost or the ullage loan's ~6% slice. The prerequisite is
+the prize.
+
+### Revised order
+
+1. **Fix the defund-stranding** — 74% of the measured sink-idle, and a buffer
+   cannot touch it (`atSink 0.00`: those haulers never arrive).
+2. **Activate deposit-port routing (DEP, 65 e/t).** This is what creates a
+   "hauler waits on a link" situation in the first place. Both refinements
+   below are undefined until it exists.
+3. **Then the ullage loan — it is free, so it comes before anything bought.**
+   Gate it exactly as the owner framed it: borrow only when doing so lets the
+   hauler DEPART, never as general spillover.
+4. **Then the buffer creep at 16 CARRY per simultaneous arrival**, if the
+   re-read `idleSink` still justifies it.

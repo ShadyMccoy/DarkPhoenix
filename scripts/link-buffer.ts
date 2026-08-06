@@ -153,3 +153,35 @@ console.log(`\n=== 6. SANITY: ONE SOURCE'S WORTH OF BUFFER ===`);
 console.log(`A ${SOURCE_RATE} e/t source fills ${(LINK_CAPACITY / SOURCE_RATE).toFixed(0)}t of link, or ${(CARRY_CAPACITY / SOURCE_RATE).toFixed(0)}t per CARRY part added.`);
 console.log(`So one buffer CARRY part buys ${(CARRY_CAPACITY / SOURCE_RATE).toFixed(0)} ticks of one source's patience`);
 console.log(`for ${bufferEnergyPerTick(1).toFixed(4)} e/t - the cheapest smoothing on the board.\n`);
+
+console.log("\n=== 7. FREE ULLAGE: THE MINER ALREADY STANDING AT THE LINK ===");
+console.log("Owner 2026-08-06: a link-served miner is 5 WORK + 1 CARRY + 3 MOVE");
+console.log("(verified live on cd90/cd92), parked at the link for its whole life.");
+console.log("Its 1 CARRY is 50e of buffer nobody has to buy.\n");
+const MINER_ULLAGE = 1 * CARRY_CAPACITY;
+// Borrowing it costs the miner's own deposit slot: its harvest drops to the
+// ground, which decays at Screeps' ceil(amount/1000) = 1 e/t for a small pile
+// until the miner recovers it. That is the whole downside.
+const ULLAGE_COST_PER_TICK = 1;
+console.log(row(["route d", "hauler e/t", "ullage e/t", "trade ratio", "verdict"], 15));
+for (const d of [20, 30, 50, 75]) {
+  const h = haulerDeliveryPerTick(16, d);
+  console.log(
+    row([d, h.toFixed(1), ULLAGE_COST_PER_TICK.toFixed(1), `${(h / ULLAGE_COST_PER_TICK).toFixed(0)}x`, "BORROW"], 15)
+  );
+}
+console.log("\n  The point is not the 50e - it is WHOSE TICK IS SCARCE. A parked");
+console.log("  miner's spare capacity costs ~1 e/t (small-pile decay until it");
+console.log("  recovers the drop); a hauler's tick is worth 6-13. Borrowing is a");
+console.log("  6-13x favourable exchange EVERY time it fires.");
+console.log("\n  Why it stays marginal, though:");
+console.log(
+  `    ullage ${MINER_ULLAGE}e vs the ${LINK_CAPACITY}e arrival quantum = ${((MINER_ULLAGE / LINK_CAPACITY) * 100).toFixed(2)}% of one load.`
+);
+console.log(`    It converts "wait" into "depart" ONLY when the hauler's residual`);
+console.log(`    is <= ${MINER_ULLAGE}e - roughly a ${((MINER_ULLAGE / LINK_CAPACITY) * 100).toFixed(1)}% slice of arrivals.`);
+console.log("\n  THE LADDER (use in this order, cheapest first):");
+console.log("    1. the link's own free capacity          0.000 e/t");
+console.log(`    2. ullage on creeps already standing      ~1 e/t WHILE borrowed, only`);
+console.log("                                              when it frees a hauler");
+console.log(`    3. a bought buffer creep (16 CARRY)      ${bufferEnergyPerTick(16).toFixed(3)} e/t standing`);
