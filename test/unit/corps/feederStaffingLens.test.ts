@@ -34,9 +34,20 @@ const CORP_ID = "moving-W1N1-controllerFeeder";
  * demand into a stream"* - firing exactly as written.
  */
 describe("controller feeder staffing lens (no double-order while spawning)", () => {
+  // RESTORE the shared globals, never DELETE them. Deleting leaked across
+  // files and broke HarvestCorp's getSpawnDemand test with "Game is not
+  // defined" - mocha runs one process and --bail then hid every suite after
+  // it. Same shape as feederRouter.test.ts's cleanupGlobals.
   afterEach(() => {
-    delete (global as never as { Game?: unknown }).Game;
-    delete (global as never as { Memory?: unknown }).Memory;
+    (global as never as { Game: unknown }).Game = {
+      creeps: {},
+      rooms: {},
+      spawns: {},
+      time: 0,
+      map: { getRoomTerrain: () => ({ get: () => 0 }) },
+      getObjectById: () => null
+    };
+    (global as never as { Memory: unknown }).Memory = { creeps: {}, rooms: {} };
   });
 
   /** A world with ONE feeder mid-spawn and none fielded. */
