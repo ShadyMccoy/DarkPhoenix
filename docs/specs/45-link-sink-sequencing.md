@@ -360,3 +360,68 @@ never silently hold every harness case.
   whole volleys backs up less), and with it forgone mining — which is the
   line that worsened last window and the reason this leg matters beyond the
   gauges.
+
+## The haul-vs-link exchange rate (owner 2026-08-06, `npm run haul:vs:link`)
+
+*"Every tick that a hauler spends not moving is going to hit our income
+statement as a negative variance somewhere. So consider the per tick value of
+the hauler ... compared to 3% link tax. The links are infrastructure that
+expand our carry budget but only if we use it."*
+
+Tabulated from `economy/primitives` (the script restates no economics):
+
+**The hauler's per-tick value.** A 16-CARRY body delivers `carry × 50 /
+roundTripTicks(d)`: **12.9 e/t at d=30, 7.8 at d=50, 5.3 at d=75.** The
+owner's napkin ~6 e/t is the right order for a typical remote. Its body costs
+1.07 e/t amortized, so nearly all of that is net.
+
+**The link's per-tick value.** A full volley per cooldown at `1 tick × range`:
+**77.6 e/t at range 10, 38.8 at range 20** — one link is worth 2-4 haulers on
+the same geometry, and ~10 haulers' worth of raw throughput at range 10.
+
+**THE INVARIANT (the number to remember).** Moving 800e by link costs 24e of
+tax. Walking the same 800e costs a full round trip of hauler time, whose
+energy-equivalent is exactly the payload. So the ratio is
+
+```
+    walk cost / tax cost  =  LINK_CAPACITY / (LINK_CAPACITY × 0.03)  =  1/0.03  =  33x
+```
+
+**independent of distance** — table 3 prints 33x at every row for that
+reason. The 3% tax is not a cost to be weighed against hauling; it is 3% of
+the thing hauling charges 100% for. Any rule that trades link USAGE for tax
+savings is off by a factor of thirty-three. This is the general form of the
+owner's earlier ruling that "energy tax is less important."
+
+**Where it does NOT hold: d≈10 and under.** Table 5 prices the carry fleet a
+10 e/t source needs against the flat 3%: at d=10 the saving is **−0.01 e/t**
+(a wash), turning positive from d=20 (+0.26) and reaching +3.73 at d=150.
+Short in-room hauls are genuinely indifferent; links earn their keep on
+distance.
+
+### The counter-force this exposes — and the falsifier it sharpens
+
+Table 4 prices the other side of leg 4's full-volley discipline. If holding a
+volley one beat idles haulers that could be unloading:
+
+```
+  hold 1t, 1 hauler idle  =  12.9 e   |  the tax it avoids = 24 e
+  hold 1t, 3 haulers idle =  38.7 e   |  ALREADY worse than firing partial
+  hold 5t, 3 haulers idle = 193.5 e   |  8x the tax
+```
+
+**A hold breaks even against the tax after ~1.9 ticks with one hauler idle,
+and after ~0.6 ticks with three.** So full-volley discipline is right when the
+link is the bottleneck and WRONG the moment a blocked hauler is waiting on
+that same buffer — which is exactly the mechanism the enRoute finding
+(spec 47) showed is real.
+
+The `senderFull` relief valve already covers the extreme (a port at 800/800
+fires partial). But a deposit-route hauler carries a full 16-CARRY / 800e
+load, so a port sitting at 700/800 has only 100 free and blocks that hauler
+just as completely while never tripping the valve. **The refinement the grid
+argues for: relieve when the port cannot accept a WHOLE hauler load, not only
+when it is literally full.** Filed here rather than built blind — the live
+gauges (`idleSinkAtSinkFrac` on deposit routes, `hubVolleyAvg`, `toHubRate`)
+decide whether it is real, and leg 4's registered falsifier already watches
+the same seam.
