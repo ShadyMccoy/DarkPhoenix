@@ -522,7 +522,13 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     // 0.26, hubClampShare 0.50). Its idle between volleys is the price of
     // hauler duty. infraSpawnLoad prices the same floor (F1).
     const inboundSenders = linkFed ? this.inboundLinkSenderCount(spawn.room) : 0;
-    const volleyFloor = inboundSenders > 0 ? volleyServiceCarry() : 0;
+    // ONE VOLLEY PER SENDER, not one volley total (A/B t72819265). N senders
+    // can land N volleys inside one drain window and a single creep serves
+    // them serially - measured, 1 feeder at 16 CARRY clamped 0.268 while the
+    // accidental 32 clamped 0.091, with the SINGLE feeder moving MORE per tick
+    // (187.33 vs 131.28). Latency, not rate. `inboundSenders` was already
+    // stamped at this decision site; it just was not read.
+    const volleyFloor = volleyServiceCarry(inboundSenders);
     const neededCarry = Math.max(
       1,
       volleyFloor,

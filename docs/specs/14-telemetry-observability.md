@@ -9751,3 +9751,81 @@ controller shortfall re-attributed to a spawn ceiling that makes haul
 efficiency the only affordable lever.** No code shipped: the diagnosis says
 buy nothing, and the fix it points to (deposit ports / edge links) is already
 the standing plan.
+
+## Cycle t72819265 — THE A/B RAN, AND IT CONFIRMED THE PREDICTION
+
+**Window 7,139 ticks** — nearly five fiscal months, and the first properly long
+window this program has had. That is a direct result of NOT deploying last
+cycle: the blackbox went 1,054 → 39,395 bytes and the link meter spans 7,223t
+instead of 84t. The methodological note from last cycle paid off immediately.
+
+### The targets, on a window that can carry them
+
+```
+  forgone mining                     22.30 e/t   target ~0      MISS
+  net energy = mined 87.70 - fleet 41.92 = 45.78 e/t
+  controller / net                   92%   target >=50%   MET
+  ...INCOME-FUNDED only              97%   target >=50%   MET
+```
+
+**The controller target is comfortably met** — P7 reads **1.16x** (42.20 e/t
+against a 36.4 plan). Last cycle's 27% was a 443-tick artifact and should not
+have been read as a state. **Forgone mining is now the entire gap**, exactly as
+the owner framed it.
+
+### The A/B: prediction CONFIRMED, and the mechanism is LATENCY
+
+Registered at t72811683: *"as `feeders` 2 → 1, `coreEmptyShare` falls back
+toward 0.3, `hubClampShare` returns toward 0.28. If it does, the feeder's
+sizing law is under-stated and that is the fix."*
+
+```
+  feeders  CARRY   coreEmptyShare   hubClampShare   movedPerTick   window
+     2       32        0.565            0.091          131.28        84t
+     1       16        0.421            0.268          187.33      7223t
+```
+
+`hubClampShare` landed within **0.008** of the predicted 0.28.
+
+**And the throughput meter shipped for this question settles WHY.** The single
+feeder moves **more** per tick than the pair did (187.33 vs 131.28, active
+0.556 vs 0.481) while the core clamps three times as often. So it is not a
+RATE problem — one creep working harder cannot cover two senders arriving at
+once, it can only serve them **serially**. That is spec 45's own doctrine
+(*"its metric is drain LATENCY, not throughput utilization"*) finally measured
+rather than asserted.
+
+### The fix the A/B earned
+
+`volleyServiceCarry()` floored at ONE volley regardless of topology.
+**It now scales with inbound senders** — N senders can land N volleys inside
+one drain window. `inboundSenders` was already stamped at the decision site;
+it simply was not read. Both plan-side twins (`infraSpawnLoad`,
+`infraSpawnEnergy`) take the same count so price and behaviour stay equal
+(F1); `senders` defaults to 1 so every legacy call site is bit-identical.
+
+One existing pin staged the two-port shape and asserted 16 — precisely the
+case the A/B refutes. Updated with the evidence, plus a new pin that one
+sender still floors at one volley. The BODY remains bounded by the energy
+budget (`maxCarryPairs(2300)` = 23), so the floor states the requirement and
+the budget states what is buyable.
+
+Gate: unit 2170 (7 new, red-first), build clean, trio green.
+
+### The rest of the window
+
+**E6: 0 of 13 deferred** — *"no deferrals, source buffers under threshold"*.
+The chronic pile-up that dominated four cycles is GONE; H1 ground-piled is
+771e (was 2,492-4,232). L1 pile decay fell 18.17 → 11.27 with it.
+
+So forgone's 22.30 is NOT held mouths any more — it is under-staffed
+commissions. F2 shows |gap| 146p with c9f9 32p of 78p and cd98 41p of 77p,
+against R1 at **9.6x** the priced raid tax and X5 churn 0.17 (14% remote
+invader/revoke noise). **Raids are killing remote fleets faster than they are
+replaced**, and that is the next thread — a different mechanism from the
+hauling deficit that came before it.
+
+**Cycle verdict: FIXED — a registered prediction confirmed within 0.008, its
+mechanism identified as latency by an instrument shipped one cycle earlier,
+and the sizing law corrected with both sides of the plan/runtime pair moved
+together.**

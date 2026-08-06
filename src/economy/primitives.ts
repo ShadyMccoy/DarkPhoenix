@@ -643,7 +643,11 @@ export function infraSpawnLoad(
   relayRate: number,
   depotRoomCount: number,
   remoteRoomCount: number,
-  linkFedRoomCount = 0
+  linkFedRoomCount = 0,
+  /** Inbound link senders on the core (deposit ports + source links). Scales
+   * the volley floor - see volleyServiceCarry. Defaults to 1 so a caller that
+   * does not know the topology prices exactly as it did before. */
+  linkFedSenders = 1
 ): number {
   // Feeder + tender are DEPOT movers: they exist only in rooms with a built
   // storage (`depotRoomCount`). Charging them unconditionally taxed early
@@ -654,14 +658,14 @@ export function infraSpawnLoad(
   // the CARRY for the same relay. Priced like the original: one feeder
   // detail for the depot room (multi-depot pricing arrives with expansion).
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
-  // Spec 45 volley-service floor: a link-fed feeder must clear a FULL 800e
-  // volley in one parked cycle (see volleyServiceCarry) - the plan prices
-  // the same floor the corp fields (F1: price = behavior). A link-fed room
-  // without inbound senders over-prices by the floor; accepted - that
-  // config is transient here and the error sits on the conservative side.
+  // Spec 45 volley-service floor: a link-fed feeder must clear a full volley
+  // PER INBOUND SENDER in one parked cycle (see volleyServiceCarry) - the plan
+  // prices the same floor the corp fields (F1: price = behavior). Scaled by
+  // senders since the t72819265 A/B; `linkFedSenders` defaults to 1 so a
+  // caller that does not know the topology prices exactly as before.
   const feederCarry =
     linkFedRoomCount > 0
-      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry())
+      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry(linkFedSenders))
       : carryPartsFor(relayRate, feederDist);
   const feeder = depotRoomCount > 0 ? (2 * feederCarry) / effectiveLife(feederDist) : 0;
   // 2 tankers x measured 24-part body, per depot room (owner ratchet
@@ -699,7 +703,11 @@ export function infraSpawnEnergy(
   relayRate: number,
   depotRoomCount: number,
   remoteRoomCount: number,
-  linkFedRoomCount = 0
+  linkFedRoomCount = 0,
+  /** Inbound link senders on the core (deposit ports + source links). Scales
+   * the volley floor - see volleyServiceCarry. Defaults to 1 so a caller that
+   * does not know the topology prices exactly as it did before. */
+  linkFedSenders = 1
 ): number {
   const CARRY_MOVE_PER_PART = CARRY_MOVE_PAIR_COST / 2;
   const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
@@ -707,7 +715,7 @@ export function infraSpawnEnergy(
   // Spec 45 volley-service floor - the SAME line as the parts twin above.
   const feederCarry =
     linkFedRoomCount > 0
-      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry())
+      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry(linkFedSenders))
       : carryPartsFor(relayRate, feederDist);
   const feeder = depotRoomCount > 0 ? ((2 * feederCarry) / effectiveLife(feederDist)) * CARRY_MOVE_PER_PART : 0;
   const TENDER_FLEET_PARTS = 48;
@@ -955,9 +963,29 @@ export const LINK_CAPACITY = 800;
  * feeder's idle between volleys is the price of hauler duty, and it is
  * cheap; the corp's sizing and infraSpawnLoad/-Energy's pricing BOTH floor
  * at this so plan and runtime agree (F1).
+ *
+ * SCALED BY INBOUND SENDERS (A/B confirmed t72819265). One volley was still
+ * too low: a room with N senders can land N volleys inside one drain window,
+ * and ONE creep serves them SERIALLY. The A/B was handed to us by a
+ * staffing-lens bug that double-ordered the feeder — fixing it let the pair
+ * age back to one, and the registered prediction held:
+ *
+ *     feeders  CARRY   coreEmptyShare   hubClampShare   window
+ *        2       32        0.565            0.091         84t
+ *        1       16        0.421            0.268       7223t
+ *
+ * `hubClampShare` landed within 0.008 of the predicted 0.28. And it is NOT a
+ * rate problem, which is what makes the LATENCY reading decisive: the
+ * throughput meter says the single feeder moved MORE per tick than the pair
+ * (`movedPerTick` 187.33 vs 131.28, active 0.556 vs 0.481) while the core
+ * clamped three times as often. One creep working harder cannot cover two
+ * senders arriving at once - it can only serve them one after the other.
+ *
+ * `senders` defaults to 1 so every legacy call site is bit-identical; zero
+ * senders means no service post and therefore no floor at all.
  */
-export function volleyServiceCarry(): number {
-  return LINK_CAPACITY / CARRY_CAPACITY;
+export function volleyServiceCarry(senders = 1): number {
+  return Math.max(0, Math.floor(senders)) * (LINK_CAPACITY / CARRY_CAPACITY);
 }
 
 /**
