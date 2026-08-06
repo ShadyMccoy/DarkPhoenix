@@ -168,6 +168,49 @@ a gate; it cannot even compile.
    the sum of its corps, so the drill-down is the addends. `docs/fiscal/` closes
    gain a per-corp table under each category.
 
+## 4b. A structural consequence: there is no separate `evacuation` row
+
+Worth deciding deliberately, because the corp-summed statement READS differently
+from today's.
+
+Today's statement keys on ROLE, so miners and haulers land on separate lines
+(extraction / evacuation). But a mining commission is the all-in MINER OPERATION
+(spec 34 D5): the harvest node AND its routed evacuation vector in ONE envelope
+with ONE price. So under "each corp is assigned a reporting category", a mining
+operation is one corp on one line, and the haulers inside it are not a separate
+category — they are a level deeper.
+
+Demonstrated on a staged world (`npm run audit:corps -- --drill`):
+
+```
+  category        corps   spawn p/t     energy in    energy out    value out
+  --------------------------------------------------------------------------
+  extraction         4      0.0922          0.00         40.00         0.00
+      harvest-src-remote-2               0.0454          0.00         10.00
+      harvest-src-remote-1               0.0280          0.00         10.00
+      harvest-src-home-a                 0.0102          0.00         10.00
+      harvest-src-home-b                 0.0086          0.00         10.00
+  consumers          1      0.0989         40.00          0.00      2800.00
+      build-site                         0.0989         40.00          0.00      2800.00
+```
+
+`evacuation` appears only when a route is commissioned as a STANDALONE `carry`
+corp (a scavenge route, or a source whose vector the operation does not own).
+
+So the statement gains a third level rather than losing a line:
+
+```
+  category  ->  corps  ->  roles
+  extraction -> harvest-src-remote-1 -> { miner: ..., hauler: ... }
+```
+
+The role level is already published as `fleet` (spec 39 phase 1), so the split
+survives — it just stops being the TOP-level grouping. **This is a presentation
+decision for the owner**: keep extraction/evacuation as the headline split (which
+means the top level is roles, not corps), or make corps the headline and read the
+miner/hauler split one level down. The corp model implies the latter.
+
+
 ## 5. Why this generalizes to resources, spawn and CPU
 
 The owner's other ask — *"all the resources... including minerals or other

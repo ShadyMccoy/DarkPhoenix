@@ -56,7 +56,8 @@
     "budget": "ts-node -P tsconfig.test.json scripts/budget.ts",
     "haul:trace": "ts-node -P tsconfig.test.json scripts/haul-trace.ts",
     "haul:vs:link": "ts-node -P tsconfig.test.json scripts/haul-vs-link.ts",
-    "link:buffer": "ts-node -P tsconfig.test.json scripts/link-buffer.ts"
+    "link:buffer": "ts-node -P tsconfig.test.json scripts/link-buffer.ts",
+    "audit:corps": "ts-node -P tsconfig.test.json scripts/corp-budget.ts"
   },
   "repository": {
     "type": "git",
