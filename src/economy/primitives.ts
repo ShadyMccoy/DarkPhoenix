@@ -586,7 +586,6 @@ export function projectAbsorbRate(remainingWork: number, travelDistance = 0, acc
   return Math.max(5, remainingWork / projectBuildHorizon(travelDistance, accelerate));
 }
 
-
 /**
  * Body parts per WORK part of upgrader fleet, measured from the live fed-in-
  * place body (15W1C4M = 20 parts / 15 WORK). Used to convert a controller
@@ -634,6 +633,64 @@ export function constructionWorkSpawnLoad(energyPerTick: number, distance: numbe
 /** Nominal feeder shuttle distance (storage -> controller input, measured live: 6). */
 const FEEDER_NOMINAL_DISTANCE = 6;
 
+/** 2 CLAIM 2 MOVE - the full-budget live reserver body (see RESERVER_DUTY). */
+export const RESERVER_PARTS_PER_ROOM = 4;
+
+/** 2 tankers x measured 24-part body (owner ratchet 2026-07-22, priced WITH the
+ *  fleet-cap cut - P5: price = behavior). */
+export const TENDER_FLEET_PARTS = 48;
+
+// ---------------------------------------------------------------------------
+// PER-CORP STANDING INFRA (spec 39 phase 4 / spec 47).
+//
+// `infraSpawnLoad` below prices the standing infrastructure as ONE aggregate
+// from room COUNTS, because the solve needs the number before any auxiliary
+// commission exists (propose() reads the draft, so it cannot run first). That
+// aggregate is what the colony budget deducts - and, until now, what NO corp
+// owned: every auxiliary commission declared `spawnPartsPerTick: 0`, so the sum
+// of the corps was short by exactly this, and `waste-ledger.planSpawnLoad` was
+// written to re-derive the hole.
+//
+// These three functions are the aggregate DECOMPOSED per corp. Each auxiliary
+// kind prices ITSELF with the one that belongs to it, and `infraSpawnLoad`
+// composes the same three - so the corp sum and the solve's deduction are one
+// derivation in two shapes, not two books. `corpBudget.test.ts` pins the
+// identity; if a term ever drifts, the sum stops matching and the test fails.
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE depot room's feeder shuttle (storage -> controller input), parts/tick.
+ * The `feeder` term of {@link infraSpawnLoad}, extracted verbatim.
+ */
+export function feederSpawnLoad(relayRate: number, linkFed: boolean, linkFedSenders = 1): number {
+  // A LINK-FED depot's feeder leg shrinks to storage -> core link (spec 24
+  // rung 3, same controllerLink lens the corp reads): distance 1, ~1/6th the
+  // CARRY for the same relay.
+  const feederDist = linkFed ? 1 : FEEDER_NOMINAL_DISTANCE;
+  // Spec 45 volley-service floor: a link-fed feeder must clear a full volley
+  // PER INBOUND SENDER in one parked cycle (see volleyServiceCarry) - the plan
+  // prices the same floor the corp fields (F1: price = behavior).
+  const feederCarry = linkFed
+    ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry(linkFedSenders))
+    : carryPartsFor(relayRate, feederDist);
+  return (2 * feederCarry) / effectiveLife(feederDist);
+}
+
+/** ONE depot room's extension-tender detail, parts/tick. */
+export function tenderSpawnLoad(): number {
+  return TENDER_FLEET_PARTS / CREEP_LIFETIME;
+}
+
+/**
+ * ONE remote room's reservation corp, parts/tick. Linear in `parts`, so N of
+ * these sum EXACTLY to `reserverSpawnLoad(N * RESERVER_PARTS_PER_ROOM)` - which
+ * is what makes the per-corp price and the aggregate deduction reconcile to
+ * 1e-12 rather than approximately.
+ */
+export function roomReserverSpawnLoad(): number {
+  return reserverSpawnLoad(RESERVER_PARTS_PER_ROOM);
+}
+
 /**
  * Spawn build-time (parts/tick) of the standing infrastructure the plan
  * implies but does not commission through routeToSinks: the storage->
@@ -657,26 +714,16 @@ export function infraSpawnLoad(
   // storage (`depotRoomCount`). Charging them unconditionally taxed early
   // worlds ~5-7% of the parts budget for infra that cannot exist there
   // (caught by grid cell plan-t1-single-source-loop on the first P4 gate).
-  // A LINK-FED depot's feeder leg shrinks to storage -> core link (spec 24
-  // rung 3, same controllerLink lens the corp reads): distance 1, ~1/6th
-  // the CARRY for the same relay. Priced like the original: one feeder
-  // detail for the depot room (multi-depot pricing arrives with expansion).
-  const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
-  // Spec 45 volley-service floor: a link-fed feeder must clear a full volley
-  // PER INBOUND SENDER in one parked cycle (see volleyServiceCarry) - the plan
-  // prices the same floor the corp fields (F1: price = behavior). Scaled by
-  // senders since the t72819265 A/B; `linkFedSenders` defaults to 1 so a
-  // caller that does not know the topology prices exactly as before.
-  const feederCarry =
-    linkFedRoomCount > 0
-      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry(linkFedSenders))
-      : carryPartsFor(relayRate, feederDist);
-  const feeder = depotRoomCount > 0 ? (2 * feederCarry) / effectiveLife(feederDist) : 0;
-  // 2 tankers x measured 24-part body, per depot room (owner ratchet
-  // 2026-07-22, priced WITH the fleet-cap cut - P5: price = behavior).
-  const TENDER_FLEET_PARTS = 48;
-  const tender = (depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME;
-  const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE (the full-budget live body - see RESERVER_DUTY)
+  // Priced like the original: one feeder detail for the depot room (multi-depot
+  // pricing arrives with expansion).
+  //
+  // COMPOSED from the per-corp terms above (spec 39 phase 4): this aggregate and
+  // the auxiliary commissions that each declare their own share are ONE
+  // derivation in two shapes. Reservers are linear in parts, so N per-room
+  // prices sum to the aggregate EXACTLY - which is what lets the identity test
+  // assert to 1e-12 instead of approximately.
+  const feeder = depotRoomCount > 0 ? feederSpawnLoad(relayRate, linkFedRoomCount > 0, linkFedSenders) : 0;
+  const tender = depotRoomCount * tenderSpawnLoad();
   // Priced at the SHIPPED duty cycle (P5, verified live 2026-07-18): the
   // corp coasts on the reservation bank, one stint per ~1080t. Holding this
   // at 1.0 after the fix shipped was pure phantom slack (owner: no standing
@@ -722,9 +769,10 @@ export function infraSpawnEnergy(
       ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry(linkFedSenders))
       : carryPartsFor(relayRate, feederDist);
   const feeder = depotRoomCount > 0 ? ((2 * feederCarry) / effectiveLife(feederDist)) * CARRY_MOVE_PER_PART : 0;
-  const TENDER_FLEET_PARTS = 48;
+  // The same two fleet constants the PARTS twin uses - hoisted to module scope
+  // by spec 39 phase 4 so the per-corp primitives, the parts aggregate and this
+  // energy aggregate all read one declaration instead of three copies.
   const tender = ((depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME) * CARRY_MOVE_PER_PART;
-  const RESERVER_PARTS_PER_ROOM = 4;
   const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
   return feeder + tender + reservers;
 }
@@ -757,8 +805,7 @@ export function reserverSpawnLoad(parts: number): number {
  */
 export function reserverRoomEnergy(): number {
   const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
-  const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE, the full-budget live body
-  return reserverSpawnLoad(RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
+  return roomReserverSpawnLoad() * CLAIM_MOVE_PER_PART;
 }
 
 /**

@@ -118,16 +118,46 @@ quantities wearing one name. Note the controller branch deliberately omits the
 vector *because it would double-count* — so the two branches of the same
 function disagree about whether the vector belongs.
 
-**GAP 2 — auxiliary corps declare a budget of ZERO.**
-`proposeHelpers.perRoomAuxiliaryCommission` hardcodes
-`consumes: { spawnPartsPerTick: 0 }` for every auxiliary kind. The colony's
-ledger *does* know the cost — it deducts `infraPartsPerTick` before the fill
-spends anything — but **no corp owns it**. The staged world proves it: 0.05 p/t
-of committed build-rate, deducted from the budget, belonging to no corp row.
+**GAP 2 — auxiliary corps declare a budget of ZERO. → CLOSED for the depot and
+remote kinds, 2026-08-06 (spec 39 phase 4).**
 
-That hole is exactly what `waste-ledger.planSpawnLoad` was written to fill by
-re-deriving. The second book is not a reporting whim — it is compensating for a
-sum that is structurally incomplete.
+`proposeHelpers.perRoomAuxiliaryCommission` hardcoded
+`consumes: { spawnPartsPerTick: 0 }` for every auxiliary kind. The colony's
+ledger *did* know the cost — it deducts `infraPartsPerTick` before the fill
+spends anything — but **no corp owned it**, which is exactly the hole
+`waste-ledger.planSpawnLoad` was written to re-derive.
+
+`infraSpawnLoad` is now DECOMPOSED into three per-corp primitives
+(`roomReserverSpawnLoad`, `tenderSpawnLoad`, `feederSpawnLoad`) which the
+aggregate itself composes, and reservation / tender / controllerFeeder each
+declare their own share. The invariant is pinned to **1e-12**:
+
+```
+SIGMA(auxiliary corp consumes) === infraSpawnLoad(relay, depots, remotes, linkFed)
+```
+
+Exact rather than approximate because `reserverSpawnLoad` is linear in parts, so
+N per-room prices sum to the aggregate's `N * parts` term identically.
+
+The aggregate does NOT go away, and that is deliberate: the solve needs the
+number before any auxiliary commission exists (`propose()` reads the draft, so it
+cannot run first). The circularity is real. What changed is that both sides now
+compose the same three primitives, so a drift fails a test instead of surfacing
+as a mystery variance.
+
+**A double-book bug fell out of doing it.** The tender and feeder kinds
+commission one corp per SPAWN room; `infraSpawnLoad` prices them per DEPOT room
+(`depotRoomCount`). Nobody had noticed because neither side was summed against
+the other. A pre-storage room therefore commissioned a depot mover the colony's
+ledger never charged for. Fixed by a `depotRooms` / `linkFedRooms` host lens on
+`ColonyProblem` (spec 17 P3's pattern, alongside `hostileRooms`), so both sides
+read the same fact; pinned by the "charges NOTHING for depot movers in a room
+with no storage" test.
+
+**STILL OPEN:** `scout`, `raidGuard`, `coreBuster` and `claim` declare 0 *and*
+are absent from `infraSpawnLoad` — outside BOTH books. `planSpawnLoad` prices
+guards anyway (0.98 e/t measured t72823437), so that class remains a second-book
+seam: budgeted by nobody, charged by the statement.
 
 **Both gaps are pinned** by the suite: GAP 1 as a ratio bound (so it cannot
 silently widen), GAP 2 as an explicit assertion that the ledger's infra is

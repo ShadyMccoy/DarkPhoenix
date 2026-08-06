@@ -45,6 +45,7 @@ import { constructionKind } from "../corps/kinds/constructionKind";
 import { record as blackBox } from "../telemetry/BlackBox";
 import { plan as governorPlan } from "./CpuGovernor";
 import { hostileRooms } from "../utils/RoomDiscovery";
+import { controllerLink } from "../corps/nodeEnergy";
 import type { CorpRegistry } from "./CorpRunner";
 
 /** Survives ticks, dies on global reset - rehydrated from Memory then. */
@@ -105,6 +106,37 @@ function registerKinds(): void {
  * read spawns + draft only); dist is same-room Chebyshev and NOT
  * cross-room-safe - kinds needing room distance use roomLinearDistance.
  */
+/**
+ * DEPOT lens (spec 39 phase 4): which rooms have a storage, and which of those
+ * are link-fed. The depot movers (tender, feeder) are priced per DEPOT room by
+ * `infraSpawnLoad` but proposed per SPAWN room by their kinds, so without this
+ * the corps' budget and the colony's deduction disagree in exactly the
+ * early-game rooms that have no storage yet.
+ *
+ * CACHED on a stride because `controllerLink` runs a `findInRange`, and
+ * `liveProblem` is rebuilt EVERY tick while the adapter computes the same fact
+ * once per solve (every 1500t). Recomputing it per tick would add a scan the
+ * plan already pays for elsewhere - the waste class this phase exists to remove.
+ * Structures change on the order of hundreds of ticks, so a 50-tick stride is
+ * far inside the resolution of anything that reads it.
+ */
+let depotCache: { tick: number; depotRooms: string[]; linkFedRooms: string[] } | null = null;
+const DEPOT_LENS_STRIDE = 50;
+
+function depotLens(): { depotRooms: string[]; linkFedRooms: string[] } {
+  if (depotCache && Game.time - depotCache.tick < DEPOT_LENS_STRIDE) return depotCache;
+  const depotRooms: string[] = [];
+  const linkFedRooms: string[] = [];
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room.storage) continue;
+    depotRooms.push(roomName);
+    if (controllerLink(room)) linkFedRooms.push(roomName);
+  }
+  depotCache = { tick: Game.time, depotRooms, linkFedRooms };
+  return depotCache;
+}
+
 function liveProblem(): ColonyProblem {
   const spawns: ColonyProblem["spawns"] = [];
   for (const name in Game.spawns) {
@@ -112,6 +144,7 @@ function liveProblem(): ColonyProblem {
     spawns.push({ id: s.id, pos: { x: s.pos.x, y: s.pos.y, roomName: s.pos.roomName } });
   }
   const expansionRoom = typeof Memory !== "undefined" ? Memory.expansion?.roomName : undefined;
+  const { depotRooms, linkFedRooms } = depotLens();
   return {
     spawns,
     sources: [],
@@ -119,7 +152,9 @@ function liveProblem(): ColonyProblem {
     dist: (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)),
     ...(expansionRoom ? { expansion: { roomName: expansionRoom } } : {}),
     freezes: { scouting: governorPlan().freezeScouting },
-    hostileRooms: [...hostileRooms()]
+    hostileRooms: [...hostileRooms()],
+    depotRooms,
+    linkFedRooms
   };
 }
 

@@ -245,6 +245,26 @@ export interface ColonyProblem {
   /** Rooms marked hostile by the vision-free defense lens (RoomDiscovery). */
   hostileRooms?: readonly string[];
   /**
+   * Rooms with a BUILT storage - the depot rooms (spec 39 phase 4). Host:
+   * Game.rooms[...].storage.
+   *
+   * The depot movers (tender, feeder) exist only where a depot does, which is
+   * exactly how `infraSpawnLoad` prices them - but their kinds propose one corp
+   * per SPAWN room. Without this lens a pre-storage room commissions a tender
+   * the colony's ledger never charged for, and the corps' sum stops
+   * reconciling with the deduction. The two must agree on which rooms have
+   * depots or the budget is two books again.
+   */
+  depotRooms?: readonly string[];
+  /**
+   * Depot rooms whose CONTROLLER has a link (spec 24 rung 3). Host:
+   * `controllerLink(room)` - the same lens the feeder corp and the adapter's
+   * `infraSpawnLoad` call both read. A link-fed feeder's leg is distance 1
+   * rather than 6, so its price differs ~6x; the corp must see the same fact
+   * the aggregate does.
+   */
+  linkFedRooms?: readonly string[];
+  /**
    * FIELDED-fleet actuals per commission corpId (spec 39 phase 2), assembled
    * by the host (CommissionHost.assembleFieldedFleets - the store owns the
    * runtime-id -> commission-id join) and threaded through the adapter. The

@@ -28,6 +28,7 @@
 import { Commission } from "../../economy/Commission";
 import { CorpKind, startedUnitDemandGroup } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
+import { roomReserverSpawnLoad } from "../../economy/primitives";
 import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/proposeHelpers";
 import { SerializedCorp } from "../Corp";
 import { ReservationCorp, SerializedReservationCorp } from "../ReservationCorp";
@@ -71,8 +72,15 @@ export const reservationKind: CorpKind<ReservationCorp> = {
     // ONE corp per NODE: bind each mined remote to its NEAREST home spawn within
     // scout range (deterministic tiebreak), so a remote reachable from two homes
     // gets exactly ONE reservation corp - never two fighting over one controller.
-    // Off-budget: reservers are an income MULTIPLIER (1500 -> 3000 on remote
-    // sources), priced by the SpawnDirector's value ranking, not the planner.
+    //
+    // ON-BUDGET since spec 39 phase 4: the corp declares the same per-room
+    // reserver price the colony's ledger already deducts as standing infra
+    // (`roomReserverSpawnLoad`, linear so N rooms sum to infraSpawnLoad's
+    // reserver term EXACTLY). It was 0 before, which did not make reservers
+    // free - it made them a cost the colony paid and no corp row owned, the
+    // biggest single line the statement had to re-derive (19.52 e/t measured
+    // at t72823437). The SpawnDirector's value ranking still decides WHEN to
+    // buy the body; this is what the plan BUDGETS for it.
     const commissions: Commission[] = [];
     for (const targetRoom of [...minedRemotes].sort()) {
       const home = homes
@@ -81,11 +89,17 @@ export const reservationKind: CorpKind<ReservationCorp> = {
         .sort((a, b) => a.d - b.d || a.room.localeCompare(b.room))[0];
       if (!home) continue;
       commissions.push(
-        perRoomAuxiliaryCommission("reservation", targetRoom, home.spawnId, {
-          roomName: home.room,
-          spawnId: home.spawnId,
-          targetRoom
-        } as ReservationAssignment)
+        perRoomAuxiliaryCommission(
+          "reservation",
+          targetRoom,
+          home.spawnId,
+          {
+            roomName: home.room,
+            spawnId: home.spawnId,
+            targetRoom
+          } as ReservationAssignment,
+          roomReserverSpawnLoad()
+        )
       );
     }
     return commissions;

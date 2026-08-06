@@ -260,14 +260,22 @@ describe("spec 47: the colony budget is the sum of the corp budgets", () => {
       expect(b.sigma + b.ledger.infra).to.be.greaterThan(b.sigma);
     });
 
-    it.skip("THE TARGET: standing infra is owned by auxiliary corps, not the ledger", () => {
-      // Un-skip when spec 39 phase 4 prices auxiliary commissions: the
-      // auxiliary corps' summed consumes must equal what the ledger deducts.
-      const b = budgetOf(WORLDS["standing infra charge"]());
-      const aux = b.commissions
-        .filter(c => c.shape === "auxiliary")
-        .reduce((s, c) => s + (c.consumes.spawnPartsPerTick || 0), 0);
-      expect(aux).to.be.closeTo(b.ledger.infra, 1e-9);
+    // CLOSED for the three DEPOT/REMOTE kinds by spec 39 phase 4 (2026-08-06):
+    // reservation, tender and controllerFeeder now declare the same per-corp
+    // primitives infraSpawnLoad composes, and the identity
+    //     SIGMA(auxiliary corps) === infraSpawnLoad
+    // is pinned to 1e-12 in test/unit/economy/auxiliaryBudget.test.ts.
+    //
+    // STILL OPEN - scout, raidGuard, coreBuster and claim declare 0 AND are
+    // absent from infraSpawnLoad, so they sit outside BOTH books. The audit's
+    // planSpawnLoad prices guards ("defense (guards)") anyway, which is the
+    // remaining second-book seam: a class the plan never budgets but the
+    // statement charges. Measured live t72823437: guards 0.98 e/t.
+    it.skip("THE REMAINING TARGET: the combat/scout kinds are budgeted too", () => {
+      // Un-skip when raidGuard/scout/coreBuster/claim price themselves AND
+      // infraSpawnLoad (or its successor) accounts for them, so no class is
+      // outside both books.
+      expect(false, "scout/raidGuard/coreBuster/claim still declare 0").to.equal(true);
     });
   });
 
