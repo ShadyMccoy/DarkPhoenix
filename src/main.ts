@@ -78,6 +78,8 @@ import { stashCompletedLedger } from "./telemetry/cpuLedgerCache";
 import { errRowCount, flush as blackBoxFlush, lastSpawnTick, record as blackBoxRecord } from "./telemetry/BlackBox";
 import { GovernorPlan, runGovernor } from "./execution/CpuGovernor";
 import { isPlanBudgetBoundary } from "./economy/primitives";
+import { isMonthBoundary } from "./economy/spawnSweep";
+import { onTick as fiscalArchiveTick } from "./telemetry/fiscalArchive";
 import { runWatchdogs } from "./telemetry/watchdogs";
 
 // =============================================================================
@@ -320,6 +322,18 @@ export const loop = ErrorMapper.wrapLoop(() => {
   if (!isAnalysisInProgress()) {
     bulkhead("resource-refresh", () => refreshNodeResourcesFromCache(colony!));
   }
+
+  // FISCAL MONTH HOOK - deliberately BEFORE planning, and outside the telemetry
+  // gate below. Two jobs (spec 45): refresh the handicap sweep's pure-side
+  // mirror, and at a month boundary advance the sweep and mark the archive
+  // snapshot owed.
+  //
+  // Order matters both ways. Before PLANNING, so the boundary tick's re-solve
+  // is the FIRST plan of the month it labels - stepping after it would give
+  // every month one plan priced at the previous month's handicap. Outside the
+  // TELEMETRY gate, so governor degradation delays a snapshot by a tick rather
+  // than losing the month.
+  bulkhead("fiscal-month", () => runFiscalMonth());
 
   // ===========================================================================
   // PHASE 2: PLANNING - Survey, Market, Plan
@@ -601,6 +615,36 @@ function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void 
  * dashboard only displays), and the segment flush. Runs EVERY tick, even
  * under full governor degradation - it is how the shedding is observed.
  */
+/**
+ * The fiscal-month tick hook (spec 45). On a month boundary it advances the
+ * handicap sweep and marks that an archive snapshot is owed; every other tick it
+ * is a single modulo.
+ *
+ * The controller reading it passes is the sweep's ACCELERATION input: the sweep
+ * races RCL 8 only when the home room is level 7, and it projects the arrival
+ * from the colony's own measured progress rate between month boundaries. The
+ * HIGHEST owned controller is the home room by construction here (the colony
+ * runs one owned room; a second would be a fresh claim well below it).
+ */
+function runFiscalMonth(): void {
+  // The controller scan is boundary-only; the hook itself runs every tick
+  // because it also refreshes the sweep's pure-side mirror (heap state, empty
+  // after a global reset) BEFORE the planner reads the margin.
+  let home: StructureController | undefined;
+  if (isMonthBoundary(Game.time)) {
+    for (const roomName in Game.rooms) {
+      const c = Game.rooms[roomName].controller;
+      if (!c?.my) continue;
+      if (!home || c.level > home.level) home = c;
+    }
+  }
+  fiscalArchiveTick(Game.time, {
+    rcl: home?.level,
+    rclProgress: home?.progress,
+    rclProgressTotal: home?.progressTotal
+  });
+}
+
 function runFlightRecorder(): void {
   let alerts: ReturnType<typeof runWatchdogs> = [];
   if (Game.time % 10 === 0) {

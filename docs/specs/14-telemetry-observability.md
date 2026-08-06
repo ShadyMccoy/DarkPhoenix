@@ -9941,3 +9941,118 @@ ticks, on both leg-A and pre-leg-A source, while the baseline says green. It
 regressed at some earlier commit - unbisected. It is a link-placement rung, so
 it sits directly upstream of the deposit-port work and should be bisected
 before more link/port behaviour is layered on top.
+
+## Cycle t72823437 — the handicap reversion VERIFIED, and the sweep that replaces arguing about the number
+
+**Owner steer:** *"We used to have a spawn capacity handicap of 10% for the
+planner. When I lifted that, I feel like the economy got overheated, and it's no
+longer able to execute everything that it wants to due to various little
+inefficiencies."*
+
+**The instinct is confirmed by measurement, and this cycle is that
+verification.** The 1.0 lift was reverted on 2026-08-05 on its own registered
+criteria; this is the first full-window read of the colony afterwards, and it is
+the post-deploy verification that reversion never got:
+
+```
+                        lifted (1.0)                    reverted (0.9)
+                        t72798237-t72800193             t72823437
+spawn utilization       0.97-0.98, queue depth 4-8      0.64   (S3 "not a stall")
+forgone mining          8-20 -> 44.5 e/t (5 months)     9.71 e/t
+P4 plan-infeasibility   0.83-0.91x                      0.73x
+X5 rebuild churn        elevated                        0% (0e of 27,500e)
+S5 surge margin         none                            0.63x physical, 37% margin
+F2 / F3 fidelity        38 of 84 parts on W45N25        0.26 / 0.09
+```
+
+Every registered prediction of the reversion deploy landed: util ≤0.93 (0.64),
+queue ≤3 (S3 clear), F2/F3 gaps closed on surviving routes, forgone+decay back
+under ~15 (9.71 + 11.65 pile decay, with pile decay now the TOP LINE). The
+energy account balances to a RESIDUAL of **−2.07 e/t, 2% of gross mining** —
+against the 14%-of-gross first baseline of 2026-08-01.
+
+Cycle verdict: **verified.** The owner's hypothesis was right, the constant's
+own reversion protocol worked, and the colony recovered.
+
+### What the cycle then BUILT: spec 45, the sweep
+
+The owner's real ask was not to re-litigate 0.9 vs 1.0 but to **measure the
+curve between them**, unattended: 1% of handicap per fiscal month, 0→20, income
+statements for every month, bot-driven, no redeploy, cycling forever.
+
+Two things had to be true that were not:
+
+**1. The handicap had to become the bot's, safely.** `SPAWN_PLAN_FRACTION` is
+now the DEFAULT and the fail-safe rather than the operative number;
+`economy/spawnSweep` owns the walk. The design rule that matters: **it never
+self-arms.** Absent `Memory.spawnSweep`, the margin resolves to 0.9 — so the
+grid, the sims and the unit suite are untouched by the experiment's existence,
+and a wiped Memory fails safe to the measured-good value rather than to the 1.0
+that overheated the colony. Arming is one deliberate write (`npm run
+sweep:arm`); every step after it is the bot's.
+
+The spec-17 purity ratchet caught a real defect here and is worth recording:
+`economy/primitives` resolves the margin, and primitives is PURE, so a
+Memory-reading sweep would have contaminated the planning core. The state moved
+to the adapter (`telemetry/fiscalArchive`) with a pure mirror refreshed every
+tick BEFORE planning. The month hook also runs before the planning phase, so a
+boundary tick's re-solve is the first plan OF the month it labels — otherwise
+every month would carry one plan priced at the previous month's handicap.
+
+**2. An unattended fiscal month had to be closeable.** It was not. `fiscal-close`
+brackets a month with the committed CAPTURES nearest its ends; with nobody
+capturing for ~31,500 ticks, most of the sweep's months would have been
+unclosable — permanently, the record being append-only. `telemetry/fiscalArchive`
+(segments 8–9) has the bot snapshot its own boundaries into a Memory-backed ring,
+so ONE capture at the end recovers every month, at ~100% coverage by construction
+rather than the approximation a capture-bracketed close has always been.
+
+### The finding worth carrying forward: the ACTUAL side lied first
+
+The archive's acceptance test prunes two real captures, rehydrates them, and
+compares the resulting ENERGY ACCOUNT against the one built from the full
+captures. The first version passed the whole ACTUAL column on the first attempt
+and got the BUDGET column badly wrong — evacuation, reservation, defense and
+consumers all read a confident **0.00**, and NET MINING MARGIN was off by 28 e/t.
+
+Four fields were responsible, all budget-side: the plan's hauler rows, the link
+meter plus the hauler `port` flag (a POSITION, not a boolean — a `=== true` test
+silently zeroed the deposit-port term), the non-harvest corps the budget prices
+its fleet lines from, and source `nodeId` (9 remotes read as 11).
+
+**The general lesson: a pruned telemetry snapshot naturally preserves what is
+MEASURED and drops what is PLANNED**, because the measured side is a handful of
+cumulative counters while the plan is a wide structure. For an experiment whose
+whole intervention acts on the plan, that bias is fatal and invisible — the
+report still renders, still balances, and is simply wrong. Any future snapshot,
+projection or fixture-pruning needs a round-trip against the real report before
+it is trusted, not a field-list review.
+
+### Registered predictions for the sweep
+
+Sequenced so the sweep stays attributable: the reversion's own verification is
+DONE (above), so the sweep starts from a known-good 0.9 baseline.
+
+- **P-1** Arming at 0% re-enters the overheated regime for one month by design —
+  it is the control. Expect utilization back toward 0.95+, forgone mining rising,
+  and 1–2 marginal remotes admitted that cannot be staffed.
+- **P-2** Admitted source count falls monotonically (with noise) as the handicap
+  climbs; the excluded-capacity line is the direct readout.
+- **P-3** Forgone mining + pile decay is minimised somewhere in 5–15%, not at 0%.
+  If the minimum sits at 0%, the overheating story is wrong and the reversion
+  bought its recovery some other way.
+- **P-4** Controller delivery is the NOISIEST of the four signals and must not
+  be read on a single month — the bank cycle is ~6 months long.
+
+Falsification design: the sweep CYCLES precisely so each handicap is re-sampled
+at a different bank phase. A handicap that looks good in cycle 0 and bad in
+cycle 1 is measuring drift, not the handicap.
+
+### Honest limits recorded up front
+
+The ramp is confounded with time — road completion, RCL progress and a draining
+construction backlog all trend monotonically alongside it. One month per handicap
+per cycle is a phase sample, not a rate. And the sweep does not FIX the
+mispricing it measures: the standing successor is unchanged — price measured
+per-route replacement overhead into admission, after which the margin is
+redundant rather than merely tuned.

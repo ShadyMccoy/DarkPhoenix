@@ -60,9 +60,10 @@ One hypothesis at a time; design the next capture to falsify it.
 ## 0. Instruments (all reads, no Memory pulls needed)
 
 ```
-SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,4,5,6
+SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,3,4,5,6,8,9
 npm run audit:ledger        # ENERGY ACCOUNT + SOURCE P&L + spec 15 leak ledger
-npm run fiscal:close        # spec 41: write any newly-crossed fiscal period to docs/fiscal/
+npm run fiscal:close        # spec 41: write any newly-crossed fiscal period from CAPTURES
+npm run fiscal:archive      # spec 45: close months from the BOT'S OWN boundary archive
 ```
 
 - Segment 0 (core): `bodyParts` (actual, colony), `rooms[]` ledger
@@ -79,6 +80,11 @@ npm run fiscal:close        # spec 41: write any newly-crossed fiscal period to 
 - Segment 6 (flow): GOAL plan — `sources[].workParts`, `haulers[].carryParts`,
   sink `workParts`, and `candidates[]` (per-source funding verdicts with
   net/tax pricing).
+- Segments 8/9 (fiscal archive, spec 45): the bot's OWN month-boundary
+  snapshots. This is how an UNATTENDED period stays closeable - `fiscal:close`
+  needs captures bracketing each month, and nobody is capturing every 1500
+  ticks. Also carries `sweep`, the live handicap: read it to know which
+  spawn-margin the window you are auditing actually ran at.
 - Prior captures: `test/fixtures/telemetry/` (committed baselines).
   Segment 5 (blackbox) and 3 (intel raid fields) via `--segments 3,5` when
   churn/raid history is needed.
@@ -273,7 +279,7 @@ itself; the loop's value is the delta between captures.
 
 ## Capture discipline (learned 2026-08-01, the hard way)
 
-**Always capture `--segments 0,3,4,5,6`.** A `0,6` capture reads the plan fine
+**Always capture `--segments 0,3,4,5,6,8,9`.** A `0,6` capture reads the plan fine
 mid-deploy, but it carries no blackbox ring — and without the ring every
 "measured at the spawn" line in the ENERGY ACCOUNT reads **0.00** rather than
 going absent. A cycle that mixed the two produced a fiscal close reporting a

@@ -44,6 +44,7 @@ import { updateNodesTelemetry, updateEdgesTelemetry } from "./spatialSegments";
 import { updateIntelTelemetry } from "./intelSegment";
 import { updateCorpsTelemetry } from "./corpsSegment";
 import { updateFlowTelemetry } from "./flowSegment";
+import { takeIfPending } from "./fiscalArchive";
 
 // The frozen public surface: the phase-H split moved each piece to its own
 // module; this facade re-exports them so every importer (index.ts, tests,
@@ -137,6 +138,11 @@ export class Telemetry {
 
     // Update flow telemetry (sources, sinks, allocations)
     updateFlowTelemetry(flowSolution);
+
+    // FISCAL ARCHIVE (segment 8) - LAST, and deliberately so: it snapshots a
+    // month boundary by copying out of the segments written just above, so the
+    // archive can never carry a number the live capture would not.
+    takeIfPending();
   }
 }
 

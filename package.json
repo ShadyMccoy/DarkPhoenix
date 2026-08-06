@@ -51,6 +51,8 @@
     "audit:ledger": "ts-node -P tsconfig.test.json scripts/waste-ledger.ts",
     "audit:report": "ts-node -P tsconfig.test.json scripts/audit-report.ts",
     "fiscal:close": "ts-node -P tsconfig.test.json scripts/fiscal-close.ts",
+    "fiscal:archive": "ts-node -P tsconfig.test.json scripts/fiscal-archive.ts",
+    "sweep:arm": "ts-node -P tsconfig.test.json scripts/arm-sweep.ts",
     "budget": "ts-node -P tsconfig.test.json scripts/budget.ts",
     "haul:trace": "ts-node -P tsconfig.test.json scripts/haul-trace.ts",
     "haul:vs:link": "ts-node -P tsconfig.test.json scripts/haul-vs-link.ts",

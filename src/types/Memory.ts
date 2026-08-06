@@ -432,6 +432,39 @@ declare global {
     };
 
     /**
+     * THE HANDICAP SWEEP (economy/spawnSweep, owner 2026-08-06). The planner's
+     * spawn-capacity margin, walked 0%..20% one step per fiscal month so each
+     * month's income statement describes exactly one handicap.
+     *
+     * ABSENT MEANS UNARMED, and that is the safety property: every grid cell,
+     * sim and unit test - and a live colony whose Memory was wiped - falls back
+     * to the static SPAWN_PLAN_FRACTION (0.9, measured-good), never to the 1.0
+     * that overheated the colony on 2026-08-04.
+     */
+    spawnSweep?: {
+      pct: number;
+      step: number;
+      lastBoundary: number;
+      cycle: number;
+      lastProgress?: number;
+      stepReason?: string;
+    };
+
+    /**
+     * THE FISCAL ARCHIVE (telemetry/fiscalArchive, spec 45). A ring of
+     * month-boundary accounting snapshots the bot takes itself, published to
+     * segment 8, so an unattended fiscal month is still closeable long after it
+     * ended. Memory-backed for the same reason as lossLedger and spawnLedger
+     * above: heap state is bounded by VM lifetime (~480t), which is shorter
+     * than the 1500-tick month it would have to survive.
+     */
+    fiscalArchive?: {
+      recs: Record<string, unknown>[];
+      pending?: number;
+      dropped?: number;
+    };
+
+    /**
      * Death watch (telemetry/LossMeter): each own creep's last-seen TTL as
      * `[ttl, tick]`, sampled on the loss stride. A dead creep's object has no
      * ticksToLive, so tombstone cause (expired vs killed) is resolvable only

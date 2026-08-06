@@ -15,6 +15,10 @@
  * @module economy/primitives
  */
 
+// The ONE non-constant input to this module: the handicap sweep's latched
+// margin. spawnSweep is itself a leaf (imports nothing), so this cannot cycle.
+import { currentHandicapPct } from "./spawnSweep";
+
 // ---------------------------------------------------------------------------
 // Screeps ground-truth constants - the founding numbers every formula below
 // derives from. Homed HERE (spec 35 phase B inverted the audited debt: this
@@ -913,13 +917,30 @@ export function energyPerSpawnPart(rate: number, distance: number): number {
 export const SPAWN_PLAN_FRACTION = 0.9;
 
 /**
+ * The margin ACTUALLY in force this tick.
+ *
+ * `SPAWN_PLAN_FRACTION` above is the DEFAULT and the fail-safe. When the
+ * handicap sweep is armed (economy/spawnSweep, owner 2026-08-06) the experiment
+ * owns this number instead and walks it 0%..20% one step per fiscal month. An
+ * unarmed colony - every grid cell, every sim, every unit test, and a live
+ * colony whose Memory was wiped - resolves to 0.9, the measured-good value.
+ *
+ * Deliberately the ONLY seam between the experiment and the planner: nothing
+ * else in the economy reads the sweep.
+ */
+export function spawnPlanFraction(): number {
+  const pct = currentHandicapPct();
+  return pct === undefined ? SPAWN_PLAN_FRACTION : 1 - pct / 100;
+}
+
+/**
  * Parts/tick the PLANNER may budget across `spawnCount` spawns - the ONE lens
  * every plan-side capacity read derives from, so the whole plan shrinks
  * uniformly (mining tranche and sink fill alike) rather than one tranche
  * eating the margin.
  */
 export function plannableSpawnParts(spawnCount: number): number {
-  return spawnCount * SPAWN_PARTS_PER_TICK * SPAWN_PLAN_FRACTION;
+  return spawnCount * SPAWN_PARTS_PER_TICK * spawnPlanFraction();
 }
 
 /**

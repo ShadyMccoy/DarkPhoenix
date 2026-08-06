@@ -65,7 +65,9 @@ const SEGMENT_LABELS: Record<number, string> = {
   4: "corps",
   5: "blackbox",
   6: "flow",
-  7: "haulTrace"
+  7: "haulTrace",
+  8: "fiscal",
+  9: "fiscal2"
 };
 const ALL_SEGMENTS = [0, 1, 2, 3, 4, 5, 6];
 
