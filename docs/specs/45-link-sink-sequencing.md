@@ -361,6 +361,69 @@ never silently hold every harness case.
   line that worsened last window and the reason this leg matters beyond the
   gauges.
 
+### VERDICT (measured t72808131, 111t post-deploy link window)
+
+The link meter resets with the global reset, so its 111-tick window is
+entirely post-deploy — the clean read. The ECONOMY window (565t) straddles
+the deploy and is ~80% pre-deploy data; nothing below is attributed to leg 4
+from it.
+
+```
+                   t72804439  t72805426  t72807566   t72808131
+  window              1600t       249t       249t        111t
+  hubClampShare       0.448      0.625      0.296      0.154   <- leg 4's target
+  coreCongestedShare  0.256      0.116      0.068      0.036   <- monotone, 4/4
+  coreEmptyShare      0.370      0.276      0.348      0.652
+  coreFillAvg         306.9      252.2      227.1      123.9
+  hubVolleyAvg        435.7      500.3      459.3      445
+  toHubRate           44.38      48.22      49.80      52.12
+  toControllerRate    29.36      64.22      51.63      25.81   <- see caveat
+```
+
+- **`hubClampShare` 0.296 → 0.154: CONFIRMED** (−48%, above the ±30%
+  single-draw noise floor and therefore citable). Cumulative across legs
+  1–4: 0.625 → 0.154, −75%.
+- **`hubVolleyAvg` 459 → 445: REFUTED.** Predicted UP; it went slightly
+  down. The mechanism is in the table above and it matters more than the
+  miss: `coreEmptyShare` went 0.348 → **0.652**. The core link is empty two
+  thirds of the time, so the whole payload virtually always fits and the
+  discipline almost never has to hold. Volley size is set by
+  `LINK_FIRE_THRESHOLD`, not by holding. **Leg 2's pre-drain removed the
+  very constraint leg 4 was written to wait out** — the two legs are
+  partially redundant, and leg 4 is now a safety net catching the residual
+  15% of fires rather than the primary mechanism. Worth knowing before
+  anyone tunes the discipline: there is little left for it to do.
+- **`toHubRate` 49.8 → 52.12: CONFIRMED** in direction (+4.7%), but +4.7% is
+  well under the measured ±20-30% single-draw variance — it is NOT a
+  citable throughput claim on one window.
+- **`FALSIFIER`: NOT tripped.** It required volleys UP while throughput
+  FELL. Observed: volleys flat-to-down, throughput up. The discipline is not
+  over-holding.
+- **E6 held mouths / forgone mining: SPLIT, and the headline number is
+  mostly an artifact.** Forgone fell 17.50 → 0.93, but `forgone = capacity −
+  mined` and CAPACITY re-based 120 → 105 when two sources defunded
+  mid-window (P1 flap). Decomposed:
+
+  ```
+    forgone Δ  −16.57  =  capacity Δ −15.00  +  mined Δ +1.57
+                          (90% denominator)     (10% real)
+  ```
+
+  Measured mined per window: 97.25 → 102.50 → **104.07** e/t — genuinely up
+  +1.57, which is the real and modest win. `heldFracSum` went 2.51 → 2.42
+  across 13 harvest corps: **flat**, so "held mouths down" is not
+  confirmed. Do not quote the forgone line as a leg-4 result.
+
+`toControllerRate` halved (51.63 → 25.81) and that is the one number worth
+NOT reading yet: across the four captures it has gone 29 → 64 → 52 → 26,
+i.e. it swings by 2x between adjacent windows with no code change. A 111t
+sample of a gauge that volatile is not evidence. If it is still at half
+after a full 1500t window, the hypothesis to test first is that the feeder's
+pre-drain (leg 2) empties the core below `LINK_FIRE_THRESHOLD` before the
+core→CTRL relay can ever fire, routing the link network to the BANK instead
+of the CONTROLLER — 79% of controller-link receipts come via that relay
+(`directShare` 0.209).
+
 **DEPLOYED 2026-08-06** (branch `master`, 298K bundle). Gate at deploy:
 unit 2131 passing, `npm run build` clean, and the trio green —
 `flow-handoff`, `storage-depot`, and `runt-economy` (upsize proven at tick
