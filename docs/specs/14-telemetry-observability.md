@@ -9657,3 +9657,97 @@ still the owner's call.
 
 **Cycle verdict: INSTRUMENTED — a confirmed prediction re-attributed to the
 opposite cause, with the A/B that settles it already running.**
+
+## Cycle t72812126 — the spawn is the wall, and haul EFFICIENCY is the only lever left
+
+**Window** 443t, methodology #13.
+
+### First, a correction I owe two previous cycles
+
+I withheld the income statement at t72811683 and t72812126 on the grounds that
+the blackbox ring was thin after a deploy. **That was wrong.** Spec 42 already
+solved this: `spawnLedger` publishes CUMULATIVE spend by role into Memory, and
+the account differences two captures (`spawnSpanned`), so every "measured at
+the spawn" line spans the FULL capture window regardless of resets. Verified
+monotonic across all three captures. The ring only bounds the per-corp SOURCE
+P&L and X5 churn. **Two statements were readable and I did not print them.**
+
+### The targets, now that they print
+
+```
+  TARGETS
+    forgone mining                     3.59 e/t   target ~0   close
+    net energy = mined 96.41 - fleet 32.17 = 64.24 e/t
+    controller / net                   27%   target >=50%   MISS
+    ...INCOME-FUNDED only              27%   target >=50%   MISS
+```
+
+**Forgone is nearly fixed: 24.13 → 3.59.** Mining is not the problem any more.
+The controller is: 48.60 → **17.34 e/t**, 27% of net against a 50% bar.
+
+### Where the energy goes instead: it rots at the mouths
+
+```
+  ground pile decay        18.17 e/t   (was 8.80)   avg 9.8 piles standing
+  E6  5 of 10 miner ops deferred, ALL CHRONIC:
+      cee0 4220 held 84%   cedc 4000 held 100%   cee2 4404 held 69%
+      cd94 3002 held 89%   d01f 2684 held 97%
+```
+
+18.17 e/t is **19% of gross mining** burning on the ground — the largest single
+line in the account and L1's top line at 72x its (zero) budget.
+
+### And the spawn cannot buy its way out
+
+```
+  S5  building 0.639 p/t of 0.667 physical  =  96% of ceiling, 4% surge margin
+  F1  haulers 0.414 p/t vs 0.312 planned    =  ALREADY over-building haulers
+```
+
+This is the finding that reframes the work. The colony is **already spending
+its spawn on haulers above plan and is at 96% of the physical ceiling**, and
+the piles grow anyway. So hauling capacity **cannot be bought** — there is no
+spawn left to buy it with.
+
+The only remaining lever is haul EFFICIENCY: the same delivered energy for
+fewer CARRY parts. That is exactly what deposit ports do (DEP: 80 e/t over 8
+routes, ~990 tile·e/t, **31.8 CARRY parts = 16%** of the source-route fleet),
+and exactly why the owner's edge links matter — they are not a nicety, they are
+the only affordable path to the controller target while S5 is at 0.96.
+
+**The causal chain, end to end:**
+
+```
+  spawn at 96% ceiling  ->  no more hauling can be bought
+      ->  5 of 10 mouths chronically over cap
+          ->  18.17 e/t rots on the ground
+              ->  controller gets 17.34 (27% of net, target 50%)
+```
+
+### The feeder meter's first reading (shipped last cycle)
+
+`movedPerTick 131.28`, `moveActiveFrac 0.481` on the 32-CARRY pair — about
+**65 e/t per feeder**, idle half the time. Against the stamped `coreDrain` of
+80 e/t that says a SINGLE 16-CARRY feeder sits right at the edge of
+sufficiency, which fits the A/B's premise. The 48% idle is not waste: spec 45
+already rules that a service creep's idleness between volleys is the price of
+hauler duty.
+
+**The A/B has NOT run yet** — `feeders` is still 2 at all three captures; the
+pair has not aged out. `coreEmptyShare` 0.565 and `hubClampShare` 0.091 are
+holding meanwhile.
+
+### Methodological note: stop deploying every cycle
+
+The link meter and port meter are heap-resident and DO reset on a global
+reset. Deploying on three consecutive cycles reset them three times, which is
+why several gauges only ever report 90-450 tick windows. The account survives
+(cumulative), the gauges do not. **Deploy when there is something to ship, not
+once per audit** — the instrument needs quiet windows more than it needs
+patches.
+
+**Cycle verdict: DIAGNOSED — forgone essentially fixed (24.13 → 3.59), and the
+controller shortfall re-attributed to a spawn ceiling that makes haul
+efficiency the only affordable lever.** No code shipped: the diagnosis says
+buy nothing, and the fix it points to (deposit ports / edge links) is already
+the standing plan.
