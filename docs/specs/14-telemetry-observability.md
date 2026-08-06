@@ -9583,3 +9583,77 @@ score, not the instrument).
 **Cycle verdict: REFUTED-BUT-ATTRIBUTABLE + a self-inflicted regime change
 named with data.** No code shipped: the fix under test has not had a chance to
 act, and the one thing worth changing is the owner's own pinned directive.
+
+## Cycle t72811683 — THE DOUBLE-ORDER BUG WAS DOING REAL WORK
+
+**Window** 393t from t72811290. The blackbox ring covers only **93 ticks**
+post-reset with 7 receipts, so the ENERGY ACCOUNT's "measured at the spawn"
+lines are not quotable this cycle — per the capture discipline, stated rather
+than printed off seven receipts. Everything below is plan-side or stamp-side
+and does not depend on the ring.
+
+### The link congestion cleared completely
+
+```
+                          1 feeder (16 CARRY)    2 feeders (32 CARRY)
+  coreEmptyShare              0.279..0.375            0.598
+  coreFillAvg                 178..233                 91.1
+  hubClampShare               0.275..0.296            0.000
+  portWaitFrac (fleet)        0.228                   0.000
+```
+
+Fleet-wide **zero waits across 127 port deposits**, and zero clamped hub
+volleys. That is the registered `portWaitFrac -> 0` prediction confirmed.
+
+### But NOT by the container — by the bug I just fixed
+
+A container DID finish in this window (sites 2 → 1, remaining 8135 → 1535).
+It is not what did this: `portWaits 0` **and** `portFallbacks 0` mean the port
+link never filled, so **the buffer was never asked to absorb anything.**
+
+What changed is that the core is being drained by **two** feeders instead of
+one — the double-order from last cycle. **Port congestion was DOWNSTREAM of
+the core drain all along**: a port link empties by firing into the core, so a
+core that always has room means a port that never backs up. The container
+addressed a symptom one level below its cause.
+
+The double-order was a bug in the staffing lens, and it was also, accidentally,
+the correct fleet size.
+
+### The consequence I am walking into deliberately
+
+`staffedFeeders()` (deployed t72811290) stops the double-order. **When the
+current pair ages out, the fleet returns to one 16-CARRY feeder and this gain
+should revert.** That is a live regression I am choosing NOT to pre-empt,
+because it is the cleanest A/B this program has been handed: the fleet size
+changes on its own clock with nothing else moving.
+
+**Registered prediction:** as `feeders` 2 → 1, `coreEmptyShare` falls back
+toward 0.3, `hubClampShare` returns toward 0.28, `portWaitFrac` toward 0.2.
+**If it does, the feeder's sizing law is under-stated and that is the fix.**
+If it does NOT, the second feeder was coincidental and the real cause is
+elsewhere — in which case do not raise the floor.
+
+### Why the sizing law is suspect but NOT yet changed
+
+`volleyServiceCarry()` floors the feeder at 16 CARRY on the premise that it
+"clears one full LINK_CAPACITY volley in ONE parked withdraw+transfer cycle" —
+about **400 e/t** against a stamped `coreDrain` of **80 e/t**. A 400 e/t body
+cannot be the binding constraint on an 80 e/t drain, so the LAW is probably not
+what is wrong: the **execution** is, and nothing measured it.
+
+Shipped this cycle instead of a constant change: a feeder **throughput meter**
+(`movedPerTick`, `moveActiveFrac`) on the same 1500t rolling window as the duty
+meter. Next window says whether the feeder achieves anything like its parked
+cycle, which localises the gap to the run loop (travel, mode flapping, the
+controller leg) rather than leaving the constant to be guessed at twice.
+Telemetry-only: unit 2156, build clean.
+
+### Standing state
+
+Controller sink demand still **0.00** (wartime, 1535e of container left);
+storage 127125 → 123710. The spec-48 gross-vs-net question is unchanged and
+still the owner's call.
+
+**Cycle verdict: INSTRUMENTED — a confirmed prediction re-attributed to the
+opposite cause, with the A/B that settles it already running.**

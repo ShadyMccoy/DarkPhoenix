@@ -48,6 +48,11 @@ import { bankFedControllerRate, resolveReserveTarget } from "../economy/bank";
 
 export interface SerializedControllerFeederCorp extends SerializedSpawnAnchoredCorp {
   controllerAllocation?: number;
+  /** Throughput meter (rolling ~1500t window, survives resets). */
+  moveEnergy?: number;
+  moveActive?: number;
+  moveAlive?: number;
+  moveSince?: number;
 }
 
 /**
@@ -129,6 +134,26 @@ export function feederRelayTarget(surplusRate: number, planFlow: number | undefi
 export class ControllerFeederCorp extends SpawnAnchoredCorp {
   /** The plan's controller-side flow (commission-owned, refreshed every round). */
   private controllerAllocation?: number;
+  /**
+   * THROUGHPUT METER (measured t72811683). `volleyServiceCarry()` floors the
+   * body at 16 CARRY on the premise that it "clears one full LINK_CAPACITY
+   * volley in ONE parked withdraw+transfer cycle" - i.e. ~400 e/t. The live
+   * numbers refuse that: with ONE 16-CARRY feeder the core ran fill 178-233,
+   * `hubClampShare` 0.28-0.30 and fleet `portWaitFrac` 0.228; with TWO
+   * (32 CARRY, from the double-order this session fixed) it ran fill 91,
+   * clamp 0.000, waitFrac 0.000. A 400 e/t body cannot be the binding
+   * constraint on an 80 e/t drain, so the SIZING LAW is not what is wrong -
+   * the EXECUTION is, and nothing measured it.
+   *
+   * So: energy actually moved, and the share of alive ticks it moved
+   * anything. Throughput below the parked-cycle premise localises the gap to
+   * the run loop (travel, mode flapping, waiting on the controller leg)
+   * instead of leaving the constant to be guessed at a second time.
+   */
+  private moveEnergy = 0;
+  private moveActive = 0;
+  private moveAlive = 0;
+  private moveSince = 0;
 
   public constructor(nodeId: string, spawnId: string, customId?: string) {
     super("moving", nodeId, spawnId, customId);
@@ -196,7 +221,26 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     // controller directly, so a dead feeder never starves upgrading.
     stampControllerFeederRegime(room.memory, !!(room.storage && room.storage.my) && feeders.length > 0);
 
-    for (const creep of feeders) this.runFeeder(creep, controller, depot);
+    if (tick - this.moveSince >= 1500) {
+      this.moveEnergy = 0;
+      this.moveActive = 0;
+      this.moveAlive = 0;
+      this.moveSince = tick;
+    }
+    for (const creep of feeders) {
+      const before = creep.store[RESOURCE_ENERGY] ?? 0;
+      this.runFeeder(creep, controller, depot);
+      // Intents resolve at end of tick, so the store still reads pre-action
+      // here; measure the DELTA against last tick's snapshot instead (creep
+      // memory, so it survives a global reset like the duty meter does).
+      const prev = (creep.memory as { feederLast?: number }).feederLast;
+      if (prev !== undefined && prev !== before) {
+        this.moveEnergy += Math.abs(before - prev);
+        this.moveActive += 1;
+      }
+      (creep.memory as { feederLast?: number }).feederLast = before;
+      this.moveAlive += 1;
+    }
   }
 
   /**
@@ -500,7 +544,15 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
       ...(volleyFloor > 0 ? { volleyFloor, inboundSenders } : {}),
       neededCarry,
       wantedFeeders,
-      feeders
+      feeders,
+      // Throughput vs the parked-cycle premise the volley floor assumes.
+      ...(this.moveAlive > 0
+        ? {
+            movedPerTick: Math.round((this.moveEnergy / this.moveAlive) * 100) / 100,
+            moveActiveFrac: Math.round((this.moveActive / this.moveAlive) * 1000) / 1000,
+            moveMeterTicks: ctx.tick - this.moveSince
+          }
+        : {})
     };
     if (feeders >= wantedFeeders) return [];
     const carry = Math.min(neededCarry, maxCarry);
@@ -557,11 +609,22 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
   }
 
   public serialize(): SerializedControllerFeederCorp {
-    return { ...super.serialize(), controllerAllocation: this.controllerAllocation };
+    return {
+      ...super.serialize(),
+      controllerAllocation: this.controllerAllocation,
+      moveEnergy: this.moveEnergy,
+      moveActive: this.moveActive,
+      moveAlive: this.moveAlive,
+      moveSince: this.moveSince
+    };
   }
 
   public deserialize(data: SerializedControllerFeederCorp): void {
     super.deserialize(data);
     this.controllerAllocation = data.controllerAllocation;
+    this.moveEnergy = data.moveEnergy ?? 0;
+    this.moveActive = data.moveActive ?? 0;
+    this.moveAlive = data.moveAlive ?? 0;
+    this.moveSince = data.moveSince ?? 0;
   }
 }
