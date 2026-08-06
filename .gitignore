@@ -107,3 +107,19 @@ test/fixtures/snapshots/
 test/grid/last-run.json
 # grid:full per-world verdicts, merged then discarded (scripts/grid-full.sh)
 test/grid/.batch-verdicts/
+
+# ---------------------------------------------------------------------------
+# TELEMETRY CAPTURES ARE SCRATCH BY DEFAULT (owner 2026-08-06: "I don't wanna
+# check in because it's just gonna explode the size of the repo").
+#
+# Every audit cycle writes one, and they had been committed by habit: 342 files
+# / 38MB, of which exactly 19 were referenced by any test. A capture is 60K
+# median and up to 512K, so a few cycles a day compounds fast.
+#
+# Already-tracked fixtures are UNAFFECTED - git only ignores untracked files -
+# so the pinned set a test names stays pinned. To add a genuinely new one,
+# `git add -f` it, which is the right amount of friction: it should be a
+# deliberate act tied to a test that reads it, not a side effect of running
+# the audit.
+# ---------------------------------------------------------------------------
+test/fixtures/telemetry/*.json
