@@ -298,3 +298,65 @@ trip it.
 - NOT predicted to move: H1's `enRoute` 0.21. That is spec 47's un-localized
   approach-lane signal and it is a DIFFERENT failure; if it falls anyway,
   the two were coupled and that is itself a finding.
+
+
+## Leg 4 — FULL-VOLLEY DISCIPLINE + THE SENDER QUEUE (owner 2026-08-06)
+
+*"Generally speaking if the tender is big enough it's always a better idea to
+hold the volley until you can send a full volley. And even then there may be
+a queue so n>1 links don't blockade each other."*
+
+Two defects, one principle — the engine charges `cooldown += LINK_COOLDOWN *
+range` IN FULL however little moves, so a partial volley IS the waste.
+
+**A. The threshold gate was far too weak.** `routeSourceVolley` step 2 banked
+to the core whenever it had merely `threshold` (100) free, so a link holding
+800 fired 100 and spent its ENTIRE cooldown on an eighth of a volley — then
+needed a second full cooldown for the rest. The core gate now requires the
+WHOLE payload to land.
+
+**SCOPE — and it is the owner's own precondition, "if the tender is big
+enough":** the discipline applies where WE CONTROL THE DRAIN. The tender
+clears the CORE (the feeder floors at one full volley of CARRY, and leg 2
+pre-drains the core to zero the moment a link stands loaded), so waiting for
+core room always pays — the loaded link IS the signal that empties the core
+for it. The CONTROLLER link drains on the upgraders' schedule, so waiting for
+full room there may never pay, AND a partial volley into a near controller
+can still beat a full one into a far core because cooldown scales with range
+(600 at range 2 moves 300/tick; 800 at range 20 moves 40). That comparison
+stays the throughput rule's. Caught by a pre-existing test the first
+implementation broke — the conflict is what located the boundary.
+
+**RELIEF VALVE:** a SATURATED sender (`senderFull`) cannot accept its miner's
+next deposit, so that energy hits the ground and decays. Income outranks
+cooldown efficiency there and the old threshold rule applies — holding a full
+link to save a cooldown would be saving the cheaper resource.
+
+**B. n>1 senders blockaded each other.** Nothing reserved the target's space
+within a tick: two loaded links both fired at an 800-free core, the first
+landed 800 and the second was clamped to ~0 having paid a full cooldown.
+`runLinks` now runs a QUEUE — `coreFreeLeft`/`ctrlFreeLeft` are decremented
+by each accepted fire, and later senders are offered only what is genuinely
+left. Ordered BIGGEST PAYLOAD FIRST: the fullest link is closest to refusing
+its miner's next deposit and it packs the space best, while a smaller sender
+that still fits the remainder fires in the same tick — the space a held link
+declined is not wasted.
+
+Legacy callers (no `payload`) keep the pre-discipline threshold rule exactly;
+that contract is pinned so a full-volley test against an unknown payload can
+never silently hold every harness case.
+
+### Registered predictions (leg 4, from t72807566)
+
+- `hubClampShare` 0.296 → toward 0. This is leg 4's DIRECT target: a clamped
+  volley is now only possible via the relief valve.
+- `hubVolleyAvg` 459 → UP, and this time it is the right metric: the
+  discipline trades firing FREQUENCY for volley SIZE by construction. Read it
+  WITH `toHubRate` — if volleys grow while throughput falls, the discipline
+  is over-holding and the tender is not as big as assumed.
+- `toHubRate` 49.8 → flat or up. FALSIFIER: a sustained fall means holds are
+  costing more than the clamped fires saved.
+- E6 held mouths and the miners' `heldFrac` → down (a source link that fires
+  whole volleys backs up less), and with it forgone mining — which is the
+  line that worsened last window and the reason this leg matters beyond the
+  gauges.

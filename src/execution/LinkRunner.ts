@@ -74,14 +74,33 @@ export function runLinks(): void {
     // fire would be clamped by (spec 45 leg 1; see holdCoreRelay).
     let incomingDirect = 0;
 
-    for (const link of links) {
-      if (link.id === core.id) continue;
-      if (ctrl && link.id === ctrl.id) continue; // withdraw-only, never a sender
-      if (link.cooldown > 0) continue;
-      if (link.store[RESOURCE_ENERGY] < LINK_FIRE_THRESHOLD) continue;
+    // THE SENDER QUEUE (owner 2026-08-06: "even then there may be a queue so
+    // n>1 links don't blockade each other"). Screeps applies both intents
+    // against the same free capacity, so two loaded links firing at one
+    // 800-free core landed 800 and ~0 - the second paid a FULL cooldown for
+    // nothing. Reserve what each accepted fire consumes, and offer every
+    // later sender only what is genuinely left.
+    //
+    // BIGGEST PAYLOAD FIRST: the fullest link is the one closest to refusing
+    // its miner's next deposit (that energy hits the ground and decays), and
+    // it packs the space best. A smaller sender that still FITS the remainder
+    // fires in the same tick - the space a held link declined is not wasted.
+    let coreFreeLeft = core.store.getFreeCapacity(RESOURCE_ENERGY);
+    let ctrlFreeLeft = ctrl ? ctrl.store.getFreeCapacity(RESOURCE_ENERGY) : null;
+    const senders = links
+      .filter(
+        l =>
+          l.id !== core.id &&
+          !(ctrl && l.id === ctrl.id) &&
+          l.cooldown === 0 &&
+          l.store[RESOURCE_ENERGY] >= LINK_FIRE_THRESHOLD
+      )
+      .sort((a, b) => b.store[RESOURCE_ENERGY] - a.store[RESOURCE_ENERGY]);
+
+    for (const link of senders) {
       const decision = routeSourceVolley({
-        coreFree: core.store.getFreeCapacity(RESOURCE_ENERGY),
-        controllerFree: ctrl ? ctrl.store.getFreeCapacity(RESOURCE_ENERGY) : null,
+        coreFree: coreFreeLeft,
+        controllerFree: ctrlFreeLeft,
         controllerUnderPlan: preferControllerDirect,
         threshold: LINK_FIRE_THRESHOLD,
         // The three facts the throughput rule needs (owner 2026-07-29): what
@@ -90,6 +109,10 @@ export function runLinks(): void {
         // LINK_COOLDOWN * range in FULL, so a nearly-full controller link used
         // to capture fires it could not absorb and the source stayed backed up.
         payload: link.store[RESOURCE_ENERGY],
+        // A saturated sender cannot accept its miner's next deposit, so
+        // holding it costs INCOME - the relief valve that outranks cooldown
+        // efficiency (see routeSourceVolley).
+        senderFull: link.store.getFreeCapacity(RESOURCE_ENERGY) === 0,
         coreRange: rangeBetween(link, core),
         controllerRange: ctrl ? rangeBetween(link, ctrl) : undefined
       });
@@ -99,9 +122,16 @@ export function runLinks(): void {
         // `wanted` (what the source link held) lets the meter count volleys the
         // core clamped - the "fires partial because the core is congested" signal.
         const wanted = link.store[RESOURCE_ENERGY];
-        const amount = Math.min(wanted, target.store.getFreeCapacity(RESOURCE_ENERGY));
         const isDirect = !!ctrl && target.id === ctrl.id;
-        if (isDirect) incomingDirect += amount;
+        // Against the RESERVED remainder, not the raw store - the queue's
+        // whole point is that an earlier fire this tick already claimed it.
+        const amount = Math.min(wanted, (isDirect ? ctrlFreeLeft ?? 0 : coreFreeLeft));
+        if (isDirect) {
+          incomingDirect += amount;
+          ctrlFreeLeft = Math.max(0, (ctrlFreeLeft ?? 0) - amount);
+        } else {
+          coreFreeLeft = Math.max(0, coreFreeLeft - amount);
+        }
         link.transferEnergy(target);
         recordLinkFire(room.name, isDirect ? "controllerDirect" : "hub", amount, Game.time, isDirect ? undefined : wanted);
       }

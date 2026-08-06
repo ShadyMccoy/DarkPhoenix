@@ -48,6 +48,13 @@ export interface VolleyContext {
   coreRange?: number;
   /** Chebyshev range to the controller link - the cooldown a fire there costs. */
   controllerRange?: number;
+  /**
+   * The sender is AT ITS OWN CAPACITY, so it cannot accept its miner's next
+   * deposit - that energy hits the ground and decays. Enables the relief
+   * valve below: income protection outranks cooldown efficiency, because
+   * holding a full link to save a cooldown saves the cheaper resource.
+   */
+  senderFull?: boolean;
 }
 
 /**
@@ -92,6 +99,40 @@ export const DIRECT_HOP_BONUS = 1.15;
  *  4. Else HOLD rather than pay a full cooldown for a dribble.
  */
 export function routeSourceVolley(ctx: VolleyContext): VolleyTarget {
+  // FULL-VOLLEY DISCIPLINE (owner 2026-08-06: "if the tender is big enough
+  // it's always a better idea to hold the volley until you can send a full
+  // volley"). The engine charges the cooldown IN FULL however little moves,
+  // so a target counts as viable only when the WHOLE payload fits. Holding a
+  // beat is free now that the tender clears the core: the feeder floors at
+  // one full volley of CARRY and leg 2 pre-drains the core to zero the moment
+  // a link stands loaded - the loaded link IS the signal that empties the
+  // core for it.
+  //
+  // RELIEF VALVE: a SATURATED sender cannot take its miner's next deposit, so
+  // that energy hits the ground and decays. Income outranks cooldown there,
+  // and the old threshold rule applies instead.
+  // SCOPE: the discipline applies where WE CONTROL THE DRAIN. The owner's
+  // precondition is "if the tender is big enough" - and the tender clears the
+  // CORE (the feeder floors at one full volley of CARRY and leg 2 pre-drains
+  // it to zero the moment a link stands loaded), so waiting for core room
+  // always pays. The CONTROLLER link is drained by upgraders on their own
+  // schedule, so waiting for full room there may never pay - and firing a
+  // PARTIAL volley into a near controller can still beat a full one into a
+  // far core, because the cooldown scales with RANGE (600 at range 2 moves
+  // 300/tick; 800 at range 20 moves 40). The throughput rule owns that
+  // comparison and keeps the threshold gate.
+  //
+  // Legacy callers supply no payload (pure unit cases, harness mocks) and
+  // keep the pre-discipline threshold rule EXACTLY - "fits anywhere at equal
+  // cost" is their documented contract, and a full-volley test against an
+  // unknown payload would silently hold every one of them.
+  //
+  // RELIEF VALVE: a SATURATED sender cannot take its miner's next deposit, so
+  // that energy hits the ground and decays. Income outranks cooldown there.
+  const coreFits =
+    ctx.payload === undefined
+      ? ctx.coreFree >= ctx.threshold
+      : ctx.coreFree >= ctx.payload || (ctx.senderFull === true && ctx.coreFree >= ctx.threshold);
   const ctrlHasRoom = ctx.controllerFree !== null && ctx.controllerFree >= ctx.threshold;
   // No payload/range supplied (legacy callers, pure unit cases): treat the
   // volley as fitting anywhere at equal cost, reproducing the pre-throughput
@@ -105,8 +146,8 @@ export function routeSourceVolley(ctx: VolleyContext): VolleyTarget {
   // 1. Planned direct delivery - only when it actually moves more per cooldown.
   if (ctrlHasRoom && ctx.controllerUnderPlan && ctrlThroughput >= coreThroughput) return "controllerDirect";
 
-  // 2. Bank first for the residual.
-  if (ctx.coreFree >= ctx.threshold) return "core";
+  // 2. Bank first for the residual - when the whole volley lands.
+  if (coreFits) return "core";
 
   // 3. Congestion spill to the controller (owner 2026-07-21), now a fallback.
   if (ctrlHasRoom) return "controllerDirect";
