@@ -9402,3 +9402,94 @@ demand-to-body latency then. Pre-fix it was 190+ ticks and rising toward the
 300-tick backstop; post-fix it should be a handful.
 
 **Cycle verdict: FIXED + INSTRUMENTED, live attribution PENDING one death.**
+
+## Cycle t72810328 — THE PORT METER PAID FOR ITSELF IN ONE WINDOW
+
+**Window** 881t from t72809447, methodology #12, full ring. Ledger TOP LINE is
+**L1** again (pile decay 8.80 vs a 0.00 budget) — and this time the chain from
+that number to its mechanism is complete, because the meter shipped last cycle
+returned its first data.
+
+### The colony is otherwise the healthiest it has measured
+
+**P7 controller 53.01 e/t vs a 50.92 plan — +2.09 FAVOURABLE**, the first time
+delivery has come in ABOVE the allocation. Forgone mining **0.00** (mined
+100.00 of a 100.00 capacity). H1 duty **0.94**. P1 flap **0**, E2 stranded
+**0**, E5 runts **0**, X3 untracked 2. The heartbeat fix holds: `feederActive
+true`, and the bank is drawing down (−4.67/t) rather than rotting.
+
+### The whole of L1 localizes to ONE source, and the meter names why
+
+E6 reports **1 of 10** miner ops deferred: `cedc`, buffered **3045** against a
+2000 container cap, `gate "buffer-full"`, held **100% of the window** —
+CHRONIC across three captures.
+
+It is not a sizing miss. `carryNeeded 21`, fielded **20.5** — the fleet is
+sized correctly and the hauler is BUSY (`duty 0.892`, `idleSource 0.002`). But:
+
+```
+  departs {full: 4} over 440t x 1023e/trip  =  9.30 e/t delivered
+  the source produces                          10.00 e/t
+  ------------------------------------------------------------
+  DEFICIT                                       0.70 e/t   -> the pile never clears
+```
+
+And the new port meter says exactly where the 0.70 goes:
+
+```
+  portDeposits 173   portWaits 24   portFallbacks 0   portWaitFrac 0.122
+  duty 0.892, idleSink 0.106 (atSink 0.034)   <- the idle IS at the sink
+```
+
+**12.2% of this hauler's at-port decision ticks are spent held at a FULL port
+link.** That stretches its round trip from ~80 ticks to ~110, which drops
+delivery below the source's production rate, which is why a pile that looks
+static (3205 → 3045 over 768t) never actually clears — it sits above the
+container cap rotting, and that rot is L1's top line.
+
+**One capture, one gauge, and "the pile is stuck" became a measured causal
+chain.** That is the whole argument for instrumenting before building: the
+meter cost a telemetry-only deploy and immediately converted the cycle's
+biggest number into a mechanism with a known fix.
+
+### The fix is the container buffer, and the same number sizes it
+
+The buffer's INFLOW is the **overflow rate**, not the port's flow — the
+container only receives while the link is refusing:
+
+```
+  0.122 x 40 e/t port flow  =  ~4.9 e/t into the container
+  a 1-CARRY link miner is a 25 e/t parked relay (invert parkedRelayCarry),
+  ~15 e/t spare after its own 10 e/t harvest
+  ->  4.9 << 15 : the miner alone drains it, no relay body needed
+```
+
+So the dedicated relay corp — blocked on spec 39's spawn-authority ratchet
+(see spec 47) — is **not needed at this flow**, and the owner's earlier ullage
+insight carries the whole leg. Shipped as an opportunistic drain in
+`HarvestCorp`: strictly gated on the link having room and on spare CARRY
+*after* this tick's harvest, so the drain can never displace the mining it
+serves. No new corp, no new demand site, no new body.
+
+That closes legs A (placement), B (the hauler's drop) and C (the drain), so
+the three deploy together.
+
+### Registered predictions
+
+- **`portWaitFrac` 0.122 → toward 0** on port-routed corps once a container
+  stands. THE direct target.
+- **`cedc` delivery 9.30 → above 10.00 e/t**, and its buffer below the 2000
+  cap. This is the one that matters: the pile only clears if delivery exceeds
+  production.
+- **L1 pile decay 8.80 → down.** NOT to zero — cedc is ~2 e/t of it and other
+  mouths carry the rest.
+- **NOT predicted to move**: P7 (already +2.09 F), forgone (already 0.00).
+  Any change there is coupling, not this fix.
+
+**FALSIFIER:** if `portWaitFrac` falls while `cedc` delivery does NOT rise, the
+wait was not what was costing the trips and the container bought parked energy
+instead of hauler time — the exact net-negative the "do not deploy A+B alone"
+note warned about. Revert the placement rung in that case, not the meter.
+
+**Cycle verdict: DIAGNOSED — a top-line leak reduced to a measured mechanism
+by an instrument shipped one cycle earlier, with the fix built and gated.**
