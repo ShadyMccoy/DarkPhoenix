@@ -9974,7 +9974,7 @@ against the 14%-of-gross first baseline of 2026-08-01.
 Cycle verdict: **verified.** The owner's hypothesis was right, the constant's
 own reversion protocol worked, and the colony recovered.
 
-### What the cycle then BUILT: spec 45, the sweep
+### What the cycle then BUILT: spec 50, the sweep
 
 The owner's real ask was not to re-litigate 0.9 vs 1.0 but to **measure the
 curve between them**, unattended: 1% of handicap per fiscal month, 0→20, income
@@ -10059,7 +10059,7 @@ redundant rather than merely tuned.
 
 ### Same cycle — grid attribution: `multispawn-t7-both-spawns-worked` is RED on the DEPLOYED build
 
-Spot-checking the grid before the spec-45 deploy (the sweep changes a planner
+Spot-checking the grid before the spec-50 deploy (the sweep changes a planner
 capacity lens, so the planning cells are the relevant neighbourhood):
 
 ```
@@ -10085,5 +10085,5 @@ recently enough to catch them at their commit. **Bisect both before layering
 more spawn/link behaviour on top** — and note that neither would have been
 caught by the trio, which is the gate that actually runs every cycle.
 
-The spec-45 deploy proceeds: unit 2225 green, the trio green, and the grid's
+The spec-50 deploy proceeds: unit 2225 green, the trio green, and the grid's
 planning neighbourhood green with the one failure attributed away.

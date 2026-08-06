@@ -4,7 +4,7 @@
  * arm-sweep - start (or stop, or inspect) the spawn-handicap sweep on the live
  * colony by writing `Memory.spawnSweep` through the Screeps memory API.
  *
- * The sweep (spec 45, economy/spawnSweep) NEVER self-arms: with no
+ * The sweep (spec 50, economy/spawnSweep) NEVER self-arms: with no
  * `Memory.spawnSweep` the planner's margin resolves to the static
  * SPAWN_PLAN_FRACTION (0.9, the measured-good value). That is what keeps the
  * grid, the sims and the unit suite free of the experiment, and what makes a

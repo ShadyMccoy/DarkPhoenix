@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { CorpRow, formatCorpBudget, rollUp } from "../../../scripts/corp-budget";
 
 /**
- * THE ROLL-UP (spec 47): a category row is DEFINED as the sum of its corps.
+ * THE ROLL-UP (spec 51): a category row is DEFINED as the sum of its corps.
  *
  * That definition is the whole design - it is what makes the drill-down exact
  * rather than illustrative, and what stops the statement from re-deriving a
@@ -25,7 +25,7 @@ const corp = (
   shape: opts.shape
 });
 
-describe("spec 47: the corp budget roll-up", () => {
+describe("spec 51: the corp budget roll-up", () => {
   it("a category row is exactly the sum of its corps", () => {
     const rows = [
       corp("harvest-a", "harvest", "extraction", 0.01),

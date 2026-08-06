@@ -1,4 +1,4 @@
-# 47 — The colony budget IS the sum of the corp budgets
+# 51 — The colony budget IS the sum of the corp budgets
 
 **Status: BACKLOG 2026-08-06** (owner: *"Every corp plan is essentially a list of
 inputs and outputs. Thats the corp budget. The colony budget is the sum of the
@@ -187,7 +187,7 @@ because the tax is the other currency.
 t72823437: the standing guard fleet is 3 creeps / 30 parts = **0.020 p/t against
 a plannable 0.600 — 3.3% of the whole budget.** One handicap step is 1% of the
 physical 0.667 = 0.0067 p/t, so pricing guards is worth **~3 handicap steps**.
-Landing it mid-sweep would move the very quantity spec 45 is varying. Same gate
+Landing it mid-sweep would move the very quantity spec 50 is varying. Same gate
 as everything else here.
 
 **And it needs a plan-side MODEL, which is the part that is not mechanical.**
@@ -333,7 +333,7 @@ all four statements follow.
 ## 6. Timing — NOT mid-sweep
 
 This changes the chart of accounts, so it bumps `METHODOLOGY`, and spec 41 is
-explicit that two reports are comparable only at the same stamp. The spec-45
+explicit that two reports are comparable only at the same stamp. The spec-50
 sweep is running 21 fiscal months whose ONLY axis is the handicap; re-graining at
 month 12 makes months 1–11 incomparable to 12–21.
 
@@ -360,4 +360,4 @@ both ways.
   home; 47 says that home is a CORP and the colony total is their sum.
 - Spec 17 (ontology layers) — reporting category becomes a kind declaration.
 - Spec 41 — the methodology stamp is the gate; see §6.
-- Spec 45 — the experiment this must not land in the middle of.
+- Spec 50 — the experiment this must not land in the middle of.

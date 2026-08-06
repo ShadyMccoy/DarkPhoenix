@@ -1,7 +1,7 @@
 #!/usr/bin/env ts-node
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any */
 /**
- * THE CORP-SUMMED BUDGET (spec 47) - the statement's cost side as a projection
+ * THE CORP-SUMMED BUDGET (spec 51) - the statement's cost side as a projection
  * of the corps, not a reconstruction of them.
  *
  * Owner 2026-08-06: *"Every corp plan is essentially a list of inputs and
@@ -111,7 +111,7 @@ const n4 = (v: number): string => v.toFixed(4);
 export function formatCorpBudget(rows: CorpRow[], drill: boolean): string {
   const rolls = rollUp(rows);
   const out: string[] = [];
-  out.push("CORP BUDGET  (the colony budget as the SUM of the corps - spec 47)");
+  out.push("CORP BUDGET  (the colony budget as the SUM of the corps - spec 51)");
   out.push("");
   out.push("  category        corps   spawn p/t     energy in    energy out    value out");
   out.push("  " + "-".repeat(74));
@@ -167,7 +167,7 @@ export function formatCorpBudget(rows: CorpRow[], drill: boolean): string {
   const unpriced = rows.filter(r => (r.consumes?.spawnPartsPerTick ?? 0) === 0);
   const unclassified = rows.filter(r => !r.account);
   if (unpriced.length > 0) {
-    out.push(`  ${unpriced.length} of ${rows.length} corps declare a ZERO budget (spec 47 GAP 2 - auxiliary corps are`);
+    out.push(`  ${unpriced.length} of ${rows.length} corps declare a ZERO budget (spec 51 GAP 2 - auxiliary corps are`);
     out.push(`  off-budget until spec 39 phase 4). Their real cost is deducted from the plan as`);
     out.push(`  standing infra and owned by NO row here: ${[...new Set(unpriced.map(r => r.kind))].join(", ")}`);
   }
@@ -200,7 +200,7 @@ if (require.main === module) {
     console.log(`capture ${cap.name}  (corps segment v${version})\n`);
     if (version < 17) {
       console.log(
-        "This capture PREDATES the corp budget (segment 4 v17, spec 47): it carries no\n" +
+        "This capture PREDATES the corp budget (segment 4 v17, spec 51): it carries no\n" +
           "consumes/produces/account, so there is nothing to sum. Deploy and recapture.\n" +
           "Printing what the rows DO carry, so the gap is visible rather than an empty table:\n"
       );

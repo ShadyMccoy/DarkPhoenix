@@ -324,7 +324,7 @@ export const loop = ErrorMapper.wrapLoop(() => {
   }
 
   // FISCAL MONTH HOOK - deliberately BEFORE planning, and outside the telemetry
-  // gate below. Two jobs (spec 45): refresh the handicap sweep's pure-side
+  // gate below. Two jobs (spec 50): refresh the handicap sweep's pure-side
   // mirror, and at a month boundary advance the sweep and mark the archive
   // snapshot owed.
   //
@@ -616,7 +616,7 @@ function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void 
  * under full governor degradation - it is how the shedding is observed.
  */
 /**
- * The fiscal-month tick hook (spec 45). On a month boundary it advances the
+ * The fiscal-month tick hook (spec 50). On a month boundary it advances the
  * handicap sweep and marks that an archive snapshot is owed; every other tick it
  * is a single modulo.
  *

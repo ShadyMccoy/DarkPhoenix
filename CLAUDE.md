@@ -175,7 +175,7 @@ whose operators are corps. Read order for architecture truth:
 | `npm run sim:real -- --home <room> [--metrics]` | real-map sim on captured fixtures |
 | `npm run capture:rooms -- --shard S --around R` | snapshot live rooms to fixtures |
 | `npm run fiscal:archive` | close months from the BOT'S OWN boundary archive (segments 8-9) |
-| `npm run sweep:arm [-- --pct N \| --status \| --disarm]` | arm/read the spawn-handicap sweep (spec 45) |
+| `npm run sweep:arm [-- --pct N \| --status \| --disarm]` | arm/read the spawn-handicap sweep (spec 50) |
 | `npm run journey:capture` | organic run → trip-point snapshots |
 | `npm run sim:variance` / `sim:ab` | single-draw plan-vs-actual gauge / A/B harness (multi-draw = repeated `ab-cold-start` runs) |
 

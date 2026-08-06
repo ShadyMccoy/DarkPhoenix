@@ -1,4 +1,4 @@
-# 45 — The spawn-handicap sweep, and the archive that makes it readable
+# 50 — The spawn-handicap sweep, and the archive that makes it readable
 
 **Status: LANDED 2026-08-06** (owner: *"We used to have a spawn capacity handicap
 of 10% for the planner. When I lifted that, I feel like the economy got

@@ -63,7 +63,7 @@ One hypothesis at a time; design the next capture to falsify it.
 SCREEPS_TOKEN=... npm run capture:telemetry -- --shard shard1 --segments 0,3,4,5,6,8,9
 npm run audit:ledger        # ENERGY ACCOUNT + SOURCE P&L + spec 15 leak ledger
 npm run fiscal:close        # spec 41: write any newly-crossed fiscal period from CAPTURES
-npm run fiscal:archive      # spec 45: close months from the BOT'S OWN boundary archive
+npm run fiscal:archive      # spec 50: close months from the BOT'S OWN boundary archive
 ```
 
 - Segment 0 (core): `bodyParts` (actual, colony), `rooms[]` ledger
@@ -80,7 +80,7 @@ npm run fiscal:archive      # spec 45: close months from the BOT'S OWN boundary 
 - Segment 6 (flow): GOAL plan — `sources[].workParts`, `haulers[].carryParts`,
   sink `workParts`, and `candidates[]` (per-source funding verdicts with
   net/tax pricing).
-- Segments 8/9 (fiscal archive, spec 45): the bot's OWN month-boundary
+- Segments 8/9 (fiscal archive, spec 50): the bot's OWN month-boundary
   snapshots. This is how an UNATTENDED period stays closeable - `fiscal:close`
   needs captures bracketing each month, and nobody is capturing every 1500
   ticks. Also carries `sweep`, the live handicap: read it to know which

@@ -451,7 +451,7 @@ declare global {
     };
 
     /**
-     * THE FISCAL ARCHIVE (telemetry/fiscalArchive, spec 45). A ring of
+     * THE FISCAL ARCHIVE (telemetry/fiscalArchive, spec 50). A ring of
      * month-boundary accounting snapshots the bot takes itself, published to
      * segment 8, so an unattended fiscal month is still closeable long after it
      * ended. Memory-backed for the same reason as lossLedger and spawnLedger

@@ -49,7 +49,7 @@ export interface CorpsTelemetry {
      */
     fleet?: CommissionFleet;
     /**
-     * THE CORP BUDGET (v17, spec 47): the commission's declared inputs and
+     * THE CORP BUDGET (v17, spec 51): the commission's declared inputs and
      * outputs, and the statement line it reports on.
      *
      * Owner 2026-08-06: *"Every corp plan is essentially a list of inputs and
@@ -180,7 +180,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   }
 
   const telemetry: CorpsTelemetry = {
-    version: 17, // v16 hauler departure-reason meter; v17 the CORP BUDGET (shape/consumes/produces/account, spec 47) 2026-08-06
+    version: 17, // v16 hauler departure-reason meter; v17 the CORP BUDGET (shape/consumes/produces/account, spec 51) 2026-08-06
     tick: Game.time,
     corps,
     summary: {

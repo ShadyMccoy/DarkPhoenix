@@ -72,7 +72,7 @@ export function perRoomAuxiliaryCommission(
   spawnId: string,
   assignment?: unknown,
   /**
-   * THE CORP'S BUDGET (spec 39 phase 4 / spec 47): spawn build-time this corp
+   * THE CORP'S BUDGET (spec 39 phase 4 / spec 51): spawn build-time this corp
    * commits, parts/tick.
    *
    * Defaults to 0 - the historical behaviour - so an un-migrated kind is

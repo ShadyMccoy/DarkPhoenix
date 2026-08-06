@@ -46,7 +46,7 @@ const ALL_KINDS: string[] = [
 ];
 
 /**
- * THE COLONY BUDGET IS THE SUM OF THE CORP BUDGETS (spec 47, owner 2026-08-06:
+ * THE COLONY BUDGET IS THE SUM OF THE CORP BUDGETS (spec 51, owner 2026-08-06:
  * *"Every corp plan is essentially a list of inputs and outputs. Thats the corp
  * budget. The colony budget is the sum of the corps."*).
  *
@@ -163,7 +163,7 @@ function budgetOf(p: ColonyProblem): {
   };
 }
 
-describe("spec 47: the colony budget is the sum of the corp budgets", () => {
+describe("spec 51: the colony budget is the sum of the corp budgets", () => {
   describe("the identity HOLDS today for produce + transport", () => {
     // These worlds commission only produce/transport corps. Their summed
     // `consumes.spawnPartsPerTick` equals the ledger's own committed build-rate

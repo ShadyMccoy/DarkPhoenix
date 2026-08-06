@@ -1,6 +1,6 @@
 /**
  * @fileoverview ACCOUNT CATEGORIES - the reporting bucket every corp declares
- * (spec 47, owner 2026-08-06).
+ * (spec 51, owner 2026-08-06).
  *
  * Charter: the ONE mapping from a corp KIND to the line it reports on. Pure
  * constants and a lookup - no Game, no Memory, no arithmetic.

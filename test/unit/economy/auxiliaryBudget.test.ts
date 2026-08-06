@@ -19,7 +19,7 @@ import { Position } from "../../../src/types/Position";
  * did not make them free: the colony's parts ledger deducts the SAME fleet as
  * `infraPartsPerTick` before the sink fill spends anything. So the colony paid
  * for a fleet no corp row owned - and `waste-ledger.planSpawnLoad` had to
- * re-derive the hole, which is the second book spec 47 is dismantling.
+ * re-derive the hole, which is the second book spec 51 is dismantling.
  *
  * THE INVARIANT UNDER TEST: the auxiliary corps' summed budget equals the
  * aggregate the solve deducts, EXACTLY - because both now compose the same three

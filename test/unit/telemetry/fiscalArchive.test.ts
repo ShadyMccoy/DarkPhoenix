@@ -22,7 +22,7 @@ const FIXTURES = path.join(__dirname, "..", "..", "fixtures", "telemetry");
 const load = (tick: string): any => JSON.parse(fs.readFileSync(path.join(FIXTURES, `shard1-t${tick}.json`), "utf8"));
 
 /**
- * THE FISCAL ARCHIVE (spec 45). The bot snapshots its own month boundaries so an
+ * THE FISCAL ARCHIVE (spec 50). The bot snapshots its own month boundaries so an
  * UNATTENDED fiscal period is still closeable - the precondition for the
  * handicap sweep, which runs 21 months with nobody capturing (owner 2026-08-06:
  * "I want to make sure all those income statements will be recoverable by the

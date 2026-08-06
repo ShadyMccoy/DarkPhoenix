@@ -33,7 +33,7 @@ export interface CorpCensusEntry {
    */
   fleet?: CommissionFleet;
   /**
-   * THE CORP BUDGET (spec 47), verbatim off the commission envelope: the
+   * THE CORP BUDGET (spec 51), verbatim off the commission envelope: the
    * declared shape, what the corp draws from the colony, and what it yields.
    *
    * Published on segment 4 v17 so the statement can SUM the corps rather than

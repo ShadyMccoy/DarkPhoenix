@@ -641,7 +641,7 @@ export const RESERVER_PARTS_PER_ROOM = 4;
 export const TENDER_FLEET_PARTS = 48;
 
 // ---------------------------------------------------------------------------
-// PER-CORP STANDING INFRA (spec 39 phase 4 / spec 47).
+// PER-CORP STANDING INFRA (spec 39 phase 4 / spec 51).
 //
 // `infraSpawnLoad` below prices the standing infrastructure as ONE aggregate
 // from room COUNTS, because the solve needs the number before any auxiliary
