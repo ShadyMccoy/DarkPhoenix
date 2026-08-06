@@ -436,3 +436,63 @@ already stand beside these links — captures carry **no structure inventory**
 (this spec's own open item, previously "survives on its own merits"). That
 promotes it from nice-to-have to **prerequisite**: the decision to build is
 not decidable without it. Cheap to close, and it now gates real spend.
+
+### The sizing law: which links need one (owner 2026-08-06)
+
+*"Safe to say only links of a certain size (throughput correlates with waves)
+would normally require it?"*
+
+**Yes — with one correction that changes the threshold.** The wave AMPLITUDE
+is quantised and constant: one arrival is always 800e, because a full volley
+and a full deposit-route hauler load are the same number (`LINK_CAPACITY` =
+the leg 3 landing quantum). Throughput does not make waves bigger; it makes
+them **collide more often**. So the criterion is a utilisation, and **RANGE is
+in it** — a far link pays a longer cooldown per volley and therefore needs a
+buffer at half the throughput of a near one:
+
+```
+      rho = R * range / LINK_CAPACITY
+      (arrival rate / one-volley-per-cooldown service rate)
+
+    R e/t     range 5     range 10     range 20     range 30
+       20     0.13 --      0.25 --     0.50 BUF     0.75 BUF
+       25     0.16 --      0.31 --     0.63 BUF     0.94 BUF
+       40     0.25 --     0.50 BUF     1.00 SAT     1.50 SAT
+       65     0.41 --     0.81 BUF     1.63 SAT     2.44 SAT
+      100     0.63 BUF    1.25 SAT     2.50 SAT     3.75 SAT
+```
+
+**Three bands — and both live extremes already sit in the outer two, which is
+what makes this more than a model:**
+
+- **rho < 0.5 — IDLE.** Nothing to smooth; the link is empty most ticks.
+  *Measured:* the link-served sources cd90/cd92 hold **21e and 0e** against a
+  2000 cap.
+- **0.5 ≤ rho < 1.0 — BUFFER.** Collisions are frequent but the drain still
+  keeps up on average. **This is the only band a container earns its 0.233 e/t
+  in.**
+- **rho ≥ 1.0 — SATURATED.** A rate deficit. A buffer fills once and stays
+  full. *Measured:* five remote source containers standing **4,232e ABOVE
+  cap**, decaying — which is exactly H1's `ground-piled 4232e`.
+
+**How much buffer** (M/D/1 mean queue, deterministic one-volley service):
+
+```
+    rho   queue loads   queue e   wait t @r10   container?
+   0.50          0.25       200           5.0   covers it
+   0.70          0.82       653          11.7   covers it
+   0.80          1.60      1280          20.0   covers it
+   0.90          4.05      3240          45.0   UNDERSIZED
+```
+
+One 2000e container covers the mean queue up to **rho ≈ 0.8**. Past that the
+queue grows faster than any buffer worth buying — the same statement as *"a
+buffer fixes burstiness, never a rate deficit"*, now with the crossover named.
+
+**Where this leaves the two live candidate ports:** 8f08 carries 40 e/t and
+4a83 carries 25 e/t. At range 10 that is rho 0.50 and 0.31 (one marginal, one
+idle); at range 20 it is 1.00 and 0.63 (one saturated, one squarely in the
+band). **The verdict flips entirely on range, and range is exactly what
+telemetry cannot tell us** — the structure-inventory gap again. That is now a
+THIRD reason it is the prerequisite: it gates whether to build, where to
+build, and now which band each candidate is even in.

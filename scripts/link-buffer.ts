@@ -236,3 +236,54 @@ console.log(`  ${minerRelayRate} >= ${SOURCE_RATE}, so it can drain its own cont
 console.log("  a container at a SOURCE link needs NO tender at all - just the");
 console.log(`  ${ownedRepair.toFixed(2)} e/t repair. That converts a full link from`);
 console.log('  "miner drops and the pile decays" into "miner parks it next door".\n');
+
+console.log("\n=== 10. WHICH LINKS ACTUALLY NEED ONE (the sizing law) ===");
+console.log("Owner 2026-08-06: *\"only links of a certain size (throughput");
+console.log("correlates with waves) would normally require it?\"* - yes, with one");
+console.log("correction: the WAVE AMPLITUDE is quantised and CONSTANT. One arrival");
+console.log(`is always ${LINK_CAPACITY}e (a full volley == a full deposit-route hauler load).`);
+console.log("Throughput does not make waves bigger - it makes them COLLIDE more");
+console.log("often. So the criterion is a utilisation, and RANGE is in it:\n");
+console.log(`      rho = R * range / ${LINK_CAPACITY}      (arrival rate / one-volley-per-cooldown service)\n`);
+// M/D/1: deterministic service (one volley per cooldown), quantised arrivals.
+const meanQueueLoads = (rho: number): number => (rho >= 1 ? Infinity : (rho * rho) / (2 * (1 - rho)));
+const meanWaitTicks = (rho: number, range: number): number => (rho >= 1 ? Infinity : (rho * range) / (2 * (1 - rho)));
+console.log(row(["R e/t", "range 5", "range 10", "range 20", "range 30"], 14));
+for (const R of [10, 20, 25, 40, 65, 80, 100]) {
+  const cells = [5, 10, 20, 30].map(g => {
+    const rho = (R * g) / LINK_CAPACITY;
+    return rho >= 1 ? `${rho.toFixed(2)} SAT` : rho >= 0.5 ? `${rho.toFixed(2)} BUF` : `${rho.toFixed(2)} --`;
+  });
+  console.log(row([R, ...cells], 14));
+}
+console.log("\n  THREE BANDS, and both live extremes already sit in the outer two:");
+console.log("    rho < 0.5   IDLE     nothing to smooth - the link is empty most");
+console.log("                         ticks. Measured: the link-served sources");
+console.log("                         cd90/cd92 buffer 21e and 0e of a 2000 cap.");
+console.log("    0.5-1.0     BUFFER   collisions are frequent but the drain still");
+console.log("                         keeps up on average. THIS is the only band");
+console.log("                         a container earns its 0.233 e/t in.");
+console.log("    rho >= 1.0  SATURATED  a RATE deficit. A buffer fills once and");
+console.log("                         stays full. Measured: 5 remote source");
+console.log("                         containers 4232e ABOVE cap, decaying.");
+console.log("\n  How much: mean queue at rho, in arrival quanta ->");
+console.log(row(["rho", "queue loads", "queue e", "wait t @r10", "container?"], 14));
+for (const rho of [0.5, 0.6, 0.7, 0.8, 0.9]) {
+  const q = meanQueueLoads(rho);
+  console.log(
+    row(
+      [
+        rho.toFixed(2),
+        q.toFixed(2),
+        (q * LINK_CAPACITY).toFixed(0),
+        meanWaitTicks(rho, 10).toFixed(1),
+        q * LINK_CAPACITY <= CONTAINER_CAP ? "covers it" : "UNDERSIZED"
+      ],
+      14
+    )
+  );
+}
+console.log(`\n  One ${CONTAINER_CAP}e container covers the queue up to rho ~0.8. Past that the`);
+console.log("  queue grows faster than any buffer worth buying - which is the same");
+console.log("  statement as 'a buffer fixes burstiness, never a rate deficit',");
+console.log("  now with the crossover named.\n");
