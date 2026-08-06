@@ -91,7 +91,7 @@ rounding error; "time to RCL8" is "time to grind 7→8."
 > `rclProgressTotal: 10935000` (e.g. `test/fixtures/telemetry/shard1-t72777517.json`,
 > `rcl: 7`). Per this document's own rule, the engine wins. The correction makes
 > the 7→8 grind ~50% more expensive than previously stated, which lengthens every
-> sprint estimate in §4 — see [spec 46](specs/46-concentration-of-force.md) for
+> sprint estimate in §4 — see [spec 53](specs/53-concentration-of-force.md) for
 > the reworked arithmetic.
 
 ## 4. The concentration engine — one capability, two payloads
@@ -107,7 +107,7 @@ per-room throughput cap. That is the general primitive; the payload is a choice.
   sprint reaches RCL8 in well under a day; the tile floor is a few hours. Energy
   is pre-bankable across storages, so the sprint is a *logistics burst off banked
   reserves*, not a production problem.
-  [Spec 46](specs/46-concentration-of-force.md) quantifies this payload — the
+  [Spec 53](specs/53-concentration-of-force.md) quantifies this payload — the
   income statement behind it, the three constraints that actually bind, and why
   the GCL curve makes concentration close to mandatory rather than merely
   available.
