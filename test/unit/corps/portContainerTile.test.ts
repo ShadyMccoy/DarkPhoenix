@@ -4,10 +4,10 @@ import { bestPortContainerTile, PortApproach } from "../../../src/corps/construc
 const open = (): ((x: number, y: number) => boolean) => () => false;
 const nothingOccupied = (): ((x: number, y: number) => boolean) => () => false;
 
-/** A route arriving from a compass direction, far enough that the in-room
- *  candidate spread is what decides the ranking. */
+/** A route's ENTRY TILE - the exit it comes in through (see PortApproach: a
+ *  remote source's raw position would be a cross-room geometry bug). */
 function from(x: number, y: number, flowRate = 10): PortApproach {
-  return { from: { x, y, roomName: "W1N1" }, flowRate };
+  return { from: { x, y }, flowRate };
 }
 
 /**

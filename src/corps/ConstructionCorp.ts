@@ -50,6 +50,7 @@ import {
   workPartsForEnergyRate
 } from "../economy/primitives";
 import { bankFedControllerRate, plannedControllerFlow, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
+import { detectLinkDepositPorts } from "../economy/flowAdapter";
 import {
   declinedVerdictStands,
   effectiveOneWayTiles,
@@ -62,6 +63,8 @@ import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { buildPool, buildPoolAbsorbRate, buildPoolBacklog, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
 import {
   bestControllerLinkTile,
+  bestPortContainerTile,
+  PortApproach,
   containersUnlocked,
   CONTAINER_LIMIT,
   EXTENSION_LIMITS,
@@ -1262,6 +1265,19 @@ export class ConstructionCorp extends Corp {
       }
     }
 
+    // 1.6 DEPOSIT-PORT container (owner 2026-08-06). Sits right after the core
+    //     depot because it is the same shape of rung - a container that turns a
+    //     hauler's WAIT into a drop - and before the discretionary controller
+    //     container, which is a surplus-spend rung. Its own tile scorer keeps
+    //     it out of the way of everything above it (occupied tiles are skipped).
+    if (containersOpen) {
+      const portContainer = this.findMissingPortContainer(room);
+      if (portContainer) {
+        this.placeSite(room, portContainer.x, portContainer.y, STRUCTURE_CONTAINER);
+        return;
+      }
+    }
+
     // 1.7 Controller container JUMPS the queue in the surplus-spend regime
     //     (spec 03 withdrawal): with the warchest full, the feeder relays the
     //     bank draw plus the upgrade target through the drop-off - 30+ e/t
@@ -2224,6 +2240,94 @@ export class ConstructionCorp extends Corp {
       return true;
     }
     return this.remoteContainerSiteWanted(room) !== null;
+  }
+
+  /**
+   * DEPOSIT-PORT CONTAINER (owner 2026-08-06: *"start building the deposit
+   * container buffer in anticipation"*, after *"build the container where it's
+   * best accessible to incoming hauling routes as well as adjacent to the link
+   * of course"*).
+   *
+   * A deposit port is a home-room source link that remote haulers deposit into
+   * instead of walking the full hub leg (detectLinkDepositPorts; 6 of 16
+   * planned haulers were routed to one at t72809560). The link holds 800e
+   * against arrivals measured at 740-1750e, so a full port makes a hauler HOLD
+   * (pickStorageDeposit "wait", bounded by PORT_WAIT_CAP) and then walk the
+   * residual to the hub anyway. The container absorbs that.
+   *
+   * The tile comes from `bestPortContainerTile` (pure, unit-pinned): within
+   * range 2 of the link, sharing a walkable parking tile with it, and
+   * flow-weighted toward where the haulers actually arrive.
+   *
+   * APPROACHES ARE ENTRY EXITS, NOT SOURCE POSITIONS. Room coordinates restart
+   * at 0-49 per room, so a chebyshev from a remote source's raw position would
+   * not be a distance. What decides the direction a hauler comes from is the
+   * exit it enters through, so each remote route resolves to the nearest tile
+   * of that exit; a same-room route uses its own position.
+   */
+  private findMissingPortContainer(room: Room): { x: number; y: number } | null {
+    if (this.containerBudgetFull(room)) return null;
+    const ports = detectLinkDepositPorts().filter(p => p.pos.roomName === room.name);
+    if (ports.length === 0) return null;
+    const terrain = room.getTerrain();
+    const isBlocked = (x: number, y: number): boolean => terrain.get(x, y) === TERRAIN_MASK_WALL;
+    const isOccupied = (x: number, y: number): boolean =>
+      room.lookForAt(LOOK_STRUCTURES, x, y).length > 0 || room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0;
+    for (const port of ports) {
+      const pos = new RoomPosition(port.pos.x, port.pos.y, room.name);
+      if (this.hasContainerNear(room, pos, 2)) continue;
+      const tile = bestPortContainerTile(port.pos, this.portApproaches(room), isBlocked, isOccupied);
+      if (tile) return tile;
+    }
+    return null;
+  }
+
+  /**
+   * The IN-ROOM tiles deposit traffic arrives at, one per FUNDED remote room.
+   *
+   * Room coordinates restart at 0-49 per room, so a chebyshev from a remote
+   * source's raw position would not be a distance at all - what decides the
+   * direction a hauler comes from is the EXIT it enters through. Each funded
+   * remote resolves to the midpoint of the exit toward it.
+   *
+   * The room list is `Memory.fundedRemoteRooms`, the plan's own durable
+   * signal - never creep positions or live vision (CLAUDE.md: a trigger keyed
+   * to where our creeps happen to be flaps on every death and goes blind with
+   * the vision the dead creep provided).
+   *
+   * KNOWN LIMIT, stated rather than hidden: every funded remote is weighted
+   * EQUALLY, because neither `Memory.economyPlan.corps` nor the flow segment
+   * carries per-route flow together with a source ROOM. Direction is what the
+   * siting turns on and equal weights get that right; per-room flow weighting
+   * is the refinement, and it needs the plan to publish a source room first.
+   */
+  private portApproaches(room: Room): PortApproach[] {
+    const remotes = (Memory as unknown as { fundedRemoteRooms?: string[] }).fundedRemoteRooms ?? [];
+    const out: PortApproach[] = [];
+    const seen = new Set<string>();
+    for (const remote of remotes) {
+      if (remote === room.name || seen.has(remote)) continue;
+      seen.add(remote);
+      const tile = this.exitTileToward(room, remote);
+      if (tile) out.push({ from: tile, flowRate: 1 });
+    }
+    return out;
+  }
+
+  /** Midpoint of the exit from `room` toward `toRoom`, or null if unreachable. */
+  private exitTileToward(room: Room, toRoom: string): { x: number; y: number } | null {
+    try {
+      const dir = room.findExitTo(toRoom);
+      if (typeof dir !== "number" || dir < 0) return null;
+      const tiles = room.find(dir as ExitConstant);
+      if (!tiles || tiles.length === 0) return null;
+      // The exit is a RUN of tiles; its midpoint is a stable cheap proxy for
+      // "where this route crosses in" that never depends on live vision.
+      const mid = tiles[Math.floor(tiles.length / 2)];
+      return { x: mid.x, y: mid.y };
+    } catch {
+      return null; // partial harness room without findExitTo/find
+    }
   }
 
   private findMissingSourceContainer(room: Room): { x: number; y: number } | null {

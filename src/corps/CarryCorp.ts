@@ -1030,10 +1030,15 @@ export class CarryCorp extends Corp {
     // read from the plan's assignment, never re-derived (delivery/pricing symmetry).
     const depositPos = this.storageDepositPort();
     const port = depositPos ? this.resolvePortLink(depositPos) : null;
+    // The port's BUFFER (owner 2026-08-06): a container within range 2 of the
+    // link - the same radius bestPortContainerTile sites it in, because that
+    // is the radius a parked tender can bridge.
+    const portBuffer = port ? this.resolvePortBuffer(port) : null;
     const portWaitedTicks = creep.memory.portWaitSince !== undefined ? Game.time - creep.memory.portWaitSince : 0;
     const decision = pickStorageDeposit({
       depositPos,
       portFree: port ? port.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
+      ...(portBuffer ? { portBufferFree: portBuffer.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 } : {}),
       storageFree: storage && storage.my ? storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
       portWaitedTicks
     });
@@ -1047,7 +1052,9 @@ export class CarryCorp extends Corp {
         this.portFallbacks = 0;
         this.portSince = Game.time;
       }
-      if (decision === "port") this.portDeposits += 1;
+      // A buffer drop counts as a DEPOSIT, not a wait: the hauler leaves with
+      // an empty hold, which is the outcome the meter exists to count.
+      if (decision === "port" || decision === "portBuffer") this.portDeposits += 1;
       else if (decision === "wait") this.portWaits += 1;
       else if (decision === "storage") this.portFallbacks += 1;
     }
@@ -1064,6 +1071,18 @@ export class CarryCorp extends Corp {
     // Any non-wait outcome ends the hold: clear the clock so the next full-port
     // encounter starts a fresh window (a deposit or a fallback both reset it).
     if (creep.memory.portWaitSince !== undefined) delete creep.memory.portWaitSince;
+    if (decision === "portBuffer" && portBuffer) {
+      if (creep.pos.getRangeTo(portBuffer.pos) > 1) {
+        travelToLane(creep, portBuffer.pos, { range: 1, visualizePathStyle: { stroke: "#88ffff" } });
+        return true;
+      }
+      const moved = Math.min(creep.store[RESOURCE_ENERGY], portBuffer.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0);
+      if (creep.transfer(portBuffer, RESOURCE_ENERGY) === OK) {
+        this.recordProduction(moved);
+        creep.memory.lastDeliver = { to: "port-buffer", amount: moved, tick: Game.time };
+      }
+      return true;
+    }
     if (decision === "port" && port) {
       if (creep.pos.getRangeTo(port.pos) > 1) {
         travelToLane(creep, port.pos, { range: 1, visualizePathStyle: { stroke: "#88ffff" } });
@@ -1111,6 +1130,25 @@ export class CarryCorp extends Corp {
 
   /** Resolve a deposit port position to its live link, or null if it is gone /
    * not ours (delivery then falls back to the storage hub). */
+  /**
+   * The container buffering this port link, if one has been built. Range 2 is
+   * not arbitrary: it is the radius `bestPortContainerTile` sites within,
+   * which is itself the radius a parked tender can bridge (a tile adjacent to
+   * both). Nearest-first so a room with several containers nearby picks the
+   * one actually beside the link.
+   */
+  private resolvePortBuffer(port: StructureLink): StructureContainer | null {
+    try {
+      const found = port.pos.findInRange(FIND_STRUCTURES, 2, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER
+      }) as StructureContainer[];
+      if (found.length === 0) return null;
+      return found.reduce((a, b) => (port.pos.getRangeTo(a.pos) <= port.pos.getRangeTo(b.pos) ? a : b));
+    } catch {
+      return null; // partial harness link without a wired pos.findInRange
+    }
+  }
+
   private resolvePortLink(pos: Position): StructureLink | null {
     const room = Game.rooms[pos.roomName];
     if (!room) return null;

@@ -453,8 +453,17 @@ export function placementGateOpen(x: {
 
 /** A hauling route that would deposit at a port, for container siting. */
 export interface PortApproach {
-  /** Where the route comes FROM (the source's haul position, plan-side). */
-  from: { x: number; y: number; roomName: string };
+  /**
+   * The IN-ROOM tile this route ARRIVES AT - the exit tile it enters by for a
+   * remote source, or the source's own haul position when it is same-room.
+   *
+   * It must be in-room, and the caller resolves that. Passing a remote
+   * source's raw position would be a silent geometry bug: room coordinates
+   * restart at 0-49 per room, so a chebyshev between a tile in W42N22 and one
+   * in W43N23 is not a distance at all. The direction a hauler actually comes
+   * from is decided by which EXIT it enters through, which is what this is.
+   */
+  from: { x: number; y: number };
   /** Energy/tick this route deposits - the weight on its detour. */
   flowRate: number;
 }
@@ -486,9 +495,10 @@ export interface PortApproach {
  *
  * Score = sum over routes of `flowRate * chebyshev(from, tile)`, minimised -
  * flow-weighted so the fattest route wins the tie, which is the same weighting
- * `depositSavings` already uses to rank ports. Approaches in other rooms are
- * measured to the tile anyway: the cross-room leg is common to every candidate,
- * so only the in-room difference moves the ranking.
+ * `depositSavings` already uses to rank ports. `from` is the route's ENTRY
+ * TILE (see PortApproach): the cross-room leg up to that exit is identical for
+ * every candidate, so only the in-room remainder can move the ranking, and
+ * measuring it from the exit is both correct and sufficient.
  *
  * Pure: takes lenses, never Game/Memory (the module's purity ratchet).
  */

@@ -1107,6 +1107,63 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
   // controller link it turns around at early) while that link has room, else the
   // storage hub, else nowhere - so a full port + full storage spills the load to a
   // hungry spawn/controller (deliverToStorage returns false) rather than camping.
+  /**
+   * THE PORT BUFFER (owner 2026-08-06: *"start building the deposit container
+   * buffer in anticipation"*). A port link holds 800e against arrivals
+   * measured at 740-1750e (t72809560), so a full port used to mean HOLD for up
+   * to PORT_WAIT_CAP ticks and then walk the residual to the hub anyway. With
+   * a container beside the link the hauler drops and leaves.
+   *
+   * Ordering matters and is not arbitrary: the LINK still outranks its own
+   * buffer, because energy landing in the link leaves by teleport while energy
+   * in the container still needs the tender to move it. The buffer is the
+   * second choice, ahead of waiting - never ahead of the link itself.
+   */
+  describe("deposit-port BUFFER (container beside the port link)", () => {
+    const port = { x: 10, y: 10, roomName: "W1N1" };
+
+    it("prefers the LINK over its buffer when the link has room", () => {
+      expect(pickStorageDeposit({ depositPos: port, portFree: 400, portBufferFree: 2000, storageFree: 1000 })).to.equal(
+        "port"
+      );
+    });
+
+    it("drops into the BUFFER when the link is full - instead of waiting", () => {
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 2000, storageFree: 1000 })).to.equal(
+        "portBuffer"
+      );
+    });
+
+    it("falls back to WAIT when the link is full and the buffer is too", () => {
+      expect(
+        pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 0, storageFree: 1000, portWaitedTicks: 0 })
+      ).to.equal("wait");
+    });
+
+    it("keeps the pre-buffer behaviour EXACTLY when no buffer exists", () => {
+      // portBufferFree omitted: every legacy case must be bit-identical, or a
+      // room without a port container silently changes behaviour.
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, storageFree: 1000, portWaitedTicks: 0 })).to.equal(
+        "wait"
+      );
+      expect(
+        pickStorageDeposit({ depositPos: port, portFree: 0, storageFree: 1000, portWaitedTicks: 999 })
+      ).to.equal("storage");
+    });
+
+    it("never camps a buffer when there is nowhere to bank at all", () => {
+      // storage full AND port full AND no buffer => the escape valve, unchanged.
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 0, storageFree: 0 })).to.equal("none");
+    });
+
+    it("still spills when the hub is full but the BUFFER has room (income first)", () => {
+      // A full hub must not strand a load the buffer could take.
+      expect(pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 500, storageFree: 0 })).to.equal(
+        "portBuffer"
+      );
+    });
+  });
+
   describe("deposit-port delivery routing (pickStorageDeposit)", () => {
     const port = { x: 41, y: 30, roomName: "W1N1" };
 
