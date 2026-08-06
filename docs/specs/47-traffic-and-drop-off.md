@@ -360,3 +360,79 @@ the prize.
    hauler DEPART, never as general spillover.
 4. **Then the buffer creep at 16 CARRY per simultaneous arrival**, if the
    re-read `idleSink` still justifies it.
+
+### Better still: a CONTAINER by the link, with a lil tender (owner 2026-08-06)
+
+*"Because we could also maybe build containers instead as well by the links…
+might be better. With a lil tender."*
+
+**It is better, and the margin is large.** Priced from the container economics
+already homed in primitives (`CONTAINER_CAP`, `containerDecayEnergy`,
+`parkedRelayCarry`):
+
+```
+   option        holds e    e/t standing    spawn p/t    build e
+  creep16            800         0.567         0.0113          0
+  cont+tend         2000         0.233         0.0027       5000
+  cont only         2000         0.100         0.0000       5000
+```
+
+The tender really is little: `parkedRelayCarry(65 e/t)` = 2.6 → **3 CARRY**,
+so 3 CARRY + 1 MOVE = 200e = 0.133 e/t, on top of 0.10 e/t of container
+repair. Together **0.233 e/t for 2000e**, against **0.567 e/t for 800e** —
+**6.1x cheaper per unit of capacity**, with the 5000e build paying back in
+~15,000t (10 creep lifetimes).
+
+**But capacity is not the real reason it wins.** A container costs **zero
+spawn throughput**, and the spawn is the binding constraint — S5 has us
+building 0.555 of 0.667 p/t physical, a 17% surge margin. The deeper point:
+
+> A buffer creep conflates CAPACITY and THROUGHPUT in one body and charges
+> spawn parts for both. Container + tender SEPARATES them —
+> **capacity → the container** (burst absorption, 0 spawn parts),
+> **throughput → the lil tender** (sustained rate, a few CARRY).
+> Buy each at its own cheapest price.
+
+That separation is the durable idea here, and it retires the buffer-creep
+proposal above except where no container can be placed.
+
+**Two caveats, both real:**
+
+- **Placement.** A remote container costs **0.50 e/t — 5x** an owned one,
+  purely because the engine decays it five times as fast
+  (`CONTAINER_DECAY_INTERVAL_REMOTE`). This is cheap in the HOME room and
+  much less so anywhere we do not own.
+- **The build competes.** 5000e is a real construction project — 4x the
+  current backlog (1210e remaining at W43N24) — and construction is the
+  owner's declared priority consumer. It is not free just because it is not
+  spawn parts.
+
+### And at a SOURCE link the tender already exists — for nothing
+
+Inverting `parkedRelayCarry`, a 1-CARRY link-served miner is a parked relay
+worth **25 e/t**, against a source's **10 e/t**. `25 >= 10`, so **it can drain
+its own container unaided**: a container at a source link needs no tender at
+all, just the 0.10 e/t repair. That converts a full link from *"miner drops
+and the pile decays"* into *"miner parks it next door"* — and pile decay is
+the standing **L1 BREACH** (6.80 e/t against a 0.00 budget).
+
+This is the same ullage insight one tier up: the creep that is already
+standing there is the mover, so only the CAPACITY has to be bought.
+
+### THE FULL LADDER (use cheapest-first)
+
+```
+  1. the link's own free capacity                  0.000 e/t
+  2. ullage on creeps already standing             ~1 e/t while borrowed
+  3. a CONTAINER + whatever can already move it    0.100 e/t  (+5000e build)
+  4. a container + a lil tender (3 CARRY)          0.233 e/t  (+5000e build)
+  5. a bought buffer creep (16 CARRY)              0.567 e/t
+```
+
+Tier 5 is now dominated by tiers 3-4 wherever a container can be placed.
+
+**One blocker this exposes:** we cannot tell from telemetry whether containers
+already stand beside these links — captures carry **no structure inventory**
+(this spec's own open item, previously "survives on its own merits"). That
+promotes it from nice-to-have to **prerequisite**: the decision to build is
+not decidable without it. Cheap to close, and it now gates real spend.

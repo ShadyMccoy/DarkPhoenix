@@ -24,12 +24,18 @@ import {
   BODY_COSTS,
   CARRY_CAPACITY,
   CARRY_MOVE_PAIR_COST,
+  CONTAINER_CAP,
   CREEP_LIFETIME,
   LINK_CAPACITY,
   SOURCE_RATE,
+  containerDecayEnergy,
+  parkedRelayCarry,
   roundTripTicks,
   volleyServiceCarry
 } from "../src/economy/primitives";
+
+/** Screeps CONSTRUCTION_COST[STRUCTURE_CONTAINER] - engine constant. */
+const CONTAINER_BUILD_COST = 5000;
 
 /** A parked buffer: N CARRY + 1 MOVE (it only ever travels EMPTY). */
 function bufferEnergyCost(carryParts: number): number {
@@ -185,3 +191,48 @@ console.log("    1. the link's own free capacity          0.000 e/t");
 console.log(`    2. ullage on creeps already standing      ~1 e/t WHILE borrowed, only`);
 console.log("                                              when it frees a hauler");
 console.log(`    3. a bought buffer creep (16 CARRY)      ${bufferEnergyPerTick(16).toFixed(3)} e/t standing`);
+
+console.log("\n=== 8. CONTAINER + A LIL TENDER vs THE BUFFER CREEP ===");
+console.log("Owner 2026-08-06: *\"we could also maybe build containers instead as");
+console.log("well by the links... might be better. With a lil tender.\"*\n");
+// The lil tender stands adjacent to BOTH container and link, so it is a PARKED
+// relay: withdraw tick + transfer tick, zero travel (parkedRelayCarry).
+const PORT_FLOW = 65; // measured DEP deposit flow across the 7 candidate routes
+const tenderCarry = Math.ceil(parkedRelayCarry(PORT_FLOW));
+const tenderCost = (tenderCarry * BODY_COSTS.CARRY + BODY_COSTS.MOVE) / CREEP_LIFETIME;
+const ownedRepair = containerDecayEnergy(true);
+const remoteRepair = containerDecayEnergy(false);
+console.log(row(["option", "holds e", "e/t stand", "spawn p/t", "build e"], 15));
+console.log(row(["creep16", 16 * CARRY_CAPACITY, bufferEnergyPerTick(16).toFixed(3), bufferPartsPerTick(16).toFixed(4), 0], 15));
+console.log(row(["cont+tend", CONTAINER_CAP, (ownedRepair + tenderCost).toFixed(3), ((tenderCarry + 1) / CREEP_LIFETIME).toFixed(4), CONTAINER_BUILD_COST], 15));
+console.log(row(["cont only", CONTAINER_CAP, ownedRepair.toFixed(3), "0.0000", CONTAINER_BUILD_COST], 15));
+console.log(
+  `\n  The lil tender is TINY: parkedRelayCarry(${PORT_FLOW}) = ${parkedRelayCarry(PORT_FLOW).toFixed(1)} -> ${tenderCarry} CARRY,`
+);
+console.log(`  ${tenderCarry} CARRY + 1 MOVE = ${tenderCarry * BODY_COSTS.CARRY + BODY_COSTS.MOVE}e = ${tenderCost.toFixed(3)} e/t. Container repair is ${ownedRepair.toFixed(2)} e/t.`);
+console.log(`  Together ${(ownedRepair + tenderCost).toFixed(3)} e/t for ${CONTAINER_CAP}e, against ${bufferEnergyPerTick(16).toFixed(3)} e/t for ${16 * CARRY_CAPACITY}e:`);
+const perUnitCreep = bufferEnergyPerTick(16) / (16 * CARRY_CAPACITY);
+const perUnitCont = (ownedRepair + tenderCost) / CONTAINER_CAP;
+console.log(`  ${(perUnitCreep / perUnitCont).toFixed(1)}x cheaper PER UNIT OF CAPACITY.`);
+const payback = CONTAINER_BUILD_COST / (bufferEnergyPerTick(16) - (ownedRepair + tenderCost));
+console.log(`  The ${CONTAINER_BUILD_COST}e build pays back in ${payback.toFixed(0)}t (${(payback / CREEP_LIFETIME).toFixed(1)} creep lifetimes).`);
+console.log("\n  WHY IT REALLY WINS - and it is not the capacity: a container costs");
+console.log("  ZERO SPAWN THROUGHPUT, and the spawn is the binding constraint");
+console.log("  (S5: building 0.555 of 0.667 p/t physical = 17% surge margin).");
+console.log("  A buffer creep conflates CAPACITY and THROUGHPUT in one body and");
+console.log("  charges spawn parts for both. Container + tender SEPARATES them:");
+console.log("    capacity   -> the container   (burst absorption, 0 spawn parts)");
+console.log("    throughput -> the lil tender  (sustained rate, a few CARRY)");
+console.log("  Buy each at its own cheapest price.");
+console.log(`\n  CAVEAT - PLACEMENT: a remote container costs ${remoteRepair.toFixed(2)} e/t, ${(remoteRepair / ownedRepair).toFixed(0)}x an owned`);
+console.log("  one, purely because the engine decays it 5x as fast. This trick is");
+console.log("  cheap in the HOME room and much less so anywhere we do not own.");
+
+console.log("\n=== 9. AT A SOURCE LINK THE TENDER IS ALREADY THERE (FREE) ===");
+const minerRelayRate = (1 * CARRY_CAPACITY) / 2; // invert parkedRelayCarry for 1 CARRY
+console.log(`  A 1-CARRY link-served miner is a parked relay of ${minerRelayRate} e/t`);
+console.log(`  (invert parkedRelayCarry), against a source's ${SOURCE_RATE} e/t.`);
+console.log(`  ${minerRelayRate} >= ${SOURCE_RATE}, so it can drain its own container unaided:`);
+console.log("  a container at a SOURCE link needs NO tender at all - just the");
+console.log(`  ${ownedRepair.toFixed(2)} e/t repair. That converts a full link from`);
+console.log('  "miner drops and the pile decays" into "miner parks it next door".\n');
