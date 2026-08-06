@@ -560,3 +560,52 @@ So there are two ways to make a big hauler fit a link — **cap the hauler**
 and a 5000e build) — and which is cheaper is an OPEN question that this spec
 does not yet answer. It must be decided before deposit-port routing is
 activated, because leg 3's cap silently picks one of them.
+
+### Siting the port container (owner 2026-08-06)
+
+*"It's important to build the container where it's best accessible to incoming
+hauling routes as well as adjacent to the link of course."*
+
+**Those two requirements look like they conflict, and the TENDER is what
+reconciles them.** The link's tile is fixed wherever it was built, which may be
+nowhere near where haulers arrive. Without a mover, the container must touch
+the link — something has to cross the gap — so the link's position dictates the
+container's. A parked tender relaxes *"adjacent to the link"* into **"within 2
+of it, sharing a parking tile"**, and that slack is the entire budget for
+hauler accessibility.
+
+So the tender's second job is **decoupling the container's position from the
+link's**. Throughput was only its first.
+
+**The constraint comes straight from `parkedRelayCarry`'s own premise** — a
+creep "standing adjacent to both its bank and its sink", withdraw tick +
+transfer tick, zero travel. There must be a walkable tile `P` with
+`range(P, container) <= 1` AND `range(P, link) <= 1`, which forces
+`range(container, link) <= 2` and nothing tighter.
+
+**Why the tile is worth optimising rather than taking the first legal one:**
+the candidate ring spans ~4 tiles of one-way distance, so ~8 round-trip tiles.
+Against a d≈50 route that is **~16% more CARRY — the same order as the entire
+saving the deposit port exists to produce** (DEP: 31.8 CARRY, 16%). A badly
+sited container can eat the whole point of the port.
+
+**The rule** (`bestPortContainerTile`, `corps/constructionPlacement.ts` — pure,
+Game-free, 9 unit assertions):
+
+```
+  minimise   sum over routes of  flowRate * chebyshev(from, tile)
+  subject to  range(tile, link) <= 2
+              a walkable tile adjacent to BOTH tile and link exists
+              tile is in bounds, unblocked, unoccupied
+  tie-break   toward the link (keeps the tender's parking choice open
+              as the room fills in around it)
+```
+
+Flow-weighted, so the fattest route wins a two-sided pull — the same weighting
+`depositSavings` already uses to rank ports. Cross-room approaches measure to
+the tile anyway: that leg is common to every candidate, so only the in-room
+difference moves the ranking.
+
+**Still gated on the port meter.** The scorer is pure and pinned now, so the
+placement policy is settled whichever way the measurement goes; whether a
+container gets built at all waits on `portWaitFrac` from the next capture.

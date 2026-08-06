@@ -450,3 +450,90 @@ export function placementGateOpen(x: {
   if (x.activeSites === 0) return true; // empty board: unchanged, bootstrap progresses
   return x.hasSurplus; // widen only when the colony can fund the set
 }
+
+/** A hauling route that would deposit at a port, for container siting. */
+export interface PortApproach {
+  /** Where the route comes FROM (the source's haul position, plan-side). */
+  from: { x: number; y: number; roomName: string };
+  /** Energy/tick this route deposits - the weight on its detour. */
+  flowRate: number;
+}
+
+/**
+ * Elect the tile for a DEPOSIT-PORT CONTAINER (owner 2026-08-06: *"it's
+ * important to build the container where it's best accessible to incoming
+ * hauling routes as well as adjacent to the link of course"*).
+ *
+ * THE TENDER IS WHAT MAKES THE TWO REQUIREMENTS COMPATIBLE. Without one, the
+ * container must touch the link, because something has to move energy across
+ * the gap - and the link's own tile is fixed wherever it was built, which may
+ * be nowhere near where haulers arrive. A parked tender relaxes "adjacent to
+ * the link" into "within 2 of it, sharing a parking tile", and that slack is
+ * exactly what buys hauler accessibility. Its second job is decoupling the
+ * container's position from the link's; the throughput was only its first.
+ *
+ * The constraint, from `parkedRelayCarry`'s own premise (a creep "standing
+ * adjacent to both its bank and its sink", withdraw tick + transfer tick, zero
+ * travel): there must be a walkable tile P with `range(P, container) <= 1` AND
+ * `range(P, link) <= 1`. That forces `range(container, link) <= 2`, and no
+ * further.
+ *
+ * WHY THE TILE IS WORTH OPTIMISING rather than taking the first legal one: the
+ * candidate set spans at most ~4 tiles of one-way distance, i.e. ~8 round-trip
+ * tiles. Against a d~50 route that is ~16% more CARRY - the same order as the
+ * entire saving the deposit port exists to produce (DEP: 31.8 CARRY, 16%). A
+ * badly sited container can eat the whole point of the port.
+ *
+ * Score = sum over routes of `flowRate * chebyshev(from, tile)`, minimised -
+ * flow-weighted so the fattest route wins the tie, which is the same weighting
+ * `depositSavings` already uses to rank ports. Approaches in other rooms are
+ * measured to the tile anyway: the cross-room leg is common to every candidate,
+ * so only the in-room difference moves the ranking.
+ *
+ * Pure: takes lenses, never Game/Memory (the module's purity ratchet).
+ */
+export function bestPortContainerTile(
+  link: { x: number; y: number },
+  approaches: readonly PortApproach[],
+  isBlocked: (x: number, y: number) => boolean,
+  isOccupied: (x: number, y: number) => boolean
+): { x: number; y: number } | null {
+  const inBounds = (x: number, y: number): boolean => x >= 1 && x <= 48 && y >= 1 && y <= 48;
+  const cheb = (ax: number, ay: number, bx: number, by: number): number =>
+    Math.max(Math.abs(ax - bx), Math.abs(ay - by));
+  /** Is there a walkable tile adjacent to BOTH the candidate and the link? */
+  const hasParkingTile = (x: number, y: number): boolean => {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const px = x + dx;
+        const py = y + dy;
+        if (px === x && py === y) continue;
+        if (!inBounds(px, py) || isBlocked(px, py)) continue;
+        // The parking tile must not be the link's own tile (a structure), and
+        // must touch the link so the transfer leg is range 1.
+        if (px === link.x && py === link.y) continue;
+        if (cheb(px, py, link.x, link.y) <= 1) return true;
+      }
+    }
+    return false;
+  };
+  let best: { x: number; y: number; score: number } | null = null;
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dy = -2; dy <= 2; dy++) {
+      const x = link.x + dx;
+      const y = link.y + dy;
+      if (dx === 0 && dy === 0) continue; // the link's own tile
+      if (!inBounds(x, y) || isBlocked(x, y) || isOccupied(x, y)) continue;
+      if (!hasParkingTile(x, y)) continue;
+      let score = 0;
+      for (const a of approaches) score += a.flowRate * cheb(a.from.x, a.from.y, x, y);
+      // Tie-break toward the link: a closer container keeps the tender's
+      // parking choice open as the room fills in around it.
+      const tie = cheb(x, y, link.x, link.y);
+      if (!best || score < best.score - 1e-9 || (Math.abs(score - best.score) <= 1e-9 && tie < cheb(best.x, best.y, link.x, link.y))) {
+        best = { x, y, score };
+      }
+    }
+  }
+  return best ? { x: best.x, y: best.y } : null;
+}
