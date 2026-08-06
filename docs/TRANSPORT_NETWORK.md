@@ -725,6 +725,12 @@ live and volatile rather than constant. Energy is one of the thinner books on th
 market and a 30% effective spread is not unusual, so measure before trusting the
 table.
 
+**Scope, and it is a narrow one.** Every row above assumes you are a *price taker
+at the quoted spread* — true for marginal quantities, false the moment your flow
+becomes the market's dominant flow. At the volumes a concentration push needs
+(§12), price impact, credit balance, and fill latency all bind long before the
+transport tax does, and the table stops applying entirely. See §12.7.
+
 Two costs it hides. **Credits are not free** — if credits are your binding
 constraint, which they usually are before labs and boosts are running, then
 paying credits to save energy means paying in the currency you actually lack.
@@ -1028,8 +1034,102 @@ it has no terminal.
   controller. Since placement is one-shot (§9), and the room becomes an exporter
   only after the rush completes — at which point exporting energy is the worst
   thing it can do anyway (§11.4) — the rush should win that argument.
-- **§10.2's market route earns its keep** for donors more than ~7 rooms out, where
-  a direct send passes 20% tax. Sell local, buy local, skip the distance term.
+- **§10.2's market route does *not* earn its keep here** — the one place the
+  earlier analysis needs outright retracting for this posture, not just
+  reordering. §12.7.
+
+### 12.7 Why the market is not part of this
+
+§10 established the market as a cheaper transport substitute beyond ~3–7 rooms.
+That result is right **at the margin and wrong at this scale**, and it is worth
+being precise about why, because the arithmetic is not close.
+
+**Volume.** The rush needs ~240 e/t sustained for ~120,000 ticks — call it **29M
+energy**. Energy is one of the thinner books on the market, where a large order
+is tens of thousands of units. You would not be trading on the energy market, you
+would **be** the energy market, several times over.
+
+**Price impact.** A buyer that size walks the book. Your effective spread is not
+the quoted 10–30% but the depth-weighted cost of everything you have to lift, and
+it rises as you lift it. §10.4 noted that exploiting the arbitrage narrows it; at
+wartime volume that stops being second-order and becomes the whole story —
+**you set the price, and you set it against yourself.**
+
+**Credits.** 29M energy is on the order of a million credits, one to two orders of
+magnitude above a typical balance, and the only way to earn it is selling into the
+same thin book you are buying from.
+
+**Determinism.** A war push needs a *known* rate. Terminal sends are exact and
+land next tick. Market fills are stochastic — 50k this tick, nothing for the next
+ten thousand. **A wartime economy needs deterministic throughput and the market
+supplies a stochastic queue.** This objection is more fundamental than depth, and
+unlike depth it does not improve with a better book.
+
+**And it broadcasts the Schwerpunkt.** Orders are public (§10.4), and a standing
+multi-million-unit energy buy program names your target room in its own metadata.
+Concentration of force depends on the enemy not knowing where you are
+concentrating; buying the war chest on a public exchange defeats the strategy's
+central premise. It also hands a rational opponent a holdup — your demand is
+inelastic because the investment is sunk, so they price against you, or simply
+attack the room you have advertised.
+
+**The decisive point is that none of it is needed.** Five donor terminals push
+300,000 per 10 ticks each: ~150,000 e/t of theoretical transport capacity against
+an absorption ceiling near 240 (§12.4). **You are absorption-limited by a factor
+of roughly 600, not transport-limited.** The market solves a cost problem, and
+cost is not binding when the 3.33%-per-room tax applies to a flow you already
+cannot fully absorb.
+
+> Move energy on your own terminals. At this scale they are unbounded,
+> deterministic, and private — and the market is none of the three.
+
+### 12.8 What the market is for in wartime
+
+Two things, both of which the terminal network cannot do.
+
+**Minerals and boosts — the thing you cannot mine.** A room yields exactly one
+mineral type. A single T3 military boost line needs four (`Z`, `H`, `O`, `X` for
+XZH2O) and a full set needs most of the seven. **No empire mines what it needs to
+boost**, so trading is not an optimization here, it is the only path.
+
+The volumes are what make the difference. Boosting a 50-part creep costs 1,500
+mineral units (`LAB_BOOST_MINERAL` = 30 per part), so a four-creep squad is
+~6,000 units — **three-plus orders of magnitude below the 29M energy figure**, and
+comfortably inside market depth. §10's regressive value-density tax works in your
+favour for once: shipping boosts costs a rounding error.
+
+**Converting unabsorbable surplus.** Where donors out-produce what the target can
+take, selling the excess for credits to buy boosts is the option that compounds
+into the military objective instead of sitting idle.
+
+### 12.9 The best sink for the excess is your donors' ramparts
+
+Which closes §12.5's risk. Repair costs 0.01 energy per hit, so **one energy buys
+100 rampart hits**, at no rate cap:
+
+| | |
+|---|---|
+| 80 e/t of excess | 8,000 hits/tick |
+| `RAMPART_HITS_MAX` at RCL6 | 20M per rampart |
+| ~30 ramparts covering a donor base | 600M hits ≈ **6M energy of sink** |
+| maintenance (`RAMPART_DECAY` 300 per 100t) | 0.03 e/t each — trivial |
+
+Each donor therefore absorbs on the order of 6M energy into its own defences —
+about a third of the entire RCL8 rush cost — and what it buys is exactly the
+vulnerability concentration creates. **The surplus the target cannot take should
+harden the donors, because a rational opponent attacks the weakest room and the
+donors are it.** Self-correcting in the right direction, and strictly better than
+any market route.
+
+Ranked, for a donor with surplus beyond the target's absorption:
+
+1. **Ramparts on the donor itself** — unbounded rate, no transport tax, and it
+   fixes the strategy's own exposure.
+2. **Sell for credits, buy boosts** — the only route to minerals you cannot mine.
+3. **Bank it** — 1.3M per room across storage and terminal, ~81,000 ticks of
+   buffer at 80 e/t. Real, but a delay rather than a sink.
+4. **Open a second rush target** — once (1) saturates and absorption is genuinely
+   the binding constraint.
 
 ---
 
@@ -1077,7 +1177,10 @@ And the judgements that don't reduce to a table:
    dealing costs transport and no fee — so a maker/maker pair moves energy with
    **zero** distance term (§10.1). Break-even against a direct send is ~3 rooms
    at zero spread, ~7 at 10% (§10.2). Net it against the intelligence leak:
-   orders are public, terminal sends are not (§10.4).
+   orders are public, terminal sends are not (§10.4). **This holds only at
+   marginal volume** — at concentration scale the market fails on depth,
+   credits, determinism and secrecy at once, and your own terminals are 600x
+   over-provisioned for the job anyway (§12.7). Trade minerals, not energy.
 10. **Treat RCL8 as a role change, not a milestone** (§11). The controller caps
     at 15 e/t, the room turns net exporter, and its surplus needs a real sink —
     power processing first, sub-RCL8 controllers second. Energy shipped to
