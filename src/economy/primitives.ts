@@ -42,6 +42,42 @@ export const BODY_COSTS = {
 /** Creep lifetime in ticks */
 export const CREEP_LIFETIME = 1500;
 
+/**
+ * The PLAN's budget term (spec 46 phase A, owner 2026-08-05: "we take the
+ * budget/plan and we use that for the next fiscal month... to avoid
+ * thrashing and provide clarity in reporting. It's kind of setting the plan
+ * solving from 50 to 1500 effectively").
+ *
+ * THE SAME NUMBER as the fiscal month (spec 41) and the amortization horizon,
+ * derived from CREEP_LIFETIME so the three can never drift: a budget covers
+ * exactly the period its body purchases are expensed across, and exactly the
+ * window the fiscal close measures - so the close's BUDGET column describes
+ * ONE plan instead of the ~30 the 50-tick governor cadence produced.
+ *
+ * The thrash this ends, measured: d017 flapped funded -> over-budget ->
+ * funded across consecutive solves (t72801208/t72801354) - a route at the
+ * tranche edge re-decided on solve-to-solve noise in OTHER candidates' parts
+ * estimates, each flip a commission-churn risk and a re-based capacity line
+ * in the reports.
+ *
+ * A FLOOR on SCHEDULED re-planning, never a gate on transitions: the trigger
+ * detector (execution/planTriggers) still forces a replan on any durable
+ * world change - hostile flip, expansion step, RCL-up, spawn census - and
+ * the anti-downgrade pre-pass is not calendar-gated. Cadence, not freeze.
+ */
+export const PLAN_BUDGET_INTERVAL = CREEP_LIFETIME;
+
+/**
+ * Is this tick a budget boundary - the moment the month's plan is solved and
+ * becomes the term's budget? Aligned to the absolute tick clock so it lands
+ * on the SAME boundaries the fiscal calendar uses (scripts/fiscal.ts:
+ * month = floor((tick % 15000) / 1500)), which is what makes a close and a
+ * budget describe the same window.
+ */
+export function isPlanBudgetBoundary(tick: number): boolean {
+  return tick % PLAN_BUDGET_INTERVAL === 0;
+}
+
 /** Standard miner: 5W 3M */
 export const MINER_COST = 5 * BODY_COSTS.WORK + 3 * BODY_COSTS.MOVE; // 650
 /** Body parts of a standard miner (5 WORK + 3 MOVE), for spawn build-time costing. */
@@ -190,10 +226,27 @@ export const CONTROLLER_MAX_UPGRADE_PER_TICK = 15;
  * is bounded by consumption and the plan must contract to it. Unknown level
  * (no vision, partial mock) is uncapped: never fabricate a cap from a read we
  * don't have.
+ *
+ * TRANSPORT_NETWORK §11 derives the same cap independently and calls the
+ * regime it creates "the RCL8 inversion": below 8 a controller is an unbounded
+ * sink, at 8 that ends and the room's economics invert into net export.
  */
 export function controllerMaxUpgradeRate(level: number | undefined): number {
   return level !== undefined && level >= 8 ? CONTROLLER_MAX_UPGRADE_PER_TICK : Infinity;
 }
+
+/**
+ * Extra WORK parts on every planned builder beyond the supply-sized need
+ * (owner 2026-08-05: "our builders are kind of small. The limit might be on
+ * the hauling but like why not throw an extra WORK or two on these guys?").
+ * The crew is sized SUPPLY-side (allocation / stock drain / absorb caps), so
+ * average-rate WORK caps the crew at the average while delivery arrives in
+ * BURSTS (tanker drops, staged piles); the headroom lets the same crew eat a
+ * burst instead of watching it queue. WORK is the cheap half of the trade -
+ * 100e/part amortized over a lifetime - against measured P8 windows where
+ * the binding constraint was burn rate at the site, not fuel.
+ */
+export const BUILDER_WORK_HEADROOM = 2;
 
 /**
  * WORK parts needed to move `energyPerTick` at `energyPerWork` energy/tick per
@@ -698,7 +751,11 @@ export function infraSpawnLoad(
   relayRate: number,
   depotRoomCount: number,
   remoteRoomCount: number,
-  linkFedRoomCount = 0
+  linkFedRoomCount = 0,
+  /** Inbound link senders on the core (deposit ports + source links). Scales
+   * the volley floor - see volleyServiceCarry. Defaults to 1 so a caller that
+   * does not know the topology prices exactly as it did before. */
+  linkFedSenders = 1
 ): number {
   // Feeder + tender are DEPOT movers: they exist only in rooms with a built
   // storage (`depotRoomCount`). Charging them unconditionally taxed early
@@ -709,14 +766,14 @@ export function infraSpawnLoad(
   // the CARRY for the same relay. Priced like the original: one feeder
   // detail for the depot room (multi-depot pricing arrives with expansion).
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
-  // Spec 45 volley-service floor: a link-fed feeder must clear a FULL 800e
-  // volley in one parked cycle (see volleyServiceCarry) - the plan prices
-  // the same floor the corp fields (F1: price = behavior). A link-fed room
-  // without inbound senders over-prices by the floor; accepted - that
-  // config is transient here and the error sits on the conservative side.
+  // Spec 45 volley-service floor: a link-fed feeder must clear a full volley
+  // PER INBOUND SENDER in one parked cycle (see volleyServiceCarry) - the plan
+  // prices the same floor the corp fields (F1: price = behavior). Scaled by
+  // senders since the t72819265 A/B; `linkFedSenders` defaults to 1 so a
+  // caller that does not know the topology prices exactly as before.
   const feederCarry =
     linkFedRoomCount > 0
-      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry())
+      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry(linkFedSenders))
       : carryPartsFor(relayRate, feederDist);
   const feeder = depotRoomCount > 0 ? (2 * feederCarry) / effectiveLife(feederDist) : 0;
   // 2 tankers x measured 24-part body, per depot room (owner ratchet
@@ -754,7 +811,11 @@ export function infraSpawnEnergy(
   relayRate: number,
   depotRoomCount: number,
   remoteRoomCount: number,
-  linkFedRoomCount = 0
+  linkFedRoomCount = 0,
+  /** Inbound link senders on the core (deposit ports + source links). Scales
+   * the volley floor - see volleyServiceCarry. Defaults to 1 so a caller that
+   * does not know the topology prices exactly as it did before. */
+  linkFedSenders = 1
 ): number {
   const CARRY_MOVE_PER_PART = CARRY_MOVE_PAIR_COST / 2;
   const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
@@ -762,7 +823,7 @@ export function infraSpawnEnergy(
   // Spec 45 volley-service floor - the SAME line as the parts twin above.
   const feederCarry =
     linkFedRoomCount > 0
-      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry())
+      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry(linkFedSenders))
       : carryPartsFor(relayRate, feederDist);
   const feeder = depotRoomCount > 0 ? ((2 * feederCarry) / effectiveLife(feederDist)) * CARRY_MOVE_PER_PART : 0;
   const TENDER_FLEET_PARTS = 48;
@@ -926,24 +987,38 @@ export function energyPerSpawnPart(rate: number, distance: number): number {
  *
  * EXPERIMENT 1.0 (owner 2026-08-04: "We could try lifting the 10% spawning
  * capacity handicap on the planner for a couple of months to see what
- * happens"). The margin's absorbers have been fixed out from under it: the
- * even-share treadmill and runt ladders are dead (X5 home churn 0-3%
- * measured across three post-fix windows, was 18%+), the spawn runs 46%
- * physical headroom (S5 0.54x), and the spawn-sink claim is physically
- * capped (spawnEnergyCeiling). Meanwhile the margin BINDS at admission:
- * t72778545 shows 28 candidate sources rejected "over-budget" with positive
- * nets (best: net 7.13) behind the 0.9 x 0.6 mining tranche. Registered
- * predictions: 1-2 remotes admitted (+10-20 e/t capacity), P4 <= ~0.75x,
- * S5 toward 0.65-0.80x. REVERSION CRITERIA (any, sustained a full window):
+ * happens"). The margin's absorbers had been fixed out from under it (X5
+ * home churn 18%+ -> 0-3%), and the margin BOUND at admission (t72778545:
+ * 28 positive-net candidates rejected over-budget). Registered predictions:
+ * 1-2 remotes admitted (+10-20 e/t capacity), P4 <= ~0.75x, S5 toward
+ * 0.65-0.80x. REVERSION CRITERIA (any, sustained a full window):
  * utilization > 0.95 with queue-depth blocking (the t72676360 shape), X5
- * home churn > 10%, or P4 >= 1.0x - then the margin was still needed and
- * the number between 0.9 and 1.0 gets measured, not argued.
+ * home churn > 10%, or P4 >= 1.0x.
+ *
+ * REVERTED 0.9 (2026-08-05): the criteria FIRED, measured. Utilization
+ * 0.97-0.98 with queue depth 4-8 sustained across t72798237/t72799968/
+ * t72800193 (~2000t) - the t72676360 shape, literally. The admission the
+ * lift bought (12th remote d017, W45N25 attempt) was never staffable at the
+ * ceiling: F3 d017 produced 2.0 of 10 declared, F2 W45N25 fielded 38 of 84
+ * parts (its 1900e miner dead at 39t), and forgone+pile-decay climbed from
+ * a bounded 8-20 e/t (ten months at 10-11 sources) to 24.5 -> 44.5 e/t
+ * (FY4852-M06 -> FY4853-M02) - a multi-month monotone climb that acquits
+ * invaders (R1 read 0.70x priced in M06, its QUIETEST window, while the
+ * climb ran). The arithmetic: plan-priced demand 0.607 p/t + measured
+ * replacement overhead ~0.14 (F1: haulers +0.116, miners +0.028) = ~0.75
+ * vs the 0.667 physical ceiling. P4 stayed green (0.83-0.91x) because it
+ * prices the plan's OWN estimate - the margin was the buffer for exactly
+ * the overhead the plan does not price, and lifting it exposed the
+ * mispricing. RE-LIFTING IS EARNED, NOT ARGUED: price the measured
+ * replacement overhead into admission (per-route replacement cost - the
+ * F1 gap becomes a priced line), then the margin is redundant and the
+ * number between 0.9 and 1.0 gets measured.
  *
  * This is a MARGIN at the planning seam - execution still owns the full
  * physical spawn, standing fleets are untouched, and nothing is gated
  * (doctrine: the planner prices, it doesn't gate).
  */
-export const SPAWN_PLAN_FRACTION = 1.0;
+export const SPAWN_PLAN_FRACTION = 0.9;
 
 /**
  * Parts/tick the PLANNER may budget across `spawnCount` spawns - the ONE lens
@@ -996,9 +1071,53 @@ export const LINK_CAPACITY = 800;
  * feeder's idle between volleys is the price of hauler duty, and it is
  * cheap; the corp's sizing and infraSpawnLoad/-Energy's pricing BOTH floor
  * at this so plan and runtime agree (F1).
+ *
+ * SCALED BY INBOUND SENDERS (A/B confirmed t72819265). One volley was still
+ * too low: a room with N senders can land N volleys inside one drain window,
+ * and ONE creep serves them SERIALLY. The A/B was handed to us by a
+ * staffing-lens bug that double-ordered the feeder — fixing it let the pair
+ * age back to one, and the registered prediction held:
+ *
+ *     feeders  CARRY   coreEmptyShare   hubClampShare   window
+ *        2       32        0.565            0.091         84t
+ *        1       16        0.421            0.268       7223t
+ *
+ * `hubClampShare` landed within 0.008 of the predicted 0.28. And it is NOT a
+ * rate problem, which is what makes the LATENCY reading decisive: the
+ * throughput meter says the single feeder moved MORE per tick than the pair
+ * (`movedPerTick` 187.33 vs 131.28, active 0.556 vs 0.481) while the core
+ * clamped three times as often. One creep working harder cannot cover two
+ * senders arriving at once - it can only serve them one after the other.
+ *
+ * `senders` defaults to 1 so every legacy call site is bit-identical; zero
+ * senders means no service post and therefore no floor at all.
  */
-export function volleyServiceCarry(): number {
-  return LINK_CAPACITY / CARRY_CAPACITY;
+export function volleyServiceCarry(senders = 1): number {
+  return Math.max(0, Math.floor(senders)) * (LINK_CAPACITY / CARRY_CAPACITY);
+}
+
+/**
+ * Cap a DEPOSIT-route hauler body at the landing quantum (spec 45 leg 3,
+ * owner-directed 2026-08-05).
+ *
+ * A deposit route unloads into a LINK PORT, and a link holds LINK_CAPACITY -
+ * one arrival is one unload intent, given port room. Measured t72787778:
+ * deposit bodies carried 978-1,851e into an 800-cap port, so every trip stood
+ * through 2-3 volley cycles waiting for the port to clear. The surplus CARRY
+ * moves no extra energy; it converts itself into standing time AT the port -
+ * precisely the atSink idle the drop-off gets blamed for. Match the actuator
+ * to the quantum it serves (the worthABody doctrine's cousin).
+ *
+ * Reuses volleyServiceCarry() rather than minting a second constant: the
+ * unloading quantum and the feeder's draining quantum are the SAME physical
+ * fact, so retuning one must move the other. WALKING routes are untouched -
+ * storage has no quantum, and their bodies answer to the route's round trip.
+ *
+ * A SIZING clamp only: flows are already port-bounded by the planner's
+ * portRemaining debit, so this changes body shape, never routed energy.
+ */
+export function depositRouteCarryCap(carry: number, isDepositRoute: boolean): number {
+  return isDepositRoute ? Math.min(carry, volleyServiceCarry()) : carry;
 }
 
 // ---------------------------------------------------------------------------
@@ -1308,6 +1427,67 @@ export function towerRefillBelow(capacity: number): number {
 // a tuning knob - which is exactly why they belong in primitives rather than
 // in the meter that reads them or the ledger that prints them.
 // ---------------------------------------------------------------------------
+
+/**
+ * Deposit headroom (e/t) to assume for a port whose range to the core is
+ * UNKNOWN - harness paths with no `getRangeTo`, and nothing else.
+ *
+ * This is the spec-26 v1 blast-radius constant in the one role it is still
+ * right for. It was a `min` laid over the physics until 2026-08-06; as a
+ * ceiling it was measurably the binding constraint on both live ports (see
+ * `depositPortHeadroom`), but with no geometry there is no fire rate to
+ * compute and guessing high would over-route into an unmeasured link.
+ */
+export const DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK = 30;
+
+/**
+ * How much remote deposit flow a port link can actually absorb (e/t).
+ *
+ * A port drains by FIRING to the core: at most `LINK_CAPACITY` once per
+ * `LINK_COOLDOWN * range` ticks, so its physical ceiling is
+ * `LINK_CAPACITY / range`. Whatever its own adjacent source produces lands in
+ * the SAME link and comes off that ceiling first.
+ *
+ * WHY THIS STOPPED BEING A CONSTANT (owner 2026-08-06, *"let's build the edge
+ * links"*). A flat 30 is safe for the ports we have - measured t72811683,
+ * PORT A at range 14 fires 57.1 and carries 30 + 10 (rho 0.70), PORT B at
+ * range 13 fires 61.5 and carries 40 (rho 0.65), both inside spec 47's buffer
+ * band. It is NOT safe for a link placed at the far edge of the room:
+ *
+ *     edge (47,25)  range 12  fires 66.7  ->  30 routed = rho 0.45  fine
+ *     edge (25,47)  range 22  fires 36.4  ->  30 routed = rho 0.82  marginal
+ *     edge ( 2,25)  range 33  fires 24.2  ->  30 routed = rho 1.24  SATURATED
+ *
+ * A port routed 30 e/t into a 24.2 e/t drain backs up by construction, and
+ * that is the `rho >= 1.0` band where no buffer helps (spec 47: a buffer fixes
+ * burstiness, never a rate deficit). Range-awareness is therefore the
+ * PREREQUISITE for edge links, not a refinement of them.
+ *
+ * AND THE FLAT CAP WENT WITH IT (owner 2026-08-06, measured t72819265). The
+ * range rule above was added UNDER a surviving `min(30, ...)`, which left the
+ * constant binding on every port closer than range 20 - both of ours:
+ *
+ *     port (46,11)  range 14  fires 57.14  own source 10  ->  physics 47.14
+ *     port (43,38)  range 13  fires 61.54  own source 10  ->  physics 51.54
+ *
+ * The plan routed EXACTLY 30.00 to each (three remote routes apiece, the cap to
+ * the decimal) while DEP reported 8 sources wanting in and the links ran at rho
+ * 0.70 / 0.65. 38.68 e/t of deposit flow refused by a constant - and the
+ * refused sources walk the long way at ~30 CARRY parts per 10 e/t against ~11
+ * via the port, which in a colony running spawn-bound at 0.91x the physical
+ * ceiling with 23.5 e/t already forgone is a mined-vs-not-mined difference, not
+ * a cost one. CLAUDE.md: *"the planner prices - it doesn't gate."* The fire
+ * rate is a price the physics sets; 30 was a gate.
+ *
+ * An unknown range (harness, no geometry) falls back to
+ * `DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK` - see there for why the conservative
+ * constant is still right in that one role.
+ */
+export function depositPortHeadroom(rangeToCore: number | undefined, ownSourceRate: number): number {
+  if (rangeToCore === undefined || rangeToCore <= 0) return DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK;
+  const fireRate = LINK_CAPACITY / rangeToCore;
+  return Math.max(0, fireRate - ownSourceRate);
+}
 
 /** A dropped pile loses ceil(amount / this) energy per tick (Screeps ENERGY_DECAY). */
 export const ENERGY_DECAY_DIVISOR = 1000;

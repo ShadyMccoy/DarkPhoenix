@@ -11,7 +11,7 @@ import { blankDutyHistogram, recordDutyTick } from "../telemetry/dutyHistogram";
 import { roomHasFlowHauler } from "./censusLens";
 import { controllerInputSpot, controllerParkingTiles, controllerSideStock } from "./nodeEnergy";
 import { travelToBypass } from "./movement";
-import { driveRecycle } from "./recycle";
+import { driveRecycle, worthABody } from "./recycle";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import { Position } from "../types/Position";
@@ -118,6 +118,85 @@ export function upgraderTargetCount(
   const rclCap = (controllerLevel ?? 99) <= 2 ? RCL2_UPGRADER_CAP : UPGRADER_COUNT_CAP;
   const byAllocation = Math.ceil(allocated / Math.max(1, affordableWork));
   return Math.max(1, Math.min(UPGRADER_COUNT_CAP, rclCap, parkingTiles || UPGRADER_COUNT_CAP, byAllocation));
+}
+
+/**
+ * Is the fleet's remaining WORK gap worth a SPAWN PURCHASE (owner 2026-08-05:
+ * "With the amount of work why do we even need 8 spots at all? We can make
+ * creeps big enough to avoid that constraint")?
+ *
+ * The owner's arithmetic is the point. At RCL7 capacity a containerFed
+ * upgrader packs **39 WORK for 4,450e in 50 parts**, so a 60.21 allocation
+ * wants TWO bodies (39 + 21) - and `upgraderTargetCount` computes exactly 2.
+ * The parking ring never binds at that size; it only binds on a fleet made
+ * of runts.
+ *
+ * And runts are what the corp was buying. The order size is the REMAINING
+ * gap with no floor, so once the fleet is near its allocation the gap is a
+ * 2-6 WORK sliver and the corp spends a body on it - a body that then holds
+ * a parking slot for its whole 1500-tick life. Measured t72804439: 4 bodies
+ * carrying 58 WORK (one ~39 plus three ~6-WORK slivers) where two bodies
+ * would have carried 60, with "recycled why: runt-upsize 83%" in the same
+ * window naming the churn that follows.
+ *
+ * This is the upgrader's version of the even-share treadmill the haulers
+ * were cured of on 2026-08-03, so it takes the SAME predicate -
+ * corps/recycle.worthABody - rather than a second rule that could drift
+ * from it: a deficit under HALF a body share is not worth a purchase, it
+ * rides to EOL, which re-sizes for free.
+ *
+ * Sizing to the GAP is kept (it is what makes the second body 21 rather than
+ * a wasteful full 39); only the sliver PURCHASE goes.
+ *
+ * BOOTSTRAP IS EXEMPT, exactly as on the hauler side ("Bootstrap keeps every
+ * crank - escape velocity, cee0 doctrine"). A pre-storage room cannot build
+ * big bodies at all (800 capacity affords 6 WORK), so the sliver rule there
+ * would abandon ~10% of the allocation permanently instead of the ~4% it
+ * leaves at RCL7 - and early RCL progress is exactly what buys the capacity
+ * that makes big bodies possible. Maturity is the SAME lens the haulers use:
+ * the room is storage-backed.
+ */
+export function upgraderWorthABody(remainingWork: number, affordableWork: number, mature = true): boolean {
+  if (!mature) return true; // bootstrap: close every gap, escape velocity first
+  return worthABody(remainingWork, affordableWork);
+}
+
+/**
+ * The physical swarm cap: how many upgrader bodies may stand at once (pure,
+ * unit-tested). The cap exists for REPLACEMENT OVERLAP - one extra body per
+ * expiring incumbent - and its own reason is physical: "parking tiles are
+ * few". So the bound it wants is the parking ring, and `targetCount * 2` is
+ * only the overlap allowance for a fleet that is already big enough.
+ *
+ * THE DEADLOCK IT FIXES (measured t72804439, the first clean month-cadence
+ * window): targetCount comes from `affordableWork`, the body the room COULD
+ * build at full energyCapacity (~30 WORK at 5600). Bodies are actually built
+ * at the energy AVAILABLE when the spawn fires - ~14.5 WORK in that window,
+ * with "recycled why: runt-upsize 83%" confirming it. So the fleet reached
+ * targetCount*2 = 4 bodies carrying 58 WORK against a 60.21 allocation:
+ * NOT satisfied (the count-vs-capacity invariant one gate above says so),
+ * yet capped from ever ordering the body that would close it. The controller
+ * took 27.32 e/t of its 60.21 budget (P7 0.66x) while the residual banked at
+ * +14.83 e/t and the parking ring stood 8 wide with 4 tiles empty.
+ *
+ * A WORK-SHORT fleet is therefore bounded by PARKING, not by headcount:
+ * extra bodies there are not a swarm, they are the compensation for
+ * undersized ones, and targetCount is already parking-bounded so this can
+ * never exceed what the ring holds. A fleet whose WORK covers its allocation
+ * keeps the tight 2x overlap cap - a stale or over-large allocation still
+ * cannot buy a swarm, which is what the cap was built to prevent.
+ */
+export function upgraderSwarmCap(
+  targetCount: number,
+  parkingTiles: number,
+  fieldedWork: number,
+  allocated: number
+): number {
+  const overlap = targetCount * 2;
+  if (fieldedWork >= allocated) return overlap;
+  // Parking 0 means "unknown" (the same convention upgraderTargetCount uses),
+  // so it must never strand replacement below the overlap allowance.
+  return Math.max(overlap, parkingTiles || 0);
 }
 
 /**
@@ -672,8 +751,12 @@ export class UpgradingCorp extends Corp {
       return [];
     }
     // Physical swarm cap (mirrors CarryCorp): replacement overlap may field one
-    // extra body per expiring incumbent, never more - parking tiles are few.
-    if (this.getCreepCount() >= targetCount * 2) {
+    // extra body per expiring incumbent - but a WORK-SHORT fleet is bounded by
+    // the PARKING ring instead, or the undersized-body case deadlocks one body
+    // short of its own allocation forever (t72804439; see upgraderSwarmCap).
+    const swarmCap = upgraderSwarmCap(targetCount, parking, fieldedWork, allocated);
+    this.lastSizing.swarmCap = swarmCap;
+    if (this.getCreepCount() >= swarmCap) {
       this.lastSizing.demand = "swarm-cap";
       return [];
     }
@@ -683,6 +766,17 @@ export class UpgradingCorp extends Corp {
     // over-states what is fielded and under-orders the body that closes the gap
     // - the same count-vs-capacity drift the exit above just fixed.
     const remainingWork = allocated - fieldedWork;
+    // A WORK SLIVER IS NOT WORTH A BODY (owner 2026-08-05, see
+    // upgraderWorthABody): a 2-6 WORK gap buys a runt that then holds one of
+    // the few parking slots for 1500 ticks. Ride it to EOL, which re-sizes
+    // for free. The FIRST body is exempt by construction - with nothing
+    // fielded the gap is the whole allocation, which always clears half a
+    // share - so a cold controller still starts upgrading immediately.
+    const mature = !!spawn?.room?.storage?.my;
+    if (current > 0 && !upgraderWorthABody(remainingWork, affordableWork, mature)) {
+      this.lastSizing.demand = "sliver";
+      return [];
+    }
     const desiredWork = Math.max(1, Math.min(affordableWork, Math.ceil(remainingWork)));
     const desired = buildUpgraderBody(ctx.energyCapacity, desiredWork, "containerFed");
     // Runt policy: a runt permanently occupies one of the few parking slots and the

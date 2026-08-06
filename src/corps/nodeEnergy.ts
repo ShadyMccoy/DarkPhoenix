@@ -17,6 +17,7 @@
 
 import "../types/Memory"; // RoomMemory.deadTiles augmentation (single-file ts-node runs)
 import { travelToBypass } from "./movement";
+import { LINK_FIRE_THRESHOLD } from "../economy/primitives";
 
 /** A store-bearing structure a hauler can deposit into or draw from. */
 type StoreStructure = StructureContainer | StructureStorage | StructureSpawn | StructureExtension | StructureLink;
@@ -127,14 +128,35 @@ export const CORE_LINK_INCOME_RESERVE = 200;
  * feeder tops the relay from storage. Omit it (walking relay, no controller
  * link) for the legacy ceiling exactly. The SOURCE side is never throttled -
  * only the feeder's controller-relay staging is.
+ *
+ * ARRIVALS-FIRST (spec 45 leg 2, owner-directed 2026-08-05). An INBOUND
+ * volley - a source link standing loaded, or about to come off cooldown -
+ * drives the target to ZERO for that tick. Measured t72805426:
+ * hubClampShare **0.625** against coreEmptyShare **0.276**, i.e. the core
+ * clamped arriving volleys 62% of the time while sitting empty 28% of the
+ * time. A buffer cannot be both saturated and idle: it was being STAGED FULL
+ * from storage exactly when income wanted to land, then drained to empty when
+ * nothing was arriving - inverted sequencing.
+ *
+ * Riding the ONE target level fixes both directions at once and keeps the
+ * symmetry intact: loadRoom goes to 0 (stop staging into the landing zone)
+ * and drainAmount goes to the whole store (PRE-drain, clearing it ahead of
+ * the arrival). Nothing about the phase-D valve changes - this decides WHEN
+ * the core holds staged energy, never how much the controller is allocated.
  */
-export function coreLinkTargetLevel(capacity: number, controllerFree?: number): number {
+export function coreLinkTargetLevel(capacity: number, controllerFree?: number, inboundPending = false): number {
+  if (inboundPending) return 0;
   const ceiling = capacity - CORE_LINK_INCOME_RESERVE;
   return controllerFree === undefined ? ceiling : Math.min(ceiling, Math.max(0, controllerFree));
 }
 
-export function coreLinkLoadRoom(store: number, capacity: number, controllerFree?: number): number {
-  return Math.max(0, coreLinkTargetLevel(capacity, controllerFree) - store);
+export function coreLinkLoadRoom(
+  store: number,
+  capacity: number,
+  controllerFree?: number,
+  inboundPending = false
+): number {
+  return Math.max(0, coreLinkTargetLevel(capacity, controllerFree, inboundPending) - store);
 }
 
 /**
@@ -150,8 +172,13 @@ export function coreLinkLoadRoom(store: number, capacity: number, controllerFree
  * and the feeder tops the relay from storage instead. Symmetric partner of
  * coreLinkLoadRoom (loadRoom>0 XOR drainAmount>0, both 0 only at target).
  */
-export function coreLinkDrainAmount(store: number, capacity: number, controllerFree?: number): number {
-  return Math.max(0, store - coreLinkTargetLevel(capacity, controllerFree));
+export function coreLinkDrainAmount(
+  store: number,
+  capacity: number,
+  controllerFree?: number,
+  inboundPending = false
+): number {
+  return Math.max(0, store - coreLinkTargetLevel(capacity, controllerFree, inboundPending));
 }
 
 /**
@@ -825,4 +852,44 @@ export function sourceBufferStock(source: Source): number | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Is a source-link volley INBOUND to the core link right now (spec 45 leg 2)?
+ *
+ * True when any non-core, non-controller link in the room stands loaded at or
+ * above the fire threshold AND is either off cooldown or about to come off it
+ * ("near-fire"): those are the volleys that need landing room THIS beat or the
+ * next. Feeds `coreLinkTargetLevel`, which drops the core's target to 0 while
+ * this holds - stop staging from storage, pre-drain what is already there.
+ *
+ * NEAR-FIRE window: a link one tick from firing is as much an arrival as one
+ * firing now, because the feeder needs a beat to walk its load. A whole
+ * LINK_COOLDOWN would over-trigger (the core would never stage at all in a
+ * busy room), so the window is deliberately short.
+ *
+ * The CONTROLLER link is excluded as a sender by rule (withdraw-only,
+ * LinkRunner's invariant) and the core cannot arrive at itself.
+ */
+export function coreInboundPending(room: Room, core: StructureLink, nearFireTicks = 1): boolean {
+  // Partial mocks (and any room the caller could not resolve): no EVIDENCE of
+  // an arrival is not an arrival - fail to the pre-spec-45 staging law rather
+  // than throwing inside a per-tick creep path.
+  if (!room || typeof room.find !== "function") return false;
+  const ctrl = controllerLink(room);
+  let links: StructureLink[];
+  try {
+    links = room.find(FIND_MY_STRUCTURES, {
+      filter: (s: AnyOwnedStructure) => s.structureType === STRUCTURE_LINK
+    }) as StructureLink[];
+  } catch {
+    return false; // partial mocks: no evidence of an arrival is not an arrival
+  }
+  for (const link of links) {
+    if (link.id === core.id) continue;
+    if (ctrl && link.id === ctrl.id) continue;
+    if ((link.cooldown ?? 0) > nearFireTicks) continue;
+    if ((link.store?.[RESOURCE_ENERGY] ?? 0) >= LINK_FIRE_THRESHOLD) return true;
+  }
+  return false;
 }

@@ -15,7 +15,7 @@ import { Position } from "../../../src/types/Position";
  * be applied to each other)").
  *
  * The two halves already existed - bankSurplusRate on the stock side, spec
- * 46's storageAbsorbRate on the ullage side - but in different modules, with
+ * 47's storageAbsorbRate on the ullage side - but in different modules, with
  * different offsets and nothing tying them together. `bankPressure` makes
  * them ONE object read from ONE storage read, so the pair cannot drift and
  * the invariants below have a home.

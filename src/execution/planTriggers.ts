@@ -36,6 +36,7 @@ export interface PlanTriggerSnapshot {
   spawnCount: number;
 }
 
+
 /**
  * Debounce on FORCED solves: at most one per this many ticks, however many
  * triggers fire (a hostile wave flipping five rooms is ONE replan). Half the

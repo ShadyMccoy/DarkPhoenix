@@ -5,6 +5,7 @@ import {
   SURPLUS_DRAIN_TICKS,
   MAX_SURPLUS_DRAW,
   warchestTarget,
+  fundedMiningIncome,
   resolveReserveTarget,
   spendableBankSurplus,
   bankSurplusRate,
@@ -54,6 +55,32 @@ describe("economy/bank - the surplus spend primitives", () => {
       const oldFlat = EXPANSION_CAPEX + 2 * EXPANSION_SAFETY_RESERVE;
       const mid = warchestTarget(40);
       expect(mid).to.be.closeTo(oldFlat, oldFlat * 0.25);
+    });
+  });
+
+  describe("fundedMiningIncome (the reserve's income basis, t72788704)", () => {
+    it("sums exactly the FUNDED verdict rates - candidates and defunded rooms earn no coverage", () => {
+      // The live incident in miniature: 12 funded (120 e/t) but 5 more
+      // scouted-with-real-id prospects in the pool - the reserve must read
+      // 120, never the pool's 170 (the +42k reserve jump that throttled the
+      // controller valve 49 -> 31 e/t).
+      const verdicts = [
+        { rate: 10, verdict: "funded" },
+        { rate: 10, verdict: "funded" },
+        { rate: 5, verdict: "funded" },
+        { rate: 10, verdict: "over-budget" },
+        { rate: 10, verdict: "unprofitable" },
+        { rate: 10, verdict: "defunded" },
+        { rate: 10, verdict: "unreachable" },
+        { rate: 10, verdict: "no-sink" }
+      ];
+      expect(fundedMiningIncome(verdicts)).to.equal(25);
+    });
+
+    it("verdict-less (legacy) and empty solutions read 0 - the BASE_RESERVE floor binds", () => {
+      expect(fundedMiningIncome(undefined)).to.equal(0);
+      expect(fundedMiningIncome([])).to.equal(0);
+      expect(warchestTarget(fundedMiningIncome(undefined))).to.equal(BASE_RESERVE);
     });
   });
 

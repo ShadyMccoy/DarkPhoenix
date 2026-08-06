@@ -33,11 +33,12 @@ import {
 } from "./repair";
 import { MAX_BUILDERS } from "./CorpConstants";
 import { recordRepair } from "../telemetry/LossMeter";
-import { creepRepairEnergy } from "../economy/primitives";
+import { CREEP_LIFETIME, creepRepairEnergy } from "../economy/primitives";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
+  BUILDER_WORK_HEADROOM,
   bufferCarryParts,
   carryPartsFor,
   DIRECT_DRAW_REACH,
@@ -49,6 +50,7 @@ import {
   workPartsForEnergyRate
 } from "../economy/primitives";
 import { bankFedControllerRate, plannedControllerFlow, spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
+import { detectLinkDepositPorts } from "../economy/flowAdapter";
 import {
   declinedVerdictStands,
   effectiveOneWayTiles,
@@ -56,13 +58,16 @@ import {
   tankerCarryNeededFor,
   RoadRouteSpec
 } from "../economy/roadEconomics";
-import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, isSpawnRefillStock, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, isSpawnRefillStock, sourceBufferStock, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { buildPool, buildPoolAbsorbRate, buildPoolBacklog, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
 import {
   bestControllerLinkTile,
+  bestPortContainerTile,
+  PortApproach,
   containersUnlocked,
   CONTAINER_LIMIT,
+  reclaimableContainer,
   EXTENSION_LIMITS,
   findGridPosition,
   LINK_LIMITS,
@@ -83,6 +88,7 @@ import {
   trunkGateFromSurvey,
   wantsAnotherSpawn
 } from "./constructionPlacement";
+import { roomContainerCensus } from "../telemetry/containerCensus";
 
 /**
  * Serialized state specific to ConstructionCorp
@@ -481,6 +487,10 @@ export class ConstructionCorp extends Corp {
         creep => (creep.memory.repairDetail ? this.doMaintenance(creep, room) : this.runBuilder(creep, room)),
         spawn
       );
+      // Z-SHUTTLE run wiring (owner 2026-08-05): the remote branch never ran
+      // its tankers - runTanker's committed-source path (mouth container/
+      // pile -> crew, bank paths no-op without a storage) IS the shuttle.
+      this.tankers.run(creep => this.runTanker(creep, room), spawn);
       return;
     }
 
@@ -948,7 +958,15 @@ export class ConstructionCorp extends Corp {
       buildEnergy = Math.min(buildEnergy, Math.max(absorb, this.poolAllocatedRate));
     }
     buildEnergy = Math.max(BUILD_ENERGY_PER_WORK, buildEnergy);
-    const totalWork = Math.max(1, workPartsForEnergyRate(buildEnergy, BUILD_ENERGY_PER_WORK));
+    // WORK HEADROOM (owner 2026-08-05): the supply-side sizing above caps
+    // WORK at the AVERAGE delivery rate, but delivery is bursty (tanker
+    // drops, staged stock) - the headroom lets the same crew eat a burst
+    // instead of queueing it. Real crews only (base >= 2 WORK): a project
+    // TAIL's 1-WORK closer stays small (the sum-of-projects pin - a
+    // 400-energy tail must never field a big crew). See
+    // BUILDER_WORK_HEADROOM's doc for the trade.
+    const baseWork = Math.max(1, workPartsForEnergyRate(buildEnergy, BUILD_ENERGY_PER_WORK));
+    const totalWork = baseWork + (baseWork >= 2 ? BUILDER_WORK_HEADROOM : 0);
     // SPEC 34 D2/D3: the fuel GEOMETRY sizes the onboard buffer of the PARKED
     // builder (owner: "they stay in one place building" - haulers bring the
     // energy). One lens with the tanker fetch (buildFuelDistance); the supply
@@ -1246,6 +1264,41 @@ export class ConstructionCorp extends Corp {
       if (depot) {
         this.placeSite(room, depot.x, depot.y, STRUCTURE_CONTAINER);
         return;
+      }
+    }
+
+    // 1.6 DEPOSIT-PORT container (owner 2026-08-06). Sits right after the core
+    //     depot because it is the same shape of rung - a container that turns a
+    //     hauler's WAIT into a drop - and before the discretionary controller
+    //     container, which is a surplus-spend rung. Its own tile scorer keeps
+    //     it out of the way of everything above it (occupied tiles are skipped).
+    if (containersOpen) {
+      const portContainer = this.findMissingPortContainer(room);
+      if (portContainer) {
+        this.placeSite(room, portContainer.x, portContainer.y, STRUCTURE_CONTAINER);
+        return;
+      }
+      // 1.6b CONTAINER SWAP (owner 2026-08-06: *"we should definitely reclaim
+      //      the unused container and have a mechanism for that"*). The
+      //      container table is a HARD GAME CAP, so rungs do not queue behind
+      //      it - they stall silently and forever. This rung gives back the one
+      //      slot a controller LINK has already made dead, and only when a
+      //      deposit port is actually waiting for it. The freed slot places
+      //      next cooldown, exactly like the LINK SWAP above.
+      const reclaim = reclaimableContainer(roomContainerCensus(room));
+      if (reclaim) {
+        const victim = room
+          .lookForAt(LOOK_STRUCTURES, reclaim.pos.x, reclaim.pos.y)
+          .find(s => s.structureType === STRUCTURE_CONTAINER);
+        if (victim) {
+          this.stampSizing({ containerSwap: `retired-controller@${reclaim.pos.x},${reclaim.pos.y}`, energyLost: reclaim.energyLost });
+          console.log(
+            `[Construction] CONTAINER SWAP: retiring the controller container at ` +
+              `${reclaim.pos.x},${reclaim.pos.y} (${reclaim.energyLost}e dropped) - ${reclaim.reason}`
+          );
+          victim.destroy();
+          return; // the freed slot places next cooldown
+        }
       }
     }
 
@@ -2213,6 +2266,94 @@ export class ConstructionCorp extends Corp {
     return this.remoteContainerSiteWanted(room) !== null;
   }
 
+  /**
+   * DEPOSIT-PORT CONTAINER (owner 2026-08-06: *"start building the deposit
+   * container buffer in anticipation"*, after *"build the container where it's
+   * best accessible to incoming hauling routes as well as adjacent to the link
+   * of course"*).
+   *
+   * A deposit port is a home-room source link that remote haulers deposit into
+   * instead of walking the full hub leg (detectLinkDepositPorts; 6 of 16
+   * planned haulers were routed to one at t72809560). The link holds 800e
+   * against arrivals measured at 740-1750e, so a full port makes a hauler HOLD
+   * (pickStorageDeposit "wait", bounded by PORT_WAIT_CAP) and then walk the
+   * residual to the hub anyway. The container absorbs that.
+   *
+   * The tile comes from `bestPortContainerTile` (pure, unit-pinned): within
+   * range 2 of the link, sharing a walkable parking tile with it, and
+   * flow-weighted toward where the haulers actually arrive.
+   *
+   * APPROACHES ARE ENTRY EXITS, NOT SOURCE POSITIONS. Room coordinates restart
+   * at 0-49 per room, so a chebyshev from a remote source's raw position would
+   * not be a distance. What decides the direction a hauler comes from is the
+   * exit it enters through, so each remote route resolves to the nearest tile
+   * of that exit; a same-room route uses its own position.
+   */
+  private findMissingPortContainer(room: Room): { x: number; y: number } | null {
+    if (this.containerBudgetFull(room)) return null;
+    const ports = detectLinkDepositPorts().filter(p => p.pos.roomName === room.name);
+    if (ports.length === 0) return null;
+    const terrain = room.getTerrain();
+    const isBlocked = (x: number, y: number): boolean => terrain.get(x, y) === TERRAIN_MASK_WALL;
+    const isOccupied = (x: number, y: number): boolean =>
+      room.lookForAt(LOOK_STRUCTURES, x, y).length > 0 || room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0;
+    for (const port of ports) {
+      const pos = new RoomPosition(port.pos.x, port.pos.y, room.name);
+      if (this.hasContainerNear(room, pos, 2)) continue;
+      const tile = bestPortContainerTile(port.pos, this.portApproaches(room), isBlocked, isOccupied);
+      if (tile) return tile;
+    }
+    return null;
+  }
+
+  /**
+   * The IN-ROOM tiles deposit traffic arrives at, one per FUNDED remote room.
+   *
+   * Room coordinates restart at 0-49 per room, so a chebyshev from a remote
+   * source's raw position would not be a distance at all - what decides the
+   * direction a hauler comes from is the EXIT it enters through. Each funded
+   * remote resolves to the midpoint of the exit toward it.
+   *
+   * The room list is `Memory.fundedRemoteRooms`, the plan's own durable
+   * signal - never creep positions or live vision (CLAUDE.md: a trigger keyed
+   * to where our creeps happen to be flaps on every death and goes blind with
+   * the vision the dead creep provided).
+   *
+   * KNOWN LIMIT, stated rather than hidden: every funded remote is weighted
+   * EQUALLY, because neither `Memory.economyPlan.corps` nor the flow segment
+   * carries per-route flow together with a source ROOM. Direction is what the
+   * siting turns on and equal weights get that right; per-room flow weighting
+   * is the refinement, and it needs the plan to publish a source room first.
+   */
+  private portApproaches(room: Room): PortApproach[] {
+    const remotes = (Memory as unknown as { fundedRemoteRooms?: string[] }).fundedRemoteRooms ?? [];
+    const out: PortApproach[] = [];
+    const seen = new Set<string>();
+    for (const remote of remotes) {
+      if (remote === room.name || seen.has(remote)) continue;
+      seen.add(remote);
+      const tile = this.exitTileToward(room, remote);
+      if (tile) out.push({ from: tile, flowRate: 1 });
+    }
+    return out;
+  }
+
+  /** Midpoint of the exit from `room` toward `toRoom`, or null if unreachable. */
+  private exitTileToward(room: Room, toRoom: string): { x: number; y: number } | null {
+    try {
+      const dir = room.findExitTo(toRoom);
+      if (typeof dir !== "number" || dir < 0) return null;
+      const tiles = room.find(dir as ExitConstant);
+      if (!tiles || tiles.length === 0) return null;
+      // The exit is a RUN of tiles; its midpoint is a stable cheap proxy for
+      // "where this route crosses in" that never depends on live vision.
+      const mid = tiles[Math.floor(tiles.length / 2)];
+      return { x: mid.x, y: mid.y };
+    } catch {
+      return null; // partial harness room without findExitTo/find
+    }
+  }
+
   private findMissingSourceContainer(room: Room): { x: number; y: number } | null {
     if (this.containerBudgetFull(room)) return null;
     const core = coreLink(room);
@@ -2891,7 +3032,91 @@ export class ConstructionCorp extends Corp {
       const roadSites = workRoom.find(FIND_MY_CONSTRUCTION_SITES, {
         filter: s => s.structureType === STRUCTURE_ROAD
       }).length;
-      if (this.remoteContainerProject(workRoom) || roadSites > 0) plan.target += 1;
+      const containerProject = this.remoteContainerProject(workRoom);
+      if (containerProject || roadSites > 0) {
+        plan.target += 1;
+        // Z-BUILDER SIZED TO ITS FUEL (owner 2026-08-05: "a remote builder
+        // using that 6k ... build the road Z-to-A in parallel"): the
+        // pile-funded builder's fuel is the mouth's STAGED stock - the SAME
+        // sourceBufferStock lens E6 and the miner gate read - burst-paced
+        // at spec 33's wartime horizon (stock over a third of a lifetime, 5
+        // e/WORK-tick), clamped 2..5 WORK. Measured absence (t72801354):
+        // cd98's mouth held 6,004 while the flat 2-WORK maintenance shape
+        // fielded a 4-part runt and the HOME crew tanker-hauled energy into
+        // the very room whose pile was rotting. Below a meaningful stock
+        // the flat 2 stands - no burst without fuel.
+        let staged = 0;
+        let zSource: Source | null = null;
+        try {
+          for (const src of workRoom.find(FIND_SOURCES)) {
+            const stock = sourceBufferStock(src) ?? 0;
+            if (stock > staged || zSource === null) {
+              staged = Math.max(staged, stock);
+              zSource = src;
+            }
+          }
+        } catch {
+          staged = 0; // partial mocks / no vision: size on flow alone
+        }
+        const zWork = Math.max(2, Math.min(5, Math.ceil(staged / (CREEP_LIFETIME / 3) / BUILD_ENERGY_PER_WORK)));
+        if (roadSites > 0 && zWork > 2) {
+          const zBody = buildBuilderBody(zWork, 2, ctx.energyCapacity);
+          if (zBody.workParts >= 2) {
+            plan.bodyParam = Math.max(plan.bodyParam ?? 2, zWork);
+            plan.desiredCost = Math.max(plan.desiredCost, zBody.cost);
+            // minCost stays the maintenance floor: scarcity still fields a
+            // starter body rather than nothing (the E6 dark-source lesson).
+          }
+        }
+        // Z-SHUTTLE (owner 2026-08-05: "It has a tanker or hauler to shuttle
+        // energy appropriate to its haul distance which depends on the
+        // number of road tiles built... It works just like the regular
+        // builder fleet in a sense just a smaller one"): the SAME
+        // supplyMethod verdict as the pool vector. A frontier inside the
+        // direct-draw reach needs no body - the builder eats at the mouth;
+        // past the crossover ONE small tanker runs the mouth->frontier leg,
+        // CARRY sized to the round trip (which grows as tiles complete and
+        // the frontier walks away from the mouth). runTanker's
+        // committed-source path already does the leg - withdraw at the
+        // mouth's container/pile, deliver to the crew - only the demand and
+        // the remote run wiring were missing.
+        let zTanker: SpawnDemand[] = [];
+        let zDist = 0;
+        let zCarry = 0;
+        if (roadSites > 0 && zSource) {
+          const roadSiteList = workRoom.find(FIND_MY_CONSTRUCTION_SITES, {
+            filter: s => s.structureType === STRUCTURE_ROAD
+          });
+          let near = Infinity;
+          for (const site of roadSiteList) {
+            const d = Math.max(Math.abs(site.pos.x - zSource.pos.x), Math.abs(site.pos.y - zSource.pos.y));
+            if (d < near) near = d;
+          }
+          zDist = Number.isFinite(near) ? near : 0;
+          const zRate = zWork * BUILD_ENERGY_PER_WORK;
+          if (supplyMethod(zRate, zDist).method === "vector") {
+            zCarry = Math.max(1, Math.min(8, tankerCarryNeededFor(zRate, zDist, 0, TANKER_CARRY_PER_MOVE_PLAIN)));
+            const zVector = buildTankerBody(zCarry, ctx.energyCapacity, false);
+            const zMin = buildTankerBody(1, ctx.energyCapacity, false);
+            zTanker = this.tankers.spawnDemand({
+              target: 1,
+              desiredCost: zVector.cost,
+              minCost: zMin.cost,
+              bodyParam: zCarry
+            });
+          }
+        }
+        this.stampSizing({
+          gate: roadSites > 0 ? "pile-road" : "pile-container",
+          staged,
+          roadSites,
+          zWork,
+          zDist,
+          zCarry
+        });
+        this.lastWantedBuilders = plan.target;
+        return [...this.builders.spawnDemand(plan), ...zTanker];
+      }
       this.lastWantedBuilders = plan.target;
       return this.builders.spawnDemand(plan);
     }

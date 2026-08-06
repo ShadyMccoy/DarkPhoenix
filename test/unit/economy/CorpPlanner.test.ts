@@ -145,7 +145,10 @@ describe("economy/CorpPlanner", () => {
     describe("global admission ranking (the per-spawn partition mis-rank, t72780703)", () => {
       // Two spawns 400 apart partition the map. A's neighborhood holds the
       // good sources; B's holds one seed and one far, WORSE source. Budgets
-      // (at SPAWN_PLAN_FRACTION 1.0): per-spawn tranche 0.2, global 0.4.
+      // (at SPAWN_PLAN_FRACTION 0.9): per-spawn tranche 0.18, global 0.36
+      // - the staged story survives both fraction eras: A's cum 0.144 fits
+      // either tranche, aX breaches per-spawn (0.220) both ways, and b2
+      // breaches the global (0.423 > 0.36; was 0.4).
       // Hand-derived parts (spawnPartsFor(10,d) = (8.8+0.8d)/(1500-d)):
       //   a1 d10 0.0113 | a2 d100 0.0634 | a3 d110 0.0696 | a4 d130 0.0821
       //   aX d120 0.0759 (net/part 79) | b1 d10 0.0113 | b2 d170 0.1089 (np 40)
@@ -301,6 +304,34 @@ describe("economy/CorpPlanner", () => {
       expect(plan.haulers).to.have.length(1);
       expect(plan.haulers[0].flowRate).to.be.closeTo(10, 1e-9);
       expect(plan.haulers[0].carryParts).to.be.closeTo(carryPartsFor(10, 10), 1e-9);
+    });
+
+    it("INTEL PROSPECTS ARE NOT CANDIDATES: a position-only scout record never funds, even with budget slack (t72801208)", () => {
+      // Caught live minutes after the 0.9 reversion: the tightened tranche
+      // rejected d017 (net/part 91) at the budget line, and the greedy fill
+      // then slipped source-intel-W45N23-20-16 (net/part 22, rate 5, d=140)
+      // into the residual gap - a PHANTOM with fabricated economics (no real
+      // game id, position-only intel). Same pattern as the W45N25
+      // misadventure (harvest-6-34: 84p declared, 1900e miner dead at 39t) -
+      // the "poor behavior" the owner ruled must be fixed, not budgeted
+      // around. The t72444684 guard excluded intel ids from INCOME; this
+      // extends it to PRODUCER SELECTION: a prospect is stamped, never
+      // funded - it becomes a candidate only when vision records its real
+      // id (which is also what keeps the corp id stable; funding a phantom
+      // guarantees an id flip mid-flight = churn by construction).
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [source("real", 10), source("source-intel-W9N9-20-16", 15), source("intel-W9N9-30-30", 20)],
+          sinks: [sink("ctrl", "controller", 0, 50, 100)]
+        })
+      );
+      expect(plan.miners.map(m => m.sourceId), "only the real source funds").to.deep.equal(["real"]);
+      const wrapped = plan.sourceVerdicts.find(v => v.sourceId === "source-intel-W9N9-20-16")!;
+      const bare = plan.sourceVerdicts.find(v => v.sourceId === "intel-W9N9-30-30")!;
+      expect(wrapped.verdict, "wrapped intel form stamped, never silent").to.equal("prospect");
+      expect(bare.verdict, "bare intel form stamped, never silent").to.equal("prospect");
+      expect(plan.haulers.some(h => h.sourceId.includes("intel")), "no phantom routes either").to.equal(false);
     });
 
     it("never mines a source that costs more to staff than it yields", () => {
@@ -707,11 +738,11 @@ describe("economy/CorpPlanner", () => {
           // Budget ~0.031 parts/t: the remote's deposit needs ~0.022, the
           // spawn ~0.001, and an unchecked controller draw would eat ~27 e/t
           // x 0.0011 = the WHOLE ledger before storage's value-1 turn.
-          // (Re-staged 2026-08-04 for the handicap-lift experiment,
-          // SPAWN_PLAN_FRACTION 1.0: back to the original 0.297 so the
-          // staged LEFTOVER budget is unchanged against the plannable rate -
-          // the same convention as the 2026-07-30 re-stage, inverted.)
-          infraPartsPerTick: 0.297
+          // (Re-staged 2026-08-05 for the handicap-lift REVERSION,
+          // SPAWN_PLAN_FRACTION 0.9: 0.30 plannable - the same 0.0363
+          // staged LEFTOVER budget as every prior re-stage - the convention
+          // both the 2026-07-30 and 2026-08-04 re-stages followed.)
+          infraPartsPerTick: 0.2637
         })
       );
       const deposit = plan.haulers.find(h => h.sourceId === "remote" && h.sinkId === "store");
@@ -736,9 +767,10 @@ describe("economy/CorpPlanner", () => {
             sink("spawn-S", "spawn", 0, 100, 1),
             sink("store", "storage", 2, 1, 1000)
           ],
-          // (Re-staged +0.0333 for the 2026-08-04 handicap-lift, fraction
-          // 1.0; staged leftover unchanged.)
-          infraPartsPerTick: 0.302
+          // (Re-staged -0.0333 for the 2026-08-05 handicap REVERSION,
+          // fraction 0.9; staged leftover unchanged - the standing
+          // convention for fraction changes.)
+          infraPartsPerTick: 0.2687
         })
       );
       expect(plan.miners.map(m => m.sourceId), "only the routed source keeps its miner").to.deep.equal(["A"]);
@@ -849,9 +881,10 @@ describe("economy/CorpPlanner", () => {
             sink("spawn-S", "spawn", 0, 100, 1),
             sink("store", "storage", 2, 1, 1000)
           ],
-          // (Re-staged +0.0333 for the 2026-08-04 handicap-lift, fraction
-          // 1.0; staged leftover unchanged.)
-          infraPartsPerTick: 0.310
+          // (Re-staged -0.0333 for the 2026-08-05 handicap REVERSION,
+          // fraction 0.9; staged leftover unchanged - the standing
+          // convention for fraction changes.)
+          infraPartsPerTick: 0.2767
         })
       );
       const scav = plan.haulers.find(h => h.sourceId === "scavenge-big" && h.sinkId === "store");

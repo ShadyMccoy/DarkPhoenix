@@ -1,9 +1,12 @@
 import { expect } from "chai";
+import { worthABody } from "../../../src/corps/recycle";
 import "../../../src/types/Memory";
 import {
   bankBehindFeeder,
   upgraderAllocation,
   upgraderFleetSatisfied,
+  upgraderSwarmCap,
+  upgraderWorthABody,
   upgraderSizing,
   upgraderTargetCount
 } from "../../../src/corps/UpgradingCorp";
@@ -176,5 +179,120 @@ describe("upgraderFleetSatisfied (count AND capacity - the runt-fleet invariant)
 
   it("treats a fleet at or above its allocation as done regardless of rounding", () => {
     expect(upgraderFleetSatisfied(2, 2, 75, 75)).to.equal(true);
+  });
+});
+
+/**
+ * THE SWARM-CAP DEADLOCK (measured live t72804439, the first clean
+ * month-cadence window).
+ *
+ * The count-vs-capacity drift the `upgraderFleetSatisfied` fix caught at the
+ * SATISFACTION gate has a twin one line below it, at the swarm cap - and the
+ * twin is worse, because it does not merely fail to notice the gap, it makes
+ * the gap unclosable:
+ *
+ *   allocated 60.21, affordableWork ~30 (a 5600-capacity body)
+ *   -> targetCount = ceil(60.21/30) = 2
+ *   but bodies are actually built at ~14.5 WORK (energy AVAILABLE, not
+ *   capacity - "recycled why: runt-upsize 83%" in the same window)
+ *   -> 4 creeps x 14.5 = 58 WORK < 60.21 allocated  => NOT satisfied
+ *   -> but getCreepCount() 4 >= targetCount*2 = 4   => "swarm-cap", no demand
+ *
+ * The fleet is permanently one body short of its own allocation with parking
+ * for 8, the controller takes 27.32 e/t of a 60.21 budget (P7 0.66x), and
+ * the residual banks at +14.83 e/t (G1 under-spending, E4 surplus 87,348).
+ *
+ * The cap's own doc says what it is for: "replacement overlap may field one
+ * extra body per expiring incumbent, never more - PARKING TILES ARE FEW". So
+ * the bound it wants is the PHYSICAL one. When the fleet is WORK-SHORT, extra
+ * bodies are not a swarm - they are the compensation for undersized bodies -
+ * and the honest ceiling is the parking ring, which targetCount is already
+ * bounded by.
+ */
+describe("upgraderSwarmCap (a WORK-short fleet is bounded by PARKING, not headcount)", () => {
+  it("the live deadlock: 4 bodies, 58 of 60.21 WORK, parking 8 - one more body is allowed", () => {
+    expect(upgraderSwarmCap(2, 8, 58, 60.21)).to.be.greaterThan(4);
+    expect(upgraderSwarmCap(2, 8, 58, 60.21), "...but never past the parking ring").to.equal(8);
+  });
+
+  it("a fleet whose WORK covers the allocation keeps the tight overlap cap", () => {
+    // Not work-short: the 2x overlap allowance is the whole story, and a
+    // stale/huge allocation still cannot buy a swarm.
+    expect(upgraderSwarmCap(2, 8, 61, 60.21)).to.equal(4);
+  });
+
+  it("ONLY EVER RELAXES: a parking ring tighter than the overlap allowance keeps the allowance", () => {
+    // Deliberately NOT a tightening. The cap's job is to bound a swarm, and
+    // the overlap allowance is what makes replacement possible at all - a
+    // room whose ring is narrower than 2x its target would strand its own
+    // replacements if this returned parking. targetCount is already
+    // parking-bounded, so the relaxed branch can never exceed the ring by
+    // more than that same allowance.
+    expect(upgraderSwarmCap(2, 3, 10, 60.21)).to.equal(4);
+  });
+
+  it("a degenerate parking read (0 = unknown) never strands replacement", () => {
+    expect(upgraderSwarmCap(2, 0, 10, 60.21)).to.equal(4);
+  });
+});
+
+/**
+ * A WORK SLIVER IS NOT WORTH A BODY (owner 2026-08-05: "With the amount of
+ * work why do we even need 8 spots at all? We can make creeps big enough to
+ * avoid that constraint").
+ *
+ * The owner is right on the arithmetic and it reframes the swarm cap above
+ * as a symptom. At RCL7 capacity (5600) a containerFed upgrader packs
+ * **39 WORK for 4,450e in 50 parts** - one body covers 39 e/t, so a 60.21
+ * allocation wants TWO bodies (39 + 21) and `targetCount` computes exactly
+ * 2. The parking ring is irrelevant at that size.
+ *
+ * What actually stood at t72804439 was 4 bodies carrying 58 WORK - one big
+ * (~39) and three ~6-WORK slivers - because the order size is the REMAINING
+ * gap with no floor: once the fleet is near its allocation the gap is 2-6
+ * WORK and the corp buys a runt for it, which then occupies a parking slot
+ * for its whole 1500-tick life ("recycled why: runt-upsize 83%" in the same
+ * window). That is the upgrader's version of the even-share treadmill the
+ * haulers were cured of on 2026-08-03 - and the cure is the same predicate:
+ * corps/recycle.worthABody, a deficit under HALF a body share is not worth a
+ * spawn purchase, it rides to EOL which re-sizes for free.
+ *
+ * Sizing to the GAP stays (it is what makes the second body 21 and not a
+ * wasteful 39); only the sliver purchase goes.
+ */
+describe("upgraderWorthABody (the big-body rule - owner 2026-08-05)", () => {
+  it("the live sliver: 2.2 WORK short of a 39-WORK share is NOT worth a body", () => {
+    expect(upgraderWorthABody(60.21 - 58, 39)).to.equal(false);
+  });
+
+  it("a real gap IS worth a body - and sizing to the gap keeps it honest (39 + 21, not 39 + 39)", () => {
+    // Second body of a fresh 60.21 fleet: 21.21 remaining of a 39 share.
+    expect(upgraderWorthABody(60.21 - 39, 39)).to.equal(true);
+  });
+
+  it("exactly half a share is worth it (the boundary is inclusive, as for haulers)", () => {
+    expect(upgraderWorthABody(19.5, 39)).to.equal(true);
+    expect(upgraderWorthABody(19.4, 39)).to.equal(false);
+  });
+
+  it("the FIRST body is always worth it (a cold controller must start upgrading)", () => {
+    // Whole allocation outstanding: trivially past half a share.
+    expect(upgraderWorthABody(60.21, 39)).to.equal(true);
+    // ...and at a tiny RCL2 body share the same rule still fields the starter.
+    expect(upgraderWorthABody(5, 4)).to.equal(true);
+  });
+
+  it("mirrors corps/recycle.worthABody exactly (ONE doctrine, both posts)", () => {
+    expect(upgraderWorthABody(10, 20)).to.equal(worthABody(10, 20));
+    expect(upgraderWorthABody(9, 20)).to.equal(worthABody(9, 20));
+  });
+
+  it("BOOTSTRAP is exempt - a pre-storage room closes every gap (escape velocity, the hauler doctrine)", () => {
+    // At 800 capacity a body affords 6 WORK, so a 20 e/t allocation leaves a
+    // 2-WORK tail. Mature: not worth a body. Bootstrap: buy it - early RCL
+    // progress is what buys the capacity that makes big bodies possible, and
+    // abandoning ~10% of the allocation there is a worse trade than the runt.
+    expect(upgraderWorthABody(2, 6, true), "mature: the tail rides to EOL").to.equal(false);
+    expect(upgraderWorthABody(2, 6, false), "bootstrap: every crank").to.equal(true);
   });
 });

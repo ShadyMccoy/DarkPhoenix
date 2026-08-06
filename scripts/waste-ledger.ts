@@ -162,7 +162,26 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
 //    runtime will actually staff, with the exclusion printed as a memo
 //    line. A #11 capacity (phantom-inclusive) and a #12 capacity differ by
 //    exactly the occupied rooms' rates; forgone shrinks by the same amount.
-export const METHODOLOGY = 12;
+/**
+ * #13 (owner 2026-08-06): ADDITIVE only - a TARGETS block under the residual
+ * stating the owner's two standing objectives as measured ratios.
+ *
+ * #14 (owner 2026-08-06, same day): the controller ratio's DENOMINATOR is
+ * corrected from `mined - fleet` to CAPACITY. *"42/110 is less than 50"* -
+ * and the owner is right on both the arithmetic and the principle. #13 read
+ * 42.20/45.78 = 92% MET while the owner read 42.20/110 = 38% MISS, off the
+ * same account. Of the four defensible denominators
+ *
+ *     capacity 110.00 -> 38.4%   gross mined 87.70 -> 48.1%
+ *     mined-fleet 45.78 -> 92.2%  mined-fleet-losses 27.60 -> 152.9%
+ *
+ * #13 took the second-most-flattering. A bar cleared at 92% cannot fail,
+ * which is the definition of a useless target. CAPACITY is the honest one: it
+ * charges forgone mining, the fleet AND the losses to the same ratio, so the
+ * number moves when any of the three does. Prior windows' TARGET lines are
+ * NOT comparable across this bump; every other account line is unchanged.
+ */
+export const METHODOLOGY = 14;
 
 export interface LedgerRow {
   id: string;
@@ -1583,6 +1602,36 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       const pool2 = poolWorkSum(cap.data.corps);
       const poolBuilt = pool1 !== null && pool2 !== null ? Math.max(0, pool1 - pool2) : 0;
       const flat = standing && !completion && delivered <= 0 && receiptsDelta <= 0 && poolBuilt <= 0;
+      // SITE LEDGER (core v34; owner 2026-08-05: "I want to stay informed of
+      // construction site progress"): the vision-free per-room roster from
+      // Game.constructionSites, rendered per room with its window delta and
+      // an ETA at the row's own composite build rate. RENDERING ONLY - the
+      // verdict machinery above keeps its lenses (rem falls with build AND
+      // completions, rises with placements, so the delta is context, not a
+      // rate claim). Absent on pre-v34 captures - the line simply omits.
+      const sl1 = (bcore as any).siteLedger ?? null;
+      const sl2 = (core as any).siteLedger ?? null;
+      let byRoom = "";
+      if (sl2) {
+        const roomNames = Object.keys(sl2).sort((a, b) => (sl2[b].rem ?? 0) - (sl2[a].rem ?? 0));
+        const totalRem = roomNames.reduce((a, r) => a + (sl2[r].rem ?? 0), 0);
+        const rate = dt > 0 ? (Math.max(0, delivered) + receiptsDelta + poolBuilt) / dt : 0;
+        byRoom =
+          `; by room: ` +
+          roomNames
+            .map(r => {
+              const cur = sl2[r];
+              const prev = sl1?.[r];
+              const dRem = prev ? cur.rem - prev.rem : null;
+              return (
+                `${r} ${cur.n} site${cur.n === 1 ? "" : "s"} rem ${cur.rem}` +
+                (dRem !== null && dRem !== 0 ? ` (${dRem > 0 ? "+" : ""}${dRem})` : "")
+              );
+            })
+            .join(", ") +
+          ` | total rem ${totalRem}` +
+          (rate > 0.05 && totalRem > 0 ? `, ETA ~${Math.round(totalRem / rate)}t at ${rate.toFixed(1)} e/t` : "");
+      }
       rows.push({
         id: "P8",
         name: "build delivery (site progress)",
@@ -1591,13 +1640,15 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         verdict: flat && consAlloc > 5 ? "FAIL" : flat && consAlloc > 0 ? "WARN" : "ok",
         detail: completion
           ? `completion window (sites ${count1}->${count2}, remote ${remotes1}->${remotes2}) - progress delta ambiguous, skipped` +
-            (receiptsDelta > 0 ? `; remote roads +${receiptsDelta}e via receipts` : "")
+            (receiptsDelta > 0 ? `; remote roads +${receiptsDelta}e via receipts` : "") +
+            byRoom
           : standing || receiptsDelta > 0 || poolBuilt > 0
           ? `sites ${count1}->${count2}, remote ${remotes1}->${remotes2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
             (receiptsDelta > 0 ? `, remote roads +${receiptsDelta}e (receipts)` : "") +
             (poolBuilt > 0 ? `, within-site +${poolBuilt}e (poolWork ${pool1}->${pool2})` : "") +
-            (flat ? " - CREW IDLE (energy allocated, nothing built)" : "")
-          : "no sites standing across the window"
+            (flat ? " - CREW IDLE (energy allocated, nothing built)" : "") +
+            byRoom
+          : "no sites standing across the window" + byRoom
       });
     }
   }
@@ -2951,6 +3002,79 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     "  " + "-".repeat(46),
     L(rotKnown ? "RESIDUAL (repair, tombstones, raids, error)" : "RESIDUAL (decay, rot, raids, error)", residual, 2),
     "",
+    // THE OWNER'S TWO STANDING TARGETS (2026-08-06): *"I really want the income
+    // statement to get back to where it was. Minimal foregone mining. 50%+ net
+    // energy hitting the controller."* Stated here, under the statement they
+    // are targets FOR, so every cycle reports them against a bar instead of
+    // leaving "back to where it was" to memory.
+    ...(() => {
+      const forgone = grossCapacity - grossPlan;
+      // THE DENOMINATOR IS CAPACITY (#14). Everything the colony could have
+      // mined; the controller's share of it therefore charges forgone mining,
+      // the fleet and the losses to ONE ratio, so the number moves when any of
+      // the three does. Netting the fleet out first (as #13 did) hands back
+      // the largest single deduction and reads 92% while the same account
+      // reads 38% against capacity.
+      const net = grossCapacity;
+      const rawShare = net > 1e-9 ? score / net : 0;
+      // Bank-funded delivery is not sustainable delivery. `bankDelta` is
+      // positive when banking, negative when drawing down, so subtracting it
+      // strips the drawdown out of the score (the same arithmetic G1 uses).
+      const funded = score + bankDelta;
+      const fundedShare = net > 1e-9 ? funded / net : 0;
+      const pct = (v: number): string => `${(v * 100).toFixed(0)}%`;
+      return [
+        "  TARGETS (owner 2026-08-06)",
+        // The forgone target is UNMEASURABLE without a mined or heldFrac
+        // reading, and an unmeasurable line must go absent rather than print a
+        // zero - the same invariant the revenue section is pinned to, and the
+        // reason a "0.00 e/t MET" here would be a lie the account already
+        // refuses to tell one line above.
+        ...(minedKnown || forgoneKnown
+          ? [
+              `    forgone mining                     ${forgone.toFixed(2)} e/t   target ~0` +
+                `   ${forgone <= 2 ? "MET" : forgone <= 5 ? "close" : "MISS"}`
+            ]
+          : []),
+        `    controller / CAPACITY              ${pct(rawShare)}    target >=50%` +
+          `   ${rawShare >= 0.5 ? "MET" : "MISS"}   (${score.toFixed(2)} of ${net.toFixed(2)})`,
+        `    ...INCOME-FUNDED only              ${pct(fundedShare)}    target >=50%` +
+          `   ${fundedShare >= 0.5 ? "MET" : "MISS"}   <- the one that lasts`,
+        // WHERE THE REST OF CAPACITY WENT, so a MISS is actionable rather than
+        // just a verdict. These are exactly the deductions #13 netted out of
+        // its denominator before reporting - naming them is the whole reason
+        // the honest denominator costs nothing in diagnosability.
+        //
+        // Each term prints only when it is MEASURED: forgone under the same
+        // gate as the line above (an unmeasured heldFrac makes `forgone` a
+        // fabricated zero), losses under `rotKnown`. An absent term is absent,
+        // never a flattering zero.
+        //
+        // The terms CLOSE TO CAPACITY by construction, which is why `piles`
+        // (a SOURCE, not a use, whenever the ground stock draws down) and the
+        // residual ride along: a waterfall whose shares sum past 100% would
+        // reintroduce the exact "which number do I trust" question the honest
+        // denominator exists to end.
+        "      of capacity: " +
+          [
+            ...(minedKnown || forgoneKnown ? [["forgone", forgone] as const] : []),
+            ["piles", pileDelta] as const,
+            ["fleet", perTick(spawnTotal)] as const,
+            // TRANSPORT, not a loss (owner 2026-08-02) - but it is still
+            // capacity that never reaches a sink, so the waterfall carries it
+            // or it closes 1.21 short on any link-served room.
+            ...(linkTaxKnown ? [["linktax", linkTax] as const] : []),
+            ...(rotKnown ? [["losses", meteredLosses] as const] : []),
+            ["build", build] as const,
+            ["bank", bankDelta] as const,
+            ["controller", score] as const,
+            ["resid", residual] as const
+          ]
+            .map(([label, v]) => `${label} ${v.toFixed(2)} (${pct(v / net)})`)
+            .join("  "),
+        ""
+      ];
+    })(),
     `  CONTROLLER VARIANCE BRIDGE  (plan ${bController.toFixed(2)} -> actual ${score.toFixed(2)})`,
     ...(() => {
       // Single-column lines - the three-column renderer above would print two

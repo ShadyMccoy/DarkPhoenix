@@ -406,3 +406,57 @@ describe("findMissingLink LINK SWAP: a full slot table retires the least-valuabl
     expect(destroyLog, "the near source link is retired").to.deep.equal(["near-src-link"]);
   });
 });
+
+/**
+ * ARRIVALS-FIRST AT THE CORE BUFFER (spec 45 leg 2, owner-directed
+ * 2026-08-05).
+ *
+ * Measured t72805426: **hubClampShare 0.625** (62.5% of port volleys clamped
+ * by a full core) while **coreEmptyShare 0.276** (the core sits empty over a
+ * quarter of the time). A buffer cannot be both saturated and idle - the core
+ * is being STAGED FULL from storage exactly when income wants to land, then
+ * drained to empty when nothing is arriving. Inverted sequencing.
+ *
+ * The fix rides the existing load/drain SYMMETRY rather than adding a second
+ * mechanism: both directions read ONE target level, so driving that target to
+ * 0 while a volley is inbound satisfies both of the spec's legs at once -
+ * `coreLinkLoadRoom` goes to 0 (stop staging into the landing zone) and
+ * `coreLinkDrainAmount` goes to the whole store (PRE-drain, clearing the zone
+ * ahead of the arrival). The XOR invariant the two have always held
+ * (loadRoom>0 XOR drainAmount>0, both 0 only at target) is preserved by
+ * construction, and the phase-D valve law is untouched: this changes WHEN the
+ * core holds staged energy, never how much the controller is allocated.
+ */
+describe("core link target level: arrivals-first (spec 45 leg 2)", () => {
+  const { coreLinkTargetLevel, coreLinkLoadRoom, coreLinkDrainAmount, CORE_LINK_INCOME_RESERVE } =
+    require("../../../src/corps/nodeEnergy") as typeof import("../../../src/corps/nodeEnergy");
+
+  it("an INBOUND volley drives the target to ZERO - the landing zone is cleared, not staged", () => {
+    expect(coreLinkTargetLevel(800, 500, true)).to.equal(0);
+    // ...and the two directions follow from that one number:
+    expect(coreLinkLoadRoom(300, 800, 500, true), "stop staging into the landing zone").to.equal(0);
+    expect(coreLinkDrainAmount(300, 800, 500, true), "PRE-drain the whole store").to.equal(300);
+  });
+
+  it("keeps the XOR invariant under arrivals (never both directions at once)", () => {
+    for (const store of [0, 100, 400, 800]) {
+      const load = coreLinkLoadRoom(store, 800, 500, true);
+      const drain = coreLinkDrainAmount(store, 800, 500, true);
+      expect(load > 0 && drain > 0, `store ${store}: never both`).to.equal(false);
+    }
+  });
+
+  it("with NO inbound volley the existing law stands bit-identical (no regression)", () => {
+    // The controller-headroom law (spec 02/38) is untouched when nothing is
+    // arriving - this is a sequencing change, not a level change.
+    expect(coreLinkTargetLevel(800, 500, false)).to.equal(coreLinkTargetLevel(800, 500));
+    expect(coreLinkTargetLevel(800, undefined, false)).to.equal(800 - CORE_LINK_INCOME_RESERVE);
+    expect(coreLinkLoadRoom(300, 800, 500, false)).to.equal(coreLinkLoadRoom(300, 800, 500));
+    expect(coreLinkDrainAmount(700, 800, 500, false)).to.equal(coreLinkDrainAmount(700, 800, 500));
+  });
+
+  it("the walking relay (no controller link) is unaffected by the flag's default", () => {
+    // Legacy callers pass neither argument and must keep the exact ceiling.
+    expect(coreLinkLoadRoom(0, 800)).to.equal(800 - CORE_LINK_INCOME_RESERVE);
+  });
+});

@@ -209,6 +209,20 @@ Donors will out-produce the 240 e/t ceiling. Ranked:
    power processing, and the standing answer to TRANSPORT_NETWORK §11's
    "fully-RCL8 empire has no sink" problem.
 
+**The donor side of this section is already built.**
+[Spec 47](47-consumption-constrained-economy.md) (landed 2026-08-05, from the
+owner's description of the same regime and independently of this analysis)
+makes a donor whose target is full *behave*: its storage sink tapers by
+`storageAbsorbRate` instead of cliffing, so mining contracts source-by-source
+to what consumption actually drains, and it re-expands the moment a sink
+reopens — which is exactly what a donor must do between sprints. Its phases 1–2
+also price the transfer edge this spec's §4 charges 9.4 e/t for
+(`terminalSendCost`, the engine's own formula), so the income statement's
+TRANSPORT line and the planner's arc cost are the same number rather than two
+estimates. What is NOT built is the executor (spec 47 phase 3) — so the 145.2
+e/t "shipped" line is currently priced and planned but not moved, and any
+measurement leg here should treat it as such.
+
 ## 8. Acceptance
 
 Measurement legs first, mechanism gated on them — the house pattern (specs 32,

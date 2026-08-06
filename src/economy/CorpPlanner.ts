@@ -54,7 +54,7 @@ import {
 } from "./primitives";
 import { effectiveOneWayTiles, pavedNetEnergy, pavedSpawnPartsFor } from "./roadEconomics";
 import { DEFAULT_VALUATION } from "./goals";
-import { bankRoomFromId, isBankSourceId } from "./ids";
+import { bankRoomFromId, isBankSourceId, isMinedIncomeId } from "./ids";
 import { FieldedFleet } from "./Commission";
 
 // =============================================================================
@@ -359,7 +359,16 @@ export interface SourceVerdict {
   net: number;
   tax: number;
   parts: number;
-  verdict: "funded" | "unprofitable" | "over-budget" | "no-spawn" | "unreachable" | "no-sink" | "unrouted" | "defunded";
+  verdict:
+    | "funded"
+    | "unprofitable"
+    | "over-budget"
+    | "no-spawn"
+    | "unreachable"
+    | "no-sink"
+    | "unrouted"
+    | "defunded"
+    | "prospect";
 }
 
 export interface ColonyPlan {
@@ -458,6 +467,22 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
   const candidates: SourceCandidate[] = [];
   for (const source of sources) {
     if (source.transient) continue; // transient stocks need no miner (already harvested)
+    if (!isMinedIncomeId(source.id)) {
+      // INTEL PROSPECTS ARE NOT CANDIDATES (t72801208, caught minutes after
+      // the 0.9 reversion): a position-only scout record ("intel-ROOM-X-Y",
+      // no real game id) prices FABRICATED economics, and the greedy
+      // net/part fill slipped one (net/part 22, rate 5, d=140) into the
+      // tranche gap the budget line had just opened by rejecting a real
+      // net/part-91 source. Funding a phantom also guarantees an id flip
+      // mid-flight when vision records the real id - the corp renames and
+      // the fleet churns by construction (the W45N25 misadventure: 84p
+      // declared, a 1900e miner dead at 39t). Same ONE lens as the income
+      // guard (isMinedIncomeId, t72444684) now applied at ADMISSION:
+      // stamped, never funded; the source becomes a candidate the solve
+      // after vision lands its real id.
+      verdicts.push({ sourceId: source.id, rate: source.rate, distance: 0, net: 0, tax: 0, parts: 0, verdict: "prospect" });
+      continue;
+    }
     if (source.defunded) {
       // Same-lens defund (see PlannerSource.defunded): the corps buy no
       // bodies here, so the plan prices no capacity here - stamped, never

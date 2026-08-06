@@ -58,6 +58,24 @@ whose operators are corps. Read order for architecture truth:
   gauge.
 - **Macro doctrine**: production over consumption. Fund producers first, bank
   to the warchest, consumers burn the residual.
+- **THE TENDER IS A HEARTBEAT — assume it works** (owner 2026-08-06: *"We have
+  to assume the tender is working. It's a heart beat. It's non negotiable. The
+  body dies slowly if there's issues there."*). The tender/feeder drain is an
+  AXIOM every other rule builds on, not a variable to hedge against. Two
+  consequences, and the second is the one that keeps being missed:
+  1. Never design around the possibility that it is failing. If a measurement
+     suggests it is, that is a **P0 bug in the tender itself** — fix it there;
+     never add a compensating rule elsewhere.
+  2. **A drained core is the heartbeat WORKING, not congestion.** The core link
+     is a pass-through to storage by design, so `coreEmptyShare` running high
+     is health, and `toControllerRate` (link receipts into the CTRL link) is
+     therefore NOT a controller-supply gauge — a healthy drained core makes it
+     structurally small. The controller's supply line is storage → feeder.
+     Read supply health from `dryShare` / `workUtil` on the upgrading corp
+     (0.00 / 1.00 = the standing WORK is never starved), and read the
+     controller line from P7. Measured t72808131: delivery tracks FIELDED WORK
+     at ~1 e/t per part and nothing else — 48 WORK delivered 45.03 e/t,
+     25 WORK delivered 39.33 e/t over a window straddling the death.
 - **ONE VALVE: the plan allocation** (owner 2026-08-02, SUPERSEDES the former
   "sized from ACTUAL stock at their work site, never from the goal plan"). The
   upgrader fleet is sized from the plan's controller allocation and nothing

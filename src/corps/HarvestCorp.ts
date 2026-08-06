@@ -479,6 +479,24 @@ export class HarvestCorp extends Corp {
           s.structureType === STRUCTURE_LINK && (s as StructureLink).store.getFreeCapacity(RESOURCE_ENERGY) > 0
       })[0] as StructureLink | undefined;
       if (link) creep.transfer(link, RESOURCE_ENERGY);
+    } else {
+      // PORT-BUFFER DRAIN (spec 47, measured t72810328). Where this miner's
+      // link is also a DEPOSIT PORT, remote haulers drop into a container
+      // beside it whenever the link is full - and something has to move that
+      // back across. This miner is already parked here for life, and
+      // inverting `parkedRelayCarry` its 1 CARRY is a 25 e/t relay against
+      // ~10 e/t of its own harvest, so ~15 e/t is spare.
+      //
+      // The buffer's INFLOW is the OVERFLOW rate, not the port's flow: the
+      // container only receives while the link is refusing. Measured
+      // portWaitFrac 0.122 against a 40 e/t port = ~4.9 e/t, comfortably
+      // inside that spare - which is why no dedicated relay body is bought
+      // (the one attempted is blocked on spec 39; see spec 47).
+      //
+      // Strictly opportunistic: only with room to spare AFTER its own harvest,
+      // so the miner's own output is never displaced - a drain that starved
+      // the mining it serves would be the trade backwards.
+      this.drainPortBuffer(creep);
     }
 
     const result = creep.harvest(source);
@@ -720,6 +738,47 @@ export class HarvestCorp extends Corp {
    * feeding range and a core link in the room. The only case a miner body
    * needs a CARRY part (to feed the link).
    */
+  /**
+   * Move a little of the port container back into the port link (spec 47).
+   *
+   * Gated on the LINK HAVING ROOM: energy in the link leaves by teleport,
+   * energy in the container does not, so the crossing is only worth an intent
+   * when it will actually land. Gated on spare CARRY so the miner's own
+   * harvest keeps priority - it harvests `WORK * HARVEST_ENERGY_PER_WORK` per
+   * tick into the same store.
+   *
+   * Withdraw and transfer are separate intents, so both can run this tick
+   * alongside harvest; the container is picked at range 2, the radius
+   * `bestPortContainerTile` sites within.
+   */
+  private drainPortBuffer(creep: Creep): void {
+    try {
+      const link = creep.pos.findInRange(FIND_MY_STRUCTURES, 1, {
+        filter: s =>
+          s.structureType === STRUCTURE_LINK && (s as StructureLink).store.getFreeCapacity(RESOURCE_ENERGY) > 0
+      })[0] as StructureLink | undefined;
+      if (!link) return;
+      const carrying = creep.store[RESOURCE_ENERGY] ?? 0;
+      if (carrying > 0) {
+        // Already holding: push it across, bounded by what the link can take.
+        creep.transfer(link, RESOURCE_ENERGY, Math.min(carrying, link.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0));
+        return;
+      }
+      const buffer = creep.pos.findInRange(FIND_STRUCTURES, 2, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER && (s as StructureContainer).store[RESOURCE_ENERGY] > 0
+      })[0] as StructureContainer | undefined;
+      if (!buffer) return;
+      // Leave headroom for this tick's harvest so the drain never displaces
+      // the mining it exists to serve.
+      const harvestThisTick = creep.getActiveBodyparts(WORK) * HARVEST_ENERGY_PER_WORK;
+      const spare = (creep.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0) - harvestThisTick;
+      if (spare <= 0) return;
+      creep.withdraw(buffer, RESOURCE_ENERGY, Math.min(spare, buffer.store[RESOURCE_ENERGY] ?? 0));
+    } catch {
+      // Partial harness creep without a wired pos.findInRange - no drain, no throw.
+    }
+  }
+
   private sourceIsLinkFed(): boolean {
     const source = Game.getObjectById(this.sourceId as Id<Source>);
     if (!source) return false;

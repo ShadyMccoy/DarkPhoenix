@@ -207,3 +207,391 @@ deploy poisons X1/workUtil).
 - Deposit-port assignment and `portRemaining` throughput debits live in the
   planner's storage-sink fill (CorpPlanner ~line 760+); the body cap is a
   SIZING clamp, not a flow clamp — flows are already port-bounded.
+
+
+## The sequencing legs AS BUILT (2026-08-05, owner-directed)
+
+Re-measured before implementing (t72805426, 249t window): the defect had
+WORSENED against the diagnosis baseline — **hubClampShare 0.50 → 0.625**,
+hubVolleyAvg 378 → 500 of 800, coreEmptyShare 0.26 → 0.276. Senders blocked
+62% of the time while the receiver sat idle 28% of the time; a buffer cannot
+be both saturated and idle, which is what makes this sequencing rather than
+capacity.
+
+**Leg 1 — `holdCoreRelay` (execution/linkRouting). The rule survived TWO
+wrong justifications; both are recorded because the reasoning is the durable
+part.**
+
+*v1:* hold the relay whenever a port stood loaded, to reserve CTRL's free
+space for the cheaper one-hop direct fire — hop count and the 3% tax, per
+this spec's original framing. **Owner 2026-08-06:** *"Leg 1 HoldCoreRelay is
+only good if it increases throughput. Ie if the controller link is closer and
+empty enough. It might be rare. Energy tax is less important."* Right on both
+counts, and the two paths never even competed for a cooldown — the port
+spends its own, the relay spends the core's.
+
+*v2:* hold to protect the core's DRAINAGE — a clamped fire spends the core's
+whole cooldown, so it cannot drain again for LINK_COOLDOWN × range ticks,
+costing the landing room arrivals need. **Owner, same day:** *"No the core
+link can always be tendered to the storage."* Also right, and it dissolves
+the argument entirely: the FEEDER is the core's always-available drain (sole
+bidirectional operator, and leg 2 makes it pre-drain to zero ahead of an
+inbound volley). **Landing room is the feeder's job, never the relay's** — so
+the relay's cooldown was never protecting it, and the sibling-leg conflict
+v2 claimed to have found does not exist either.
+
+*What survives* is narrow and is exactly the criterion the owner named: the
+relay's own DELIVERED ENERGY PER CORE COOLDOWN. The engine clamps a transfer
+to the target's free capacity but charges `cooldown += LINK_COOLDOWN * range`
+IN FULL, so firing into what a direct volley left this tick buys a sliver at
+the price of a whole cooldown, and the relay cannot feed CTRL again until it
+expires. Holding one beat and firing a full volley delivers strictly more
+energy per cooldown. Same rule `routeSourceVolley` step 4 applies to ports —
+one doctrine, both senders.
+
+This is a MINOR optimization, not the fix for the clamping defect (leg 2 is),
+and it should fire RARELY. `runLinks` accumulates `incomingDirect` through
+the port loop; with no direct fire inbound the rule reduces to the
+pre-existing behavior bit for bit, which is why it needs no policy carve-out.
+
+**Leg 2 — arrivals-first at the core buffer (corps/nodeEnergy).** Rather than
+patching the load gate and the drain direction separately, the fix rides the
+EXISTING symmetry: both directions read one target level, so
+`coreLinkTargetLevel(..., inboundPending)` returning 0 delivers both legs at
+once — `coreLinkLoadRoom` → 0 (stop staging into the landing zone) and
+`coreLinkDrainAmount` → the whole store (PRE-drain, clearing it ahead of the
+arrival). The loadRoom>0 XOR drainAmount>0 invariant is preserved by
+construction and pinned; the phase-D valve law is untouched (this decides
+WHEN the core holds staged energy, never how much the controller is
+allocated). `coreInboundPending` is the detector: any non-core, non-CTRL link
+loaded ≥ threshold and within `nearFireTicks` (1) of firing. It fails CLOSED
+on partial mocks / unresolvable rooms — no evidence of an arrival is not an
+arrival.
+
+**Leg 3 — `depositRouteCarryCap` (economy/primitives).** A deposit route
+unloads into a link port, so one arrival is one unload intent: CARRY beyond
+LINK_CAPACITY/CARRY_CAPACITY buys standing time at the port, not throughput
+(measured: 978–1,851e bodies into an 800-cap port, 2–3 volley cycles per
+trip). Reuses `volleyServiceCarry()` rather than minting a second constant —
+the unloading quantum and the feeder's draining quantum are the same physical
+fact. Walking routes untouched. A SIZING clamp only; flows stay port-bounded
+by the planner's `portRemaining` debit.
+
+Safe against the deadlock class: CarryCorp's swarm cap has been denominated
+in CARRY rather than count since 2026-08-02 for exactly this reason, so
+smaller-than-planned bodies cannot satisfy a count gate at a permanent carry
+deficit. X6 judges bodies ABOVE the route need, so a downward clamp cannot
+trip it.
+
+### Registered predictions (from t72805426)
+
+- `hubClampShare` 0.625 → toward 0; `hubVolleyAvg` 500 → toward full 800.
+- `coreEmptyShare` 0.276 → materially UP (an empty core is the goal now: it
+  is landing room, not idleness — read it WITH the clamp share, never alone).
+- `directShare` 0.25 → up (leg 3's smaller deposit bodies clear ports faster,
+  so ports stand loaded less often); `taxRate` 3.37 → down as a SIDE EFFECT,
+  never as the goal (owner: "energy tax is less important").
+- Deposit-route hauler bodies ≤ 16 CARRY; per-corp `idleSinkAtSinkFrac` down
+  at the seven deposit routes; H1 `atSink` (0.05) down.
+- E6 held-mouth count/heldFrac down; L1 mouth share of pile decay down (the
+  ~4.2 ceil-floor share stays — that is spec 44's half).
+- NOT predicted to move: H1's `enRoute` 0.21. That is spec 47's un-localized
+  approach-lane signal and it is a DIFFERENT failure; if it falls anyway,
+  the two were coupled and that is itself a finding.
+
+
+## Leg 4 — FULL-VOLLEY DISCIPLINE + THE SENDER QUEUE (owner 2026-08-06)
+
+*"Generally speaking if the tender is big enough it's always a better idea to
+hold the volley until you can send a full volley. And even then there may be
+a queue so n>1 links don't blockade each other."*
+
+Two defects, one principle — the engine charges `cooldown += LINK_COOLDOWN *
+range` IN FULL however little moves, so a partial volley IS the waste.
+
+**A. The threshold gate was far too weak.** `routeSourceVolley` step 2 banked
+to the core whenever it had merely `threshold` (100) free, so a link holding
+800 fired 100 and spent its ENTIRE cooldown on an eighth of a volley — then
+needed a second full cooldown for the rest. The core gate now requires the
+WHOLE payload to land.
+
+**SCOPE — and it is the owner's own precondition, "if the tender is big
+enough":** the discipline applies where WE CONTROL THE DRAIN. The tender
+clears the CORE (the feeder floors at one full volley of CARRY, and leg 2
+pre-drains the core to zero the moment a link stands loaded), so waiting for
+core room always pays — the loaded link IS the signal that empties the core
+for it. The CONTROLLER link drains on the upgraders' schedule, so waiting for
+full room there may never pay, AND a partial volley into a near controller
+can still beat a full one into a far core because cooldown scales with range
+(600 at range 2 moves 300/tick; 800 at range 20 moves 40). That comparison
+stays the throughput rule's. Caught by a pre-existing test the first
+implementation broke — the conflict is what located the boundary.
+
+**RELIEF VALVE:** a SATURATED sender (`senderFull`) cannot accept its miner's
+next deposit, so that energy hits the ground and decays. Income outranks
+cooldown efficiency there and the old threshold rule applies — holding a full
+link to save a cooldown would be saving the cheaper resource.
+
+**B. n>1 senders blockaded each other.** Nothing reserved the target's space
+within a tick: two loaded links both fired at an 800-free core, the first
+landed 800 and the second was clamped to ~0 having paid a full cooldown.
+`runLinks` now runs a QUEUE — `coreFreeLeft`/`ctrlFreeLeft` are decremented
+by each accepted fire, and later senders are offered only what is genuinely
+left. Ordered BIGGEST PAYLOAD FIRST: the fullest link is closest to refusing
+its miner's next deposit and it packs the space best, while a smaller sender
+that still fits the remainder fires in the same tick — the space a held link
+declined is not wasted.
+
+Legacy callers (no `payload`) keep the pre-discipline threshold rule exactly;
+that contract is pinned so a full-volley test against an unknown payload can
+never silently hold every harness case.
+
+### Registered predictions (leg 4, from t72807566)
+
+- `hubClampShare` 0.296 → toward 0. This is leg 4's DIRECT target: a clamped
+  volley is now only possible via the relief valve.
+- `hubVolleyAvg` 459 → UP, and this time it is the right metric: the
+  discipline trades firing FREQUENCY for volley SIZE by construction. Read it
+  WITH `toHubRate` — if volleys grow while throughput falls, the discipline
+  is over-holding and the tender is not as big as assumed.
+- `toHubRate` 49.8 → flat or up. FALSIFIER: a sustained fall means holds are
+  costing more than the clamped fires saved.
+- E6 held mouths and the miners' `heldFrac` → down (a source link that fires
+  whole volleys backs up less), and with it forgone mining — which is the
+  line that worsened last window and the reason this leg matters beyond the
+  gauges.
+
+### VERDICT (measured t72808131, 111t post-deploy link window)
+
+The link meter resets with the global reset, so its 111-tick window is
+entirely post-deploy — the clean read. The ECONOMY window (565t) straddles
+the deploy and is ~80% pre-deploy data; nothing below is attributed to leg 4
+from it.
+
+```
+                   t72804439  t72805426  t72807566   t72808131
+  window              1600t       249t       249t        111t
+  hubClampShare       0.448      0.625      0.296      0.154   <- leg 4's target
+  coreCongestedShare  0.256      0.116      0.068      0.036   <- monotone, 4/4
+  coreEmptyShare      0.370      0.276      0.348      0.652
+  coreFillAvg         306.9      252.2      227.1      123.9
+  hubVolleyAvg        435.7      500.3      459.3      445
+  toHubRate           44.38      48.22      49.80      52.12
+  toControllerRate    29.36      64.22      51.63      25.81   <- see caveat
+```
+
+- **`hubClampShare` 0.296 → 0.154: CONFIRMED** (−48%, above the ±30%
+  single-draw noise floor and therefore citable). Cumulative across legs
+  1–4: 0.625 → 0.154, −75%.
+- **`hubVolleyAvg` 459 → 445: REFUTED.** Predicted UP; it went slightly
+  down. The mechanism is in the table above and it matters more than the
+  miss: `coreEmptyShare` went 0.348 → **0.652**. The core link is empty two
+  thirds of the time, so the whole payload virtually always fits and the
+  discipline almost never has to hold. Volley size is set by
+  `LINK_FIRE_THRESHOLD`, not by holding. **Leg 2's pre-drain removed the
+  very constraint leg 4 was written to wait out** — the two legs are
+  partially redundant, and leg 4 is now a safety net catching the residual
+  15% of fires rather than the primary mechanism. Worth knowing before
+  anyone tunes the discipline: there is little left for it to do.
+- **`toHubRate` 49.8 → 52.12: CONFIRMED** in direction (+4.7%), but +4.7% is
+  well under the measured ±20-30% single-draw variance — it is NOT a
+  citable throughput claim on one window.
+- **`FALSIFIER`: NOT tripped.** It required volleys UP while throughput
+  FELL. Observed: volleys flat-to-down, throughput up. The discipline is not
+  over-holding.
+- **E6 held mouths / forgone mining: SPLIT, and the headline number is
+  mostly an artifact.** Forgone fell 17.50 → 0.93, but `forgone = capacity −
+  mined` and CAPACITY re-based 120 → 105 when two sources defunded
+  mid-window (P1 flap). Decomposed:
+
+  ```
+    forgone Δ  −16.57  =  capacity Δ −15.00  +  mined Δ +1.57
+                          (90% denominator)     (10% real)
+  ```
+
+  Measured mined per window: 97.25 → 102.50 → **104.07** e/t — genuinely up
+  +1.57, which is the real and modest win. `heldFracSum` went 2.51 → 2.42
+  across 13 harvest corps: **flat**, so "held mouths down" is not
+  confirmed. Do not quote the forgone line as a leg-4 result.
+
+`toControllerRate` halved (51.63 → 25.81). I filed a hypothesis here that the
+feeder's pre-drain was emptying the core below `LINK_FIRE_THRESHOLD` and so
+starving the core→CTRL relay. **That hypothesis is RETRACTED** (owner
+2026-08-06: *"We have to assume the tender is working. It's a heart beat.
+It's non negotiable. The body dies slowly if there's issues there."*) — it is
+now a CLAUDE.md doctrine bullet, and it was the wrong question twice over.
+
+First, the heartbeat measurably IS working at this capture: the tender stamps
+`gate "staffed"`, `neededCarry 25 == fieldedCarry 25`, `duty 0.377` over
+1256t; the feeder stamps `gate "staffed"`, `feeders 1/1`, `coreDrain 80`, and
+16 CARRY — exactly its volley-service floor of one full 800 volley.
+
+Second, and this is the part to carry forward: **a drained core is that
+heartbeat working, not congestion.** The core link is a pass-through to
+storage by design, so `coreEmptyShare 0.652` is health, and
+`toControllerRate` is not a controller-supply gauge at all — a healthy
+drained core makes it structurally small. The controller's supply line is
+storage → feeder.
+
+The controller line's actual constraint is FLEET, and the stamps name it
+exactly:
+
+```
+                    t72807566      t72808131
+  upgrader creeps        2              1        <- one died
+  fieldedWork           48             25
+  planAllocated      44.98          54.68        <- and the plan rose
+  workUtil / dryShare  1.00 / 0      1.00 / 0    <- NEVER supply-starved
+  P7 delivered       45.03 e/t     39.33 e/t
+```
+
+Delivery tracks fielded WORK at ~1 e/t per part and nothing else; 39.33 over
+a window straddling the death is the average of 48 and 25. Supply was never
+the binding constraint in either window — `dryShare 0.00` says so directly.
+The corp is already responding correctly (`targetCount 2`, `demand
+"demanded"`, `demandMin 3450`, `hold true` to fund an indivisible full-size
+body), and the builder ahead of it in the spawn queue is the owner's own
+construction-first directive being honoured, not a defect.
+
+**DEPLOYED 2026-08-06** (branch `master`, 298K bundle). Gate at deploy:
+unit 2131 passing, `npm run build` clean, and the trio green —
+`flow-handoff`, `storage-depot`, and `runt-economy` (upsize proven at tick
+460, 2→3 WORK). One environment note worth carrying: the first
+`runt-economy` re-run failed with `'[storage] process 7782 exited with code
+1, restarting...'`, which is the mockup's own backend refusing to bind, NOT
+a bot failure — orphaned `@screeps/storage` and `_mocha` processes from a
+container-killed run still held the port. Kill the stale PIDs and re-run;
+the signature is the CLAUDE.md "broken ENVIRONMENT, not broken bot" class.
+
+## The haul-vs-link exchange rate (owner 2026-08-06, `npm run haul:vs:link`)
+
+*"Every tick that a hauler spends not moving is going to hit our income
+statement as a negative variance somewhere. So consider the per tick value of
+the hauler ... compared to 3% link tax. The links are infrastructure that
+expand our carry budget but only if we use it."*
+
+Tabulated from `economy/primitives` (the script restates no economics):
+
+**The hauler's per-tick value.** A 16-CARRY body delivers `carry × 50 /
+roundTripTicks(d)`: **12.9 e/t at d=30, 7.8 at d=50, 5.3 at d=75.** The
+owner's napkin ~6 e/t is the right order for a typical remote. Its body costs
+1.07 e/t amortized, so nearly all of that is net.
+
+**The link's per-tick value.** A full volley per cooldown at `1 tick × range`:
+**77.6 e/t at range 10, 38.8 at range 20** — one link is worth 2-4 haulers on
+the same geometry, and ~10 haulers' worth of raw throughput at range 10.
+
+**THE INVARIANT (the number to remember).** Moving 800e by link costs 24e of
+tax. Walking the same 800e costs a full round trip of hauler time, whose
+energy-equivalent is exactly the payload. So the ratio is
+
+```
+    walk cost / tax cost  =  LINK_CAPACITY / (LINK_CAPACITY × 0.03)  =  1/0.03  =  33x
+```
+
+**independent of distance** — table 3 prints 33x at every row for that
+reason. The 3% tax is not a cost to be weighed against hauling; it is 3% of
+the thing hauling charges 100% for. Any rule that trades link USAGE for tax
+savings is off by a factor of thirty-three. This is the general form of the
+owner's earlier ruling that "energy tax is less important."
+
+**Where it does NOT hold: d≈10 and under.** Table 5 prices the carry fleet a
+10 e/t source needs against the flat 3%: at d=10 the saving is **−0.01 e/t**
+(a wash), turning positive from d=20 (+0.26) and reaching +3.73 at d=150.
+Short in-room hauls are genuinely indifferent; links earn their keep on
+distance.
+
+### The counter-force this exposes — and the falsifier it sharpens
+
+Table 4 prices the other side of leg 4's full-volley discipline. If holding a
+volley one beat idles haulers that could be unloading:
+
+```
+  hold 1t, 1 hauler idle  =  12.9 e   |  the tax it avoids = 24 e
+  hold 1t, 3 haulers idle =  38.7 e   |  ALREADY worse than firing partial
+  hold 5t, 3 haulers idle = 193.5 e   |  8x the tax
+```
+
+**A hold breaks even against the tax after ~1.9 ticks with one hauler idle,
+and after ~0.6 ticks with three.** So full-volley discipline is right when the
+link is the bottleneck and WRONG the moment a blocked hauler is waiting on
+that same buffer — which is exactly the mechanism the enRoute finding
+(spec 47) showed is real.
+
+The `senderFull` relief valve already covers the extreme (a port at 800/800
+fires partial). But a deposit-route hauler carries a full 16-CARRY / 800e
+load, so a port sitting at 700/800 has only 100 free and blocks that hauler
+just as completely while never tripping the valve. **The refinement the grid
+argues for: relieve when the port cannot accept a WHOLE hauler load, not only
+when it is literally full.** Filed here rather than built blind — the live
+gauges (`idleSinkAtSinkFrac` on deposit routes, `hubVolleyAvg`, `toHubRate`)
+decide whether it is real, and leg 4's registered falsifier already watches
+the same seam.
+
+## What "the core opening up" is worth (owner 2026-08-06)
+
+*"The core opening up properly could be a huge boon."* Priced, and the answer
+splits in a way that matters for where links get built next.
+
+**First, a caveat on the throughput numbers.** At t72811683 the meter read
+`toHubRate` 29.7 (from 44.5) and `hubVolleyAvg` 237 (from 426) — but that is a
+**96-tick window immediately after a global reset**, when every source link is
+refilling. It is far below the ±20-30% single-draw floor and is NOT quotable.
+The clamp/empty/wait numbers ARE (they moved 0.30 → 0.00 and 0.23 → 0.00).
+
+Note also that "clamp 0.000" and "small volleys" are the same fact, not two:
+with `coreEmptyShare` 0.598 the full-volley discipline never has to hold, so
+senders fire the moment they cross `LINK_FIRE_THRESHOLD`. That is leg 4's
+finding in its extreme form.
+
+### Channel 1 — hauler time: 8.6 e/t, measured
+
+The fleet `portWaitFrac` of **0.228** (777t window) priced against each route's
+own hauler value:
+
+```
+  d=38  10.3 e/t x 0.228 = 2.34      d=62   6.3 x 0.228 = 1.45
+  d=46   8.5 e/t x 0.228 = 1.94      d=87   4.5 x 0.228 = 1.04
+  d=95   4.2 e/t x 0.228 = 0.95      d=99   4.0 x 0.228 = 0.91
+  ------------------------------------------------------------
+  TOTAL RECOVERABLE                                    8.6 e/t
+```
+
+Against a colony delivering 48-53 e/t to the controller, that is **~17% more
+delivery capacity** sitting in haulers parked at full links. This is the boon,
+and it is real.
+
+### Channel 2 — link throughput: ZERO for plain source links
+
+A sender fires once per `range` ticks carrying whatever accumulated, so a
+`SOURCE_RATE` (10 e/t) source delivers 10 e/t **at any range** — the SOURCE
+binds, not the link. An open core adds nothing there, which is why the
+throughput half of the boon is smaller than it looks.
+
+**A DEPOSIT PORT is the exception, and it is the interesting one.** It carries
+its own source PLUS the remote drops routed to it (~50 e/t at the measured
+`DEPOSIT_PORT_HEADROOM`):
+
+```
+   range   port can fire   its load   verdict
+       5             160         50   link has room
+      10              80         50   link has room
+      15              53         50   link has room
+      20              40         50   PORT SATURATES
+      25              32         50   PORT SATURATES
+      30              27         50   PORT SATURATES
+```
+
+**The boon concentrates where the port is FAR from the core — which is exactly
+the edge-link geometry the owner wants to build toward** (*"building links
+inside our rooms near the edge for remote mining"*). An edge link is by
+definition far from a core near the spawn, so it is the case where the port
+itself saturates and the core drain stops being the only thing that matters:
+past range ~15 the port cannot fire fast enough regardless of how empty the
+core is.
+
+**Consequence for the edge-link plan:** an edge port at range > 15 needs either
+a lower routed load than `DEPOSIT_PORT_HEADROOM` assumes, or a second link, or
+the container buffer genuinely earns its keep there (this is the `rho >= 1.0`
+saturated band from the sizing law, where a buffer fills once and stays full —
+so it is the ROUTED LOAD that must come down, not the buffer that must go up).

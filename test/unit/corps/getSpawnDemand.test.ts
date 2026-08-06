@@ -436,14 +436,32 @@ describe("corp getSpawnDemand()", () => {
       };
     }
 
-    it("with inbound senders the body floors at ONE FULL VOLLEY (16 CARRY)", () => {
+    // UPDATED t72819265: the floor is ONE VOLLEY PER SENDER, not one volley
+    // total. This test staged the two-port shape and pinned 16 - exactly the
+    // case the live A/B refuted. With the pair aged back to one 16-CARRY
+    // feeder the core clamped 0.268 (predicted 0.28) against 0.091 for the
+    // accidental 32, while the SINGLE feeder moved MORE per tick (187.33 vs
+    // 131.28): latency, not rate. One creep cannot cover two senders arriving
+    // at once, it can only serve them serially.
+    it("with TWO inbound senders the body floors at TWO volleys, energy permitting", () => {
       const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
       stageLinkRoom(2, corp.id); // two deposit ports, the live shape
       const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
       expect(demands).to.have.length(1);
-      expect(demands[0].bodyParam, "one withdraw+transfer pair clears any volley").to.equal(16);
-      expect(corp.lastSizing?.volleyFloor, "the stamp records the floor binding").to.equal(16);
+      expect(corp.lastSizing?.volleyFloor, "two senders => two volleys of floor").to.equal(32);
       expect(corp.lastSizing?.inboundSenders).to.equal(2);
+      // The BODY is still bounded by what the room can afford in one go -
+      // maxCarryPairs(2300) = 23. The floor states the requirement; the budget
+      // states what is buyable this tick, and the demand may not exceed it.
+      expect(demands[0].bodyParam, "capped by the energy budget, not by the floor").to.equal(23);
+    });
+
+    it("ONE inbound sender still floors at one volley - the pre-A/B contract", () => {
+      const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
+      stageLinkRoom(1, corp.id);
+      corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
+      expect(corp.lastSizing?.volleyFloor).to.equal(16);
+      expect(corp.lastSizing?.inboundSenders).to.equal(1);
     });
 
     it("a pure-relay link room (core + ctrl only) keeps the throughput law untouched", () => {

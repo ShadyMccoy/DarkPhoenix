@@ -25,6 +25,7 @@ import {
   CREEP_LIFETIME,
   bufferDrainCarry,
   carryPartsFor,
+  depositRouteCarryCap,
   haulerBodyCarry,
   haulerBodyCost,
   maxCarryPairs,
@@ -77,6 +78,11 @@ export interface SerializedCarryCorp extends SerializedCorp {
   dutyIdleSinkAtSink?: number;
   dutyIdleSinkStorageRoom?: number;
   dutySince?: number;
+  /** Deposit-port meter (rolling ~1500t window, survives resets). */
+  portDeposits?: number;
+  portWaits?: number;
+  portFallbacks?: number;
+  portSince?: number;
 }
 
 /**
@@ -120,6 +126,20 @@ export class CarryCorp extends Corp {
    * post-feeder-router pile: atSink 0.21, storage far from full). */
   private dutyIdleSinkStorageRoom = 0;
   private dutySince = 0;
+  /**
+   * DEPOSIT-PORT METER (owner 2026-08-06). `pickStorageDeposit` has three
+   * outcomes for a port-routed hauler - deposit, HOLD at a full port (bounded
+   * by PORT_WAIT_CAP = 30), or give up and haul the residual to the hub - and
+   * NONE of them was measured. That is the whole value of a port buffer: a
+   * container + small tender is worth its 5000e build exactly insofar as it
+   * converts waits and fallbacks into deposits, and without these counters
+   * the build could neither be justified nor verified (spec 14: never guess
+   * twice). Sized like the duty meter: same 1500t rolling window.
+   */
+  private portDeposits = 0;
+  private portWaits = 0;
+  private portFallbacks = 0;
+  private portSince = 0;
 
   /**
    * Where this corp's route picks up - the CarryCorp analogue of HarvestCorp's
@@ -217,6 +237,20 @@ export class CarryCorp extends Corp {
       staged: pickup.staged,
       srcLinkEnergy: pickup.srcLinkEnergy,
       srcLinkCap: pickup.srcLinkCap,
+      // Deposit-port outcomes (see the counters): waitFrac is the share of
+      // port arrivals that found the link FULL, fallbackFrac the share that
+      // gave up and hauled the residual to the hub. Both are what a port
+      // container + tender would convert into deposits.
+      ...(this.portDeposits + this.portWaits + this.portFallbacks > 0
+        ? {
+            portDeposits: this.portDeposits,
+            portWaits: this.portWaits,
+            portFallbacks: this.portFallbacks,
+            portWaitFrac:
+              Math.round((this.portWaits / (this.portDeposits + this.portWaits + this.portFallbacks)) * 1000) / 1000,
+            portMeterTicks: tick - this.portSince
+          }
+        : {}),
       // Duty split (owner 2026-07-25): active vs idle-empty (load leg) vs
       // idle-loaded (deliver leg). Low duty w/ full source buffers = execution
       // loss; high duty w/ full buffers = the plan under-asks (inflow-sized).
@@ -996,13 +1030,34 @@ export class CarryCorp extends Corp {
     // read from the plan's assignment, never re-derived (delivery/pricing symmetry).
     const depositPos = this.storageDepositPort();
     const port = depositPos ? this.resolvePortLink(depositPos) : null;
+    // The port's BUFFER (owner 2026-08-06): a container within range 2 of the
+    // link - the same radius bestPortContainerTile sites it in, because that
+    // is the radius a parked tender can bridge.
+    const portBuffer = port ? this.resolvePortBuffer(port) : null;
     const portWaitedTicks = creep.memory.portWaitSince !== undefined ? Game.time - creep.memory.portWaitSince : 0;
     const decision = pickStorageDeposit({
       depositPos,
       portFree: port ? port.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
+      ...(portBuffer ? { portBufferFree: portBuffer.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 } : {}),
       storageFree: storage && storage.my ? storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
       portWaitedTicks
     });
+    // Meter the outcome BEFORE acting on it (decision-site record, spec 14).
+    // Only port-routed trips count: a route with no depositPos has no port
+    // outcome to measure and must not dilute the fractions.
+    if (depositPos) {
+      if (Game.time - this.portSince >= 1500) {
+        this.portDeposits = 0;
+        this.portWaits = 0;
+        this.portFallbacks = 0;
+        this.portSince = Game.time;
+      }
+      // A buffer drop counts as a DEPOSIT, not a wait: the hauler leaves with
+      // an empty hold, which is the outcome the meter exists to count.
+      if (decision === "port" || decision === "portBuffer") this.portDeposits += 1;
+      else if (decision === "wait") this.portWaits += 1;
+      else if (decision === "storage") this.portFallbacks += 1;
+    }
     if (decision === "wait" && port) {
       // Hold at the link (owner 2026-07-24): the source link fires to core within
       // its cooldown, so waiting a few ticks beats bouncing to the hub and back.
@@ -1016,6 +1071,18 @@ export class CarryCorp extends Corp {
     // Any non-wait outcome ends the hold: clear the clock so the next full-port
     // encounter starts a fresh window (a deposit or a fallback both reset it).
     if (creep.memory.portWaitSince !== undefined) delete creep.memory.portWaitSince;
+    if (decision === "portBuffer" && portBuffer) {
+      if (creep.pos.getRangeTo(portBuffer.pos) > 1) {
+        travelToLane(creep, portBuffer.pos, { range: 1, visualizePathStyle: { stroke: "#88ffff" } });
+        return true;
+      }
+      const moved = Math.min(creep.store[RESOURCE_ENERGY], portBuffer.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0);
+      if (creep.transfer(portBuffer, RESOURCE_ENERGY) === OK) {
+        this.recordProduction(moved);
+        creep.memory.lastDeliver = { to: "port-buffer", amount: moved, tick: Game.time };
+      }
+      return true;
+    }
     if (decision === "port" && port) {
       if (creep.pos.getRangeTo(port.pos) > 1) {
         travelToLane(creep, port.pos, { range: 1, visualizePathStyle: { stroke: "#88ffff" } });
@@ -1063,6 +1130,25 @@ export class CarryCorp extends Corp {
 
   /** Resolve a deposit port position to its live link, or null if it is gone /
    * not ours (delivery then falls back to the storage hub). */
+  /**
+   * The container buffering this port link, if one has been built. Range 2 is
+   * not arbitrary: it is the radius `bestPortContainerTile` sites within,
+   * which is itself the radius a parked tender can bridge (a tile adjacent to
+   * both). Nearest-first so a room with several containers nearby picks the
+   * one actually beside the link.
+   */
+  private resolvePortBuffer(port: StructureLink): StructureContainer | null {
+    try {
+      const found = port.pos.findInRange(FIND_STRUCTURES, 2, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER
+      }) as StructureContainer[];
+      if (found.length === 0) return null;
+      return found.reduce((a, b) => (port.pos.getRangeTo(a.pos) <= port.pos.getRangeTo(b.pos) ? a : b));
+    } catch {
+      return null; // partial harness link without a wired pos.findInRange
+    }
+  }
+
   private resolvePortLink(pos: Position): StructureLink | null {
     const room = Game.rooms[pos.roomName];
     if (!room) return null;
@@ -1514,6 +1600,13 @@ export class CarryCorp extends Corp {
       desiredCarry = haulerBodyCarry(ctx.energyCapacity, carryNeeded);
     }
     desiredCarry = Math.max(1, Math.min(maxCarryPerHauler, desiredCarry));
+    // THE LANDING QUANTUM (spec 45 leg 3): a route that unloads into a link
+    // PORT can only discharge one volley per arrival, so CARRY beyond that
+    // buys standing time at the port, not throughput (measured t72787778:
+    // 978-1,851e bodies into an 800-cap port, 2-3 volley cycles per trip).
+    // Sizing clamp only - flows stay port-bounded by the planner's
+    // portRemaining debit. Walking routes are untouched.
+    desiredCarry = Math.max(1, depositRouteCarryCap(desiredCarry, this.storageDepositPort() !== undefined));
     // The grant IS the debit (methodology #8): price the body this demand
     // actually elicits at its route's ratio, not a flat 100e/CARRY. The flat
     // price over-granted 2:1 road bodies ~33% (75e/CARRY built) - and the
@@ -1811,6 +1904,10 @@ export class CarryCorp extends Corp {
       spawnId: this.spawnId,
       haulerAssignments: this.haulerAssignments.length > 0 ? this.haulerAssignments : undefined,
       pickupPos: this.pickupPos ?? undefined,
+      portDeposits: this.portDeposits,
+      portWaits: this.portWaits,
+      portFallbacks: this.portFallbacks,
+      portSince: this.portSince,
       dutyAlive: this.dutyAlive,
       dutyActive: this.dutyActive,
       dutyIdleSource: this.dutyIdleSource,
@@ -1835,6 +1932,10 @@ export class CarryCorp extends Corp {
     this.dutyIdleSinkAtSink = data.dutyIdleSinkAtSink ?? 0;
     this.dutyIdleSinkStorageRoom = data.dutyIdleSinkStorageRoom ?? 0;
     this.dutySince = data.dutySince ?? 0;
+    this.portDeposits = data.portDeposits ?? 0;
+    this.portWaits = data.portWaits ?? 0;
+    this.portFallbacks = data.portFallbacks ?? 0;
+    this.portSince = data.portSince ?? 0;
   }
 }
 

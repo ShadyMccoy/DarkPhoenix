@@ -32,15 +32,20 @@ describe("spawn planning headroom (plan on 90% of the physical ceiling)", () => 
     expect(plannableSpawnParts(2)).to.be.closeTo(2 * SPAWN_PARTS_PER_TICK * SPAWN_PLAN_FRACTION, 1e-12);
   });
 
-  it("the fraction is 1.0 - the handicap-lift EXPERIMENT (owner 2026-08-04)", () => {
-    // Owner 2026-08-04: "We could try lifting the 10% spawning capacity
-    // handicap on the planner for a couple of months to see what happens."
-    // The 10% margin's absorbers were fixed out from under it (X5 home churn
-    // 18% -> 0-3% across three post-fix windows) while the margin BOUND at
-    // admission (t72778545: 28 positive-net candidates rejected over-budget).
-    // Reversion criteria live on the constant's doc; a change in either
-    // direction is an owner decision, so pin the experiment value too.
-    expect(SPAWN_PLAN_FRACTION).to.equal(1.0);
+  it("the fraction is 0.9 - the handicap-lift experiment REVERTED on its own criteria (2026-08-05)", () => {
+    // The 2026-08-04 lift registered reversion criteria; they were MET,
+    // measured (t72798237/t72799968/t72800193, ~2000t span): utilization
+    // 0.97-0.98 with queue depth 4-8 sustained - the t72676360 shape,
+    // literally - while the admitted tail starved (F3: d017 produced 2.0 of
+    // 10 declared; F2: W45N25 fielded 38 of 84 parts, its 1900e miner dead
+    // at 39t) and forgone+pile-decay climbed 8-20 -> 24.5 -> 44.5 e/t across
+    // FY4852-M06 -> FY4853-M02. Demand arithmetic: plan-priced 0.607 p/t +
+    // measured replacement overhead ~0.14 = ~0.75 vs the 0.667 physical
+    // ceiling - the margin was the buffer for overhead the plan does not
+    // price. Re-lifting is earned by pricing that overhead into admission
+    // (per-route replacement cost), not by argument; a change in either
+    // direction remains an owner decision, so pin the reverted value too.
+    expect(SPAWN_PLAN_FRACTION).to.equal(0.9);
   });
 
   it("two spawns at 90% still out-plan one spawn at 100% (the margin never inverts growth)", () => {

@@ -793,6 +793,21 @@ work.
 
 ## 11. The RCL8 inversion: the room stops being a sink
 
+> **The planner side of this section is BUILT** — see
+> [spec 47](specs/47-consumption-constrained-economy.md), landed 2026-08-05
+> from the owner's description of the same regime, independently of this
+> analysis. The convergence is worth noting because it is a check on both:
+> that spec's `controllerMaxUpgradeRate` is the 15 e/t cap below,
+> `storageAbsorbRate` is the taper that replaces "hoarding until full", and
+> `terminalSendCost` is §4.3's fee to the digit. What §11 supplies that the
+> spec did not have is the *ranking* — §11.4's finding that exporting to
+> another RCL8 room is the worst option and a rotating sink controller the
+> best, which is now spec 47's §6 refinement list rather than an open
+> question. What the spec supplies that this section assumes is the mechanism:
+> the plan already contracts mining to consumption, priced and gated, with the
+> RCL8 regime ratcheted by the `cons-rcl8-full-bank-contracts-mining` grid
+> cell. The one leg neither has yet is the executor (spec 47 phase 3).
+
 At RCL8 the controller hard-caps at **15 e/t**
 (`CONTROLLER_MAX_UPGRADE_PER_TICK`). Below RCL8 a controller is an unbounded
 sink — throw 100 e/t at it with enough upgrader WORK and it all converts to RCL
