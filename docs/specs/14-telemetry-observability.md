@@ -9493,3 +9493,93 @@ note warned about. Revert the placement rung in that case, not the meter.
 
 **Cycle verdict: DIAGNOSED — a top-line leak reduced to a measured mechanism
 by an instrument shipped one cycle earlier, with the fix built and gated.**
+
+## Cycle t72811290 — PREDICTIONS REFUTED (attributably), and a self-inflicted regime change
+
+**Window** 962t from t72810328, methodology #12, full ring. The window
+straddles the legs-A+B+C deploy AND a plan regime change, so attribution is
+the whole job here.
+
+### The registered predictions FAILED. All of them.
+
+```
+                        predicted        measured
+  portWaitFrac (cedc)   -> toward 0      0.122 -> 0.253   WORSE (2x)
+  cedc delivery         -> above 10.00   buffer 3045 -> 4479, held 95%
+  L1 pile decay         -> down          8.80 -> 10.64    WORSE
+  forgone (not pred.)   -> flat 0.00     0.00  -> 24.13
+```
+
+**And they are attributable, which is what makes the cycle worth something.**
+
+1. **The containers are not built.** `siteLedger W43N23 {n: 2, rem: 8135,
+   done: 1865}` — 18.6% of a 10,000e project. Leg B's buffer branch is gated
+   on `portBufferFree` being defined, and with no container standing the path
+   is bit-identical to before (pinned by test). **The fix could not have acted
+   yet**, so nothing here falsifies it.
+2. **Deposit flow rose 33%.** P1 flapped 2 sources back IN (4adbcd8d,
+   4adbcd8e defunded→funded), capacity 100 → 120, and DEP went from *"8f08
+   40.0 x4, 4a83 20.0 x2 | 60 e/t over 6 routes"* to *"4a83 40.0 x4, 8f08
+   40.0 x4 | 80 e/t over 8 routes"*. The spec-47 sizing law says
+   `rho = R * range / 800`, so a third more flow through the same two ports
+   means proportionally more collisions. **The rise is the flow, not the fix.**
+
+### The meter is now fleet-wide, and it makes the container case STRONGER
+
+Last cycle had one corp at 0.122. Seven now report:
+
+```
+  cee0 0.392   cd94 0.311   cd98 0.250   cedc 0.253
+  d01f 0.225   cee2 0.181   c9f9 0.000    (fallbacks: 0 everywhere)
+```
+
+**Roughly a quarter of all at-port decision ticks are spent held at a full
+port link** — double what the single-corp reading suggested, across both
+ports. Zero fallbacks means every wait resolves inside `PORT_WAIT_CAP`, so
+this is pure lost hauler time, exactly the currency the container buys back.
+
+### THE SELF-INFLICTED PART, and it is the finding to act on
+
+The container placement rung placed **two 5,000e sites**. That backlog trips
+the colony-wide wartime lens, and wartime relegates the controller by ZEROING
+its sink demand:
+
+```
+  sink          demand   allocated   value
+  spawn          26.00      26.00     100
+  spawn          18.45      18.45     100
+  construction    7.43       7.43      70
+  construction   10.06      10.06      70
+  storage       398.75     104.03       1     <- 104 e/t to a value-1 sink
+  controller      0.00       0.00      43.4   <- asks for nothing
+```
+
+**Construction can only absorb 17.49 e/t. The other ~104 goes to STORAGE at
+sink value 1, while the controller at value 43.4 demands zero.** The ladder
+never gets to compare them, because a zeroed DEMAND is not a relegated RANK.
+P12 fails on exactly this (published 0.00 vs `bankFedControllerRate` 28.75).
+
+**This is NOT a bug, and I am not patching it unilaterally.**
+`flowAdapter.test.ts` pins `wartime -> 0` deliberately (owner 2026-07-27:
+*"surplus ... normally for upgrading, but now for building"*), and the owner
+restated it 2026-08-06: construction primary, *"banking excess it can't
+consume is fine."* Both readings are the owner's. What is NEW is the measured
+consequence: the rule was written when "build gets everything" implied build
+could USE everything, and here it can use 17.49 of 121.
+
+**The open question for the owner** — the code comment already claims
+*"Relegated != off - the anti-downgrade floor still holds"*, which is false
+whenever the downgrade timer is comfortable (the floor is 0). Relegating by
+VALUE instead of by DEMAND would keep construction primary (70 > 43.4) AND
+give the controller the residual ahead of storage (1). That is a sink-value
+change, and CLAUDE.md says never nudge one in isolation — so it is filed, not
+built.
+
+Duration matters: 8,135e remaining at ~1.94 e/t measured build is **thousands
+of ticks** of zero controller allocation. Riding it per the standing rule
+(a live regression that buys understanding is a good trade; this threatens the
+score, not the instrument).
+
+**Cycle verdict: REFUTED-BUT-ATTRIBUTABLE + a self-inflicted regime change
+named with data.** No code shipped: the fix under test has not had a chance to
+act, and the one thing worth changing is the owner's own pinned directive.
