@@ -181,3 +181,108 @@ designs for a problem the colony does not currently have. The lesson worth
 carrying is the one the method already encodes: the signal was never
 localized, and acting on it would have built a traffic system for a link
 scheduling bug.
+
+## The LINK BUFFER (owner 2026-08-06) — economics, sizing, and why it waits
+
+*"Maybe we just need a biiit of a buffer at the links. Energy arrives in
+waves. Either the link is idle sometimes or the hauling is waiting. If it has
+a smaller Carry creep with the 1 move scale. Maybe a carry per source routing
+to the link. It could be worth the cost by smoothing out both the link and
+haulers. But not sure about the numbers."*
+
+This is the mothership concept aimed at the LINK instead of the storage, and
+the "1 move scale" is exactly right for a reason worth stating: EMPTY CARRY
+parts generate no fatigue in Screeps (`isFatigueFreeWhenEmpty`, movement.ts),
+so a creep that only ever travels empty needs one MOVE, not one per CARRY.
+That is what makes it cheap. Numbers from `npm run haul:vs:link`'s sibling,
+**`npm run link:buffer`** (`scripts/link-buffer.ts`, every formula imported
+from `economy/primitives`).
+
+### The cost side clears easily
+
+```
+  CARRY   buffer e   holds e   e/t cost   parts/t   as a 1:1 body   saving
+     8        450       400      0.300    0.0060        0.533        0.233
+    16        850       800      0.567    0.0113        1.067        0.500
+    24       1250      1200      0.833    0.0167        1.600        0.767
+```
+
+A 16-CARRY buffer costs **0.567 e/t** — HALF what the same capacity costs as
+a conventional 1:1 CARRY+MOVE body. Break-even against recovered hauler idle:
+
+```
+  fleet-wide idle share a 16-CARRY buffer must recover to pay for itself
+    n=5 haulers   0.88%      n=10   0.44%      n=15   0.29%
+```
+
+**0.29% of a 15-hauler fleet's time.** This is the cheapest intervention on
+the board — cheaper per unit of smoothing than anything spec 47 previously
+considered.
+
+### The sizing is WRONG as proposed, and the correction matters
+
+"A carry per source" undersizes it, because the arrival quantum is 800e —
+a full volley and a full deposit-route hauler load are the SAME number
+(`LINK_CAPACITY` = 16 CARRY = the spec 45 leg 3 landing quantum):
+
+```
+  sources x 1 CARRY   holds   of one arrival   absorbs?
+       7                350        44%         PARTIAL only
+      11                550        69%         PARTIAL only
+      16                800       100%         whole load
+```
+
+That distinction is not cosmetic. **A link sender is all-or-nothing under
+full-volley discipline, so a partial buffer does not unblock it at all.** A
+hauler can transfer any amount, so a partial buffer shortens its wait without
+ending it. The honest unit is **16 CARRY per SIMULTANEOUS arrival you intend
+to absorb**, not one per source feeding the link. At the measured deposit-port
+flow (65 e/t over 7 remote routes) a bare link gives 12.3t of headroom before
+it refuses; +16 CARRY gives 24.6t — it doubles the wave that can be ridden
+out.
+
+And the standing caveat: **a buffer fixes BURSTINESS, never a rate deficit.**
+If inflow exceeds drain on average it fills once and stays full, having bought
+one arrival of delay and nothing more.
+
+### WHY IT IS NOT BUILT YET: 74% of the target is a different bug
+
+The aggregate that motivates it — H1 `idleSink` 0.07 → **0.18** — does not
+survive localization. Per-corp at t72808131:
+
+```
+  ALL   11 corps:  idleSink 0.181   atSink 0.019
+  REST   9 corps:  idleSink 0.055   atSink 0.021
+  mining-W43N24-harvest-cd8d  idleSink 1.00  atSink 0.00  duty 0  loaded 1
+  mining-W43N24-harvest-cd8e  idleSink 1.00  atSink 0.00  duty 0  loaded 1
+```
+
+Those two corps contribute **74% of all sink-idle**, and they are precisely
+the two sources P1 reports flipping funded→defunded this window. They are gone
+from the flow graph (12 sources → 11) while their creeps still stand: the
+miner keeps producing (`produced` still climbing), the hauler sits **LOADED**
+and idle for the whole 111t window, and the corp's outer sizing stamp has
+vanished entirely — it is no longer being evaluated.
+
+That is the trap-list class verbatim: *"a rule whose distress response is
+REVOCATION — retire commissions, strand the standing fleet — is the wrong
+class regardless of its trigger."* And note `atSink 0.00`: **they never reach
+a sink at all**, so a buffer at the sink cannot help them by construction.
+
+### Recommended order
+
+1. **Fix the defund-stranding first.** It is 74% of the number, a buffer
+   cannot touch it, and it is already a named wrong-class mechanism. It also
+   plausibly feeds the L1 pile-decay BREACH (6.80 e/t vs a 0.00 budget) —
+   two miners producing into piles no hauler is clearing.
+2. **Then re-read `idleSink`.** On the healthy residual (`idleSink` 0.055,
+   `atSink` 0.021, storage HAD room ⇒ spatial contention at the deposit) the
+   16-CARRY buffer still clears its 0.29% break-even by roughly **7x**. The
+   economics do not need the stranded corps to work.
+3. **Then build it at 16 CARRY per simultaneous arrival**, deposit ports
+   first (that is where a hauler waits on a link rather than on storage).
+
+Building the buffer first would improve the aggregate while leaving the
+stranding in place — the exact failure this spec already recorded once:
+*"had spec 47 been built first, we would own a tractor-beam conduit for a
+link scheduling bug."*

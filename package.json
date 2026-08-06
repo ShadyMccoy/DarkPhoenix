@@ -53,7 +53,8 @@
     "fiscal:close": "ts-node -P tsconfig.test.json scripts/fiscal-close.ts",
     "budget": "ts-node -P tsconfig.test.json scripts/budget.ts",
     "haul:trace": "ts-node -P tsconfig.test.json scripts/haul-trace.ts",
-    "haul:vs:link": "ts-node -P tsconfig.test.json scripts/haul-vs-link.ts"
+    "haul:vs:link": "ts-node -P tsconfig.test.json scripts/haul-vs-link.ts",
+    "link:buffer": "ts-node -P tsconfig.test.json scripts/link-buffer.ts"
   },
   "repository": {
     "type": "git",
