@@ -661,3 +661,59 @@ the full gate for a refactor with no behaviour change to show for it. Write the
 port relay's loop small and clean first, then extract once there are two
 implementations to generalise FROM — the seam will be obvious and the diff will
 be provable. Extracting from one instance is guessing at the abstraction.
+
+### Building the kind: THREE ratchets fired, and the third is a hard stop
+
+Attempted 2026-08-06 on the owner's go-ahead. The corp and kind were written
+(parked relay, `parkedRelayCarry` sizing, `buildTankerBody` body, one KINDS
+entry — spec 17's registration-only path) and **three framework ratchets caught
+something real on the way**, which is worth recording even though the attempt
+was reverted:
+
+1. **F1's class map** rejected the kind as unclassified. Correct: a new kind's
+   spend must be assigned an account rather than silently landing in "other".
+   Classified `portRelay` as **infra**, on the same test as the feeder — it
+   MOVES energy already produced, and its cost is not attributable to any one
+   source's gross line (a port is shared, which is why `DepositPort` carries a
+   `headroom` and no source id).
+
+2. **The orphan-rescue map** caught a genuine hazard. The kind first declared
+   `roles: { portRelay: { workType: "feed" } }`, sharing the feeder's workType
+   — and `OrphanRescue` derives its readoption map from exactly those
+   declarations, so **a port relay could have adopted an orphaned HEARTBEAT
+   feeder**, and vice versa. That is precisely the cross-contamination the
+   separate-kind decision exists to prevent, reintroduced by a one-word
+   default. Fixed with its own workType `"relay"`.
+
+3. **The spawn-authority ratchet (spec 39) is a HARD STOP.** New corps may not
+   add a `getSpawnDemand` site — *"new corps integrate through the plan (spec
+   39), never a new demand site"* — and the debt list is SHRINK ONLY.
+
+**Why (3) cannot be worked around right now.** Commissions already carry the
+plan-side vocabulary (`FleetRole.parts`, spec 39 phase 1), but `commission.fleet`
+is only ever **published** — `commissionPlan.ts` and `CommissionHost.ts` pass it
+through to telemetry, and nothing BUYS from it. Every corp that actually fields
+creeps still does so through `getSpawnDemand`, which is what the debt list
+records. So the ratchet is a forward freeze protecting an unfinished migration:
+there is no completed alternative path, and adding a line to a shrink-only list
+would defeat the very check that is doing its job. **Reverted rather than
+bypassed.**
+
+### The way through is cheaper anyway: the port's miner is already standing there
+
+`detectLinkDepositPorts` only admits a link with an adjacent source
+(`sources.find(s => s.pos.inRangeTo(link.pos, 2))`), so **every deposit port has
+a link-served miner parked at it for life** — 5 WORK + 1 CARRY + 3 MOVE.
+Inverting `parkedRelayCarry`, its 1 CARRY is a **25 e/t** parked relay; it
+spends ~10 e/t of that depositing its own harvest, leaving **~15 e/t spare
+against the port's 30 e/t headroom**.
+
+That is roughly HALF the port's rated drain for **zero new bodies, zero new
+kind, and zero new demand site** — and `HarvestCorp` is already on the spec-39
+debt list, so extending its run loop adds no surface at all. It is the owner's
+own ullage insight from earlier the same day, applied where it actually pays.
+
+**Revised plan:** ship legs A+B plus the miner drain, measure `portWaitFrac`,
+and build the dedicated relay only if the miner's half is not enough — by
+which time spec 39 phase 2 may have landed the buying side and the kind can
+integrate the sanctioned way instead of the debt way.
