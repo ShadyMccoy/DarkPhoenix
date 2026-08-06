@@ -79,8 +79,18 @@ Later families (same rule — one home):
   alternative was the cluster flap (t72489078: the sink set oscillated
   with whichever room was sighted at solve time) and the stranded-trunk
   deadlock (t72488324).
-- **Consumer sizing:** `sustainableConsumptionRate` — consumers are sized from
-  ACTUAL stock at their site, never from the goal plan (macro doctrine).
+- **Consumer sizing — ONE VALVE, the plan allocation** (owner 2026-08-02):
+  the upgrader fleet and the feeder relay are sized from the PLAN's controller
+  allocation and nothing else (`Memory.controllerAllocations`, resolved through
+  `bank.plannedControllerFlow`). This SUPERSEDES the former "sized from ACTUAL
+  stock at their work site, never from the goal plan": the stock-grounded valve
+  was added when the plan under-stated (t72448020) and by 2026-08-02 had
+  inverted, throttling BELOW a plan that no longer under-states — the same
+  failure it was built to prevent, sign flipped. If the plan is wrong, fix the
+  plan; one number that can be audited beats two that disagree quietly.
+  `sustainableConsumptionRate` remains the drain law for OTHER consumers
+  (construction fuel, haul policy) and is no longer an upgrader valve; the
+  bank's remaining job here is FINANCING, not sizing.
 - **The drain law, both directions** (spec 47): `storageAbsorbRate(ullage) =
   ullage / CREEP_LIFETIME` is the ABSORB mirror of that stock/1500 drain — a
   bank fills over one creep generation exactly as a stock empties over one.

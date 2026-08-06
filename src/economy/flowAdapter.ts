@@ -727,27 +727,6 @@ export function detectBankSources(): PlannerSource[] {
 }
 
 /**
- * Physical energy room remaining (ullage) in a room's storage bank. Infinity
- * when there is no live storage to read (harness/unit paths keep the old
- * "soak totalSupply" behavior unchanged). The storage SINK's ceiling is the
- * absorb law over this number (primitives.storageAbsorbRate: ullage/1500, the
- * mirror of the consumer drain law - spec 47), not the raw stock: while the
- * bank has real room the absorb rate dwarfs supply and it soaks any remote
- * surplus (storage is the hub - owner 2026-07-19 "consumption takes from the
- * storage, so it IS a viable sink for remotes"); as it tops out the sink rate
- * tapers to ~0 and mining beyond the other sinks' capacity has no home, which
- * is exactly the owner's storage-full defund trigger (selectProducers drops
- * whole corps when mining > total sink capacity; routeToSinks demotes the
- * unrouted tail).
- */
-export function storageRoomRemaining(roomName: string): number {
-  if (typeof Game === "undefined" || !Game.rooms) return Infinity;
-  const storage = Game.rooms[roomName]?.storage;
-  if (!storage) return Infinity;
-  return storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? Infinity;
-}
-
-/**
  * THE BANK'S TWO-SIDED PRESSURE for a room, off ONE live storage read (owner
  * 2026-08-05: "model the energy in the storage as a source and the ullage as
  * a sink"). `bank.bankPressure` is the law; this is its world lens - the
@@ -755,9 +734,17 @@ export function storageRoomRemaining(roomName: string): number {
  * rate it can ACCEPT, from the same store at the same instant, so a room's
  * two halves can never be read a tick or a formula apart.
  *
+ * The SINK half is the absorb law over the ullage (ullage/1500): while the
+ * bank has real room the rate dwarfs supply and it soaks any remote surplus
+ * (storage is the hub - owner 2026-07-19 "consumption takes from the storage,
+ * so it IS a viable sink for remotes"); as it tops out the rate tapers to ~0
+ * and mining beyond the other sinks' capacity has no home, which is exactly
+ * the storage-full defund trigger (selectProducers drops whole corps when
+ * mining > total sink capacity; routeToSinks demotes the unrouted tail).
+ *
  * Undefined without a live storage to read (harness/unit paths), which the
  * sink call site resolves to Infinity - the uncapped soak, unchanged. Not
- * gated on `storage.my`, matching storageRoomRemaining, the read it replaces
+ * gated on `storage.my`, matching the `storageRoomRemaining` read it replaced
  * on the sink side; detectBankSources keeps its own `.my` gate on the source
  * side. That asymmetry is PRE-EXISTING and deliberate to preserve here (a
  * foreign storage presenting sink capacity is its own question - we cannot

@@ -38,14 +38,38 @@ global.ERR_NAME_EXISTS = -3;
 global.ERR_FULL = -8;
 global.ERR_GCL_NOT_ENOUGH = -15;
 
-// Find constants
-global.FIND_SOURCES = 105;
-global.FIND_DROPPED_RESOURCES = 106; // real API value (sourceBufferStock lens)
-global.FIND_MINERALS = 106;
-global.FIND_STRUCTURES = 107;
-global.FIND_MY_SPAWNS = 112;
-global.FIND_MY_CREEPS = 106;
+// Find constants - THE ENGINE'S REAL VALUES, all of them, all distinct.
+//
+// Corrected 2026-08-06. Two were wrong and both collided with
+// FIND_DROPPED_RESOURCES (106): FIND_MINERALS read 106 (really 116) and
+// FIND_MY_CREEPS read 106 (really 102). A mock `find(type)` dispatches on these
+// numbers, so any room stub answering dropped resources also answered
+// minerals and my-creeps - three different lenses silently sharing one
+// bucket. Six more the source uses were absent entirely, which is why
+// several test FILES could not run standalone (`FIND_TOMBSTONES is not
+// defined` from the scavenge lens): they only passed because an earlier
+// file in the full-suite order happened to stage the global first.
+// Distinctness is pinned by test/unit/harness/screepsConstants.test.ts.
+global.FIND_CREEPS = 101;
+global.FIND_MY_CREEPS = 102;
 global.FIND_HOSTILE_CREEPS = 103;
+global.FIND_SOURCES_ACTIVE = 104;
+global.FIND_SOURCES = 105;
+global.FIND_DROPPED_RESOURCES = 106;
+global.FIND_STRUCTURES = 107;
+global.FIND_MY_STRUCTURES = 108;
+global.FIND_HOSTILE_STRUCTURES = 109;
+global.FIND_FLAGS = 110;
+global.FIND_CONSTRUCTION_SITES = 111;
+global.FIND_MY_SPAWNS = 112;
+global.FIND_HOSTILE_SPAWNS = 113;
+global.FIND_MY_CONSTRUCTION_SITES = 114;
+global.FIND_HOSTILE_CONSTRUCTION_SITES = 115;
+global.FIND_MINERALS = 116;
+global.FIND_NUKES = 117;
+global.FIND_TOMBSTONES = 118;
+global.FIND_DEPOSITS = 122;
+global.FIND_RUINS = 123;
 
 // Structure constants
 global.STRUCTURE_SPAWN = 'spawn';
