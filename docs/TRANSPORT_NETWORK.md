@@ -868,6 +868,11 @@ precisely the scale of an RCL8 room's surplus, and evidently designed as its
 terminating sink. It needs a power supply chain from highway banks, but where one
 exists it strictly dominates exporting energy.
 
+**This ranking assumes no growth target.** If the empire is funding a room's
+ascent (§12), row two moves to the top: a sub-RCL8 controller is uncapped, and it
+is the objective function rather than a sink of convenience. Power processing is
+what you do with surplus when there is nothing left to build.
+
 Watch the fourth row. In a fully-RCL8 empire **every room is a source and none is
 a sink**, so energy shipped between mature rooms merely circulates, paying 3.33%
 every time it moves. That is the real endgame constraint, and it is why power
@@ -875,7 +880,160 @@ processing and the market exist at all.
 
 ---
 
-## 12. What this implies for the planner
+## 12. Concentration of force: rushing one room to RCL8
+
+The transport network is not the objective. It is the mechanism that lets `N`
+rooms fund one room's ascent. This section is why that is worth doing, what it
+actually costs, and the one number that decides it.
+
+### 12.1 The one resource that cannot be pooled
+
+Almost everything in Screeps is poolable across rooms. Energy ships at 3.33% a
+room (§4.3). Bodies walk. CPU is a global budget. GCL is empire-wide.
+
+**Spawn energy capacity is not.** A creep is built from one room's spawns and
+extensions, and no amount of terminal traffic changes that:
+
+| RCL | extensions × capacity | + spawns | **max single creep** |
+|---|---|---|---|
+| 6 | 40 × 50 | 1 × 300 | **2,300** |
+| 7 | 50 × 100 | 2 × 300 | **5,600** |
+| 8 | 60 × 200 | 3 × 300 | **12,900** |
+
+A 50-part creep costs between 2,500 (all MOVE) and 12,500 (all HEAL). So an RCL6
+room **cannot field a 50-part creep at all**, an RCL7 room can field a cheap one,
+and only an RCL8 room can build the maximum creep the game permits.
+
+That is the whole argument. **Concentration exists to overcome the one
+non-poolable resource**, and each RCL step is a ~2.3x jump in maximum single-creep
+strength. Combat outcomes are decided by your *best* creep, not your average one,
+so capability is convex in RCL — and by Jensen, for a fixed energy budget a
+concentrated RCL distribution beats a spread one on peak capability. That is the
+formal version of "overwhelms locally-focused bots," and it is correct.
+
+### 12.2 Serial dominates parallel, and it is not close
+
+Standard result, and it applies exactly. `N` identical projects of size `W`, one
+shared resource pool of rate `R`:
+
+| | first completion | last completion | mean |
+|---|---|---|---|
+| parallel (each room funds itself) | `NW/R` | `NW/R` | `NW/R` |
+| **serial (pool onto one)** | **`W/R`** | `NW/R` | **`(N+1)W/2R`** |
+
+The first project finishes `N` times sooner and the last finishes **no later**.
+Serial halves mean completion time and costs nothing in this idealization.
+
+Screeps then adds compounding, which breaks the tie: a finished RCL8 room raises
+`R` for everyone after it. Worked, for five rooms at 16.2M each (RCL4→8), pool
+starting at 135 e/t and each completion adding ~35 e/t:
+
+| | first RCL8 | all five RCL8 |
+|---|---|---|
+| parallel | ~450,000 ticks | ~450,000 ticks |
+| **serial** | **120,000 ticks** | **~421,000 ticks** |
+
+**First RCL8 at 27% of the time, and everything finishes sooner too.** The costs
+against that are the transport tax — ~10% at a typical 3-room average, which is
+noise at this scale — and risk concentration (§12.5).
+
+### 12.3 The honest part: this is a terrible economic investment
+
+Reaching RCL8 costs **16.38M energy** cumulative, and 10.9M of that is the 7→8
+step alone — 67% of the whole journey. Against what it returns:
+
+| | cumulative energy | steady income | payback on the last step |
+|---|---|---|---|
+| RCL4 | 180,200 | ~25 e/t | — |
+| RCL6 | 1,800,200 | ~45 e/t | ~81,000 ticks |
+| RCL8 | 16,380,200 | ~70 e/t | **~583,000 ticks** |
+
+Claiming a *new* room and taking it to RCL4 costs ~180k for +25 e/t — a 7,200-tick
+payback, **roughly 50x better ROI than the 7→8 step.** Purely economically,
+expansion strictly dominates RCL progression, and it is not remotely close.
+
+Worse for a GCL-focused player: GCL accrues from controller upgrading anywhere,
+1:1 with energy, but **RCL8 caps upgrading at 15 e/t** (§11). An RCL8 room is a
+*bad* GCL farm; sub-RCL8 rooms are unlimited ones.
+
+So state the trade plainly: **rushing RCL8 is an economically irrational,
+militarily rational move.** You are buying a weapon, not an investment. That is
+coherent if overwhelming other players is the goal — but it should be a decision,
+not a side effect, and it should not be justified on economic grounds because the
+economics say the opposite.
+
+**If the goal is purely military, price RCL7 first.** It costs 5.4M against
+16.4M — a third — and delivers 6 labs, 2 spawns, and 5,600 spawn capacity. The
+premium buys 6 towers, a third spawn, 10 labs, the nuker, and the jump to 12,900.
+Whether that last item is worth 11M energy is the actual question, and it depends
+entirely on whether your opponents field creeps you cannot answer below 12,900.
+
+### 12.4 What actually binds
+
+Not energy delivery — the terminal is effectively uncapped (§4.3). Three other
+things bind, in this order:
+
+**Absorption at the controller.** Upgrading is uncapped below RCL8, so the ceiling
+is WORK parts parked in range 3 and fed. Sustaining `N` 50-part upgraders costs
+`N/30` parts per tick against one spawn's 1/3, so **~6 upgraders ≈ 240 e/t is the
+practical ceiling for a one-spawn target**, ~500 e/t at RCL7 with two spawns and
+imported bodies. Beyond that, open a second target rather than waste surplus.
+
+**Feeding the nest.** 240 e/t into a tight cluster is real hauling — and it is
+exactly what §7.4's star topology is for. Three sender links beside storage
+feeding one receiver at the controller, 15 tiles away, deliver `3 × 800/15` =
+**160 e/t for ~0.1 CPU/tick.** Dedicate the target room's links to the controller,
+not to its sources; that inverts the usual doctrine and is correct here.
+
+**Importing bodies.** The target has one spawn until RCL7, so donors must spawn
+upgraders and walk them in. WORK-heavy bodies are slow: 40 WORK + 10 MOVE moves
+at 2 ticks/tile on roads, so a 50-tile walk costs 6.7% of the creep's life and a
+150-tile walk costs 45%. **Import bodies from adjacent rooms only; from further
+out, ship energy instead.** That constrains the donor set to a compact cluster
+around the target — which is the same geographic-compactness pressure §8.1 said
+the terminal tax *doesn't* create. Body import does create it.
+
+### 12.5 Selecting the target, and the risk
+
+**Choose for defensibility and controller geometry, not income.** Income ships in
+by terminal from anywhere; defensibility cannot be shipped. Want few exits, walkable
+tiles in range 3 of the controller, a short storage→controller run for the link
+star, and distance from hostile players.
+
+Two risks, and the second is the one that actually decides it:
+
+**Single point of failure.** 16M energy in one room. Lose it and the donors are
+stunted and the investment is gone — there is no salvage (§9: dismantling
+recovers 0.015%).
+
+**Your donors are soft, and a rational opponent attacks the weakest room, not the
+strongest.** Concentration maximizes your peak and exposes your minimum. The
+fortress you built is irrelevant if the enemy never goes near it. This gives the
+sequencing:
+
+> **RCL6 everywhere first, then concentrate on one room to RCL8.**
+
+RCL6 is 1.8M per room — 11% of the RCL8 cost — and it is the threshold that makes
+a room both self-sufficient and useful: terminal (so it can donate at all), 2
+towers, 3 labs. Below RCL6 a room cannot even participate in the strategy, because
+it has no terminal.
+
+### 12.6 What this changes upstream
+
+- **§11.4's sink ranking inverts.** Power processing is the best sink for a mature
+  empire with no growth target. With a rush target, feeding a sub-RCL8 controller
+  is strictly better — it is the objective function, and it is uncapped.
+- **§8.3's terminal placement flips for the target room.** Its dominant flow is
+  terminal → controller, not remote → terminal. Site its terminal toward the
+  controller. Since placement is one-shot (§9), and the room becomes an exporter
+  only after the rush completes — at which point exporting energy is the worst
+  thing it can do anyway (§11.4) — the rush should win that argument.
+- **§10.2's market route earns its keep** for donors more than ~7 rooms out, where
+  a direct send passes 20% tax. Sell local, buy local, skip the distance term.
+
+---
+
+## 13. What this implies for the planner
 
 Stated as arc costs, ready to price:
 
@@ -927,6 +1085,12 @@ And the judgements that don't reduce to a table:
 11. **Never model construction as recoverable.** Salvage is `0.005 × hits`,
     which is 0.015% of a terminal's build cost. Only roads and ramparts are
     worth dismantling.
+12. **If the empire is funding one room's ascent (§12), say so explicitly and
+    let it reorder everything.** Serial beats parallel by ~4x on time-to-first-
+    RCL8, the transport tax to enable it is ~10%, and the target's links,
+    terminal placement, and sink ranking all invert. But price it honestly: the
+    7→8 step has a ~583,000-tick payback against ~7,200 for a new room, so this
+    is a military purchase and must be justified as one — never on economics.
 
 ### Open questions worth measuring
 
