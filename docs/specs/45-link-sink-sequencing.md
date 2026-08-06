@@ -361,6 +361,16 @@ never silently hold every harness case.
   line that worsened last window and the reason this leg matters beyond the
   gauges.
 
+**DEPLOYED 2026-08-06** (branch `master`, 298K bundle). Gate at deploy:
+unit 2131 passing, `npm run build` clean, and the trio green —
+`flow-handoff`, `storage-depot`, and `runt-economy` (upsize proven at tick
+460, 2→3 WORK). One environment note worth carrying: the first
+`runt-economy` re-run failed with `'[storage] process 7782 exited with code
+1, restarting...'`, which is the mockup's own backend refusing to bind, NOT
+a bot failure — orphaned `@screeps/storage` and `_mocha` processes from a
+container-killed run still held the port. Kill the stale PIDs and re-run;
+the signature is the CLAUDE.md "broken ENVIRONMENT, not broken bot" class.
+
 ## The haul-vs-link exchange rate (owner 2026-08-06, `npm run haul:vs:link`)
 
 *"Every tick that a hauler spends not moving is going to hit our income

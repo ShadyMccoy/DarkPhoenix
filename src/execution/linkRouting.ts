@@ -126,9 +126,6 @@ export function routeSourceVolley(ctx: VolleyContext): VolleyTarget {
   // keep the pre-discipline threshold rule EXACTLY - "fits anywhere at equal
   // cost" is their documented contract, and a full-volley test against an
   // unknown payload would silently hold every one of them.
-  //
-  // RELIEF VALVE: a SATURATED sender cannot take its miner's next deposit, so
-  // that energy hits the ground and decays. Income outranks cooldown there.
   const coreFits =
     ctx.payload === undefined
       ? ctx.coreFree >= ctx.threshold

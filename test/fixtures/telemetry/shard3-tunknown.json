@@ -1,0 +1,23 @@
+{
+  "shard": "shard3",
+  "capturedAt": "2026-08-06T01:08:59.691Z",
+  "tick": null,
+  "segments": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "data": {
+    "core": null,
+    "nodes": null,
+    "edges": null,
+    "intel": null,
+    "corps": null,
+    "blackbox": null,
+    "flow": null
+  }
+}
