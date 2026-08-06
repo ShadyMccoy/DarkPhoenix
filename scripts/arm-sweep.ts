@@ -26,8 +26,21 @@
  * @module scripts/arm-sweep
  */
 import { spawnSync } from "child_process";
+import { gunzipSync } from "zlib";
 
 declare const fetch: (url: string, init?: any) => Promise<any>;
+
+/**
+ * The memory API returns values gzip+base64 encoded behind a `gz:` prefix (and
+ * occasionally plain). Reading one back without decoding prints a confident
+ * `null` for a write that actually landed - which is exactly what a verification
+ * step must never do.
+ */
+function decodeMemory(data: unknown): unknown {
+  if (typeof data !== "string") return data ?? null;
+  if (!data.startsWith("gz:")) return data;
+  return JSON.parse(gunzipSync(Buffer.from(data.slice(3), "base64")).toString("utf8"));
+}
 
 /** Same proxy re-exec dance as capture-telemetry (undici ignores env proxies otherwise). */
 function ensureFetchUsesProxy(): void {
@@ -69,7 +82,7 @@ async function main(): Promise<void> {
 
   if (process.argv.includes("--status")) {
     const got = await api(`/user/memory?${q}`);
-    console.log(`Memory.spawnSweep on ${shard}:`, JSON.stringify(got.data ?? null));
+    console.log(`Memory.spawnSweep on ${shard}:`, JSON.stringify(decodeMemory(got.data)));
     return;
   }
 
@@ -92,7 +105,11 @@ async function main(): Promise<void> {
   await api(`/user/memory`, { method: "POST", body: JSON.stringify({ path: "spawnSweep", value, shard }) });
 
   const readBack = await api(`/user/memory?${q}`);
-  console.log(`ARMED on ${shard}: ${JSON.stringify(readBack.data ?? null)}`);
+  const seen = decodeMemory(readBack.data);
+  if (!seen || (seen as any).pct !== pct) {
+    throw new Error(`write did not land - read back ${JSON.stringify(seen)}`);
+  }
+  console.log(`ARMED on ${shard}: ${JSON.stringify(seen)}`);
   console.log(
     `  planner margin now ${(1 - pct / 100).toFixed(2)} (handicap ${pct}%), stepping +${step}%/fiscal month,\n` +
       `  wrapping at 20% -> 0%. The bot drives it from here; nothing else to do.`
