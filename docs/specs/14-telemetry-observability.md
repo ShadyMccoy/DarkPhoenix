@@ -9327,3 +9327,78 @@ that dominated last cycle's `idleSink` resolved on its own (H1 idleSink
 0.18 → 0.06, atSink 0.02, enRoute 0.04; E2 stranded fleet 0).
 
 **Cycle verdict: FIXED (a doctrine the code claimed but never executed).**
+
+### Registered predictions for the t72809037 deploy (check at +200t or more)
+
+The falsifiers matter more than the confirmations here, because this change
+lifts a demand ABOVE the income tier — the one direction the ladder's whole
+history warns about (the W2N6 blocking stream, the cold-start deadlock).
+
+- **`controllerFeeder` creeps 0 → 1 and `feederActive` false → true.** The
+  direct target. Latency from demand to body should be a handful of ticks, not
+  the 190+ measured (and never the 300-tick starvation lift).
+- **`gate` "demand" → "staffed"** on the feeder's sizing stamp.
+- **E4** bank slope resumes a damped draw with the feeder alive (it read
+  −7.04/t with `feederActive false`, "relay between generations").
+- **NOT predicted to move: E6, L1 pile decay, forgone mining.** Those are the
+  raid-attrition carry shortfall (CARRY 375 → 282) and they recover as the
+  fleet rebuilds, on their own clock. If they improve, that is coupling, not
+  this fix, and must not be claimed for it.
+
+**FALSIFIERS — any one of these means HEARTBEAT (5000) is set too high:**
+
+1. A blocking FIRST MINER or first hauler is displaced by a feeder/tender in
+   the agenda (the tier is explicitly below `BLOCKING`; flow-handoff green is
+   the sim guard, this is the live one).
+2. Fielded CARRY recovery *slows* versus the pre-deploy trend — the raid
+   rebuild is income work and must not be crowded out by the lift.
+3. Feeder/tender demands appear MORE than staffing-gated frequency, i.e. the
+   lift turns a one-body demand into a stream (X5 churn on the infra roles).
+
+If (1) or (3) fires, the fix is to narrow the DECLARATION, not to lower the
+tier: the tier expresses the doctrine correctly, and a state where the
+heartbeat should not be lifted is a state the corp should not declare
+`linchpin` in.
+
+### Deploy verification t72809447 (+410t): heartbeat alive, but ATTRIBUTION WITHHELD
+
+```
+             creeps   CARRY   WORK   feeder   feederActive   rclProgress   storage
+  t72808131     53     375    129      1          true         6623076     160135
+  t72809037     41     282    113      0          FALSE        6666473     153760
+  t72809447     50     282    115      1          true         6689008     147021
+```
+
+- **Feeder 0 → 1, `feederActive` false → true, gate "demand" → "staffed"**,
+  16 CARRY (its volley-service floor), and **queue depth 0 on BOTH spawns** —
+  the 8-deep backlog cleared.
+- **`rclProgress` +22,535 over 410t = 54.96 pts/t against a plan allocation of
+  54.19 — P7 ≈ 1.01x.** The best plan-vs-actual reading this program has
+  recorded on the controller line.
+- Fleet rebuilding: creeps 41 → 50, reservation 3 → 8, coreBuster 0 → 3 (the
+  campaign is running). CARRY flat at 282 — the raid shortfall has stopped
+  deepening but has not yet recovered, exactly as predicted for E6/L1.
+
+**ATTRIBUTION IS WITHHELD, and this is the honest part.** The feeder demand
+stood `since 72808847`; `STARVATION_THRESHOLD` is 300 ticks, so the
+anti-starvation backstop would have lifted it at ~t72809147 **whether or not
+this fix shipped** — and the deploy landed in that same neighbourhood. So the
+revival is NOT evidence for the change. What the fix alters is the latency of
+the NEXT death, which this window does not contain.
+
+The fix is proven where it can be: 6 red-first unit assertions, and four grid
+cells green including the two that guard falsifier (1) —
+`spawn-first-miner-outranks-all` [P] and
+`spawn-93-fresh-miner-beats-scaling-hauler` [P] ("the first fresh creep is B's
+first miner" @ tick 11), plus `haul-t4-feeder-fields-for-bank` [P] (feeder
+fielded @ tick 11) and `haul-t4-tender-death-failsafe` [P] (replacement tender
+@ tick 44). BOT LEVEL 4 unchanged.
+
+**No falsifier tripped**: no blocking miner displaced, no infra stream (tender
+1, feeder 1, staffing-gated as designed), CARRY not falling further.
+
+**The live measurement that decides it is the next feeder death** — record
+demand-to-body latency then. Pre-fix it was 190+ ticks and rising toward the
+300-tick backstop; post-fix it should be a handful.
+
+**Cycle verdict: FIXED + INSTRUMENTED, live attribution PENDING one death.**
