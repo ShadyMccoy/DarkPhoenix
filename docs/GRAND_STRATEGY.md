@@ -72,7 +72,7 @@ the deep reason to hold SK-core-adjacent rooms: not the extra energy, the
 
 **But you needn't park them.** GCL control points are credited on *every* upgrade,
 cumulatively, forever — re-claiming a controller and re-pumping 1→8 pays out
-another ~12.7M. A **bare sink controller** carries no local infrastructure
+another ~16.4M. A **bare sink controller** carries no local infrastructure
 (energy + boosted upgraders are imported), so unclaim/re-claim costs nothing to
 rebuild. Trade a few marginal rooms' slots for a rotating pool of sub-8 sinks
 pumped at ~1,000/tick (≈65× the parked 15/tick). GCL income then bounds on
@@ -80,9 +80,19 @@ pumped at ~1,000/tick (≈65× the parked 15/tick). GCL income then bounds on
 — i.e. on logistics and intents, *not* the cap. Same conclusion: intents all the
 way down.
 
-Climb cost for reference (`CONTROLLER_LEVELS`, RCL1→8): **12,735,200** energy of
-progress, of which **7→8 alone is 7,290,000 (57%)**. The low levels are a
+Climb cost for reference (`CONTROLLER_LEVELS`, RCL1→8): **16,380,200** energy of
+progress, of which **7→8 alone is 10,935,000 (67%)**. The low levels are a
 rounding error; "time to RCL8" is "time to grind 7→8."
+
+> **Corrected 2026-08-06.** This paragraph read 12,735,200 / 7,290,000 (57%) —
+> i.e. it had `CONTROLLER_LEVELS[7]` at ×2 over level 6 rather than ×3, breaking
+> the geometric run that holds from level 2 up. **Our own live captures settle
+> it**: every telemetry fixture with an RCL7 room carries
+> `rclProgressTotal: 10935000` (e.g. `test/fixtures/telemetry/shard1-t72777517.json`,
+> `rcl: 7`). Per this document's own rule, the engine wins. The correction makes
+> the 7→8 grind ~50% more expensive than previously stated, which lengthens every
+> sprint estimate in §4 — see [spec 46](specs/46-concentration-of-force.md) for
+> the reworked arithmetic.
 
 ## 4. The concentration engine — one capability, two payloads
 
@@ -91,12 +101,16 @@ energy or creeps across many rooms, deliver concentrated, and beat the target's
 per-room throughput cap. That is the general primitive; the payload is a choice.
 
 - **Payload = energy + boosted upgraders → RCL8 sprint.** With the free upgrade
-  boost and imported energy, the 12.7M climb becomes a *delivery-bandwidth*
+  boost and imported energy, the 16.4M climb becomes a *delivery-bandwidth*
   problem, not a time problem. Bounded finally by **controller geometry**: ≤48
   tiles within range 3, and how much energy you can cram through them. A well-fed
   sprint reaches RCL8 in well under a day; the tile floor is a few hours. Energy
   is pre-bankable across storages, so the sprint is a *logistics burst off banked
   reserves*, not a production problem.
+  [Spec 46](specs/46-concentration-of-force.md) quantifies this payload — the
+  income statement behind it, the three constraints that actually bind, and why
+  the GCL curve makes concentration close to mandatory rather than merely
+  available.
 - **Payload = boosted fighters → conquest.** The defender is spawn-throughput-
   limited (~1 part / 3 ticks / spawn; ~500 standing parts sustained per spawn);
   you pre-stage across many rooms and arrive with a force they cannot match or
