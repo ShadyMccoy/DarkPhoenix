@@ -231,7 +231,22 @@ export interface ColonyProblem {
    * (t72749493: the published infra sum could not be decomposed from a
    * capture). Pure bookkeeping - the planner never reads it.
    */
-  infraInputs?: { pricedRelay: number; depotRooms: number; remoteRooms: number; linkFedRooms: number };
+  infraInputs?: {
+    pricedRelay: number;
+    depotRooms: number;
+    remoteRooms: number;
+    linkFedRooms: number;
+    /**
+     * Remote rooms the plan actually FUNDED, set by the solve's corrective
+     * reserver pass (flowAdapter). Equal to `remoteRooms` whenever that pass
+     * converged, which is the normal case; a difference is the residual - one
+     * reserver per room, over-charged when funded < priced - and having both
+     * numbers on the stamp is what lets a capture tell "the books disagree" from
+     * "the corps' sum is wrong". Absent on the problem itself (nothing is funded
+     * yet); the flow segment's fleetCharge stamp carries it.
+     */
+    remoteRoomsFunded?: number;
+  };
   /**
    * Execution-context facts for auxiliary propose() triggers, assembled by
    * the HOST (spec 17 P3): propose is a pure function of (problem, draft), so

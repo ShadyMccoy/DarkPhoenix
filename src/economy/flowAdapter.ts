@@ -874,6 +874,33 @@ export function convergeFleetCharge<T>(
   return { charge, solved, passes };
 }
 
+/**
+ * How many corrective re-solves the reserver set gets (see solveColony). Two,
+ * because the first is the ordinary case - the set moved by a room and the
+ * re-price settles it - and the second only exists to catch a room that its own
+ * freed charge funds back. A third would be chasing an oscillation, which is a
+ * residual to REPORT (infraInputs.remoteRoomsFunded), not to spend the tick's
+ * heaviest work on.
+ */
+const REMOTE_SET_MAX_PASSES = 2;
+
+/**
+ * The remote rooms a solved plan actually funds a miner in - the reserver set
+ * the reservation corps will be proposed for, and the set the NEXT solve prices
+ * its infra from (persisted as Memory.fundedRemoteRooms). Sorted, so two solves'
+ * sets compare and serialise identically.
+ */
+function fundedRemoteRoomsOf(problem: ColonyProblem, plan: { miners: { sourceId: string }[] }): string[] {
+  const spawnRoomSet = new Set(problem.spawns.map(s => s.pos.roomName));
+  const srcById = new Map(problem.sources.map(s => [s.id, s]));
+  const rooms = new Set<string>();
+  for (const m of plan.miners) {
+    const rn = srcById.get(m.sourceId)?.pos.roomName;
+    if (rn && !spawnRoomSet.has(rn)) rooms.add(rn);
+  }
+  return [...rooms].sort();
+}
+
 export function buildColonyProblem(
   graph: FlowGraph,
   dist: ColonyProblem["dist"] = pathDistance,
@@ -1512,26 +1539,93 @@ export function solveColony(
   // fleet it produces). Damping is what turns an oscillation into a
   // contraction; undamped, C_{n+1} = F(C_n) ping-pongs between the two ends.
   // Capped and tolerance-stopped so the solve can never run away.
-  const fleetOf = (p: { plan: { totalOverhead: number } }): number =>
-    p.plan.totalOverhead + (baseProblem.infraEnergyPerTick ?? 0);
+  // Reads the SOLVED problem's infra, not baseProblem's. Identical while the
+  // priced remote set is fixed (every iteration built it from the same input);
+  // it stops being identical once the reserver pass below re-prices that set, and
+  // a charge priced off a different problem's infra than the plan it ships is
+  // the same class of error the damping above exists to kill.
+  const fleetOf = (p: { plan: { totalOverhead: number }; problem: ColonyProblem }): number =>
+    p.plan.totalOverhead + (p.problem.infraEnergyPerTick ?? 0);
   const spawnCount = Math.max(1, baseProblem.spawns.length);
-  const solveWith = (perSpawn: number): ReturnType<typeof searchStructure> =>
+  const solveWith = (
+    perSpawn: number,
+    remotes: readonly string[] | undefined = prevFundedRemoteRooms
+  ): ReturnType<typeof searchStructure> =>
     searchStructure(
       buildColonyProblem(
         graph, dist, transientSources, detectLinkHaulPositions(graph), detectPavedSources(),
         bankSources, INVADER_TAX_PER_ENERGY, compileGoal(goal), prevBankDraw,
-        detectLinkDepositPorts(), perSpawn, prevFundedRemoteRooms, fielded, prevFleetEnergyPerPart
+        detectLinkDepositPorts(), perSpawn, remotes, fielded, prevFleetEnergyPerPart
       )
     );
 
-  const converged = convergeFleetCharge(
-    seedCharge,
-    fleetOf(pass1) / spawnCount,
-    (s: ReturnType<typeof searchStructure>) => fleetOf(s) / spawnCount,
-    solveWith
-  );
-  spawnMaintenanceStamp = converged.charge;
-  const searched = converged.solved ?? pass1;
+  // ---- THE RESERVER TERM'S OWN LAG (spec 51, measured t72828763) ----
+  //
+  // `infraSpawnLoad` prices one reserver per remote room from
+  // `prevFundedRemoteRooms` - the PREVIOUS solve's answer - because the charge
+  // has to be deducted before the solve that decides this one's. The reservation
+  // CORPS, meanwhile, are proposed off THIS solve's draft. So the two books
+  // agree only while the funded set holds still, and diverge by one reserver per
+  // room that joined or left.
+  //
+  // That lag was survivable at a 50-tick solve cadence. It is not at the fiscal
+  // month term (spec 46 phase A): the plan built here IS the month's budget, so
+  // a remote that drops out at a boundary is charged to the colony for the whole
+  // month after it stopped being worked. And it drops out at exactly the moment
+  // the sweep is measuring - raising the handicap shrinks the spawn budget, and
+  // the first thing that budget does is stop admitting marginal remotes.
+  // Measured live: priced 9, funded 8, Sigma(auxiliary corps) short by exactly
+  // one roomReserverSpawnLoad (0.003704 p/t).
+  //
+  // So close it here, where THIS solve's answer is already in hand: when the plan
+  // funds a different number of remotes than it was priced for, re-solve with the
+  // set it actually funded. It also converges a COLD start in one solve rather
+  // than one replan - with no history the priced set is every scouted candidate
+  // (t72750467: 26 rooms against 8 funded).
+  //
+  // The re-price is OUTSIDE the damped charge iteration and each re-price runs a
+  // full one of its own. That is not belt-and-braces: dropping a reserver lowers
+  // `infraEnergyPerTick`, which is a TERM OF THE CHARGE (see fleetOf), so a
+  // corrective solve bolted on after convergence would ship a plan whose fleet
+  // costs less than the charge the spawn sink is still demanding - moving the
+  // same over-charge from the parts ledger into the energy ledger instead of
+  // removing it. The inner iteration is seeded from the converged charge, so when
+  // the set does not move it costs zero extra searches, and when it does it
+  // usually costs one.
+  //
+  // Not guaranteed to reach a fixed point: dropping a room frees its charge,
+  // which can fund it right back. Bounded at REMOTE_SET_MAX_PASSES; when that
+  // binds, the last plan ships and `infraInputs.remoteRoomsFunded` records the
+  // residual next to the priced count, so the reconciliation NAMES the
+  // disagreement instead of hiding it.
+  let remotes: readonly string[] | undefined = prevFundedRemoteRooms;
+  let searched = pass1;
+  let charge = seedCharge;
+  let dampedPasses = 0;
+  let fundedRemotes: string[] = [];
+  for (let pass = 0; ; pass += 1) {
+    const converged = convergeFleetCharge(
+      charge,
+      fleetOf(searched) / spawnCount,
+      (s: ReturnType<typeof searchStructure>) => fleetOf(s) / spawnCount,
+      (perSpawn: number) => solveWith(perSpawn, remotes)
+    );
+    charge = converged.charge;
+    dampedPasses += converged.passes;
+    if (converged.solved) searched = converged.solved;
+
+    fundedRemotes = fundedRemoteRoomsOf(searched.problem, searched.plan);
+    const priced = searched.problem.infraInputs?.remoteRooms;
+    if (pass >= REMOTE_SET_MAX_PASSES || priced === undefined || priced === fundedRemotes.length) break;
+    // Re-price, then re-converge from the charge we already have. The explicit
+    // solve is required: convergeFleetCharge stops on the charge's tolerance and
+    // would return `solved: undefined` - keeping the OLD set's plan - when only
+    // the SET moved.
+    remotes = fundedRemotes;
+    searched = solveWith(charge, remotes);
+  }
+  spawnMaintenanceStamp = charge;
+
   // DECISION STAMP (spec 14): every input of the charge, not just the result.
   // `spawnMaintenance` alone could not distinguish an unconverged iteration
   // from a wrong divisor from a mis-estimated infra term - two diagnoses off
@@ -1540,10 +1634,15 @@ export function solveColony(
   fleetChargeStamp = {
     fleetEnergy: fleetOf(searched),
     production: searched.plan.totalOverhead,
-    infra: baseProblem.infraEnergyPerTick ?? 0,
+    infra: searched.problem.infraEnergyPerTick ?? 0,
     spawnCount,
-    passes: converged.passes,
-    ...(baseProblem.infraInputs ? { infraInputs: baseProblem.infraInputs } : {})
+    // Summed across every charge iteration, including any the reserver re-price
+    // triggered - the field means "damped iterations actually run", and that is
+    // still what this counts.
+    passes: dampedPasses,
+    ...(searched.problem.infraInputs
+      ? { infraInputs: { ...searched.problem.infraInputs, remoteRoomsFunded: fundedRemotes.length } }
+      : {})
   };
   const problem = searched.problem;
   const plan = searched.plan;
@@ -1626,17 +1725,10 @@ export function solveColony(
     ...(fleetChargeStamp ? { fleetCharge: fleetChargeStamp } : {}),
     // The funded remote set this solve actually worked - persisted by the
     // execution layer (Memory.fundedRemoteRooms) to price the NEXT solve's
-    // reserver upkeep from reality (see buildColonyProblem.remoteRooms).
-    fundedRemoteRooms: (() => {
-      const spawnRoomSet = new Set(problem.spawns.map(s => s.pos.roomName));
-      const srcById = new Map(problem.sources.map(s => [s.id, s]));
-      const rooms = new Set<string>();
-      for (const m of plan.miners) {
-        const rn = srcById.get(m.sourceId)?.pos.roomName;
-        if (rn && !spawnRoomSet.has(rn)) rooms.add(rn);
-      }
-      return [...rooms].sort();
-    })(),
+    // reserver upkeep from reality (see buildColonyProblem.remoteRooms). Already
+    // computed above, where the corrective reserver pass converged it against
+    // the priced set; recomputing here would risk the two drifting apart.
+    fundedRemoteRooms: fundedRemotes,
     netEnergy: netEnergyTotal,
     efficiency: totalHarvest > 0 ? (netEnergyTotal / totalHarvest) * 100 : 0,
     unmetDemand,

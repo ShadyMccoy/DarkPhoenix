@@ -154,6 +154,47 @@ ledger never charged for. Fixed by a `depotRooms` / `linkFedRooms` host lens on
 read the same fact; pinned by the "charges NOTHING for depot movers in a room
 with no storage" test.
 
+**And a second one, on the first live capture that could see it (t72828763).**
+The reconciliation came up short by exactly `0.003704` p/t — one
+`roomReserverSpawnLoad`. Not a pricing drift: the two sides were pricing the same
+way from **different remote-room sets**. `infraSpawnLoad` reads
+`prevFundedRemoteRooms` — the PREVIOUS solve's answer, because the charge is
+deducted before the solve that decides this one's — while the reservation corps
+are proposed off THIS solve's draft. The capture shows both: 9 reservation corps,
+8 of them priced (the 9th a retained corp for a room that had just dropped out as
+sources went 12 → 11), against `infraInputs.remoteRooms: 9`.
+
+A one-solve lag, and survivable as one. It is not survivable as a one-MONTH lag,
+which is what the fiscal-month plan term (spec 46 phase A) turned it into: the
+plan built at a boundary IS the month's budget, so a remote that leaves is
+charged to the colony for the whole month after it stopped being worked. Worse
+for this program specifically — remotes leave *exactly when the handicap steps*,
+because the first thing a shrinking spawn budget does is stop admitting marginal
+remotes. The over-charge would have landed on the same months the sweep is
+measuring, in the same direction as the step.
+
+Closed in `solveColony`, where this solve's answer is already in hand: when the
+plan funds a different number of remotes than it was priced for, re-price and
+solve again with the set it actually funded. Free in steady state (counts match,
+no pass runs), bounded to two re-prices when they don't, and it also converges a
+COLD start in one solve rather than one replan — with no history the priced set is
+every scouted candidate (t72750467: 26 rooms against 8 funded).
+
+**The re-price wraps the fleet-charge iteration rather than following it**, and
+that ordering is the whole correctness of it. `infraEnergyPerTick` is a TERM of
+the fleet charge, so dropping a reserver lowers the charge the spawn sink should
+demand. A correction bolted on after convergence ships a plan whose fleet costs
+less than the charge still being demanded for it — the same over-charge, moved out
+of the parts ledger and into the energy one. So each re-price re-runs the damped
+iteration, seeded from the charge already converged: usually one extra search, and
+the stamp's `spawnMaintenance * spawnCount == fleetEnergy` identity survives it
+(pinned).
+
+It is not guaranteed to reach a fixed point, because dropping a room frees the
+charge that can fund it back. So the stamp publishes
+`infraInputs.remoteRoomsFunded` next to `remoteRooms`: one number cannot say
+whether the books agree, and a residual that is named is not a mystery variance.
+
 **STILL OPEN:** `scout`, `raidGuard`, `coreBuster` and `claim` declare 0 *and*
 are absent from `infraSpawnLoad` — outside BOTH books. `planSpawnLoad` prices
 guards anyway (0.98 e/t measured t72823437), so that class remains a second-book

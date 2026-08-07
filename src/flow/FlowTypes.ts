@@ -368,8 +368,21 @@ export interface FlowSolution {
      * decomposed from a capture, the exact diagnosis failure the stamp
      * exists to prevent). infraSpawnEnergy(pricedRelay, depotRooms,
      * remoteRooms, linkFedRooms) is re-runnable from these four numbers.
+     *
+     * `remoteRoomsFunded` is the fifth (spec 51, t72828763): the remotes the
+     * plan actually funded, next to the `remoteRooms` it was PRICED for. The
+     * solve's corrective reserver pass normally makes them equal; when it
+     * cannot, the difference is the residual over-charge - one reserver per
+     * room - and the pair is what separates "the two books disagree" from "a
+     * corp's budget is wrong" straight from a capture.
      */
-    infraInputs?: { pricedRelay: number; depotRooms: number; remoteRooms: number; linkFedRooms: number };
+    infraInputs?: {
+      pricedRelay: number;
+      depotRooms: number;
+      remoteRooms: number;
+      linkFedRooms: number;
+      remoteRoomsFunded?: number;
+    };
   };
 
   /**
