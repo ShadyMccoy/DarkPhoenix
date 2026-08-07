@@ -209,6 +209,10 @@ export interface HaulerAssignment {
    * materialization path (haulerAssignmentFromCommissioned) leaves it unset.
    */
   spawnParts?: number;
+  /** What this route actually DEBITED from the parts ledger (audit t72846447),
+   * against `spawnParts` which is what it is PRICED at. Carried verbatim from
+   * CommissionedHauler. */
+  charged?: number;
 
   /** Nearest spawn for these haulers */
   spawnId: string;
@@ -241,6 +245,9 @@ export interface SinkAllocation {
    * trace) - why filling stopped: capacity met, pool dry, or ledger dry.
    */
   partsLeft?: number;
+  /** The consumer-body charge the ROUTING pass debited for this sink (audit
+   * t72846447), next to the adapter's independently-computed `spawnLoad`. */
+  chargedWork?: number;
 
   /**
    * The plan's ALL-IN spawn charge for this consumer (parts/tick) and the
@@ -532,6 +539,8 @@ export function haulerAssignmentFromCommissioned(h: CommissionedHauler): HaulerA
     spawnCostPerTick: haulerOverhead(h.carryParts, h.distance),
     // Carry the planner's paved-aware parts/tick verbatim (P4 ledger echoes it).
     spawnParts: h.spawnParts,
+    // ...and what the ledger ACTUALLY debited for it (audit t72846447).
+    ...(h.charged !== undefined ? { charged: h.charged } : {}),
     spawnId: h.spawnId,
     // A paved route spawns road haulers: 2 CARRY per MOVE (SpawningCorp.getPartRatios).
     ...(h.paved ? { haulerRatio: "2:1" as const } : {}),

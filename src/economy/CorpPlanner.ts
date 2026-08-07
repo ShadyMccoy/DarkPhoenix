@@ -327,6 +327,16 @@ export interface CommissionedHauler {
   flowRate: number;
   carryParts: number;
   spawnParts: number;
+  /**
+   * The haul charge this route actually DEBITED from the parts ledger (audit
+   * t72846447). `spawnParts` is what the route is PRICED at; `charged` is what
+   * `routeToSinks` subtracted from `partsRemaining`. They should be equal -
+   * `carryPartsFor` is linear in rate - and publishing BOTH is what makes that
+   * checkable from a capture. Four separate hand-derivations of the P4
+   * overshoot disagreed with each other before this existed, and none could be
+   * settled without it.
+   */
+  charged?: number;
   /** Route is paved: spawn the haulers at the 2:1 road CARRY:MOVE ratio. */
   paved?: boolean;
   /**
@@ -348,6 +358,13 @@ export interface CommissionedSink {
   /** Spawn-parts ledger remaining when this sink's fill ENDED (spec 15 P4
    * trace - why did filling stop: capacity met, pool dry, or ledger dry). */
   partsLeft?: number;
+  /**
+   * The consumer-body charge this sink actually DEBITED (audit t72846447):
+   * `workPerUnit x allocated`, summed over the fill. Sits next to the ADAPTER's
+   * independently-computed `spawnLoad` on the flow segment - two numbers for
+   * the same commitment that were never comparable in one place.
+   */
+  chargedWork?: number;
 }
 
 /**
@@ -895,6 +912,12 @@ function routeToSinks(
         }
         continue;
       }
+      // THE CHARGE STAMP (audit t72846447): record what was ACTUALLY debited,
+      // split the way the ledger spends it - haul bodies on the route, consumer
+      // bodies on the sink. Published next to the independently-computed
+      // `spawnParts` / `spawnLoad` so `spent` decomposes from a capture.
+      const haulCharge = take * (chargePerUnit - workPerUnit);
+      acc.chargedWork = (acc.chargedWork ?? 0) + take * workPerUnit;
       partsRemaining -= take * chargePerUnit;
       pool.set(id, avail - take);
       // Debit the port's shared throughput by what ACTUALLY flowed via it
@@ -911,6 +934,7 @@ function routeToSinks(
         flowRate: take,
         carryParts: carryPartsFor(take, dEff),
         spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, dEff)) / effectiveLife(physD),
+        charged: haulCharge,
         ...(paved ? { paved } : {}),
         ...(depositPos ? { depositPos } : {})
       });
@@ -986,8 +1010,14 @@ function routeToSinks(
       distance: dDrain,
       flowRate: deposited,
       carryParts: carryPartsFor(deposited, dDrain),
-      spawnParts: drainParts
+      spawnParts: drainParts,
+      charged: drainParts
     });
+    // NOTE (audit t72846447): unlike the fill loop above, this debit has NO
+    // `maxByParts` clamp, so it can drive `partsRemaining` negative and make
+    // `spent` exceed `budget` - measured live spent 0.4527 vs budget 0.4450,
+    // dry true. Stamped rather than changed here: the fix is a live-behaviour
+    // change and this commit is telemetry-only.
     partsRemaining -= drainParts;
   }
 

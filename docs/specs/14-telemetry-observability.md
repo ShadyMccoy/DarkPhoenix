@@ -10710,3 +10710,62 @@ leak rows are mostly floors and proxies and say so in their own comments;
 `partsLedger`, the corp `produced` counters and the sizing stamps are the
 measurements. When the two disagree, the measurement wins - and a residual that
 matches a candidate to five decimals is a hypothesis, not a proof.
+
+## Cycle t72846447 — the charge stamp (flow segment v16), and one located defect
+
+Verdict: **instrumented**, plus one real defect found by READING rather than
+differencing. Capture t72846447 vs t72843748, 2,699 ticks, methodology #15.
+
+### Why a stamp and not a fix
+
+The P4 overshoot (1.02x this window, 1.04x last) has now been hand-derived FOUR
+times, each derivation disagreeing with the last:
+
+1. "the handicap governs only 84% of the load" - bank routes named as the gap.
+2. Falsified: `spent` accrues the routing pass's `chargePerUnit x take`, while
+   the sink's published `spawnLoad` is the ADAPTER's `operationSpawnLoad`.
+   Differencing them compares different quantities.
+3. "the charge and the publication use different arities of `carryPartsFor`" -
+   falsified by reading it: `(rate * roundTripTicks(d)) / CARRY_CAPACITY` is
+   exactly LINEAR, so `carryPartsFor(1,d)*take === carryPartsFor(take,d)`.
+4. "construction's sink work is under-charged" - falsified by reading
+   `workPerUnit`: construction is charged ALL-IN (spec 34 D4, "the WORK bodies
+   plus the supply vector"), the same charge the commission envelope declares.
+
+Four wrong derivations of one number is the signal to stop deriving. The debit
+happens in `CorpPlanner.routeToSinks`; the price is published by
+`flowAdapter`/`flowSegment`; nothing let a capture compare them.
+
+### What v16 publishes
+
+- `haulers[].charged` - what the route actually DEBITED, beside `spawnParts`,
+  what it is PRICED at.
+- `sinks[].chargedWork` - the consumer-body charge the routing pass debited,
+  beside the adapter's independently-computed `spawnLoad`. Published for EVERY
+  sink kind, unlike `spawnLoad`, which is construction-only by design (that
+  explains the controller sink's `spawnLoad 0.00000`, which an earlier entry
+  read as a gap - it is deliberate).
+
+`partsLedger.spent` now decomposes from a capture instead of by hand.
+
+The golden master already earns it: across 11 routes in the standard worlds,
+`charged === spawnParts` to 1e-9 with zero mismatches. The haul side of the
+ledger is provably honest, which retires derivations 1 and 3 permanently.
+
+### The located defect (stamped, NOT fixed here)
+
+`routeToSinks`'s port-drain hauler debits the ledger UNGUARDED:
+
+```ts
+partsRemaining -= drainParts;   // line ~991 - no maxByParts clamp
+```
+
+Every route in the fill loop clamps its take by `partsRemaining / chargePerUnit`
+first; this one does not, so it can drive `partsRemaining` negative. That is how
+the live ledger reads `spent 0.4527 > budget 0.4450, dry: true` - the plan
+spending past its own budget, which is the accounting gap the owner asked to
+close, now located by reading the debit rather than differencing totals.
+
+Not fixed in this commit: clamping it is a live-behaviour change needing the
+full regression gate, and this commit is telemetry-only so it can ship now and
+make the next cycle's diagnosis a read instead of a derivation.

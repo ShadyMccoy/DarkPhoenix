@@ -1697,6 +1697,11 @@ export function solveColony(
       unmet: Math.max(0, k.demand - k.allocated),
       priority: k.value,
       ...(k.partsLeft !== undefined ? { partsLeft: k.partsLeft } : {}),
+      // What the ROUTING pass actually debited for this sink's consumer bodies
+      // (audit t72846447), published for EVERY sink kind - unlike `spawnLoad`
+      // below, which is construction-only by design. The pair is what makes
+      // `partsLedger.spent` decomposable from a capture.
+      ...(k.chargedWork !== undefined ? { chargedWork: k.chargedWork } : {}),
       ...(charge ? { spawnLoad: charge.load, spawnDist: charge.dist } : {}),
       sourceFlows: k.sources.map(sf => ({ sourceId: sf.sourceId, amount: sf.amount, distance: sf.distance }))
     };

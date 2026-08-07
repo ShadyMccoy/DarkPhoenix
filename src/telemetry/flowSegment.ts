@@ -129,6 +129,14 @@ export interface FlowTelemetry {
      */
     spawnParts?: number;
     /**
+     * What this route actually DEBITED from the parts ledger (v16, audit
+     * t72846447), against `spawnParts` which is what it is PRICED at. Two
+     * independently-computed numbers for one commitment; publishing both is
+     * what lets a capture decompose `partsLedger.spent` instead of leaving it
+     * to hand-derivation - four of which disagreed before this existed.
+     */
+    charged?: number;
+    /**
      * Deposit port (spec 26): the link this route drops at instead of the storage
      * hub, when the plan priced a shorter port leg. Present only on ported routes,
      * so a dashboard can see which mined deposits turn around early (and compare
@@ -324,6 +332,7 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
         spawnId: hauler.spawnId,
         ratio: hauler.haulerRatio,
         ...(hauler.spawnParts !== undefined ? { spawnParts: hauler.spawnParts } : {}),
+        ...(hauler.charged !== undefined ? { charged: hauler.charged } : {}),
         ...(hauler.depositPos ? { port: hauler.depositPos } : {})
       });
     }
@@ -347,6 +356,9 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
         // verbatim from the adapter's stamp (consumerSpawnLoad) - the P4
         // waste ledger reads THIS, never a re-derivation.
         ...(sink.spawnLoad !== undefined ? { spawnLoad: sink.spawnLoad, spawnDist: sink.spawnDist } : {}),
+        // The consumer-body charge the ROUTING pass debited, next to the
+        // adapter's independently-computed spawnLoad above (v16).
+        ...(sink.chargedWork !== undefined ? { chargedWork: sink.chargedWork } : {}),
         workParts: perWork === undefined ? undefined : workPartsForEnergyRate(sink.allocated, perWork)
       });
     }
@@ -368,7 +380,7 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
     // echo (spec 34 P4: the ledger charges construction THROUGH the plan).
     // v12 adds partsLedger.plannable - the 90% planning margin
     // (SPAWN_PLAN_FRACTION, owner 2026-07-30) the fill spends from.
-    version: 15, // v14 sources[].linkServed; v15 sources[].swampFraction (audits the tick-pricing) 2026-08-02
+    version: 16, // v16 haulers[].charged + sinks[].chargedWork - what the ledger ACTUALLY debited (audit t72846447)
     tick: Game.time,
     sources,
     haulers,

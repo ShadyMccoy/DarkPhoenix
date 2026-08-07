@@ -36,7 +36,8 @@
             "distance": 35,
             "flowRate": 2,
             "carryParts": 2.88,
-            "spawnParts": 0.003932
+            "spawnParts": 0.003932,
+            "charged": 0.003932
           },
           {
             "sourceId": "srcA",
@@ -45,7 +46,8 @@
             "distance": 20,
             "flowRate": 4,
             "carryParts": 3.36,
-            "spawnParts": 0.004541
+            "spawnParts": 0.004541,
+            "charged": 0.004541
           },
           {
             "sourceId": "srcA",
@@ -54,7 +56,8 @@
             "distance": 35,
             "flowRate": 4,
             "carryParts": 5.76,
-            "spawnParts": 0.007863
+            "spawnParts": 0.007863,
+            "charged": 0.007863
           }
         ]
       }
@@ -99,6 +102,7 @@
               "distance": 35
             }
           ],
+          "chargedWork": 0.005387,
           "partsLeft": 0.272872
         },
         "spawnId": "spawn1"
@@ -141,7 +145,8 @@
               "distance": 8
             }
           ],
-          "partsLeft": 0.277552
+          "partsLeft": 0.277552,
+          "chargedWork": 0.00254
         },
         "spawnId": "spawn1"
       }
@@ -182,7 +187,8 @@
             "distance": 6,
             "flowRate": 2,
             "carryParts": 0.56,
-            "spawnParts": 0.00075
+            "spawnParts": 0.00075,
+            "charged": 0.00075
           },
           {
             "sourceId": "srcA",
@@ -191,7 +197,8 @@
             "distance": 12,
             "flowRate": 6,
             "carryParts": 3.12,
-            "spawnParts": 0.004194
+            "spawnParts": 0.004194,
+            "charged": 0.004194
           },
           {
             "sourceId": "srcA",
@@ -200,7 +207,8 @@
             "distance": 6,
             "flowRate": 2,
             "carryParts": 0.56,
-            "spawnParts": 0.00075
+            "spawnParts": 0.00075,
+            "charged": 0.00075
           }
         ]
       }
@@ -241,7 +249,8 @@
             "distance": 8,
             "flowRate": 5,
             "carryParts": 1.8,
-            "spawnParts": 0.002413
+            "spawnParts": 0.002413,
+            "charged": 0.002413
           },
           {
             "sourceId": "srcB",
@@ -250,7 +259,8 @@
             "distance": 30,
             "flowRate": 5,
             "carryParts": 6.2,
-            "spawnParts": 0.008435
+            "spawnParts": 0.008435,
+            "charged": 0.008435
           }
         ]
       }
@@ -300,6 +310,7 @@
               "distance": 30
             }
           ],
+          "chargedWork": 0.008097,
           "partsLeft": 0.262069
         },
         "spawnId": "spawn1"
@@ -343,7 +354,8 @@
             "distance": 60,
             "flowRate": 2,
             "carryParts": 4.88,
-            "spawnParts": 0.006778
+            "spawnParts": 0.006778,
+            "charged": 0.006778
           },
           {
             "sourceId": "srcA",
@@ -352,7 +364,8 @@
             "distance": 30,
             "flowRate": 4,
             "carryParts": 4.96,
-            "spawnParts": 0.006748
+            "spawnParts": 0.006748,
+            "charged": 0.006748
           },
           {
             "sourceId": "srcA",
@@ -361,7 +374,8 @@
             "distance": 60,
             "flowRate": 4,
             "carryParts": 9.76,
-            "spawnParts": 0.013556
+            "spawnParts": 0.013556,
+            "charged": 0.013556
           }
         ]
       }
@@ -406,6 +420,7 @@
               "distance": 60
             }
           ],
+          "chargedWork": 0.005442,
           "partsLeft": 0.262034
         },
         "spawnId": "spawn1"
