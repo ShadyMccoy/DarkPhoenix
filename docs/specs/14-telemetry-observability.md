@@ -10429,3 +10429,103 @@ period, so the two are not the same story - and the live shift window
 (t72788704-t72797359) still contains no src commit at all, `667bf0d` having
 turned out to be docs-only. That question remains open and points at world
 events (invader cores, capacity swinging 100-120), not code.
+
+## Cycle t72841341 — construction converts 5% of its claim, so the claim never releases
+
+Verdict: **blocker named with data; one fix written red-first and WITHDRAWN**
+(it contradicted a standing owner ruling). Capture t72841341 vs t72832806,
+8,535 ticks, methodology #14, sweep pct 6.
+
+### The owner's design, restated (2026-08-07)
+
+*"We want to focus on construction when it's around so we get the investment
+completed quickly and start benefitting from it. So only any energy and spawning
+left over after allocating for the construction should be let through. Often
+that's zero because construction is quite haul heavy and that's ok as long as
+the construction gets completed quickly and then releases its claim and
+upgrading again takes its normal full allocation."*
+
+So wartime relegation to zero is CORRECT and stays. The acceptance criterion is
+**completes quickly, then releases**. Everything below measures that criterion.
+
+### The measurement: 5% conversion
+
+```
+construction allocated        30.00 e/t   (plan, 4 sinks)
+construction built             1.51 e/t   (sum of corp `produced` deltas)
+construction body spend        2.20 e/t   (builder 14,450 + tanker 4,350 / 8,535t)
+construction plan claim        0.391 p/t  = 49% of plan; P4 now 1.21x ceiling
+```
+
+The fleet costs MORE than it produces. At 1.51 e/t the 6,200 remaining units
+release the claim in **~4,100 ticks**; converting the allocated 30 e/t would do
+it in **~207**. The 20x is the whole problem - not the backlog size, and not the
+relegation rule.
+
+### Why it cannot convert: the fleet is 8.5% WORK
+
+~164 construction parts hold ~14 WORK. Even that WORK is idle ~98% of the time:
+the home crew stamps `latchedToSite: 0, tankers: 0, vectorFed: false` with its
+three creeps at `W40N23, W41N25, W41N25` - three rooms, none latched - while
+the 18-site backlog sits in a fourth (W43N21, whose own corp holds 29 parts).
+Bodies measured `work 6 / carry 123` (home) and `work 8 / carry 12 / move 9`
+(W43N21). Last cycle the home body was `work 8 / carry 135`. CARRY is bought,
+WORK is not, and the WORK that exists is unfed.
+
+### A standing drip of runt builders in rooms with no work
+
+Every remote construction corp re-buys a 250e, 4-part builder (`work 1, carry 1,
+move 2`) about once per creep lifetime:
+
+```
+72839049 W43N22  72839061 W41N25  72839073 W43N24  72839128 W43N21
+72839374 W42N21  72839376 W44N22  72839386 W42N22
+72840606 W42N23  72840662 W41N25  72840672 W41N23  72840674 W43N24
+```
+
+and W42N23 / W42N22 / W42N21 / W43N22 / W41N23 produced **exactly 0** across
+8,535 ticks. Sixteen of 25 builder purchases went to corps with nothing to
+build.
+
+### An abandoned investment, and where it went
+
+```
+t72832806   W41N25 rem  468 done 4532 | W43N24 rem 4088 done  912
+t72841341   W41N25 rem  418 done 4582 | W43N21 rem 5782 done 4318 (18 sites)
+```
+
+W43N24's project left the ledger mid-build: 912 units invested, **4,088
+abandoned**, because the room was taken by an invader core and the planner
+defunded it (P1: cd8d/cd8e funded->defunded). That is the capital-churn cost of
+the duration-blind defund recorded in the t72829496 entry, now with a number on
+it.
+
+### CORRECTION: P8 mis-measures, and this entry's predecessor repeated it
+
+P8 reported "0 e/t built" and the t72832806 entry above took that at face value.
+P8 reads room `siteProgress`, which is 0 because the HOME room has no sites -
+every remote project is invisible to it. The corps' own `produced` counters show
+12,870 units over the window. The leak row is not wrong about there being a
+problem, but "CREW IDLE (energy allocated, nothing built)" is the wrong
+description and it survived a full cycle unchallenged. Read the corp counters,
+not P8, for remote build delivery.
+
+### The fix that was written and withdrawn
+
+Diagnosing the controller at `demand 0 / allocated 0 / workParts 0` against
+`bankFedControllerRate 100.00`, with the upgrade corp demobilized and storage at
+239,814 (+15.74 e/t, E4 "past the absorbable knee"), traced to
+`controllerRoutingCapacity`'s wartime branch returning `controllerFloor`, which
+PR #149 had made zero - falsifying that branch's own comment ("Relegated != off
+- the anti-downgrade floor still holds").
+
+A red-first test and the retirement of that branch were written and passed
+locally. They were then REVERTED on discovering a second test pinning
+`WARTIME IS COLONY-WIDE ... (owner 2026-08-05: construction is the primary
+consumer wherever the project stands; the residual BANKS)`. The change reversed
+a standing ruling on authorization given without that fact in view. The owner
+has since confirmed the ruling.
+
+Recorded because the mechanism is real and will be rediscovered: relegation to
+zero is only safe while construction converts. The rule is not the defect; the
+5% conversion is.
