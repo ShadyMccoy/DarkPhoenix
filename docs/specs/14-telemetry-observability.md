@@ -10836,3 +10836,77 @@ Gate: 2266 unit, build clean, flow-handoff + runt-economy + storage-depot green,
 `plan-t3-budget-subset` [P]. `plan-t1-single-source-loop` fails the same single
 assertion it failed in isolation BEFORE this change - identical pre/post,
 acquitted.
+
+## Cycle t72847768 — prediction CONFIRMED, and the charge stamp finds the real gap
+
+Verdict: **fixed (verified live) + blocker located by MEASUREMENT.**
+
+### The drain clamp works
+
+```
+t72843748   budget 0.44498  spent 0.45269  dry true   OVERDRAWN 0.00771
+t72846447   budget 0.42277  spent 0.43036  dry true   OVERDRAWN 0.00759
+t72846812   budget 0.42277  spent 0.35294  dry false  <- clamp deployed
+t72847768   budget 0.41631  spent 0.37065  dry false
+```
+
+Registered before deploy, confirmed after: `spent <= budget`, `dry` false.
+
+### And `spent` now RECONCILES
+
+```
+charged haul 0.26933 + charged work 0.10132 = 0.37065 == spent 0.37065
+```
+
+Exactly. The parts ledger is decomposable from a capture for the first time -
+which is the whole point of v16, and it immediately paid for itself.
+
+### THE ACCOUNTING GAP, measured rather than derived
+
+```
+haulers   published 0.29747   charged 0.26933   gap 0.02814
+sinks     spawnLoad 0.19797   chargedWork 0.10132  gap 0.09665
+                                        TOTAL     0.12479 p/t = 18.7% of ceiling
+```
+
+Per-route, the pattern names its own cause:
+
+```
+bank + short (d=1..5) routes    ratio 1.000    neither uplift applies
+long source routes              ratio 0.85-0.93  drain term
+scavenge routes                 ratio 0.414, 0.328  transient floor
+```
+
+`CorpPlanner` applies a **PHASE-1 ROUTE REPRICING after `routeToSinks` returns**
+- the `bufferDrainCarry` drain term and the `scavengeFloorParts` transient floor
+- and its own comment states the intent:
+
+> *"~1.0 e/t of real fleet stood permanently outside the budget"* ...
+> *"the account's 'transient-route haulers (unbudgeted)' 2.0 e/t becomes a
+> budgeted line."*
+
+**It moved the PRICE and not the CHARGE.** The uplift is added to published
+`spawnParts` after the ledger has already been debited, so the fleet it prices
+is still unbudgeted - the exact condition the reprice was written to end.
+
+That also settles P4's `transient-route haulers (unbudgeted)` row, which three
+cycles of hand-derivation misattributed (bank routes, `carryPartsFor` arity,
+construction under-charge - all falsified). The row is named verbatim in the
+comment of the code meant to fix it.
+
+### NOT yet explained: the sink half
+
+`chargedWork` is ~0.51 of `spawnLoad` on BOTH construction sinks (0.06898 vs
+0.13535; 0.03234 vs 0.06261). Construction's `workPerUnit` is all-in by spec 34
+D4 and the adapter's `consumerSpawnLoad` uses the same formula, so a near-exact
+0.51 on both looks like one factor, not a modelling difference. Labelled a
+HYPOTHESIS and left there - deriving it is what went wrong four times already,
+and the numbers are now published, so the next cycle can read it.
+
+### The fix (next cycle, live-behaviour, full gate)
+
+Debit the phase-1 reprice. The uplift is real fleet the corps field; the ledger
+should charge it where every other route is charged, which likely means pricing
+the drain and floor terms INSIDE `routeToSinks` rather than repricing after.
+Expect the budget to tighten by ~0.028 p/t and some marginal sources to fall
+out - that is the correct consequence, not a regression.
