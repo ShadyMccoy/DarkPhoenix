@@ -1236,6 +1236,46 @@ export function invaderTaxPerEnergy(expectedRaidCost: number): number {
 /** The default remote-source tax rate (~0.71% of gross at the derived cost). */
 export const INVADER_TAX_PER_ENERGY = invaderTaxPerEnergy(EXPECTED_RAID_DEFENSE_COST);
 
+/**
+ * THE ADMISSION TAX, DERIVED (owner 2026-08-07: *"We can estimate the invader
+ * tax rate from first principles. 10 or 20 energy mined per tick. Every 10,000
+ * to 5,000 ticks for 100,000 trigger right?"*). Right - and every term below is
+ * an engine fact or an already-derived primitive, so no free constant remains:
+ *
+ *   ticks per raid cycle   = INVADER_RAID_MEAN_ENERGY / roomMinedRate
+ *   ticks ARMED per cycle  = (MEAN - RAID_ARM_FLOOR) / roomMinedRate
+ *   guard cost while armed = roomGuardSpawnLoad() x the ATTACK+MOVE part price
+ *   tax per energy mined   = guardCost x armedTicks / MEAN
+ *
+ * WHY THE OLD SHAPE WAS WRONG, not merely mis-tuned. `EXPECTED_RAID_DEFENSE_COST
+ * = 750` is "one guard body (650) + 15% margin" - a PER-RAID PURCHASE. That was
+ * the right model when nothing else priced guards. Since spec 51 phase 2 the
+ * guard is a STANDING fleet, charged continuously from the moment the meter
+ * arms, so what a room owes is the time it holds a guard - and that is
+ * inversely proportional to how fast it mines. A slow 1-source room holds its
+ * guard for 4,000 ticks per raid; a 2-source room for 2,000. One global
+ * coefficient cannot express that, which is why this is a function of the ROOM's
+ * rate (the meter accrues per room, not per source).
+ *
+ * This retires the R1 calibration gate for THIS quantity. Seven windows never
+ * converged because the ledger was accumulating the wrong numerator - its own
+ * evidence gate reads killed-WHERE at 99-100% HOME ROOM, ~0% intel-hostile, so
+ * the attrition it measured was never raid loss. Expected raid LOSS is a
+ * separate question and keeps its own constant (see tombstoneLossBudget);
+ * conflating the two is what made both unfalsifiable.
+ *
+ * NOT a double charge against the guard's own infra price. `infraSpawnEnergy`
+ * sizes the SPAWN SINK's demand (energy that must actually flow to rebuild the
+ * fleet); this is a HURDLE RATE on a candidate's net, and no energy leaves the
+ * plan through it - it only decides which remotes are worth working.
+ */
+export function raidGuardTaxPerEnergy(roomMinedRate: number): number {
+  if (roomMinedRate <= 0) return 0;
+  const guardEnergyRate = roomGuardSpawnLoad() * ((BODY_COSTS.ATTACK + BODY_COSTS.MOVE) / 2);
+  const armedTicks = (INVADER_RAID_MEAN_ENERGY - RAID_ARM_FLOOR) / roomMinedRate;
+  return (guardEnergyRate * armedTicks) / INVADER_RAID_MEAN_ENERGY;
+}
+
 // ---------------------------------------------------------------------------
 // Mineral extraction (spec 22 estimate, ahead of the mineral corp). An
 // extractor (RCL6 in an owned room, or any controller-less SK/highway room)

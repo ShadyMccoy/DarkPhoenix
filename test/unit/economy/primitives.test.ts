@@ -347,6 +347,79 @@ describe("invader tax (spec 13 phase 5 - engine-fact derivation)", () => {
   });
 });
 
+/**
+ * THE TAX FROM FIRST PRINCIPLES (owner 2026-08-07: *"We can estimate the invader
+ * tax rate from first principles. 10 or 20 energy mined per tick. Every 10,000
+ * to 5,000 ticks for 100,000 trigger right?"*).
+ *
+ * Right, and it collapses the whole calibration question. Every term is an
+ * engine fact or an already-derived primitive - there is no free constant left:
+ *
+ *   ticks per raid cycle   = INVADER_RAID_MEAN_ENERGY / roomRate
+ *   ticks ARMED per cycle  = (MEAN - RAID_ARM_FLOOR) / roomRate
+ *   guard cost while armed = roomGuardSpawnLoad() x 65 e/part  (ATTACK+MOVE)
+ *   tax per energy mined   = guardCost x armedTicks / (roomRate x MEAN)
+ *
+ * `EXPECTED_RAID_DEFENSE_COST = 750` was "one guard body (650) + 15% margin" -
+ * a PER-RAID PURCHASE. That was right when nothing else priced guards; since
+ * spec 51 phase 2 the guard is a STANDING fleet charged continuously while the
+ * meter is armed, so a per-raid body price is the wrong shape entirely: a slow
+ * room holds its guard for twice as long per unit mined as a fast one, and a
+ * single global coefficient cannot say that.
+ *
+ * The R1 calibration ledger (7 windows, "swap at >= 10") was therefore aimed at
+ * the wrong quantity, which is why it never converged - and its own evidence
+ * gate says so: killed-WHERE reads 99-100% HOME ROOM, ~0% intel-hostile, so the
+ * attrition it was accumulating was never raid loss.
+ */
+describe("raidGuardTaxPerEnergy (the tax derived, not calibrated)", () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const P = require("../../../src/economy/primitives");
+
+  /** The owner's own arithmetic, restated as the test's frame. */
+  const cycleTicks = (roomRate: number): number => P.INVADER_RAID_MEAN_ENERGY / roomRate;
+
+  it("reproduces the owner's interval arithmetic exactly", () => {
+    // A reserved source is 10 e/t, so a 1-source room takes ~10k ticks to the
+    // 100k trigger and a 2-source room ~5k. (The engine's goal is banded; the
+    // mean is 105k, which is the only wobble in it.)
+    expect(P.SOURCE_RATE).to.equal(10);
+    expect(P.INVADERS_ENERGY_GOAL / P.SOURCE_RATE).to.equal(10_000);
+    expect(P.INVADERS_ENERGY_GOAL / (2 * P.SOURCE_RATE)).to.equal(5_000);
+    expect(cycleTicks(10)).to.be.closeTo(10_500, 1e-9);
+    expect(cycleTicks(20)).to.be.closeTo(5_250, 1e-9);
+  });
+
+  it("is the standing guard prorated over the ARMED share of the accrual cycle", () => {
+    const guardEnergyRate = P.roomGuardSpawnLoad() * ((P.BODY_COSTS.ATTACK + P.BODY_COSTS.MOVE) / 2);
+    for (const roomRate of [10, 20, 30]) {
+      const armedTicks = (P.INVADER_RAID_MEAN_ENERGY - P.RAID_ARM_FLOOR) / roomRate;
+      const perRaid = guardEnergyRate * armedTicks;
+      expect(P.raidGuardTaxPerEnergy(roomRate)).to.be.closeTo(perRaid / P.INVADER_RAID_MEAN_ENERGY, 1e-12);
+    }
+  });
+
+  it("charges a SLOW room more per unit mined - the thing a global constant cannot say", () => {
+    // The guard stands for the whole armed window regardless of how fast the
+    // room mines, so a 1-source room amortizes it over half the energy.
+    expect(P.raidGuardTaxPerEnergy(10)).to.be.closeTo(2 * P.raidGuardTaxPerEnergy(20), 1e-12);
+    expect(P.raidGuardTaxPerEnergy(10)).to.be.greaterThan(P.INVADER_TAX_PER_ENERGY);
+  });
+
+  it("lands in the same order as the constant it replaces (a reprice, not a regime change)", () => {
+    // 2-source remote: 0.0083 vs the old flat 0.0071 - within 20%. The 1-source
+    // case is 2.3x, which is the correction, not a surprise.
+    expect(P.raidGuardTaxPerEnergy(20)).to.be.closeTo(0.00825, 5e-4);
+    expect(P.raidGuardTaxPerEnergy(10)).to.be.closeTo(0.01651, 5e-4);
+    expect(P.raidGuardTaxPerEnergy(20)).to.be.lessThan(0.01); // still under 1% of gross
+  });
+
+  it("is zero for a room that mines nothing - no room, no meter, no raid", () => {
+    expect(P.raidGuardTaxPerEnergy(0)).to.equal(0);
+    expect(P.raidGuardTaxPerEnergy(-1)).to.equal(0);
+  });
+});
+
 // Spec 15 P4: the standing-infra deduction the planner subtracts from its
 // spawn-parts ledger. Feeder + tender are DEPOT movers - they exist only once
 // a room has a storage. Charging them in storageless worlds taxed early game

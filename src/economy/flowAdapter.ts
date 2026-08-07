@@ -48,7 +48,7 @@ import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import {
   BUILD_ENERGY_PER_WORK,
   HARVEST_ENERGY_PER_WORK,
-  INVADER_TAX_PER_ENERGY,
+  raidGuardTaxPerEnergy,
   UPGRADE_ENERGY_PER_WORK,
   infraSpawnEnergy,
   infraSpawnLoad,
@@ -909,7 +909,15 @@ export function buildColonyProblem(
   linkHaulPos: Map<string, Position> = detectLinkHaulPositions(graph),
   pavedSources: Map<string, number> = detectPavedSources(),
   bankSources: PlannerSource[] = detectBankSources(),
-  remoteInvaderTax: number = INVADER_TAX_PER_ENERGY,
+  /**
+   * The remote admission tax, as a FUNCTION of the room's total mined rate
+   * (2026-08-07). It was a flat coefficient while the guard was priced as a
+   * per-raid purchase; since spec 51 phase 2 the guard is a STANDING fleet, so
+   * what a room owes is the TIME it holds one - inversely proportional to how
+   * fast it mines. Per ROOM, not per source, because the raid meter accrues per
+   * room. Pass `() => 0` to disable.
+   */
+  remoteInvaderTax: (roomMinedRate: number) => number = raidGuardTaxPerEnergy,
   valuation: SinkValuation = DEFAULT_VALUATION,
   prevBankDraw?: number,
   depositPorts: DepositPort[] = detectLinkDepositPorts(),
@@ -948,6 +956,16 @@ export function buildColonyProblem(
   // rooms: raid frequency is proportional to energy harvested, and at home
   // the tower absorbs the raid for the cost of its shots (~0).
   const spawnRooms = new Set(spawns.map(s => s.pos.roomName));
+
+  // ROOM mined rate - the tax's denominator. The engine's raid counter is
+  // per ROOM (raidMeter mirrors it that way), so a two-source remote reaches
+  // the trigger in half the ticks and holds its guard for half as long per
+  // unit mined. Summed over the room's own sources, not read per source.
+  const roomMinedRate = new Map<string, number>();
+  for (const s of graph.getSources()) {
+    if (spawnRooms.has(s.position.roomName)) continue;
+    roomMinedRate.set(s.position.roomName, (roomMinedRate.get(s.position.roomName) ?? 0) + s.capacity);
+  }
 
   const sources: PlannerSource[] = graph.getSources().map(s => {
     // The mid-build repricing verdict (roadEconomics): a route >= 1/2 built
@@ -988,7 +1006,11 @@ export function buildColonyProblem(
       // is towers + guards, and un-funding the home economy mid-raid would
       // be the death spiral, not honesty.
       ...(!spawnRooms.has(s.position.roomName) && hostileRooms().has(s.position.roomName) ? { defunded: true } : {}),
-      ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax }),
+      ...(() => {
+        if (spawnRooms.has(s.position.roomName)) return {};
+        const tax = remoteInvaderTax(roomMinedRate.get(s.position.roomName) ?? s.capacity);
+        return tax > 0 ? { invaderTax: tax } : {};
+      })(),
       // STAGED MOUTH STOCK (phase 1 of the income-statement program): the
       // SAME sourceBufferStock lens the corp's drain term and E6's gate read,
       // so the plan prices the drain fleet the corp will actually field.
@@ -1518,7 +1540,7 @@ export function solveColony(
     detectLinkHaulPositions(graph),
     detectPavedSources(),
     bankSources,
-    INVADER_TAX_PER_ENERGY,
+    raidGuardTaxPerEnergy,
     compileGoal(goal),
     prevBankDraw,
     detectLinkDepositPorts(),
@@ -1576,7 +1598,7 @@ export function solveColony(
     searchStructure(
       buildColonyProblem(
         graph, dist, transientSources, detectLinkHaulPositions(graph), detectPavedSources(),
-        bankSources, INVADER_TAX_PER_ENERGY, compileGoal(goal), prevBankDraw,
+        bankSources, raidGuardTaxPerEnergy, compileGoal(goal), prevBankDraw,
         detectLinkDepositPorts(), perSpawn, remotes, fielded, prevFleetEnergyPerPart
       )
     );

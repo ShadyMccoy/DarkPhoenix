@@ -1119,3 +1119,85 @@ describe("economy/flowAdapter - two-pass solve charges the spawn its fleet cost"
     expect(charged, "energy the spawn needs stops being handed down the ladder").to.be.lessThan(base);
   });
 });
+
+/**
+ * THE ADMISSION TAX FOLLOWS THE ROOM'S RATE (2026-08-07, owner: *"We can
+ * estimate the invader tax rate from first principles. 10 or 20 energy mined
+ * per tick. Every 10,000 to 5,000 ticks for 100,000 trigger right?"*).
+ *
+ * Right - and the consequence is that the tax cannot be a single coefficient.
+ * The engine's raid counter accrues per ROOM, so a two-source remote hits the
+ * trigger in half the ticks and holds its standing guard for half as long per
+ * unit mined. The flat `INVADER_TAX_PER_ENERGY` charged both the same.
+ *
+ * Pinned at the SEAM rather than in the primitive (which has its own coverage):
+ * what matters here is that the adapter feeds the primitive the ROOM's total
+ * rate, not the source's own, and that home sources are never taxed.
+ */
+describe("flowAdapter: the invader tax reads the ROOM's mined rate", () => {
+  const g = globalThis as unknown as { Game?: unknown };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  const pos = (x: number, roomName: string): Position => ({ x, y: 25, roomName });
+  const home = (): Node => {
+    const n = createNode("home", "W0N0", pos(5, "W0N0"), 100, ["W0N0"], 0);
+    n.resources = [
+      { type: "spawn", id: "spawn-0", position: pos(5, "W0N0") },
+      { type: "controller", id: "ctrl-0", position: pos(5, "W0N0"), isOwned: true }
+    ] as NodeResource[];
+    return n;
+  };
+  const remoteSrc = (id: string, room: string, x: number): Node => {
+    const n = createNode(id, room, pos(x, room), 50, [room], 0);
+    n.resources = [{ type: "source", id, position: pos(x, room), capacity: 3000 }] as NodeResource[];
+    return n;
+  };
+  const homeSrc = (id: string, x: number): Node => {
+    const n = createNode(id, "W0N0", pos(x, "W0N0"), 50, ["W0N0"], 0);
+    n.resources = [{ type: "source", id, position: pos(x, "W0N0"), capacity: 3000 }] as NodeResource[];
+    return n;
+  };
+
+  it("taxes a ONE-source room at twice the rate of a TWO-source room", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const { raidGuardTaxPerEnergy } = await import("../../../src/economy/primitives");
+    // W1N0 holds one source, W2N0 holds two - same distance class, same rate
+    // per source. Only the ROOM's accrual differs.
+    const graph = new FlowGraph([
+      home(),
+      remoteSrc("lone", "W1N0", 15),
+      remoteSrc("pairA", "W2N0", 15),
+      remoteSrc("pairB", "W2N0", 20)
+    ]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    const taxOf = (id: string): number => problem.sources.find(s => s.id.includes(id))!.invaderTax!;
+
+    const rate = problem.sources.find(s => s.id.includes("lone"))!.rate;
+    expect(taxOf("lone")).to.be.closeTo(raidGuardTaxPerEnergy(rate), 1e-12);
+    expect(taxOf("pairA")).to.be.closeTo(raidGuardTaxPerEnergy(2 * rate), 1e-12);
+    expect(taxOf("pairA"), "both sources in a room pay the room's rate").to.equal(taxOf("pairB"));
+    expect(taxOf("lone"), "the slow room pays double per unit mined").to.be.closeTo(2 * taxOf("pairA"), 1e-12);
+  });
+
+  it("never taxes a HOME source - the tower absorbs the raid for the cost of its shots", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const graph = new FlowGraph([home(), homeSrc("inRoom", 15), remoteSrc("away", "W1N0", 15)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    expect(problem.sources.find(s => s.id.includes("inRoom"))!.invaderTax).to.equal(undefined);
+    expect(problem.sources.find(s => s.id.includes("away"))!.invaderTax).to.be.greaterThan(0);
+  });
+
+  it("an injected () => 0 disables it entirely (the seam stays testable)", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const graph = new FlowGraph([home(), remoteSrc("away", "W1N0", 15)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), [], () => 0);
+    expect(problem.sources.find(s => s.id.includes("away"))!.invaderTax).to.equal(undefined);
+  });
+});
