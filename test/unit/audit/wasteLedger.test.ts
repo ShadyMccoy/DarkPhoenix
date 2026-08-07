@@ -1227,6 +1227,32 @@ describe("F1 plan fidelity (waste ledger)", () => {
     expect(guard[2]).to.be.closeTo(10 / 1500, 1e-9);
   });
 
+  it("methodology #16: the defense BUDGET is the PLAN's armed-room price, not the standing bodies", () => {
+    // #14 priced this line from the guards standing at capture time, which made
+    // the variance circular - measured bodies on both sides can never disagree.
+    // Since spec 51 phase 2 the plan itself charges one guard per ARMED room, so
+    // the budget reads that count and a gap becomes a real F1 signal.
+    const corps = [
+      { id: "raidGuard-A-raidGuard", kind: "raidGuard", creepCount: 1, bodyParts: 10, body: { attack: 5, move: 5 } }
+    ];
+    const cap = mk([], [0], corps);
+    // The solve was armed for THREE rooms; only one guard is standing right now.
+    cap.data.flow.fleetCharge = { infraInputs: { guardedRooms: 3 } };
+    const guard = planSpawnLoad(cap).lines.find(([n]) => String(n).startsWith("defense"))!;
+    expect(guard[2], "three armed rooms, not one standing body").to.be.closeTo(3 * (10 / 1500), 1e-12);
+    expect(guard[1], "and the parts column follows the same count").to.equal(30);
+
+    // A quiet solve prices nothing even with a guard still walking home.
+    const quiet = mk([], [0], corps);
+    quiet.data.flow.fleetCharge = { infraInputs: { guardedRooms: 0 } };
+    expect(planSpawnLoad(quiet).lines.find(([n]) => String(n).startsWith("defense"))).to.equal(undefined);
+
+    // Pre-spec-51 capture (no count published): the #14 measured reconstruction
+    // still runs, so old captures keep producing a defense line.
+    const legacy = planSpawnLoad(mk([], [0], corps)).lines.find(([n]) => String(n).startsWith("defense"))!;
+    expect(legacy[2]).to.be.closeTo(10 / 1500, 1e-12);
+  });
+
   it("still surfaces a kind with NO plan line as UNPRICED (the detector outlives the hole)", () => {
     // An unpriced CLASS is a different defect from a mispriced one: no amount
     // of tuning an existing line can find it. The detector must survive the
@@ -2575,10 +2601,10 @@ describe("methodology #10: the recovery P&L (cure vs illness, published)", () =>
     expect(detail).to.include("5.0");
   });
 
-  it("the header stamps methodology #15 (construction ACTUAL measured from corp counters)", () => {
+  it("the header stamps methodology #16 (defense budget reads the PLAN's guard price)", () => {
     const { cap, base } = rig(zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    expect(text).to.include("[methodology #15]");
+    expect(text).to.include("[methodology #16]");
   });
 });
 

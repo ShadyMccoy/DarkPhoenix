@@ -45,6 +45,7 @@ import { constructionKind } from "../corps/kinds/constructionKind";
 import { record as blackBox } from "../telemetry/BlackBox";
 import { plan as governorPlan } from "./CpuGovernor";
 import { hostileRooms } from "../utils/RoomDiscovery";
+import { guardTargetsFor } from "../utils/raidMeter";
 import { controllerLink } from "../corps/nodeEnergy";
 import type { CorpRegistry } from "./CorpRunner";
 
@@ -137,6 +138,34 @@ function depotLens(): { depotRooms: string[]; linkFedRooms: string[] } {
   return depotCache;
 }
 
+/**
+ * ARMED-ROOM lens (spec 51 phase 2): the union of every home's guard targets,
+ * which is what the raidGuard commission is BUDGETED for. Reads
+ * `guardTargetsFor` - the same function RaidGuardCorp holds its posts with, so
+ * "which rooms do we guard" and "what do we pay to guard them" can never become
+ * two answers.
+ *
+ * Deduped: a room two homes can both see is ONE guard's worth of budget (the
+ * kind binds it to its nearest home, reservationKind's rule).
+ *
+ * CACHED on the same reasoning as the depot lens - `liveProblem` rebuilds every
+ * tick, and this scans roomIntel per home. Raid meters move over tens of
+ * thousands of harvested energy, so a 50-tick stride is far inside the
+ * resolution of anything that reads it. A SIGHTED raid is not delayed by this:
+ * the corp's own targeting reads the lens live every tick; only the price waits.
+ */
+let guardCache: { tick: number; rooms: string[] } | null = null;
+
+function guardedRoomsLens(spawns: ColonyProblem["spawns"]): string[] {
+  if (guardCache && Game.time - guardCache.tick < DEPOT_LENS_STRIDE) return guardCache.rooms;
+  const rooms = new Set<string>();
+  for (const home of new Set(spawns.map(s => s.pos.roomName))) {
+    for (const target of guardTargetsFor(home)) rooms.add(target);
+  }
+  guardCache = { tick: Game.time, rooms: [...rooms].sort() };
+  return guardCache.rooms;
+}
+
 function liveProblem(): ColonyProblem {
   const spawns: ColonyProblem["spawns"] = [];
   for (const name in Game.spawns) {
@@ -146,6 +175,7 @@ function liveProblem(): ColonyProblem {
   const expansionRoom = typeof Memory !== "undefined" ? Memory.expansion?.roomName : undefined;
   const { depotRooms, linkFedRooms } = depotLens();
   return {
+    guardedRooms: guardedRoomsLens(spawns),
     spawns,
     sources: [],
     sinks: [],

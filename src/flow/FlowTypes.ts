@@ -389,6 +389,9 @@ export interface FlowSolution {
       remoteRooms: number;
       linkFedRooms: number;
       remoteRoomsFunded?: number;
+      /** Armed rooms carrying a standing guard (spec 51 phase 2) - the sixth
+       *  input, and the only one that is usually zero. */
+      guardedRooms?: number;
     };
   };
 

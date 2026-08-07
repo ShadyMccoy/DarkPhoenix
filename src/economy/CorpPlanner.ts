@@ -236,6 +236,8 @@ export interface ColonyProblem {
     depotRooms: number;
     remoteRooms: number;
     linkFedRooms: number;
+    /** Armed rooms carrying a standing guard (spec 51 phase 2). */
+    guardedRooms?: number;
     /**
      * Remote rooms the plan actually FUNDED, set by the solve's corrective
      * reserver pass (flowAdapter). Equal to `remoteRooms` whenever that pass
@@ -279,6 +281,17 @@ export interface ColonyProblem {
    * the aggregate does.
    */
   linkFedRooms?: readonly string[];
+  /**
+   * Rooms whose raid meter is ARMED, or under a live raid - the rooms that get a
+   * standing guard (spec 51 phase 2). Host: `guardTargetsFor` over the home
+   * rooms, the SAME lens RaidGuardCorp holds its posts with.
+   *
+   * The guard is a CONDITIONAL standing fleet: unlike the tender or the feeder
+   * it is usually zero, and it must be priced from this lens rather than a
+   * constant or a peaceful colony pays for defense it never fields. Absent =
+   * quiet, priced at zero - exactly the pre-spec-51 behaviour.
+   */
+  guardedRooms?: readonly string[];
   /**
    * FIELDED-fleet actuals per commission corpId (spec 39 phase 2), assembled
    * by the host (CommissionHost.assembleFieldedFleets - the store owns the

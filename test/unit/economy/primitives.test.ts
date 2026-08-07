@@ -31,7 +31,9 @@ import {
   infraSpawnEnergy,
   CARRY_MOVE_PAIR_COST,
   LINK_CAPACITY,
-  volleyServiceCarry
+  volleyServiceCarry,
+  GUARD_PARTS_PER_ROOM,
+  roomGuardSpawnLoad
 } from "../../../src/economy/primitives";
 
 // First-principles checks: every number is hand-derived from the game constants
@@ -362,6 +364,43 @@ describe("infraSpawnLoad (the plan's standing-infra parts deduction)", () => {
     const withDepot = infraSpawnLoad(115, 1, 0);
     expect(withDepot).to.be.greaterThan(72 / 1500); // at least the tender fleet
     expect(infraSpawnLoad(115, 1, 4)).to.be.closeTo(withDepot + (0.5 * 4 * 4) / 540, 1e-9);
+  });
+});
+
+// Spec 51 phase 2: the standing guard comes onto the budget. Guards were F1's
+// last standing UNPRICED class - the corp fields one per armed room and the
+// spawn rebuilds it every lifetime, but the commission declared 0 and the
+// statement had to reconstruct the price from measured bodies (0.020 p/t at
+// t72847768, "-" budget). Priced from a LENS, not a constant: usually zero.
+describe("roomGuardSpawnLoad (the conditional standing fleet)", () => {
+  it("is one full guard body over a creep lifetime - the law the statement measures with", () => {
+    expect(GUARD_PARTS_PER_ROOM).to.equal(10); // 5 ATTACK + 5 MOVE, buildGuardBody's cap
+    expect(roomGuardSpawnLoad()).to.be.closeTo(GUARD_PARTS_PER_ROOM / CREEP_LIFETIME, 1e-12);
+    // The waste ledger's `defense (guards)` line divides measured parts by 1500.
+    // Three guards there must equal three rooms priced here, or plan and
+    // statement are two books again (F1).
+    expect(3 * roomGuardSpawnLoad()).to.be.closeTo(30 / 1500, 1e-12);
+  });
+
+  it("costs a PEACEFUL colony nothing, and the pre-spec-51 call signature is unchanged", () => {
+    const quiet = infraSpawnLoad(115, 1, 4, 1, 1, 0);
+    expect(infraSpawnLoad(115, 1, 4, 1, 1), "omitting the count prices exactly as before").to.equal(quiet);
+    expect(infraSpawnLoad(115, 1, 4, 1), "and so does omitting both trailing args").to.equal(quiet);
+  });
+
+  it("charges one guard per ARMED room, linearly", () => {
+    const quiet = infraSpawnLoad(115, 1, 4, 1, 1, 0);
+    expect(infraSpawnLoad(115, 1, 4, 1, 1, 3)).to.be.closeTo(quiet + 3 * roomGuardSpawnLoad(), 1e-12);
+  });
+
+  it("the ENERGY twin prices the guard's ATTACK+MOVE body, not a blended rate", () => {
+    // Per-CLASS conversion, the same discipline the reserver's CLAIM+MOVE line
+    // uses: a guard part averages 65e, a CARRY+MOVE part 50e. A single blended
+    // rate is exactly the biased conversion F1 warns about.
+    const quiet = infraSpawnEnergy(115, 1, 4, 1, 1, 0);
+    const perPart = (BODY_COSTS.ATTACK + BODY_COSTS.MOVE) / 2;
+    expect(perPart).to.equal(65);
+    expect(infraSpawnEnergy(115, 1, 4, 1, 1, 2)).to.be.closeTo(quiet + 2 * roomGuardSpawnLoad() * perPart, 1e-9);
   });
 });
 

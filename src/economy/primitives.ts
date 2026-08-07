@@ -682,6 +682,42 @@ export function tenderSpawnLoad(): number {
 }
 
 /**
+ * 5 ATTACK + 5 MOVE - the full guard body `buildGuardBody` builds at its
+ * default 5-pair cap. Priced at the FULL body for the same reason
+ * RESERVER_PARTS_PER_ROOM is: under pressure the scheduler may fund the 3-pair
+ * floor, but the plan budgets for the body it asks for (F1 reads two-sided - an
+ * under-stating plan is as uncontrollable as an over-stating one).
+ */
+export const GUARD_PARTS_PER_ROOM = 10;
+
+/**
+ * ONE armed room's standing guard, parts/tick - the raid-defense term of
+ * {@link infraSpawnLoad}.
+ *
+ * Guards were F1's last standing UNPRICED class: the corp fields one per armed
+ * room continuously (RaidGuardCorp.getSpawnDemand, one demand per uncovered
+ * target) and the spawn pays for it every creep lifetime, but the commission
+ * declared `spawnPartsPerTick: 0`, so the colony's ledger never deducted it and
+ * the statement's `defense (guards)` line had to reconstruct the price from
+ * MEASURED bodies with a "-" budget beside it. Measured t72847768: 3 guards,
+ * 30 parts, 0.020 p/t of real spend that no row owned.
+ *
+ * Cadence is the STANDING fleet's replacement rate - body over creep lifetime -
+ * which is exactly the law `waste-ledger` measures with (`guardParts / 1500`),
+ * so plan and statement are one derivation. NOT walk-adjusted like the reserver:
+ * the reserver's price amortizes a DUTY CYCLE over the claim life it actually
+ * spends reserving, while a guard holds its post for its whole life and the
+ * spawn rebuilds it on the lifetime boundary regardless of how far it walked.
+ *
+ * The raid-driven SURGE (a wave that outlives its guard, replacements bought
+ * mid-fight) is not priced here - that is the invader tax, charged at ADMISSION
+ * where the room's income is netted.
+ */
+export function roomGuardSpawnLoad(): number {
+  return GUARD_PARTS_PER_ROOM / CREEP_LIFETIME;
+}
+
+/**
  * ONE remote room's reservation corp, parts/tick. Linear in `parts`, so N of
  * these sum EXACTLY to `reserverSpawnLoad(N * RESERVER_PARTS_PER_ROOM)` - which
  * is what makes the per-corp price and the aggregate deduction reconcile to
@@ -708,7 +744,11 @@ export function infraSpawnLoad(
   /** Inbound link senders on the core (deposit ports + source links). Scales
    * the volley floor - see volleyServiceCarry. Defaults to 1 so a caller that
    * does not know the topology prices exactly as it did before. */
-  linkFedSenders = 1
+  linkFedSenders = 1,
+  /** Rooms whose raid meter is ARMED (or under a live raid) - one standing
+   * guard each. Defaults to 0: a caller that does not know the defense picture
+   * prices exactly as it did before spec 51 phase 2. */
+  guardedRoomCount = 0
 ): number {
   // Feeder + tender are DEPOT movers: they exist only in rooms with a built
   // storage (`depotRoomCount`). Charging them unconditionally taxed early
@@ -730,19 +770,25 @@ export function infraSpawnLoad(
   // reserves - defense preempts via priority when needed, it does not
   // reserve capacity). Composed from reserverSpawnLoad - the ONE home.
   const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM);
-  return feeder + tender + reservers;
+  // Standing guards, one per ARMED room (spec 51 phase 2). Zero when the colony
+  // is quiet, which is the common case - this is a CONDITIONAL standing fleet,
+  // so it must follow the armed-room lens and never a constant, or a peaceful
+  // colony pays for defense it never fields.
+  const guards = guardedRoomCount * roomGuardSpawnLoad();
+  return feeder + tender + reservers + guards;
 }
 
 /**
- * The ENERGY twin of {@link infraSpawnLoad} - the same three details, priced in
+ * The ENERGY twin of {@link infraSpawnLoad} - the same details, priced in
  * energy/tick instead of build-parts/tick.
  *
  * Kept adjacent and structurally identical ON PURPOSE: same signature, same
  * terms, same order, so a change to one is visibly a change to the other. The
  * only difference is the per-part price, and it is per-CLASS because the bodies
  * differ - feeder and tender are CARRY+MOVE pairs (100e per 2 parts) while a
- * reserver is CLAIM+MOVE (650e per 2). A single averaged rate would be the
- * biased conversion F1 warns about; per body it is exact.
+ * reserver is CLAIM+MOVE (650e per 2) and a guard ATTACK+MOVE (130e per 2). A
+ * single averaged rate would be the biased conversion F1 warns about; per body
+ * it is exact.
  *
  * Exists because the plan under-routed the spawn: `flowAdapter.discoverSinks`
  * priced the spawn sink at a hardcoded 10 e/t "base overhead" while the fleet
@@ -758,10 +804,13 @@ export function infraSpawnEnergy(
   /** Inbound link senders on the core (deposit ports + source links). Scales
    * the volley floor - see volleyServiceCarry. Defaults to 1 so a caller that
    * does not know the topology prices exactly as it did before. */
-  linkFedSenders = 1
+  linkFedSenders = 1,
+  /** Armed rooms - one standing guard each. See the parts twin. */
+  guardedRoomCount = 0
 ): number {
   const CARRY_MOVE_PER_PART = CARRY_MOVE_PAIR_COST / 2;
   const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
+  const ATTACK_MOVE_PER_PART = (BODY_COSTS.ATTACK + BODY_COSTS.MOVE) / 2;
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
   // Spec 45 volley-service floor - the SAME line as the parts twin above.
   const feederCarry =
@@ -774,7 +823,8 @@ export function infraSpawnEnergy(
   // energy aggregate all read one declaration instead of three copies.
   const tender = ((depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME) * CARRY_MOVE_PER_PART;
   const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
-  return feeder + tender + reservers;
+  const guards = guardedRoomCount * roomGuardSpawnLoad() * ATTACK_MOVE_PER_PART;
+  return feeder + tender + reservers + guards;
 }
 
 /**

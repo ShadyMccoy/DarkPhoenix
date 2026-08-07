@@ -258,6 +258,61 @@ Ordered conclusion: scout and raidGuard are a genuine next slice needing a
 model; coreBuster and claim need a capex-shaped budget line first; none of it
 lands mid-sweep.
 
+## Phase 2 — raidGuard onto the budget (2026-08-07, SHIPPED)
+
+Owner override on the timing above: *"What about raid guard"* … *"I want it now.
+Don't worry about the sweep that's in parallel."* The gate was the owner's to
+lift; the confound is real and stated below rather than argued away.
+
+**The model, and why it is not the actuals feed the section above refused.**
+`roomGuardSpawnLoad()` = `GUARD_PARTS_PER_ROOM / CREEP_LIFETIME` = 10/1500, one
+per ARMED room. Both terms are declared, not measured: 10 parts is the body
+`buildGuardBody` asks for at its own 5-pair cap (the same "price the full-budget
+body" convention `RESERVER_PARTS_PER_ROOM = 4` uses), and the cadence is the
+lifetime the spawn actually rebuilds on. What the section above rejected was
+copying `waste-ledger`'s price — bodies STANDING at capture time — into the plan,
+which would have encoded current behaviour as the budget. This runs the
+dependency the other way: the plan declares the price and the ledger's
+`defense (guards)` line now READS it (methodology #16). Before, both sides of
+that variance were the same measured bodies, so it could never disagree; now a
+gap is a genuine F1 signal.
+
+**The count comes from a LENS, not a room count — this is the first conditional
+member of the identity.** The tender and the feeder exist wherever a depot does;
+a guard exists only while a room's raid meter is armed. So `guardTargetsFor`
+(moved to `utils/raidMeter`, delegated to by `RaidGuardCorp.guardTargets`) is now
+read by three callers — the corp holding its posts, `CommissionHost` publishing
+`ColonyProblem.guardedRooms`, and the adapter computing `infraSpawnLoad`. One
+predicate, three readers: a second copy would be the two-books failure by
+construction, and a CONSTANT would charge a peaceful colony for defense it never
+fields. A quiet colony prices exactly zero, and the pre-phase-2 4-argument
+`infraSpawnLoad` call is bit-identical.
+
+Armed rooms bind to their NEAREST home (reservationKind's rule, same tiebreak),
+so a room two homes can both see is charged once. The runtime would field two
+guards there today — a multi-home coverage gap that predates this pricing and is
+invisible in a single-colony world.
+
+**The sweep confound, quantified and accepted.** In an ARMED window this takes
+~0.020 p/t out of a plannable ~0.600 — 3.3%, about three handicap steps. Quiet
+windows are unaffected (numerically identical). Sweep bands straddling this
+commit are therefore not comparable on armed windows; the band boundary is the
+commit, not a fiscal one.
+
+### Gate for phase 2 (2026-08-07)
+
+unit 2279 passing / 20 pending; `tsc` clean on both projects; build clean;
+integration `flow-handoff` PASS, `runt-economy` PASS, `storage-depot` PASS.
+Grid `def-t4-raid-guard-holds-the-remote` PASS — guard fielded @1, raid @150,
+kill @174 — the one cell where `guardedRooms > 0`.
+
+Two economy cells came back RED and were ACQUITTED by attribution runs at the
+parent commit (`a71ff95`) in a clean worktree: `plan-t1-single-source-loop`
+(timeout @1200t) and `fid-t4-synthetic-steady-state` (fail @1100t) fail
+IDENTICALLY pre-change, same assertion, same satisfied-at ticks. Tick-identical
+means deterministic, not host load — these are real pre-existing reds on the
+branch against a baseline last ratcheted 07-29, and they are not this change's.
+
 ### Gate for phase 4 (2026-08-06)
 
 unit 2251 passing / 20 pending; tsc, lint and build clean; integration

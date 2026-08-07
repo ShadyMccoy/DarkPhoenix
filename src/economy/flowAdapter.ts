@@ -19,6 +19,7 @@
 
 import "../types/Memory"; // RoomMemory.roadRoutes augmentation (paved receipts)
 import { hostileRooms, isSourceKeeperRoom, roomLinearDistance } from "../utils/RoomDiscovery";
+import { guardTargetsFor } from "../utils/raidMeter";
 import {
   FlowSink,
   FlowSolution,
@@ -1351,15 +1352,36 @@ export function buildColonyProblem(
       if (room && controllerLink(room)) linkFedRooms++;
     }
   }
-  const infraPartsPerTick = infraSpawnLoad(pricedRelay, roomsWithStorage.size, remoteRooms.size, linkFedRooms);
-  // Same three details, priced in ENERGY - the second currency the spawn sink
+  // ARMED ROOMS (spec 51 phase 2): one standing guard each, from the SAME lens
+  // RaidGuardCorp holds its posts with and the commission budgets from. Usually
+  // zero - this is the one infra term that is conditional on the world being
+  // dangerous, which is exactly why it reads a lens and not a constant.
+  const guardedRooms = new Set<string>();
+  for (const home of spawnRooms) for (const target of guardTargetsFor(home)) guardedRooms.add(target);
+  const infraPartsPerTick = infraSpawnLoad(
+    pricedRelay,
+    roomsWithStorage.size,
+    remoteRooms.size,
+    linkFedRooms,
+    1,
+    guardedRooms.size
+  );
+  // Same details, priced in ENERGY - the second currency the spawn sink
   // needs (see the two-pass solve in solveColony).
-  const infraEnergyPerTick = infraSpawnEnergy(pricedRelay, roomsWithStorage.size, remoteRooms.size, linkFedRooms);
+  const infraEnergyPerTick = infraSpawnEnergy(
+    pricedRelay,
+    roomsWithStorage.size,
+    remoteRooms.size,
+    linkFedRooms,
+    1,
+    guardedRooms.size
+  );
   const infraInputs = {
     pricedRelay,
     depotRooms: roomsWithStorage.size,
     remoteRooms: remoteRooms.size,
-    linkFedRooms
+    linkFedRooms,
+    guardedRooms: guardedRooms.size
   };
 
   return {

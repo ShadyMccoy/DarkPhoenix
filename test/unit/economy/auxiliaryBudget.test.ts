@@ -4,9 +4,11 @@ import { Commission } from "../../../src/economy/Commission";
 import { reservationKind } from "../../../src/corps/kinds/reservationKind";
 import { extensionTenderKind } from "../../../src/corps/kinds/extensionTenderKind";
 import { controllerFeederKind } from "../../../src/corps/kinds/controllerFeederKind";
+import { raidGuardKind } from "../../../src/corps/kinds/raidGuardKind";
 import {
   feederSpawnLoad,
   infraSpawnLoad,
+  roomGuardSpawnLoad,
   roomReserverSpawnLoad,
   tenderSpawnLoad
 } from "../../../src/economy/primitives";
@@ -60,7 +62,8 @@ function auxiliaryBudget(problem: ColonyProblem, draft: Commission[]): { total: 
   const all = [
     ...reservationKind.propose(problem, draft),
     ...extensionTenderKind.propose(problem, draft),
-    ...controllerFeederKind.propose(problem, draft)
+    ...controllerFeederKind.propose(problem, draft),
+    ...raidGuardKind.propose(problem, draft)
   ];
   const byKind = new Map<string, number>();
   let total = 0;
@@ -78,13 +81,14 @@ describe("spec 39 phase 4: auxiliary corps carry their own budget", () => {
   const RELAY = 40;
 
   /** One home with a link-fed depot, three mined remotes - the live shape. */
-  const world = (opts: { depot: boolean; linkFed: boolean }): ColonyProblem => ({
+  const world = (opts: { depot: boolean; linkFed: boolean; guarded?: string[] }): ColonyProblem => ({
     spawns: [spawn("s1", HOME)],
     sources: [],
     sinks: [],
     dist: (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y),
     depotRooms: opts.depot ? [HOME] : [],
-    linkFedRooms: opts.linkFed ? [HOME] : []
+    linkFedRooms: opts.linkFed ? [HOME] : [],
+    ...(opts.guarded ? { guardedRooms: opts.guarded } : {})
   });
   const draft = [...REMOTES.map((r, i) => harvestIn(r, `src${i}`)), upgradeIn(HOME, RELAY)];
 
@@ -150,6 +154,55 @@ describe("spec 39 phase 4: auxiliary corps carry their own budget", () => {
     const homeOnly = auxiliaryBudget(p, [harvestIn(HOME, "home"), upgradeIn(HOME, RELAY)]);
     expect(homeOnly.byKind.get("reservation") ?? 0).to.equal(0);
     expect(homeOnly.total).to.be.closeTo(infraSpawnLoad(RELAY, 1, 0, 1), 1e-12);
+  });
+
+  // SPEC 51 PHASE 2 - the standing guard joins the same invariant. It is the
+  // first CONDITIONAL member: the tender and the feeder exist whenever a depot
+  // does, but the guard exists only while a room's raid meter is armed. That is
+  // why it is priced off a lens (`problem.guardedRooms`, the same
+  // `guardTargetsFor` the corp holds its posts with) and not off a room count.
+  it("prices NOTHING for defense in a quiet colony - the whole point of the lens", () => {
+    const p = world({ depot: true, linkFed: true }); // no guardedRooms at all
+    const { total, byKind } = auxiliaryBudget(p, draft);
+    expect(byKind.get("raidGuard") ?? 0, "no armed rooms, no defense charge").to.equal(0);
+    // And the aggregate agrees: the pre-spec-51 4-arg call is still the quiet price.
+    expect(total).to.be.closeTo(infraSpawnLoad(RELAY, 1, REMOTES.length, 1), 1e-12);
+  });
+
+  it("SIGMA(auxiliary corps) === infraSpawnLoad with ARMED rooms too", () => {
+    const armed = [REMOTES[0], REMOTES[2]];
+    const p = world({ depot: true, linkFed: true, guarded: armed });
+    const { total, byKind } = auxiliaryBudget(p, draft);
+    expect(byKind.get("raidGuard")).to.be.closeTo(armed.length * roomGuardSpawnLoad(), 1e-12);
+    expect(total).to.be.closeTo(infraSpawnLoad(RELAY, 1, REMOTES.length, 1, 1, armed.length), 1e-12);
+  });
+
+  it("charges a guard per ARMED room even where the plan mines nothing", () => {
+    // The guard follows the raid meter, not the draft: a room can stay armed
+    // (65k+ harvested, still inside the recency window) after this solve stops
+    // funding its miner, and the corp keeps holding the post. Price = behavior.
+    const p = world({ depot: true, linkFed: true, guarded: ["W3N3"] });
+    const { byKind } = auxiliaryBudget(p, [upgradeIn(HOME, RELAY)]);
+    expect(byKind.get("reservation") ?? 0, "no mined remotes -> no reserver").to.equal(0);
+    expect(byKind.get("raidGuard")).to.be.closeTo(roomGuardSpawnLoad(), 1e-12);
+  });
+
+  it("binds each armed room to ONE home, so two homes never double-charge it", () => {
+    // reservationKind's rule, for the same reason: a room in range of two homes
+    // is ONE guard's worth of budget. Without the binding the corps' sum would
+    // exceed the aggregate exactly when the colony expands.
+    const two: ColonyProblem = {
+      ...world({ depot: true, linkFed: true, guarded: ["W1N2"] }),
+      spawns: [spawn("s1", HOME), spawn("s2", "W1N3")]
+    };
+    const { byKind } = auxiliaryBudget(two, draft);
+    expect(byKind.get("raidGuard")).to.be.closeTo(roomGuardSpawnLoad(), 1e-12);
+  });
+
+  it("ignores an armed room no home can reach", () => {
+    const p = world({ depot: true, linkFed: true, guarded: ["W40N40"] });
+    const { byKind } = auxiliaryBudget(p, draft);
+    expect(byKind.get("raidGuard") ?? 0).to.equal(0);
   });
 
   it("the feeder follows the PLAN's relay, not a constant", () => {

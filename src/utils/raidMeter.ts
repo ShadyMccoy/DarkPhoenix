@@ -27,7 +27,8 @@
  * @module utils/raidMeter
  */
 
-import { RAID_ARM_FLOOR, RAID_GOAL_CEIL } from "../economy/primitives";
+import { INVADER_TTL, RAID_ARM_FLOOR, RAID_GOAL_CEIL } from "../economy/primitives";
+import { MAX_SCOUT_DISTANCE } from "../corps/CorpConstants";
 
 export type RaidMeterState = "idle" | "armed" | "overdue";
 
@@ -57,6 +58,69 @@ export function accrueRaidDebt(roomName: string, amount: number): void {
   } else {
     Memory.roomIntel[roomName] = { lastVisit: Game.time, raidDebt: amount, lastHarvested: Game.time } as RoomIntel;
   }
+}
+
+/**
+ * How recently a room must have been harvested for its armed meter to field
+ * a guard: two creep lifetimes - wide enough that no single death, re-solve
+ * or vision gap un-arms an active mine, narrow enough that a genuinely
+ * abandoned room stands its guard down.
+ */
+export const GUARD_MINED_RECENCY = 3_000;
+
+/**
+ * THE armed-room lens: rooms within scouting range of `homeRoom` that currently
+ * want a standing guard, from intel alone.
+ *
+ * Lives here rather than on the corp because THREE readers need it and the trap
+ * list is explicit that they must read the SAME one: RaidGuardCorp (which rooms
+ * to hold), CommissionHost (what the guard commission BUDGETS - spec 51 phase 2)
+ * and the flow adapter (what the colony ledger DEDUCTS). A price derived from a
+ * second copy of this predicate is the two-books failure by construction, and a
+ * price derived from a CONSTANT charges a peaceful colony for defense it never
+ * fields.
+ *
+ * Durable signals only (the stranded-reserver trap): NOT live creep positions
+ * (flap on every miner death, blind without the dead miner's vision) and NOT the
+ * GOAL plan's remote content (remotes flap in and out with home-saturation
+ * churn). The signal is the meter's own harvest stamp - raidDebt only grows
+ * while we ACTUALLY mine a room, and `lastHarvested` records when we last did.
+ *
+ * - ARMED (predictive): raidDebt crossed the arm floor and the room was
+ *   harvested within GUARD_MINED_RECENCY - the raid can fire any time after
+ *   70k, so guarding here pre-positions ahead of the crossing. OVERDUE rooms
+ *   (>130k, no raid ever seen) disarm - raids provably don't fire there. A
+ *   truly abandoned room disarms when its harvest stamp ages out.
+ * - RAID IN PROGRESS (reactive): Invader creeps sighted within their 1500-tick
+ *   lifetime with the hostile mark still live - covers rooms whose counter
+ *   history we didn't have (first raid after moving in).
+ *
+ * Owned rooms are never targeted (towers are the home answer, spec 07).
+ */
+export function guardTargetsFor(homeRoom: string): string[] {
+  if (typeof Memory === "undefined" || !Memory.roomIntel) return [];
+  // No map (harness, golden master): no range test, so no targets - the same
+  // "absent fact = quiet" default the ColonyProblem lens documents.
+  if (typeof Game === "undefined" || !Game.map) return [];
+
+  const targets: string[] = [];
+  for (const roomName in Memory.roomIntel) {
+    if (roomName === homeRoom) continue;
+    const intel = Memory.roomIntel[roomName];
+    if (!intel) continue;
+    if (intel.controllerOwner) continue; // owned rooms never receive raids for us to guard
+    if (Game.map.getRoomLinearDistance(homeRoom, roomName) > MAX_SCOUT_DISTANCE) continue;
+
+    const minedRecently = intel.lastHarvested !== undefined && Game.time - intel.lastHarvested < GUARD_MINED_RECENCY;
+    const armed = raidMeterState(intel.raidDebt) === "armed" && minedRecently;
+    const raidInProgress =
+      intel.lastRaidSeen !== undefined &&
+      Game.time - intel.lastRaidSeen < INVADER_TTL &&
+      (intel.hostileUntil ?? 0) > Game.time;
+
+    if (armed || raidInProgress) targets.push(roomName);
+  }
+  return targets.sort(); // determinism: stable assignment across ticks
 }
 
 /**

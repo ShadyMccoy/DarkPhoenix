@@ -37,6 +37,8 @@ import {
   minerOverhead,
   pileDecayBudget,
   reserverSpawnLoad,
+  roomGuardSpawnLoad,
+  GUARD_PARTS_PER_ROOM,
   tombstoneLossBudget
 } from "../src/economy/primitives";
 import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerRate } from "../src/economy/bank";
@@ -194,7 +196,21 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
  * CONTROLLER VARIANCE BRIDGE's "construction above budget" term moves with it -
  * never quote one against the other.
  */
-export const METHODOLOGY = 15;
+/**
+ * #16 (spec 51 phase 2): the `defense (guards)` BUDGET line now reads the
+ * PLAN's own price - `infraInputs.guardedRooms * roomGuardSpawnLoad()` - on any
+ * capture that carries the count, instead of reconstructing it from the
+ * measured bodies standing at capture time.
+ *
+ * #14 introduced that reconstruction because the plan charged guards nothing;
+ * it closed the "-" budget but left the comparison circular - measured bodies
+ * on both sides of a variance can never disagree. With the plan pricing guards
+ * (raidGuardKind, from the armed-room lens), a budget-vs-actual gap on this line
+ * is now a real F1 signal. A #15 defense line and a #16 one differ whenever the
+ * armed-room count at solve time differs from the guards standing at capture
+ * time - which is precisely the information #14 could not show.
+ */
+export const METHODOLOGY = 16;
 
 export interface LedgerRow {
   id: string;
@@ -386,17 +402,31 @@ export function planSpawnLoad(cap: any): {
   const resLoad = reserverSpawnLoad(resParts);
   lines.push(["reservers (claim life)", resParts, resLoad]);
 
-  // DEFENSE (phase 1): raidGuard was F1's one standing UNPRICED class (0.027
-  // p/t live, 1.73 e/t of spend with a "-" budget on the account's defense
-  // line). Priced at the STANDING fleet's replacement cadence - per-corp
-  // summed like reservation (the per-room trap), each corp's own measured
-  // body, guards replaced over a creep lifetime. A colony with no standing
-  // guards prices zero - the raid-driven surge is exactly what the invader
-  // tax (phase-1's other defense seam) prices at ADMISSION, not here.
+  // DEFENSE. raidGuard was F1's one standing UNPRICED class (0.027 p/t live,
+  // 1.73 e/t of spend with a "-" budget on the account's defense line), so
+  // methodology #14 reconstructed the price here from MEASURED bodies. That
+  // reconstruction was itself a second book - the plan still charged nothing.
+  //
+  // Since spec 51 phase 2 the PLAN prices it (`roomGuardSpawnLoad` per armed
+  // room, from the same `guardTargetsFor` lens the corp holds its posts with),
+  // and this line reads the plan's own count whenever the capture carries it.
+  // The measured fallback stays for pre-spec-51 captures ONLY - on a modern
+  // capture, a gap between this line and the account's measured defense spend is
+  // now a real F1 signal (the plan disagreeing with the runtime) instead of a
+  // tautology comparing measured bodies to themselves.
+  //
+  // The raid-driven SURGE (replacements bought mid-fight) is not here either
+  // way: that is the invader tax, priced at ADMISSION.
+  const guardedRooms: number | undefined = flow.fleetCharge?.infraInputs?.guardedRooms;
   const guardParts = corps
     .filter(c => c.kind === "raidGuard")
     .reduce((sum, c) => sum + (c.creepCount > 0 ? c.bodyParts : 0), 0);
-  if (guardParts > 0) lines.push(["defense (guards)", guardParts, guardParts / 1500]);
+  if (guardedRooms !== undefined) {
+    const planned = guardedRooms * roomGuardSpawnLoad();
+    if (planned > 0) lines.push(["defense (guards)", guardedRooms * GUARD_PARTS_PER_ROOM, planned]);
+  } else if (guardParts > 0) {
+    lines.push(["defense (guards)", guardParts, guardParts / 1500]);
+  }
 
   const total = lines.reduce((s, [, , x]) => s + x, 0);
 
