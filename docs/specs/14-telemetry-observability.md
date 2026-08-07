@@ -10529,3 +10529,51 @@ has since confirmed the ruling.
 Recorded because the mechanism is real and will be rediscovered: relegation to
 zero is only safe while construction converts. The rule is not the defect; the
 5% conversion is.
+
+## Methodology #15 — P8 measures build progress instead of summing three floors
+
+Fixed 2026-08-07 after the owner read a construction line that was the meter,
+not the colony.
+
+P8's value was `max(0, siteProgress delta) + roadReceipts ratchet x 300 +
+poolWork decrease`. Each term is documented in place as a FLOOR that
+undercounts, and they share one blind spot: **all three read state that
+vanishes when a site completes**, so a remote build program that FINISHED is
+invisible to every one of them.
+
+Measured t72842655: `building-W43N21-construction` took `produced` 6,270 ->
+12,310 in 1,314 ticks - 6,040 units, **4.60 e/t** - clearing 17 of 18 road sites
+and releasing its claim, which is precisely the "completes quickly then
+releases" behaviour the wartime design depends on. P8 reported a fraction of it,
+and the ENERGY ACCOUNT (which reads P8 verbatim) booked construction ACTUAL at
+**0.42 e/t against a 30.00 budget**, making a -29.58 variance the single largest
+term in the CONTROLLER VARIANCE BRIDGE.
+
+The direct measurement was already published and had been since segment 4 v14: a
+ConstructionCorp's `unitsProduced` IS build progress. P8 now sums the
+construction corps' `produced` deltas, keeping the floors only as a fallback for
+captures that predate the counter - preferred, never summed, because both
+measure the same energy and adding them double-counts.
+
+Per-corp deltas clamp at zero. A corp destroyed and rebuilt restarts its counter
+(measured -885 on `building-W43N24-construction` when the invader core took the
+room); that is lost history, not negative building, so the row still undercounts
+- the same direction as the floors it supersedes.
+
+Same window, re-measured: **construction ACTUAL 0.42 -> 1.68 e/t**, the bridge's
+construction term -29.58 -> -28.32, and P8's verdict FAIL -> ok. A #14
+construction line and a #15 one differ by exactly the completed-and-departed
+sites; never quote one against the other.
+
+Both labels were renamed with the change - `build delivery (corp produced
+counters)` and `construction (built, measured)` - because "site progress" is no
+longer what either number is.
+
+### The reading error this cost, recorded
+
+Two consecutive cycle entries above stated "0 e/t built / CREW IDLE (energy
+allocated, nothing built)" as measured fact. It was a meter artifact, and the
+second entry repeated it from the first without re-deriving it. The corps'
+counters were in the same capture the whole time. When a leak row and a
+per-corp counter disagree, the counter is the measurement - the leak rows are
+mostly floors and proxies, and they say so in their own comments.

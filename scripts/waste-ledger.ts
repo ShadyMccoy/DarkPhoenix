@@ -181,7 +181,20 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
  * number moves when any of the three does. Prior windows' TARGET lines are
  * NOT comparable across this bump; every other account line is unchanged.
  */
-export const METHODOLOGY = 14;
+/**
+ * #15 (audit t72842655): P8 - and therefore the ENERGY ACCOUNT's construction
+ * ACTUAL line, which reads P8 verbatim - now MEASURES build progress from the
+ * construction corps' `produced` counters instead of summing three floors
+ * (home-room siteProgress, the road-receipts ratchet, poolWork decrease). All
+ * three read state that vanishes when a site completes, so a remote program
+ * that finished was invisible to every one of them: W43N21 built 6,040 units
+ * in 1,314 ticks clearing 17 of 18 road sites while the account booked
+ * construction at 0.42 e/t against a 30.00 budget. A #14 construction line and
+ * a #15 one differ by exactly the completed-and-departed sites, and the
+ * CONTROLLER VARIANCE BRIDGE's "construction above budget" term moves with it -
+ * never quote one against the other.
+ */
+export const METHODOLOGY = 15;
 
 export interface LedgerRow {
   id: string;
@@ -1601,7 +1614,52 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       const pool1 = poolWorkSum(base.data.corps);
       const pool2 = poolWorkSum(cap.data.corps);
       const poolBuilt = pool1 !== null && pool2 !== null ? Math.max(0, pool1 - pool2) : 0;
-      const flat = standing && !completion && delivered <= 0 && receiptsDelta <= 0 && poolBuilt <= 0;
+      // THE DIRECT MEASUREMENT (methodology #15, audit t72842655). Everything
+      // above is a FLOOR - home-room siteProgress, the receipts ratchet, the
+      // poolWork decrease - and each is documented in place as undercounting.
+      // They share one blind spot: all three read state that VANISHES when a
+      // site completes, so a remote program that finished is invisible to the
+      // lot of them.
+      //
+      // Measured: building-W43N21-construction took `produced` 6,270 -> 12,310
+      // in 1,314 ticks (6,040 units, 4.60 e/t) clearing 17 of 18 road sites,
+      // while P8 reported a fraction of it and the ENERGY ACCOUNT - which reads
+      // this row verbatim - booked construction ACTUAL at 0.42 e/t against a
+      // 30.00 budget. The -29.58 variance was the meter.
+      //
+      // A ConstructionCorp's `unitsProduced` IS build progress (segment 4 v14),
+      // so read it. Per-corp deltas clamp at zero: a corp destroyed and rebuilt
+      // restarts its counter (measured -885 on building-W43N24-construction
+      // when the invader core took the room), and that is lost history rather
+      // than negative building - so this still undercounts, the same direction
+      // as the floors it supersedes.
+      const corpBuilt = ((): number | null => {
+        const producedById = (corpsCap: any): Map<string, number> => {
+          const m = new Map<string, number>();
+          for (const c of corpsCap?.corps ?? []) {
+            if (c?.kind !== "construction") continue;
+            if (typeof c.produced === "number") m.set(c.id, c.produced);
+          }
+          return m;
+        };
+        const m1 = producedById(base.data.corps);
+        const m2 = producedById(cap.data.corps);
+        let sum = 0;
+        let seen = false;
+        for (const [id, p2] of m2) {
+          const p1 = m1.get(id);
+          if (p1 === undefined) continue; // unknown history - never assume all of it landed here
+          seen = true;
+          if (p2 > p1) sum += p2 - p1;
+        }
+        return seen ? sum : null;
+      })();
+      // Prefer the measurement; keep the floors for captures predating the
+      // counter. NOT summed together - they measure the same energy, so adding
+      // them would double-count.
+      const built = corpBuilt !== null ? corpBuilt : Math.max(0, delivered) + receiptsDelta + poolBuilt;
+      const flat =
+        standing && !completion && built <= 0 && delivered <= 0 && receiptsDelta <= 0 && poolBuilt <= 0;
       // SITE LEDGER (core v34; owner 2026-08-05: "I want to stay informed of
       // construction site progress"): the vision-free per-room roster from
       // Game.constructionSites, rendered per room with its window delta and
@@ -1615,7 +1673,7 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       if (sl2) {
         const roomNames = Object.keys(sl2).sort((a, b) => (sl2[b].rem ?? 0) - (sl2[a].rem ?? 0));
         const totalRem = roomNames.reduce((a, r) => a + (sl2[r].rem ?? 0), 0);
-        const rate = dt > 0 ? (Math.max(0, delivered) + receiptsDelta + poolBuilt) / dt : 0;
+        const rate = dt > 0 ? built / dt : 0;
         byRoom =
           `; by room: ` +
           roomNames
@@ -1634,8 +1692,8 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       }
       rows.push({
         id: "P8",
-        name: "build delivery (site progress)",
-        value: dt > 0 ? +((Math.max(0, delivered) + receiptsDelta + poolBuilt) / dt).toFixed(2) : 0,
+        name: "build delivery (corp produced counters)",
+        value: dt > 0 ? +(built / dt).toFixed(2) : 0,
         unit: "e/t built",
         verdict: flat && consAlloc > 5 ? "FAIL" : flat && consAlloc > 0 ? "WARN" : "ok",
         detail: completion
@@ -1644,6 +1702,7 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
             byRoom
           : standing || receiptsDelta > 0 || poolBuilt > 0
           ? `sites ${count1}->${count2}, remote ${remotes1}->${remotes2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
+            (corpBuilt !== null ? `, corps built ${corpBuilt}e (produced counters)` : ", corps: no counter (pre-v14 capture)") +
             (receiptsDelta > 0 ? `, remote roads +${receiptsDelta}e (receipts)` : "") +
             (poolBuilt > 0 ? `, within-site +${poolBuilt}e (poolWork ${pool1}->${pool2})` : "") +
             (flat ? " - CREW IDLE (energy allocated, nothing built)" : "") +
@@ -2996,7 +3055,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
       : []),
     "  APPROPRIATIONS",
     L("controller (score)", score, 4, bController),
-    L("construction (site progress)", build, 4, bConstruction),
+    L("construction (built, measured)", build, 4, bConstruction),
     L("to/(from) bank", bankDelta, 4, bBank, "neutral"),
     L("= total", approp, 4, bController + bConstruction + bBank),
     "  " + "-".repeat(46),

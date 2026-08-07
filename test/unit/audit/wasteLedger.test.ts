@@ -276,6 +276,66 @@ describe("waste ledger (spec 15 phase 1)", () => {
     expect(p8.detail).to.contain("CREW IDLE");
   });
 
+  /**
+   * P8 MEASURES BUILD PROGRESS DIRECTLY (methodology #15, audit t72842655).
+   *
+   * P8's value was the sum of three acknowledged FLOORS - the home rooms'
+   * `siteProgress` delta, the road-receipts ratchet, and the poolWork
+   * remaining-decrease - each documented in place as undercounting. None is a
+   * measurement, and none can see a REMOTE site that completed and left the
+   * ledger, because every one of them reads state that vanishes with the site.
+   *
+   * Measured t72842655: `building-W43N21-construction` took its `produced`
+   * counter 6,270 -> 12,310 in 1,314 ticks - 6,040 units, 4.60 e/t - clearing
+   * 17 of 18 road sites. P8 reported the window at a small fraction of that and
+   * the ENERGY ACCOUNT, which reads P8 verbatim, booked construction ACTUAL at
+   * 0.42 e/t against a 30.00 budget. The -29.58 variance was the meter, not the
+   * colony; and the previous cycle's entry repeated "0 e/t built" as fact.
+   *
+   * The direct measurement was already published: a ConstructionCorp's
+   * `unitsProduced` IS build progress (segment 4 v14), so P8 now sums the
+   * construction corps' `produced` deltas and keeps the floors only as a
+   * fallback for captures that predate the counter.
+   *
+   * Per-corp deltas clamp at zero. A corp destroyed and rebuilt restarts its
+   * counter (measured -885 on `building-W43N24-construction` when the invader
+   * core took the room), and a negative delta is lost history, not negative
+   * building - so it undercounts, in the same direction as the floors it
+   * replaces.
+   */
+  it("P8 reads the construction corps' produced counters, not the vanishing site fields", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    // Sites standing at both ends and construction funded - the shape that used
+    // to read "CREW IDLE" - but the corp counter says 6,040 units were built.
+    Object.assign(capB.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 90 });
+    capB.data.corps.corps.push({ id: "building-W1N1-construction", kind: "construction", produced: 6270 });
+    capA.data.corps.corps.push({ id: "building-W1N1-construction", kind: "construction", produced: 12310 });
+    const dt = capA.tick - capB.tick;
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.value, "the corp counter is the measurement").to.be.closeTo(6040 / dt, 0.01);
+    expect(p8.verdict, "a crew that built 6,040 units is not idle").to.not.equal("FAIL");
+    expect(p8.detail).to.not.contain("CREW IDLE");
+  });
+
+  it("P8 clamps a rebuilt corp's counter reset to zero rather than booking negative building", () => {
+    // building-W43N24-construction went -885 when the invader core took the
+    // room and the corp was rebuilt. Lost history, not negative progress.
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    capB.data.corps.corps.push({ id: "building-A-construction", kind: "construction", produced: 885 });
+    capA.data.corps.corps.push({ id: "building-A-construction", kind: "construction", produced: 0 });
+    capB.data.corps.corps.push({ id: "building-B-construction", kind: "construction", produced: 1000 });
+    capA.data.corps.corps.push({ id: "building-B-construction", kind: "construction", produced: 3000 });
+    const dt = capA.tick - capB.tick;
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.value, "the reset contributes 0, not -885").to.be.closeTo(2000 / dt, 0.01);
+  });
+
   it("P8 renders the siteLedger by room with window delta and ETA (core v34, owner 2026-08-05: stay informed of construction progress)", () => {
     const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
     const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
@@ -2515,10 +2575,10 @@ describe("methodology #10: the recovery P&L (cure vs illness, published)", () =>
     expect(detail).to.include("5.0");
   });
 
-  it("the header stamps methodology #14 (TARGETS denominator = capacity; #12 capacity rule unchanged)", () => {
+  it("the header stamps methodology #15 (construction ACTUAL measured from corp counters)", () => {
     const { cap, base } = rig(zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    expect(text).to.include("[methodology #14]");
+    expect(text).to.include("[methodology #15]");
   });
 });
 
@@ -2640,7 +2700,7 @@ describe("methodology #14: the controller target is scored against CAPACITY", ()
     };
     expect(terms.get("controller")!.v).to.be.closeTo(actualOf("controller (score)"), 0.01);
     expect(terms.get("bank")!.v).to.be.closeTo(actualOf("to/(from) bank"), 0.01);
-    expect(terms.get("build")!.v).to.be.closeTo(actualOf("construction (site progress)"), 0.01);
+    expect(terms.get("build")!.v).to.be.closeTo(actualOf("construction (built, measured)"), 0.01);
   });
 
   it("each term's PERCENT is that term over capacity - the shares cannot drift from the values", () => {
@@ -2709,7 +2769,7 @@ describe("the budget column balances by construction (methodology #11, t72773737
       budgetOf("= total overhead") +
       budgetOf("= measured losses") -
       budgetOf("controller (score)") -
-      budgetOf("construction (site progress)") -
+      budgetOf("construction (built, measured)") -
       budgetOf("to/(from) bank");
     expect(Math.abs(identity), `budget column sums to zero (got ${identity.toFixed(2)})`).to.be.lessThan(0.01);
   });
