@@ -10087,3 +10087,138 @@ caught by the trio, which is the gate that actually runs every cycle.
 
 The spec-50 deploy proceeds: unit 2225 green, the trio green, and the grid's
 planning neighbourhood green with the one failure attributed away.
+
+## Cycle t72829496 — two fixes landed, one hypothesis KILLED by its own data
+
+Verdict: **fixed ×2, instrumented ×1, falsified ×1, and a grid run I spoiled
+myself.** Capture t72829496, 733 ticks after t72828763, methodology #14,
+sweep `pct: 3`.
+
+### FIXED — the handicap mirror was read after the first solve, not before
+
+Registered last cycle as P-C and confirmed here. `plannable` now reads
+`0.646667 = 0.6667 × 0.97`, exactly the armed `pct: 3`, so the mis-pricing
+DOES self-heal on the next scheduled solve. That bounds the blast radius to one
+solve per deploy — which is precisely the solve the fiscal-month term (spec 46
+phase A) turns into the whole month's budget. Fixed in `e3e5ca4`: the
+fiscal-month hook moved from the top of PHASE 2 to the first statement of
+PHASE 0, because `getOrCreateFlowEconomy` solves inside PHASE 0 on a reset tick.
+Pinned structurally (`test/unit/main.test.ts`) against a named list of solve
+entry points — no behavioural test can see it, since by end of tick the mirror
+is correct either way.
+
+### FIXED — the reserver books disagreed because they were one solve apart
+
+Last cycle: `Σ(auxiliary) 0.082977` vs `partsLedger.infra 0.086681`, delta
+−0.003704 — one `roomReserverSpawnLoad`. This cycle the SAME TWO NUMBERS
+SWAPPED: `0.086681` vs `0.082977`, delta **+0.003704**. That sign flip is the
+diagnosis: `infraSpawnLoad` prices reservers from `prevFundedRemoteRooms` (the
+previous solve's answer, because the charge is deducted before this solve
+decides), while the reservation corps come off THIS solve's draft. The error is
+two-sided and lasts a month under the fiscal-month term. Fixed in `3b4d0d1`:
+`solveColony` re-prices when the plan funds a different number of remotes than
+it was priced for, with the re-price WRAPPING the fleet-charge iteration rather
+than following it (`infraEnergyPerTick` is a term of the charge, so a bolted-on
+correction just moves the over-charge from the parts ledger into the energy
+one). `infraInputs.remoteRoomsFunded` now publishes next to `remoteRooms`.
+
+### FALSIFIED — the raid meter's OVERDUE state is NOT an absorbing-state bug
+
+The hypothesis, and it was a good-looking one: `raidDebt` only ever falls on a
+WITNESSED sighting, so OVERDUE (`>130k`, guard disarms) is an absorbing state
+reachable by a missed observation — one unseen raid and the guard is disarmed in
+that room forever. Live it looked overwhelming: five of nine mined remotes past
+the ceiling, guard fleet **0 parts**, `defense (guard) 0.00 / 0.00` in the
+account, while R1 measured raid attrition at **2.47 e/t against a priced 0.71,
+3.5×**. W42N23 sat at `raidDebt 1,658,080` — 12.75× the ceiling — WITH a raid on
+its record. The fix was written, red-first, both halves.
+
+Then the arithmetic killed it. `raidDebt / (now − lastRaidSeen)`:
+
+```
+room      raidDebt   elapsed   debt/elapsed   sources
+W42N23   1,658,080   169,161       9.80          1
+W42N22     526,810    53,991       9.76          1
+W43N22     366,750    37,589       9.76          1
+W43N24      54,330     3,342      16.26          2
+W43N23     201,940    10,225      19.75          2
+```
+
+Every single-source room lands at **9.76–9.80 e/t — one source's reserved
+harvest rate** — and the two-source rooms at ~2× it. The accrual is continuous
+and exact since `lastRaidSeen`. **No resets were missed.** Those rooms simply
+have not been raided in 38k–169k ticks, and OVERDUE's conclusion ("raids aren't
+firing here") is empirically correct. The guard is right to be disarmed.
+
+Change reverted. The absorbing-state critique remains structurally true as a
+LATENT fragility — if a sighting is ever missed, the room does disarm forever
+with no decay, timeout or clamp — but shipping a fix for a hypothesis the data
+has just falsified is the bandaid-rule trap with extra steps. It waits for a
+room that actually exhibits it.
+
+What survives as the real anomaly: **W44N22 is ARMED** (86,180, inside the
+65k–130k band) and the corp still stamps `gate: "no-targets"`. Its accrual rate
+is 5.21 e/t against 9.76 for its peers — roughly half — which fits an
+intermittently-mined room whose `lastHarvested` ages past
+`GUARD_MINED_RECENCY` (3000). That is a one-line hypothesis and it was
+unfalsifiable from a capture, because `lastHarvested` was not published.
+
+### INSTRUMENTED — intel segment v2 carries `lastHarvested`
+
+The guard's ARMED branch is `meterState === "armed" && Game.time −
+lastHarvested < 3000`. Only the first conjunct was published, so a capture
+could not decompose `no-targets`. Segment 3 is now v2 with `lastHarvested`.
+Per the audit method: when the cause is invisible, the fix is FIRST a stamp.
+
+### The W43N24 defund churn — refined, and NOT yet actionable
+
+An invader core took W43N24 (`invaderCorePresent: true`,
+`invaderReservedUntil: 72829997`). Its two sources — nets 8.21 and 7.82, ranked
+3rd and 4th of 22 — dropped to `net 0, d 0, defunded`, freeing budget that
+promoted W41N25 (net 5.91, 10th). Every other candidate scored IDENTICALLY to
+the cent across both solves, so the planner is deterministic and the input
+changed; the ledger's P1 "plan flap" TOP LINE is therefore accurate, not a
+false positive as first written here.
+
+The obvious fix — gate the defund on remaining occupation, as
+`CORE_BUSTER_MIN_REMAINING = 1000` already gates the buster — does NOT follow,
+because `hostileRooms()` records that **a live core RENEWS the reservation on
+every sighting**. W43N24's 501 remaining ticks is a last-seen bound with a live
+core behind it, not a lapse. What the pair of gates DOES leave is a gap worth
+naming: the buster declines (remaining < 1000) and the planner declines (room
+occupied), so the room is neither contested nor worked, and on blind expiry of
+a stale bound it will be re-funded, re-scouted, and re-marked — an
+intel-staleness flap. Recorded, not patched.
+
+### The grid run I spoiled, and what it still proved
+
+I ran `audit:ledger` four times plus a telemetry capture WHILE a full grid was
+live, having said I would not. Result: 22 "regressions" and BOT LEVEL 4 → 0,
+which is not a real number. Clean single-cell re-runs split it:
+
+```
+move-upgrader-park-settle        dirty: fail @80/80t     clean: PASS
+haul-t2-critical-divert          dirty: timeout @60/60t  clean: PASS
+spawn-timer-survives-busy-spawn  dirty: fail @104/150t   clean: FAIL @104/150t
+fid-t4-synthetic-steady-state    dirty: fail @1100/1100t clean: FAIL @1100/1100t
+```
+
+The two real ones reproduce IDENTICALLY on pre-change src (`44474ba`) — same
+assertion, same tick — so both commits are acquitted per the attribution
+protocol. Both cells are `pass` in the baseline, making them the **third and
+fourth** silent regressions found on the deployed build, after
+`cons-link-core-first` and `multispawn-t7-both-spawns-worked` logged above.
+
+**`fid-t4-synthetic-steady-state` is the one to chase**, and it is the best
+handle this program has on the owner's standing question (*"we hit 50+
+sustainable and never got close again"* — G1 ran 51–56 across five months to
+t72788704 and has not exceeded 43 since). It fails on *"controller fidelity: >=
+15% of upgrade budget"* — the same symptom, in a deterministic synthetic world
+with no invaders, no bank phase and no capture gaps. Doctrine says a fidelity
+gap on a synthetic world is a bug signal by construction, and a deterministic
+cell is bisectable where an 8,650-tick hole in the capture record is not. The
+level shift brackets `667bf0d` (transport arc costs).
+
+Standing instruction from the previous cycle now applies to four cells, not
+two: **bisect these before layering more behaviour on top.** None of them is
+caught by the trio, which is the gate that actually runs every cycle.
