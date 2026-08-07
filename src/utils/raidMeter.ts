@@ -27,8 +27,7 @@
  * @module utils/raidMeter
  */
 
-import { INVADER_TTL, RAID_ARM_FLOOR, RAID_GOAL_CEIL } from "../economy/primitives";
-import { MAX_SCOUT_DISTANCE } from "../corps/CorpConstants";
+import { INVADER_TTL, MAX_SCOUT_DISTANCE, RAID_ARM_FLOOR, RAID_GOAL_CEIL } from "../economy/primitives";
 
 export type RaidMeterState = "idle" | "armed" | "overdue";
 

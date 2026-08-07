@@ -47,6 +47,19 @@ export const BODY_COSTS = {
 export const CREEP_LIFETIME = 1500;
 
 /**
+ * Maximum distance (in room exits) a home works: the scouting radius, and with
+ * it the radius of every per-room lens keyed to a home (reservation targets,
+ * guard posts, core-buster reach).
+ *
+ * Lives HERE rather than in corps/CorpConstants - its historical home, which
+ * re-exports it - because this module is the leaf every tool can load.
+ * CorpConstants evaluates body literals (`[WORK, CARRY, MOVE]`) at import time
+ * and therefore cannot be required outside the game engine, and the lenses that
+ * need this constant (utils/raidMeter) are read by the audit scripts.
+ */
+export const MAX_SCOUT_DISTANCE = 5;
+
+/**
  * The PLAN's budget term (spec 46 phase A, owner 2026-08-05: "we take the
  * budget/plan and we use that for the next fiscal month... to avoid
  * thrashing and provide clarity in reporting. It's kind of setting the plan
