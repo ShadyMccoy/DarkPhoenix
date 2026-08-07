@@ -10666,3 +10666,47 @@ Honesty limits: n=5 per band; capacity itself varied 100-120 across them; the
 6-10% band contains the wartime/construction episode; months 11-12 (n=2) sit
 lower at 30.88, so the curve may already be turning. The next few months decide
 whether there is an optimum near 8-10% or whether 11-12% is noise.
+
+### CORRECTION to the entry above — the bank-route attribution is FALSIFIED
+
+The t72843748 entry claims the 1.04x overshoot is "entirely" unbudgeted classes
+and names the bank routes as the 0.112. **The bank-route half of that is wrong.**
+
+The reconciliation behind it subtracted incompatible units. `spent` accrues the
+routing pass's per-unit charge (`chargePerUnit x take`, haul bodies + the sink's
+`workPerUnit`); the construction sink's published `spawnLoad` 0.1354 is the
+ADAPTER's all-in operation price for builders and tankers. Differencing
+`haulers + sinks` against `spent` therefore compares two different quantities,
+and the residual 0.088 matching bank routes' 0.0876 to five decimals was a
+coincidence read as proof.
+
+A differential unit test settles it: planning the same world with and without a
+bank source raises `spent` by 0.00979 for a route publishing 0.00400 - the bank
+route IS charged, and charged MORE than it publishes (the extra flow it admits
+carries the sink's own work charge). Test written, run, and reverted rather than
+committed, because it isolates nothing useful once the premise is gone.
+
+**What survives, with no inference:**
+
+```
+partsLedger   plannable 0.5800   budget 0.4450   spent 0.4527   dry: TRUE
+```
+
+The plan spends more than its own budget - the planner's own report. And P4
+reconstructs plan-implied 0.691 vs physical 0.667. Those two facts are the real
+finding; the attribution of the gap to any particular class is NOT established.
+
+The owner's direction stands (close the accounting gaps). The next step is a
+STAMP, not a fix: `routeToSinks` should publish, per route, the charge it
+actually debited. Today `spawnParts` is written by the adapter while the debit
+happens in the planner, and no capture can compare them - which is precisely why
+this took a wrong turn. With that stamp, `dry: true` and the 1.04x get an
+auditable cause.
+
+**The pattern this is the third instance of, in one session:** the raid-meter
+OVERDUE hypothesis, the wartime relegation branch, and now this. Each time a
+leak row's LABEL or a tidy numeric coincidence was treated as a measurement. The
+leak rows are mostly floors and proxies and say so in their own comments;
+`partsLedger`, the corp `produced` counters and the sizing stamps are the
+measurements. When the two disagree, the measurement wins - and a residual that
+matches a candidate to five decimals is a hypothesis, not a proof.
