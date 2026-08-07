@@ -197,6 +197,29 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // PHASE 0: INIT - Lazy initialization (once per code push)
   // ===========================================================================
 
+  // FISCAL MONTH HOOK - FIRST, ahead of every initializer. Two jobs (spec 50):
+  // refresh the handicap sweep's pure-side mirror, and at a month boundary
+  // advance the sweep and mark the archive snapshot owed.
+  //
+  // It must precede ANY SOLVE, not merely "PHASE 2: PLANNING" - which is where
+  // it sat, and why it was wrong. `getOrCreateFlowEconomy` below runs a full
+  // solve inside PHASE 0 on the reset tick ("don't wait for the planning
+  // cycle"), so on a global reset the mirror was still empty when the colony's
+  // first plan of the VM was priced: measured live t72828763, the plan margin
+  // read the fail-safe 0.90 while Memory.spawnSweep said pct 3 (0.97).
+  //
+  // Under the 50-tick solve cadence that was one mislabelled plan. Under the
+  // FISCAL MONTH term (spec 46 phase A) the same plan stands until the next
+  // boundary, so one deploy mis-priced up to a whole month of the sweep - the
+  // experiment's own unit of measurement. Hence: earliest possible, not merely
+  // early.
+  //
+  // Still outside the TELEMETRY gate, so governor degradation delays a snapshot
+  // by a tick rather than losing the month. On a boundary tick the advance
+  // still lands before planning, so the month's first re-solve is priced at the
+  // handicap that labels it.
+  bulkhead("fiscal-month", () => runFiscalMonth());
+
   // Initialize corps from Memory if cache is empty (after code push)
   // This is a no-op if corps are already in the global cache
   initCorps(corps);
@@ -322,18 +345,6 @@ export const loop = ErrorMapper.wrapLoop(() => {
   if (!isAnalysisInProgress()) {
     bulkhead("resource-refresh", () => refreshNodeResourcesFromCache(colony!));
   }
-
-  // FISCAL MONTH HOOK - deliberately BEFORE planning, and outside the telemetry
-  // gate below. Two jobs (spec 50): refresh the handicap sweep's pure-side
-  // mirror, and at a month boundary advance the sweep and mark the archive
-  // snapshot owed.
-  //
-  // Order matters both ways. Before PLANNING, so the boundary tick's re-solve
-  // is the FIRST plan of the month it labels - stepping after it would give
-  // every month one plan priced at the previous month's handicap. Outside the
-  // TELEMETRY gate, so governor degradation delays a snapshot by a tick rather
-  // than losing the month.
-  bulkhead("fiscal-month", () => runFiscalMonth());
 
   // ===========================================================================
   // PHASE 2: PLANNING - Survey, Market, Plan

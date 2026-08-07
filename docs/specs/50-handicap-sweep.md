@@ -92,6 +92,28 @@ The month hook also runs **before** the planning phase, so a boundary tick's
 re-solve is the first plan OF the month it labels — stepping afterwards would give
 every month one plan priced at the previous month's handicap.
 
+#### "Before planning" was not early enough (measured t72828763)
+
+The hook shipped at the top of PHASE 2 and that was a bug, caught on the first
+post-deploy capture: `plannable` read `0.6667 × 0.90` — the unarmed fail-safe —
+while `Memory.spawnSweep.pct` said 3. The mirror refresh had run; it had just run
+too late. `getOrCreateFlowEconomy` **solves inside PHASE 0**, deliberately ("don't
+wait for the planning cycle"), so on a global reset the VM's first plan is priced
+before PHASE 2 exists.
+
+The cost is set by the plan's TERM, and that is what makes this worth a rule
+rather than a patch. Under the old 50-tick cadence it was one mislabelled plan,
+gone in a tick. Under the fiscal-month term (spec 46 phase A) the same plan is the
+month's budget and **stands until the next boundary** — so one deploy at a random
+tick mis-prices up to a whole month of the sweep, which is the experiment's own
+unit of measurement, and does it invisibly (the archive's `pct` label comes from
+Memory and stays correct while the plan under it does not).
+
+The rule, then, is not "before planning" but **before any solve**. The hook is now
+the first statement in PHASE 0, and `test/unit/main.test.ts` pins the ordering
+against a named list of solve entry points, because no behavioural test can see
+this: by the end of the tick the mirror is correct either way.
+
 ## 3. The archive — the part that makes the experiment legible
 
 `fiscal-close` brackets a month with the committed CAPTURES nearest its ends. That
