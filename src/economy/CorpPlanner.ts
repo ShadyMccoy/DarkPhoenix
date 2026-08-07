@@ -1002,22 +1002,36 @@ function routeToSinks(
     const storageSink = sinks.find(s => s.kind === "storage" && s.pos.roomName === port.pos.roomName);
     if (!storageSink) continue;
     const dDrain = Math.max(1, dist(port.drainFrom, storageSink.pos));
-    const drainParts = (2 * carryPartsFor(deposited, dDrain)) / effectiveLife(dDrain);
+    // LEDGER-CLAMPED, like every route in the fill above (audit t72846447).
+    // This debit used to be unguarded - `partsRemaining -= drainParts` with no
+    // `maxByParts` - so it could drive the ledger NEGATIVE and make `spent`
+    // exceed `budget`. Measured live: budget 0.4450, spent 0.4527, dry true;
+    // and it scales with the leg, reaching spent 6.41 against budget 0.28863 on
+    // a long forward link in the unit world.
+    //
+    // That is small in isolation and structural in kind: the parts budget is
+    // the one control the spawn-handicap sweep turns, so a debit that can
+    // ignore it is a hole in the instrument, not just in a plan.
+    //
+    // Scaled, not dropped: a drain is a RATE, so a partially drained port is a
+    // real plan while an unaffordable one is not - the same shape as the fill's
+    // `take = min(avail, target - allocated, maxByParts)`. `carryPartsFor` is
+    // linear in rate, so the per-unit form below is exact.
+    const drainPerUnit = (2 * carryPartsFor(1, dDrain)) / effectiveLife(dDrain);
+    const affordable = drainPerUnit > 1e-12 ? Math.max(0, partsRemaining) / drainPerUnit : Infinity;
+    const drained = Math.min(deposited, affordable);
+    if (drained <= 1e-9) continue;
+    const drainParts = drained * drainPerUnit;
     haulers.push({
       sourceId: port.drainSourceId,
       sinkId: storageSink.id,
       spawnId: spawnBySource.get(port.drainSourceId) ?? problem.spawns[0]?.id ?? "",
       distance: dDrain,
-      flowRate: deposited,
-      carryParts: carryPartsFor(deposited, dDrain),
+      flowRate: drained,
+      carryParts: carryPartsFor(drained, dDrain),
       spawnParts: drainParts,
       charged: drainParts
     });
-    // NOTE (audit t72846447): unlike the fill loop above, this debit has NO
-    // `maxByParts` clamp, so it can drive `partsRemaining` negative and make
-    // `spent` exceed `budget` - measured live spent 0.4527 vs budget 0.4450,
-    // dry true. Stamped rather than changed here: the fix is a live-behaviour
-    // change and this commit is telemetry-only.
     partsRemaining -= drainParts;
   }
 

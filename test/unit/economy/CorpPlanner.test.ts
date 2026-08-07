@@ -1353,3 +1353,81 @@ describe("the fill survives a failed path lens (live regression t72417871: planA
     });
   }
 });
+
+/**
+ * THE PLAN MAY NOT SPEND PAST ITS OWN BUDGET (audit t72846447).
+ *
+ * `partsLedger.spent` is `partsBudget - partsRemaining`, and every route in the
+ * routing fill clamps its take first:
+ *
+ *     const maxByParts = partsRemaining / chargePerUnit;
+ *     const take = Math.min(avail, target - acc.allocated, maxByParts);
+ *
+ * The port-DRAIN hauler, appended after the fill, did not:
+ *
+ *     partsRemaining -= drainParts;      // no clamp
+ *
+ * so it could drive `partsRemaining` negative and make `spent` exceed `budget`.
+ * Measured live t72846447: `budget 0.4450, spent 0.4527, dry: true` - the plan
+ * committing 0.0077 p/t of spawn capacity it had already established it did not
+ * have. That is small in isolation and structural in kind: the parts budget is
+ * what the whole spawn-handicap sweep manipulates, so a debit that can ignore
+ * it is a hole in the one control the experiment turns.
+ *
+ * The drain is a RATE, not an all-or-nothing purchase, so the fix scales it to
+ * what the ledger affords rather than dropping it - the same shape as the
+ * fill's `maxByParts`, and honest for the same reason: a partially drained port
+ * is a real plan, an unaffordable one is not.
+ */
+describe("partsLedger: the plan never spends past its budget (audit t72846447)", () => {
+  /** A hub, two mined sources routing through a nearer link port, and a port
+   *  whose forward leg emerges `drainX` tiles from the hub - the drain's cost
+   *  rises with that leg while the parts budget does not. */
+  const portWorld = (drainX: number): ColonyProblem => ({
+    spawns: [spawn("s1", 0)],
+    sources: [source("srcA", 90), source("srcB", 95)],
+    sinks: [sink("hub", "storage", 2, 1, 200), sink("ctrl", "controller", 3, 80, 60)],
+    dist: manhattan,
+    depositPorts: [{ pos: at(40), headroom: 30, drainFrom: at(drainX), drainSourceId: "srcA" }]
+  });
+
+  it("clamps the port-drain debit to the remaining ledger", () => {
+    // Measured on the unguarded debit: budget 0.28863, spent 0.45714 (1.58x),
+    // and it scales with the leg - x=1200 reached spent 6.41 on the same budget.
+    const plan = planColony(portWorld(300));
+    expect(
+      plan.partsLedger.spent,
+      `spent ${plan.partsLedger.spent.toFixed(5)} exceeds budget ` +
+        `${plan.partsLedger.budget.toFixed(5)} - the drain debited parts the ledger did not have`
+    ).to.be.at.most(plan.partsLedger.budget + 1e-9);
+  });
+
+  it("scales the drain to what the ledger affords instead of dropping it", () => {
+    // A drain is a RATE: partially draining a port is a real plan, so the clamp
+    // must shrink the route, not delete it. (The unaffordable-leg case still
+    // routes the deposits themselves - only the drain leg is trimmed.)
+    const plan = planColony(portWorld(300));
+    const drain = plan.haulers.filter(h => h.sinkId === "hub" && !h.depositPos && h.sourceId === "srcA");
+    expect(drain.length, "the drain leg still exists, trimmed rather than dropped").to.be.greaterThan(0);
+    for (const h of drain) expect(h.charged, "and what it charged is what it published").to.be.closeTo(h.spawnParts, 1e-9);
+  });
+
+  it("is unchanged when the ledger can afford the drain outright", () => {
+    // The guard must not perturb the ordinary case - x=40 fit comfortably
+    // (spent 0.10182 of budget 0.28863) before the fix and must still.
+    const plan = planColony(portWorld(40));
+    expect(plan.partsLedger.spent).to.be.closeTo(0.10182264979202682, 1e-9);
+    expect(plan.partsLedger.dry).to.equal(false);
+  });
+
+  it("holds across the standard worlds too - no route may overdraw", () => {
+    // The invariant is not specific to ports; assert it wherever a plan is built.
+    for (const [name, problem] of [
+      ["one source", { spawns: [spawn("s1", 0)], sources: [source("a", 20)], sinks: [sink("c", "controller", 25, 80, 50)], dist: manhattan }],
+      ["two sources + hub", { spawns: [spawn("s1", 0)], sources: [source("a", 20), source("b", 60)], sinks: [sink("h", "storage", 2, 1, 200), sink("c", "controller", 25, 80, 50)], dist: manhattan }]
+    ] as [string, ColonyProblem][]) {
+      const p = planColony(problem);
+      expect(p.partsLedger.spent, `${name}: spent must not exceed budget`).to.be.at.most(p.partsLedger.budget + 1e-9);
+    }
+  });
+});

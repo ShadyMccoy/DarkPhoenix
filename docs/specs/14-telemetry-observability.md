@@ -10769,3 +10769,70 @@ close, now located by reading the debit rather than differencing totals.
 Not fixed in this commit: clamping it is a live-behaviour change needing the
 full regression gate, and this commit is telemetry-only so it can ship now and
 make the next cycle's diagnosis a read instead of a derivation.
+
+## Cycle t72846812 — the unguarded drain debit, FIXED
+
+Verdict: **fixed.** The defect located (by reading) in the previous cycle's
+stamp commit, now clamped and pinned.
+
+### What was wrong
+
+Every route in `routeToSinks`'s fill clamps its take against the ledger first:
+
+```ts
+const maxByParts = partsRemaining / chargePerUnit;
+const take = Math.min(avail, target - acc.allocated, maxByParts);
+```
+
+The port-DRAIN hauler, appended after the fill, did not:
+
+```ts
+partsRemaining -= drainParts;     // no clamp
+```
+
+so it could drive `partsRemaining` NEGATIVE and make `spent` exceed `budget`.
+Live: `budget 0.4450, spent 0.4527, dry: true`. In the unit world the overdraw
+scales with the port's forward leg, because `drainParts` grows with distance
+while the budget does not:
+
+```
+drainFrom x   budget     spent      verdict
+        40    0.28863    0.10182    fits
+       300    0.28863    0.45714    OVERDRAWN 1.58x
+       600    0.28863    1.12167    OVERDRAWN 3.89x
+      1200    0.28863    6.41146    OVERDRAWN 22.2x
+```
+
+### Why it matters more than 0.0077 p/t
+
+The parts budget is the ONE control the spawn-handicap sweep turns. A debit that
+can ignore it is a hole in the instrument, not just in a plan - and the sweep is
+mid-experiment. It also explains, exactly, the `dry: true` that three cycles of
+hand-derivation kept trying to attribute to unbudgeted CLASSES: nothing was
+unbudgeted, one debit was unclamped.
+
+### The fix
+
+Scaled, not dropped. A drain is a RATE, so a partially drained port is a real
+plan while an unaffordable one is not - the same shape as the fill's
+`take = min(avail, target - allocated, maxByParts)`:
+
+```ts
+const drainPerUnit = (2 * carryPartsFor(1, dDrain)) / effectiveLife(dDrain);
+const affordable   = drainPerUnit > 1e-12 ? Math.max(0, partsRemaining) / drainPerUnit : Infinity;
+const drained      = Math.min(deposited, affordable);
+if (drained <= 1e-9) continue;
+```
+
+`carryPartsFor` is exactly linear in rate, so the per-unit form is exact and the
+route's published `spawnParts` still equals its `charged` (pinned).
+
+Three tests: the clamp holds at x=300; the drain is TRIMMED not deleted (a rate,
+not a purchase); and the affordable case at x=40 is bit-identical to before
+(`spent 0.10182264979202682`, `dry false`) so the guard cannot perturb the
+ordinary path.
+
+Gate: 2266 unit, build clean, flow-handoff + runt-economy + storage-depot green,
+`plan-t3-budget-subset` [P]. `plan-t1-single-source-loop` fails the same single
+assertion it failed in isolation BEFORE this change - identical pre/post,
+acquitted.
