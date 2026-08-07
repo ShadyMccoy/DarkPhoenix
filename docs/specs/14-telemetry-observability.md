@@ -10577,3 +10577,92 @@ second entry repeated it from the first without re-deriving it. The corps'
 counters were in the same capture the whole time. When a leak row and a
 per-corp counter disagree, the counter is the measurement - the leak rows are
 mostly floors and proxies, and they say so in their own comments.
+
+## Cycle t72843748 — the handicap governs only 84% of the load; and the sweep's first readable band
+
+Verdict: **two blockers named with data, one of them about the experiment
+itself.** Capture t72843748 vs t72832806, 10,942 ticks, methodology #15,
+sweep pct 13.
+
+### The wartime episode closed itself
+
+Controller budget 0.00 -> 40.71, construction's claim 30.00 -> 10.00, W43N21's
+18-site road program completed and released. The design worked exactly as the
+owner specified (2026-08-07: *"completes quickly and then releases its claim and
+upgrading again takes its normal full allocation"*). The upgrade corp is back at
+39 WORK, `workUtil 1.00`, `dryShare 0` - so the account's 18.14 e/t controller
+line is a WINDOW AVERAGE spanning the period with no upgrade corp at all, not a
+current rate.
+
+### TOP LINE: P4 1.04x, and the handicap cannot reach the overshoot
+
+```
+sweep pct 13    physical 0.6667    plannable 0.5800
+
+BUDGETED (what the handicap constrains)
+  source-route haulers 0.293   construction 0.135   miners    0.056
+  upgraders            0.035   reservers    0.026   tenders   0.023
+  feeder               0.011
+  SUM                  0.579   vs plannable 0.580   -> INSIDE, to 3dp
+
+UNBUDGETED (outside it entirely)
+  transient-route haulers 0.112
+  coreBuster              0.024
+  plan-implied total      0.691  vs physical 0.667  -> 1.04x
+```
+
+**The plan sits exactly at its budget and still overshoots the physical
+ceiling**, because 16% of the load is outside the budget the handicap taxes.
+And the "transient-route haulers" are not transient - `0 of 10` sources are.
+They are BANK and SCAVENGE routes:
+
+```
+bank-W43N23   carry 46.0  flow 10.0  d 114     <- 46 CARRY for 10 e/t
+bank-W43N23   carry  9.8  flow 40.7  d 5
+bank-W43N23   carry  4.6  flow 19.1  d 5
+bank-W43N23   carry  1.5  flow 19.1  d 1
+scavenge x4   carry 13.7 total
+```
+
+Consequence for the EXPERIMENT, which is the part worth carrying: tightening the
+handicap shrinks the budgeted classes while the unbudgeted 0.112 does not move,
+so its SHARE grows as the sweep runs. Total load crosses back under the ceiling
+somewhere around 17-18% - but by squeezing mining, hauling and infra to make
+room for a bank/scavenge fleet that is never squeezed. That is a different
+experiment from "run the whole economy tighter", and the 20-month result must be
+read knowing it.
+
+### Corrected: the drain term EXISTS
+
+H1's detail still reads *"plan under-asks (inflow-sized carry, no drain term)"*.
+That text is stale - `bufferDrainCarry` is in primitives.ts:821 and applied at
+CorpPlanner.ts:1140. The plan asks for 352.3 carry parts and 306 are fielded;
+the shortfall is the SPAWN, not the ask. Spawn util 0.990/0.987 against a 0.3333
+ceiling each, queue depth 7 both, SCAV `spawn parts DRY (binding)`. The colony is
+spawn-bound, and E6's six chronic mouths (buffers 2,505-4,340, all 100% of
+window) are downstream of that, not of a missing planner term. H1's text should
+be updated when someone next touches that row.
+
+### The sweep's first result that clears the noise floor
+
+Twelve months now closed at 100% coverage from the bot's own archive:
+
+```
+band  1-5%   n=5   sustainable 27.68 +/- 3.59   mined  91.34
+band  6-10%  n=5   sustainable 37.09 +/- 3.79   mined 103.77
+band 11-12%  n=2   sustainable 30.88 +/- 3.23   mined  92.00
+
+6-10% vs 1-5%: +34% sustainable; +/-1sd ranges DO NOT OVERLAP
+               (24.09..31.26 vs 33.30..40.88)
+```
+
+This is the first sweep reading above CLAUDE.md's ~30% multi-draw threshold, and
+it is a BAND comparison, not adjacent months - the discipline the M01-M05 entry
+above said would be required. Mining rose with it (91.34 -> 103.77), so it is not
+the bank cycle flattering a smaller economy. It supports the owner's founding
+hypothesis that lifting the 10% handicap overheated the economy.
+
+Honesty limits: n=5 per band; capacity itself varied 100-120 across them; the
+6-10% band contains the wartime/construction episode; months 11-12 (n=2) sit
+lower at 30.88, so the curve may already be turning. The next few months decide
+whether there is an optimum near 8-10% or whether 11-12% is noise.
