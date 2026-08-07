@@ -10351,3 +10351,81 @@ capacity holds 100-120, i.e. forgone is rising (34.57 e/t this window, up from
 7.22 last cycle), with the miners' pile-gate stamps explaining 35.09 e/t of it.
 That is E6's haul deficit, not a handicap effect, and it confounds the sweep for
 as long as it runs.
+
+## Bisect: `fid-t5-real-maze-steady-state` regressed at PR #149, and it is a DESIGN disagreement
+
+**Boundary, 8/8 draws** (isolated cell runs, the full-grid concurrency artifact
+avoided):
+
+```
+f6e9487  (08-02)   GREEN 4/4
+48fbe19  (08-03)   RED   4/4   all on "controller fidelity: >= 10% of upgrade budget"
+HEAD     (08-07)   RED   5/5   (has since drifted further - also fails GROSS fidelity)
+```
+
+Two method notes worth keeping. First, the cell is deterministic AT THE
+BOUNDARY (three draws, same assertion, same tick) but NOT at HEAD, where a
+second assertion has since started failing - so "deterministically red" is a
+claim that must be made per-commit, not per-cell. Second, the bisect ran in a
+git WORKTREE with symlinked node_modules; driving it by `git checkout <sha> --
+src` in the main tree leaves a days-old source tree on disk for minutes at a
+time, which reads to any commit-hygiene tooling as uncommitted work.
+
+### The mechanism
+
+PR #149 rewrote the controller valve, deleting its guaranteed floor:
+
+```ts
+- export const STORAGE_UPGRADE_TARGET = 15;     // deleted
+
++ bankFedControllerRate(banked, reserve, ticksToDowngrade)
++   = controllerFloorRate(ticksToDowngrade) + bankSurplusRate(banked, reserve)
++ controllerFloorRate(t) = t < ANTI_DOWNGRADE_DANGER_TICKS ? ANTI_DOWNGRADE_RESERVE : 0
+```
+
+Both halves are owner-directed and quoted in the diff itself (*"The bank should
+be the income mop up not the upgrade"*; *"Even the anti downgrade. We don't need
+it UNLESS the controller is in danger of downgrading ... Not the constant
+trickle"*). The controller's floor is therefore ZERO whenever it is not near
+downgrade, and its entire claim is the bank surplus.
+
+### Why this is not "a bug the bisect found"
+
+The cell asserts the controller receives >= 10% of the upgrade budget. PR #149
+deliberately made that false at bank-equals-target. The cell encodes pre-#149
+doctrine, and **the baseline it is graded against (f894be1, 07-29) predates the
+design change by four days** - which is exactly why nobody caught it. The
+baseline was never re-earned when the valve was rewritten, so a deliberate
+behaviour change has been sitting in the grid as an unexplained red ever since.
+
+That is the transferable lesson, not the commit: CLAUDE.md's rule is to update
+the baseline in the SAME commit as the change that earned it. #149 changed a
+graded behaviour and did not, so the grid has been reporting a design decision
+as a regression for four days and two audit cycles.
+
+### It also closes THIS cycle's top line
+
+The live numbers chain end to end:
+
+```
+storage 105,439 - reserve 80,500 = 24,939 surplus / 1500 = 16.6 e/t
+  -> P12 measured bankFedControllerRate 16.63    (the law)
+  -> controller sink: alloc 0.00, prio 44.18     (what it got)
+  -> construction:    alloc 20.00, prio 70       (fixed 70 > dynamic 44.18)
+```
+
+With no floor, the controller is a RESIDUAL claimant priced dynamically, and
+construction's FIXED priority 70 now outranks it structurally whenever the
+controller's dynamic price falls below 70. So construction takes 20 e/t plus
+31.6% of the plannable spawn budget - at a measured 1.5% conversion - while the
+score sink is allocated zero. The construction admission test proposed above is
+therefore not an independent item: it is the other half of this.
+
+### What it does NOT explain
+
+The live sustainable decline (~48 -> ~31 pts/t). PR #149 landed 08-03; the live
+51-56 cluster ran 08-05 onward, AFTER it. The grid regression precedes the good
+period, so the two are not the same story - and the live shift window
+(t72788704-t72797359) still contains no src commit at all, `667bf0d` having
+turned out to be docs-only. That question remains open and points at world
+events (invader cores, capacity swinging 100-120), not code.
