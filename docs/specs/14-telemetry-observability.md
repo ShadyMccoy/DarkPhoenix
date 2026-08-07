@@ -10222,3 +10222,132 @@ level shift brackets `667bf0d` (transport arc costs).
 Standing instruction from the previous cycle now applies to four cells, not
 two: **bisect these before layering more behaviour on top.** None of them is
 caught by the trio, which is the gate that actually runs every cycle.
+
+## Cycle t72832806 — construction is the misallocation, and the sweep's noise floor
+
+Verdict: **blocker named with data**, plus the sweep's first four archived closes.
+Capture t72832806 against t72829496 (3,310 ticks), methodology #14, sweep
+`pct: 6`. No code change shipped — deliberately, see the close.
+
+### TOP LINE: P4 plan spawn-infeasibility 1.05x, and construction owns it
+
+```
+plan-implied 0.702 p/t vs 0.667 physical
+  source-route haulers      393p = 0.277
+  construction (all-in)     278p = 0.198   <- 31.6% of plannable
+  transient haulers         111p = 0.079
+  miners                     96p = 0.067
+  tenders                    68p = 0.045
+  reservers                  32p = 0.030
+  feeder                      9p = 0.006
+```
+
+Against that spend, measured output over 3,310 ticks:
+
+```
+corp                            parts  creeps   built    e/t
+building-W43N23-construction     163      5        45   0.014
+building-W43N24-construction       8      2       885   0.267
+building-W41N25-construction       8      2        50   0.015
+(seven others)                    24      6         0   0.000
+                                             ---------------
+                                 total      980   0.296 e/t
+```
+
+**20 e/t allocated, 0.296 e/t delivered - 1.5% conversion.** And the fleet is
+distributed backwards: the home corp holds 80% of the parts and produced 4.6% of
+the output, while an 8-part corp out-built it 20x.
+
+### The body explains it, and the formula is NOT the bug
+
+```
+t72829496:  94 parts = work 5,  carry 83,  move 6
+t72832806: 163 parts = work 8,  carry 135, move 20
+```
+
+8 WORK against 135 CARRY - 83% of a "build crew" is haulage, and it GREW by 69
+parts (52 CARRY) in a window where it built 45 units.
+
+The arithmetic is correct. `builderPlan` sizes from
+`sustainableConsumptionRate(buildSideStock, 5)`, which at the observed stock 497
+gives 5.33 e/t -> 2 WORK, matching the sinks' `workParts: 2` exactly. `tankerPlan`
+then takes `consumption = partsNeeded * 5 = 10` and the sinks' own distances:
+
+```
+tankerCarryNeededFor(10, d=53)  =  65 CARRY
+tankerCarryNeededFor(10, d=114) = 138 CARRY      (fielded: 135)
+vectorSupplyPartsGait(10, 114)  = 184 parts
+```
+
+The fielded 135 CARRY is precisely what the formula orders for two pools at
+d=53 and d=114. Nothing is miscomputed.
+
+### The actual gap: construction has NO ADMISSION TEST
+
+184 parts to sustain 10 e/t of building at 114 tiles is 0.123 p/t - **18% of the
+physical spawn ceiling for one remote site.** Nothing anywhere asks whether that
+trade is worth taking.
+
+Sources get exactly this test. A source at d=114 rate 10 prices out at
+`candidates[].net` ~5.51 and sits `over-budget` (d019, this capture). A
+construction site at the same distance and rate is admitted at a fixed priority
+70 and then the runtime sizes whatever supply vector the distance demands. Same
+physics, one priced, one not.
+
+The consequence is visible in the sink table:
+
+```
+spawn         alloc 19.93   prio 100
+spawn         alloc 19.93   prio 100
+construction  alloc 10.00   prio 70    spawnLoad 0.135  spawnDist 114
+construction  alloc 10.00   prio 70    spawnLoad 0.063  spawnDist  53
+storage       alloc 105.55  prio 1
+controller    alloc  0.00   prio 44.18  workParts 0
+```
+
+Construction's FIXED 70 outranks the controller's DYNAMIC 44.18, so the score
+sink gets zero while two remote sites take 20 e/t and a third of the spawn parts
+budget. The value-ladder comment in CLAUDE.md reads "controller <= 80 >
+construction 70" - true at the ladder's top end, false whenever the controller's
+dynamic price falls under 70, which is where it sits now.
+
+**Fix shape (NOT implemented this cycle):** price a construction sink the way a
+source candidate is priced - net of its supply vector's spawn cost at its actual
+distance - and let it be rejected. That is a planner change, and this cycle
+deliberately did not ship it: four baseline-green grid cells are red on the
+deployed build and unbisected, the baseline is nine days stale (07-29), and the
+grid cannot return a clean verdict on this 4-core host (see below). Layering a
+planner change on that is what the previous cycle's standing note warns against.
+
+### The sweep's first closes - and its NOISE FLOOR
+
+`fiscal:archive` closed four periods at 100% coverage from the bot's own
+boundary snapshots, each self-labelled with the handicap in force. Unattended,
+recoverable, exactly what spec 50 was built for:
+
+```
+month       hc   capacity  mined   controller  sustainable   bank
+FY4855-M01  1%    120.00   98.53     36.89       29.43      -7.47
+FY4855-M02  2%    120.00  105.06     14.79       32.96     +18.16
+FY4855-M03  3%    100.00   91.25     24.96       28.34      +3.38
+FY4855-M04  4%    100.00   81.01     57.26       22.55     -34.71
+FY4855-M05  5%    115.00   80.87     34.28       25.10      -9.17
+```
+
+**The experiment cannot resolve a 1%/month step, and this is the number that
+says so.** Sustainable spans 22.55-32.96, a 46% spread, while one handicap step
+moves the plannable budget by 0.0067 p/t (~1%). The noise is ~40x the signal.
+`delivered` is worse - 14.79 to 57.26 - because the bank term swings +18 to -35,
+which is the ~9000-tick bank limit cycle sampled at 1500-tick intervals, exactly
+the phase-sample hazard the fiscal calendar section warns about.
+
+Consequence for how the sweep gets READ: never compare adjacent months. Compare
+BANDS - months 1-5 against 16-20 - where the handicap differs by ~15% and the
+per-month noise averages down. The 21-month ring holds enough for exactly that,
+which is the one design decision here that survives contact.
+
+Secondary: `mined` trends 98.53 -> 105.06 -> 91.25 -> 81.01 -> 80.87 while
+capacity holds 100-120, i.e. forgone is rising (34.57 e/t this window, up from
+7.22 last cycle), with the miners' pile-gate stamps explaining 35.09 e/t of it.
+That is E6's haul deficit, not a handicap effect, and it confounds the sweep for
+as long as it runs.
