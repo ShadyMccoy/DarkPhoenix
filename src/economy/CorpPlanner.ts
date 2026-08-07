@@ -1035,6 +1035,80 @@ function routeToSinks(
     partsRemaining -= drainParts;
   }
 
+  // --- PHASE-1 ROUTE REPRICING (income-statement program, 2026-08-02) ---
+  //
+  // DRAIN TERM: a source whose mouth stands a buffer gets the ONE drain law
+  // (primitives.bufferDrainCarry - the same staged/CREEP_LIFETIME the corp's
+  // haulCarryNeeded applies) priced INTO its routes, distributed by carry
+  // share, so the plan and the fleet size from the same two terms.
+  //
+  // TRANSIENT FLOOR: a scavenge stock's route computing a fraction of a CARRY
+  // still buys a whole floor body (CarryCorp's 3-CARRY runt rule), so its
+  // spawn-parts price floors at scavengeFloorParts.
+  //
+  // STILL A POST-PASS, and that part was always right: both terms are
+  // stock-shaped (flow-independent), so folding them into `chargePerUnit` -
+  // which drives `maxByParts`, and therefore how much each sink takes - would
+  // distort marginal pricing. What was wrong is only WHERE it ran. It lived in
+  // `planColony`, AFTER routeToSinks returned, so it raised each route's
+  // published `spawnParts` and never touched `partsRemaining`: the fleet it
+  // prices stayed outside the budget, which is the exact condition this reprice
+  // was written to end.
+  //
+  // Measured live t72847768 off the v16 charge stamp: haulers published 0.29747
+  // against charged 0.26933. Bank and short routes sat at ratio 1.000 (neither
+  // uplift applies), long source routes 0.85-0.93 (drain), scavenge 0.414 and
+  // 0.328 (floor) - the pattern naming its own cause.
+  //
+  // The original comment also argued these "land inside the plan's 10%
+  // execution headroom". That justification has EXPIRED: the headroom is
+  // SPAWN_PLAN_FRACTION, which the handicap sweep (spec 50) now varies on
+  // purpose - 13% and walking to 20%. A cost that hides in the margin is a cost
+  // that consumes the experiment's own instrument.
+  //
+  // Debited, not clamped: unlike a route's take there is nothing to scale here
+  // (the drain law clears one generation, the floor is one body), and dropping
+  // the uplift would restore exactly the under-pricing this fixes. It can push
+  // the ledger dry, which is honest - `dry` then means what it says.
+  const transientById = new Map(problem.sources.filter(s => s.transient).map(s => [s.id, s]));
+  const stagedById = new Map(
+    problem.sources.filter(s => !s.transient && (s.staged ?? 0) > 0).map(s => [s.id, s.staged ?? 0])
+  );
+  if (stagedById.size > 0 || transientById.size > 0) {
+    const bySource = new Map<string, typeof haulers>();
+    for (const h of haulers) {
+      const list = bySource.get(h.sourceId) ?? [];
+      list.push(h);
+      bySource.set(h.sourceId, list);
+    }
+    const debit = (h: CommissionedHauler, uplift: number): void => {
+      if (uplift <= 0) return;
+      h.spawnParts += uplift;
+      h.charged = (h.charged ?? 0) + uplift;
+      partsRemaining -= uplift;
+    };
+    for (const [sourceId, staged] of stagedById) {
+      const routes = bySource.get(sourceId);
+      if (!routes || routes.length === 0) continue;
+      const totalCarry = routes.reduce((acc, h) => acc + h.carryParts, 0);
+      for (const h of routes) {
+        const share = totalCarry > 0 ? h.carryParts / totalCarry : 1 / routes.length;
+        const drainCarry = bufferDrainCarry(staged * share, h.distance);
+        if (drainCarry <= 0) continue;
+        h.carryParts += drainCarry;
+        debit(h, ((h.paved ? 1.5 : 2) * drainCarry) / effectiveLife(h.distance));
+      }
+    }
+    for (const [sourceId] of transientById) {
+      const routes = bySource.get(sourceId);
+      if (!routes || routes.length === 0) continue;
+      const total = routes.reduce((acc, h) => acc + h.spawnParts, 0);
+      const nearest = routes.reduce((a, b) => (a.distance <= b.distance ? a : b));
+      const floor = scavengeFloorParts(nearest.distance);
+      if (total < floor) debit(nearest, floor - total);
+    }
+  }
+
   return { haulers, sinks: [...out.values()], partsRemaining };
 }
 
@@ -1141,59 +1215,6 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
       for (const v of sourceVerdicts) {
         if (unroutedIds.has(v.sourceId) && v.verdict === "funded") v.verdict = "unrouted";
       }
-    }
-  }
-
-  // --- PHASE-1 ROUTE REPRICING (income-statement program, 2026-08-02) ---
-  //
-  // DRAIN TERM: a source whose mouth stands a buffer gets the ONE drain law
-  // (primitives.bufferDrainCarry - the same staged/CREEP_LIFETIME the corp's
-  // haulCarryNeeded applies) priced INTO its routes, distributed by carry
-  // share, so the plan and the fleet size from the same two terms. Before
-  // this the corp fielded the drain and X6 had to be judged against the
-  // corp's own stamp ("rest against the plan route, drain-blind") - ~1.0 e/t
-  // of real fleet stood permanently outside the budget.
-  //
-  // TRANSIENT FLOOR: a scavenge stock's route computing a fraction of a CARRY
-  // still buys a whole floor body (CarryCorp's 3-CARRY runt rule), so its
-  // spawn-parts price floors at scavengeFloorParts - the account's
-  // "transient-route haulers (unbudgeted)" 2.0 e/t becomes a budgeted line.
-  //
-  // Post-pass ON PURPOSE: both terms are stock-shaped (flow-independent), so
-  // charging them at admission (chargePerUnit) would distort marginal
-  // pricing; they are small by construction (the drain law clears one
-  // generation; the floor is 6 parts) and land inside the plan's 10%
-  // execution headroom the same way the fleet they price does.
-  const transientById = new Map(problem.sources.filter(s => s.transient).map(s => [s.id, s]));
-  const stagedById = new Map(
-    problem.sources.filter(s => !s.transient && (s.staged ?? 0) > 0).map(s => [s.id, s.staged ?? 0])
-  );
-  if (stagedById.size > 0 || transientById.size > 0) {
-    const bySource = new Map<string, typeof haulers>();
-    for (const h of haulers) {
-      const list = bySource.get(h.sourceId) ?? [];
-      list.push(h);
-      bySource.set(h.sourceId, list);
-    }
-    for (const [sourceId, staged] of stagedById) {
-      const routes = bySource.get(sourceId);
-      if (!routes || routes.length === 0) continue;
-      const totalCarry = routes.reduce((s, h) => s + h.carryParts, 0);
-      for (const h of routes) {
-        const share = totalCarry > 0 ? h.carryParts / totalCarry : 1 / routes.length;
-        const drainCarry = bufferDrainCarry(staged * share, h.distance);
-        if (drainCarry <= 0) continue;
-        h.carryParts += drainCarry;
-        h.spawnParts += ((h.paved ? 1.5 : 2) * drainCarry) / effectiveLife(h.distance);
-      }
-    }
-    for (const [sourceId] of transientById) {
-      const routes = bySource.get(sourceId);
-      if (!routes || routes.length === 0) continue;
-      const total = routes.reduce((s, h) => s + h.spawnParts, 0);
-      const nearest = routes.reduce((a, b) => (a.distance <= b.distance ? a : b));
-      const floor = scavengeFloorParts(nearest.distance);
-      if (total < floor) nearest.spawnParts += floor - total;
     }
   }
 

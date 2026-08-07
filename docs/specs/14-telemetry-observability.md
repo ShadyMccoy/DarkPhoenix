@@ -10910,3 +10910,67 @@ should charge it where every other route is charged, which likely means pricing
 the drain and floor terms INSIDE `routeToSinks` rather than repricing after.
 Expect the budget to tighten by ~0.028 p/t and some marginal sources to fall
 out - that is the correct consequence, not a regression.
+
+## Cycle t72847768b — the phase-1 reprice moves INSIDE routeToSinks
+
+Verdict: **fixed.** The gap the v16 charge stamp measured last cycle, closed.
+
+### What was wrong
+
+`planColony` applied two uplifts AFTER `routeToSinks` had returned - the
+`bufferDrainCarry` drain term and the `scavengeFloorParts` transient floor.
+Both raised a route's published `spawnParts`; neither reached `partsRemaining`.
+The fleet they price stayed OUTSIDE the budget, which is the exact condition the
+reprice was written to end (its own comment: *"the account's 'transient-route
+haulers (unbudgeted)' 2.0 e/t becomes a budgeted line"*). It moved the PRICE and
+not the CHARGE.
+
+Measured live t72847768, off the v16 stamp - which is the only reason this was
+findable after three cycles of hand-derivation misattributed it:
+
+```
+haulers published 0.29747   charged 0.26933   gap 0.02814
+  bank + short routes    ratio 1.000       neither uplift applies
+  long source routes     0.85 - 0.93       drain term
+  scavenge routes        0.414, 0.328      transient floor
+```
+
+### What was KEPT, and why
+
+The post-pass SHAPE was always right and is preserved: both terms are
+stock-shaped (flow-independent), so folding them into `chargePerUnit` - which
+drives `maxByParts`, and therefore how much each sink takes - would distort
+marginal pricing. Only its LOCATION was wrong: outside the ledger's scope.
+
+### The half of the justification that had expired
+
+The original comment also argued these "land inside the plan's 10% execution
+headroom". That headroom is `SPAWN_PLAN_FRACTION` - which the handicap sweep
+(spec 50) now VARIES on purpose, currently 13% and walking to 20%. A cost that
+hides in the margin is a cost that consumes the experiment's own instrument, so
+an argument that was reasonable when the margin was a fixed constant stopped
+being reasonable the day the margin became the thing under test. Worth carrying:
+**spec 50 invalidated every "it fits in the headroom" argument in the
+codebase**, and this is the first one found.
+
+Debited rather than clamped: unlike a route's take there is nothing to scale
+(the drain law clears one generation, the floor is one body), and dropping the
+uplift would restore exactly the under-pricing this fixes. It can push the ledger
+dry, which is honest - `dry` then means what it says.
+
+### Gate
+
+2269 unit (golden master unaffected - its worlds carry no staged buffers, so no
+uplift applies), build clean, flow-handoff + runt-economy + storage-depot green,
+`plan-t3-budget-subset` [P]. `plan-t5-remote-pipeline` fails
+`"extensions refill before the draining spawn finishes"` - ATTRIBUTED: identical
+failure on pre-change source in a clean worktree (@400/700t vs @573/700t; the
+cell is not tick-deterministic but the assertion is the same), and it was
+already red in the clean full-grid run two cycles ago. Acquitted.
+
+### Expected live consequence
+
+The budget tightens by ~0.028 p/t and marginal sources may fall out. That is the
+correct consequence of charging for fleet the corps actually field, not a
+regression - and it is the first time the sweep's handicap has governed the
+whole plan rather than 84% of it.

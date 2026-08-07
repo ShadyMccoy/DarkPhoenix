@@ -1431,3 +1431,77 @@ describe("partsLedger: the plan never spends past its budget (audit t72846447)",
     }
   });
 });
+
+/**
+ * THE PHASE-1 REPRICE MUST BE CHARGED, NOT JUST PUBLISHED (audit t72847768).
+ *
+ * `planColony` applied two uplifts AFTER `routeToSinks` had already debited the
+ * ledger: the `bufferDrainCarry` drain term and the `scavengeFloorParts`
+ * transient floor. Both raise a route's published `spawnParts`; neither reached
+ * `partsRemaining`. So the fleet they price stayed OUTSIDE the budget - the
+ * exact condition the reprice was written to end (its own comment: *"the
+ * account's 'transient-route haulers (unbudgeted)' 2.0 e/t becomes a budgeted
+ * line"*).
+ *
+ * Measured live t72847768 off the v16 charge stamp - which is how this was
+ * found at all, after three cycles of hand-derivation misattributed it:
+ *
+ *   haulers published 0.29747  charged 0.26933  gap 0.02814
+ *   bank + short routes   ratio 1.000   (neither uplift applies)
+ *   long source routes    ratio 0.85-0.93  (drain term)
+ *   scavenge routes       ratio 0.414, 0.328  (transient floor)
+ *
+ * The post-pass SHAPE is right and is kept: both terms are stock-shaped
+ * (flow-independent), so folding them into `chargePerUnit` - which drives
+ * `maxByParts` and therefore how much each sink takes - would distort marginal
+ * pricing. What was wrong is only WHERE it ran: outside the ledger's scope.
+ *
+ * The other half of the original justification has expired. It read "they land
+ * inside the plan's 10% execution headroom" - but that headroom is
+ * SPAWN_PLAN_FRACTION, which the handicap sweep (spec 50) now VARIES on
+ * purpose, currently 13% and walking to 20%. A cost that hides in the margin
+ * is a cost that consumes the experiment's own instrument.
+ */
+describe("partsLedger: the phase-1 reprice is charged, not just published (audit t72847768)", () => {
+  const stagedWorld = (): ColonyProblem => ({
+    spawns: [spawn("s1", 0)],
+    sources: [
+      { ...source("srcA", 40), staged: 2000 },
+      { ...source("srcB", 45), staged: 2000 }
+    ],
+    sinks: [sink("hub", "storage", 2, 1, 200), sink("ctrl", "controller", 3, 80, 60)],
+    dist: manhattan
+  });
+
+  it("every route's published spawnParts equals what it charged", () => {
+    // The invariant the golden worlds already hold and live violated.
+    const plan = planColony(stagedWorld());
+    expect(plan.haulers.length, "the world routes something").to.be.greaterThan(0);
+    for (const h of plan.haulers) {
+      expect(
+        h.charged,
+        `route ${h.sourceId} -> ${h.sinkId} publishes ${h.spawnParts.toFixed(6)} but charged ` +
+          `${(h.charged ?? 0).toFixed(6)} - the difference is fleet the budget never paid for`
+      ).to.be.closeTo(h.spawnParts, 1e-9);
+    }
+  });
+
+  it("the drain uplift REACHES the ledger", () => {
+    // Same world with and without standing buffers: the staged one must both
+    // publish more carry AND spend more of the budget.
+    const withStaged = planColony(stagedWorld());
+    const bare = planColony({ ...stagedWorld(), sources: [source("srcA", 40), source("srcB", 45)] });
+    const carryUp = withStaged.haulers.reduce((n, h) => n + h.carryParts, 0) -
+      bare.haulers.reduce((n, h) => n + h.carryParts, 0);
+    expect(carryUp, "standing buffers price extra drain carry").to.be.greaterThan(0);
+    expect(
+      withStaged.partsLedger.spent - bare.partsLedger.spent,
+      "and the ledger pays for it"
+    ).to.be.greaterThan(0);
+  });
+
+  it("still never overdraws, now that the uplift is charged too", () => {
+    const plan = planColony(stagedWorld());
+    expect(plan.partsLedger.spent).to.be.at.most(plan.partsLedger.budget + 1e-9);
+  });
+});
