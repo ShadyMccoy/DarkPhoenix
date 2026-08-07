@@ -644,7 +644,7 @@ export function constructionWorkSpawnLoad(energyPerTick: number, distance: numbe
 }
 
 /** Nominal feeder shuttle distance (storage -> controller input, measured live: 6). */
-const FEEDER_NOMINAL_DISTANCE = 6;
+export const FEEDER_NOMINAL_DISTANCE = 6;
 
 /** 2 CLAIM 2 MOVE - the full-budget live reserver body (see RESERVER_DUTY). */
 export const RESERVER_PARTS_PER_ROOM = 4;

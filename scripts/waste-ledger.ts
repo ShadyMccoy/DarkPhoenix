@@ -39,6 +39,10 @@ import {
   reserverSpawnLoad,
   roomGuardSpawnLoad,
   GUARD_PARTS_PER_ROOM,
+  FEEDER_NOMINAL_DISTANCE,
+  TENDER_FLEET_PARTS,
+  feederSpawnLoad,
+  tenderSpawnLoad,
   tombstoneLossBudget
 } from "../src/economy/primitives";
 import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerRate } from "../src/economy/bank";
@@ -210,7 +214,24 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
  * armed-room count at solve time differs from the guards standing at capture
  * time - which is precisely the information #14 could not show.
  */
-export const METHODOLOGY = 16;
+/**
+ * #17 (audit t72849380): P4's FEEDER and TENDER budget lines now call the
+ * primitives (`feederSpawnLoad`, `tenderSpawnLoad`) instead of recomputing
+ * them. Both copies had drifted, in opposite directions:
+ *
+ * - feeder: the recompute `2 * carryPartsFor(relay, d)` predates spec 45's
+ *   volley-service floor, so at relay 100 link-fed it printed 16p=0.011 against
+ *   the feeder commission's own declared 0.02135 - the ledger reporting the
+ *   plan charging HALF what it charges, on the account's worst unfavourable
+ *   line (infra -1.97 budget vs -12.61 actual).
+ * - tender: `sizing.target x measured body` is ACTUALS-FED, so the budget moved
+ *   with the fleet it exists to judge (43p where the plan charges 48p).
+ *
+ * A #16 infra budget and a #17 one differ by ~0.7 e/t at a live relay - and the
+ * REMAINING infra gap after this is behaviour, which is the point. Same defect
+ * class as #8 (reserver duty) and #7 (hauler spawnParts).
+ */
+export const METHODOLOGY = 17;
 
 export interface LedgerRow {
   id: string;
@@ -364,18 +385,36 @@ export function planSpawnLoad(cap: any): {
   // plan's own formulas, and injecting actual bodies breaks it at every
   // equilibrium (the t72420007 boundary pin). The parked-post body shrink
   // (2026-07-22) shows up on the ACTUAL side of plan-vs-actual instead.
+  // AMORTIZED BY THE ONE HOME (methodology #17): `feederSpawnLoad` and
+  // `tenderSpawnLoad` are the primitives the PLAN charges with - the same two
+  // the auxiliary commissions declare and `infraSpawnLoad` composes. This line
+  // used to recompute them, and both copies had drifted:
+  //
+  //   feeder - `2 * carryPartsFor(relay, d)` predates spec 45's volley-service
+  //   floor, so at relay 100 link-fed it printed 16p=0.011 against the
+  //   commission's own 0.02135 - the ledger showing the plan charging HALF what
+  //   it charges, on the account's worst unfavourable line.
+  //
+  //   tender - `sizing.target x measured body` is ACTUALS-FED: the budget moved
+  //   with the fleet it exists to judge, which is the one thing spec 14's owner
+  //   directive rules out ("not quite yet... poor behavior we don't want to
+  //   encode as the budget").
+  //
+  // Same defect class as #8's reserver duty (an +8.02 F variance that was pure
+  // arithmetic) and #7's hauler re-derivation. Read the corp's linkFed STAMP -
+  // decision symmetry - but price with the plan's formula, never the plan's
+  // realized body: P4's budget-dry identity is built from the plan's own
+  // formulas, and injecting actual bodies breaks it at every equilibrium.
   const feederLinkFed = corps.find(c => (c.id ?? "").includes("controllerFeeder"))?.sizing?.linkFed === true;
-  const feederDist = feederLinkFed ? 1 : 6;
-  const feederParts = 2 * carryPartsFor(relay, feederDist);
+  const feederDist = feederLinkFed ? 1 : FEEDER_NOMINAL_DISTANCE;
+  const feederLoad = feederSpawnLoad(relay, feederLinkFed);
   lines.push([
     `feeder @ relay ${Math.round(relay)}${feederLinkFed ? " (link-fed d1)" : ""}`,
-    feederParts,
-    feederParts / effectiveLife(feederDist)
+    feederLoad * effectiveLife(feederDist),
+    feederLoad
   ]);
 
-  const tenderTarget = corps.find(c => c.kind === "tender")?.sizing?.target ?? 3;
-  const tenderBody = fleetParts(corps, "tender", 24);
-  lines.push(["tenders", tenderTarget * tenderBody, (tenderTarget * tenderBody) / 1500]);
+  lines.push(["tenders", TENDER_FLEET_PARTS, tenderSpawnLoad()]);
 
   // PER-ROOM corps are SUMMED, never sampled (measured t72683137): reservation
   // is one corp PER RESERVED ROOM, and `find()` priced only the first. The live

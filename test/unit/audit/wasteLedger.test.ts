@@ -12,7 +12,8 @@ import {
   planSpawnLoad
 } from "../../../scripts/waste-ledger";
 import { ALL_CORP_KINDS, ALL_SPAWN_ROLES } from "../../../src/execution/CommissionHost";
-import { haulerOverhead, reserverSpawnLoad } from "../../../src/economy/primitives";
+import { feederSpawnLoad, haulerOverhead, reserverSpawnLoad, tenderSpawnLoad } from "../../../src/economy/primitives";
+import { BASE_RESERVE, bankFedControllerRate } from "../../../src/economy/bank";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -57,10 +58,19 @@ describe("waste ledger (spec 15 phase 1)", () => {
     const p4 = rows2.find(r => r.id === "P4")!;
     // 2026-08-04: the recompute prices the feeder at the sip-floor law
     // (STORAGE_UPGRADE_TARGET dropped), ~1.3% of ceiling below the era's own
-    // 15-based plan - the boundary fixture reads 0.987 now. The pin's
-    // subject is unchanged: AT the budget-dry boundary the ledger must not
-    // print a false RED on recompute drift.
-    expect(p4.value).to.be.greaterThan(0.98); // the boundary shape, not a slack plan
+    // 15-based plan - the boundary fixture read 0.987.
+    //
+    // METHODOLOGY #17 moves it again, to 0.936, and the direction is the
+    // demonstration: the tender line used to be `sizing.target x MEASURED
+    // body`, which on this era's fixture was 3 x 24 = 72p where the plan
+    // charges TENDER_FLEET_PARTS = 48p. An actuals-fed budget reads high
+    // exactly when the fleet is fat, and low when it is thin - on the LIVE
+    // capture the same fix moves this line the other way (43p -> 48p). That
+    // is what "the budget moved with the fleet it exists to judge" costs.
+    //
+    // The pin's subject is unchanged: AT the budget-dry boundary the ledger
+    // must not print a false RED on recompute drift.
+    expect(p4.value).to.be.greaterThan(0.93); // the boundary shape, not a slack plan
     expect(p4.verdict).to.not.equal("FAIL"); // hot, worth watching - never a false red
   });
 
@@ -1225,6 +1235,55 @@ describe("F1 plan fidelity (waste ledger)", () => {
     const guard = lines.find(([n]) => String(n).startsWith("defense"))!;
     expect(guard, "the standing fleet is priced").to.not.equal(undefined);
     expect(guard[2]).to.be.closeTo(10 / 1500, 1e-9);
+  });
+
+  it("methodology #17: the depot-mover BUDGETS are the primitives, not a ledger recompute", () => {
+    // THE SECOND-BOOK CLASS, third instance. Methodology #8 caught the reserver
+    // line recomputing continuous duty while the primitive priced 0.5 (an +8.02 F
+    // "favorable" variance that was pure arithmetic); #7 caught P4's hauler line
+    // re-deriving spawnParts. This is the feeder and the tender.
+    //
+    // Measured t72849380: the ledger printed `feeder @ relay 100 (link-fed d1)
+    // 16p=0.011` while the feeder COMMISSION declared 0.02135 - exactly 2x,
+    // because the recompute `2 * carryPartsFor(relay, 1)` predates spec 45's
+    // volley-service floor and `feederSpawnLoad` clamps to it. The ledger was
+    // showing the plan charging half what it charges, on the account's single
+    // worst unfavourable line (infra -1.97 budget vs -12.61 actual).
+    //
+    // The tender line had the OTHER shape of the same defect: `sizing.target x
+    // measured body` is ACTUALS-FED, so its budget moved with the fleet it was
+    // supposed to judge.
+    const corps = [
+      {
+        id: "moving-W1N1-controllerFeeder",
+        kind: "controllerFeeder",
+        creepCount: 1,
+        bodyParts: 100,
+        body: { carry: 50, move: 50 },
+        sizing: { linkFed: true, relayRate: 100 }
+      },
+      { id: "moving-W1N1-tender", kind: "tender", creepCount: 2, bodyParts: 86, sizing: { target: 2 } }
+    ];
+    const cap = mk([], [0], corps);
+    const lines = planSpawnLoad(cap).lines;
+    const relay = bankFedControllerRate(0, BASE_RESERVE);
+
+    const feeder = lines.find(([n]) => String(n).startsWith("feeder"))!;
+    expect(feeder[2], "the feeder budget IS feederSpawnLoad - volley floor and all").to.be.closeTo(
+      feederSpawnLoad(relay, true),
+      1e-12
+    );
+
+    const tender = lines.find(([n]) => String(n).startsWith("tender"))!;
+    expect(tender[2], "the tender budget IS tenderSpawnLoad - one depot detail, not the measured fleet").to.be.closeTo(
+      tenderSpawnLoad(),
+      1e-12
+    );
+    // And it must NOT move when the fielded tender fleet does - that is what
+    // "actuals-fed budget" means, and it is the thing spec 14 forbids.
+    const fatter = mk([], [0], [corps[0], { ...corps[1], creepCount: 4, bodyParts: 300, sizing: { target: 4 } }]);
+    const tender2 = planSpawnLoad(fatter).lines.find(([n]) => String(n).startsWith("tender"))!;
+    expect(tender2[2], "a fatter fielded fleet does not raise its own budget").to.be.closeTo(tender[2], 1e-12);
   });
 
   it("methodology #16: the defense BUDGET is the PLAN's armed-room price, not the standing bodies", () => {
@@ -2601,10 +2660,10 @@ describe("methodology #10: the recovery P&L (cure vs illness, published)", () =>
     expect(detail).to.include("5.0");
   });
 
-  it("the header stamps methodology #16 (defense budget reads the PLAN's guard price)", () => {
+  it("the header stamps methodology #17 (depot-mover budgets read the primitives)", () => {
     const { cap, base } = rig(zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    expect(text).to.include("[methodology #16]");
+    expect(text).to.include("[methodology #17]");
   });
 });
 
@@ -2803,7 +2862,12 @@ describe("the budget column balances by construction (methodology #11, t72773737
   it("the bank budget is the plan residual, not the solver's routed net draw (-55.16 at t72773737)", () => {
     const bank = budgetOf("to/(from) bank");
     expect(bank, "the routed -55.16 fiction is gone").to.be.greaterThan(0);
-    expect(bank).to.be.closeTo(21.1, 1.0); // 100 - 30.50 fleet - 3.59 link - 5.17 losses - 39.64 ctrl
+    // 100 - fleet - 3.59 link - 5.17 losses - 39.64 ctrl. METHODOLOGY #17 raised
+    // the depot-mover budgets to the primitives' price (+1.28 e/t on this
+    // fixture), and because the column balances BY CONSTRUCTION the residual
+    // that falls to the bank drops by exactly that: 21.1 -> 19.82. The identity
+    // test above is what guarantees this pin only ever moves for that reason.
+    expect(bank).to.be.closeTo(19.82, 1.0);
   });
 
   it("the solver's routed net bank flow stays visible in the over-routing note", () => {
