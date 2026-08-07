@@ -10974,3 +10974,102 @@ The budget tightens by ~0.028 p/t and marginal sources may fall out. That is the
 correct consequence of charging for fleet the corps actually field, not a
 regression - and it is the first time the sweep's handicap has governed the
 whole plan rather than 84% of it.
+
+---
+
+## Audit cycle t72849380 — the infra gap was PART arithmetic, and the tax was aimed at the wrong quantity
+
+**Top line: L1 (loss-budget adherence), 53× budget — pile decay 13.27 e/t
+against a 0.00 budget.** The ledger's own rows name the mechanism, and they
+agree with each other:
+
+- **E6**: 6 of 11 miner ops deferred by the pile gate, CHRONIC (78–100% of the
+  window), buffers 2,737–3,553 — *"the leak is HAULING (drain term / route
+  sizing / churn), not the miner"*.
+- **H1**: duty 0.81, `idleSource 0.00`, 6,955e on the ground — *"haulers BUSY =>
+  plan under-asks"*. They are not idling; there is not enough CARRY.
+- **F1 class mix**: source-route haulers fielded 0.089 p/t against a planned
+  0.300, while feeder ran 0.246 and tenders 0.167 against 0.021/0.032.
+
+So the colony's spawn time went to depot movers and the haul fleet was crowded
+out; energy piled at six source mouths and decayed. Not fixed this cycle —
+named, with its chain measured end to end.
+
+**A caution on reading F1's actual side.** Those breach numbers are purchases
+over a 203-tick ring, so a single 100-part feeder buy reads ~0.49 p/t
+instantaneous. The DURABLE comparison is standing parts vs declared: feeder 100
+fielded vs 32 priced (3.1×), tender 86 vs 48 (1.8×). Both are real; neither is
+22×.
+
+### Fixed: methodology #17 — P4's depot-mover budgets were a second book
+
+Reading the account's worst unfavourable line (infra, budget −1.97 vs −12.61
+actual) found part of it was arithmetic. P4 RECOMPUTED the feeder and tender
+budgets instead of calling the primitives the plan charges with, and both copies
+had drifted in opposite directions:
+
+- **feeder** — `2 * carryPartsFor(relay, d)` predates spec 45's volley-service
+  floor, so at relay 100 link-fed it printed `16p=0.011` while the feeder
+  COMMISSION declared `0.02135`. The ledger was reporting the plan charging half
+  what it charges.
+- **tender** — `sizing.target × MEASURED body` is ACTUALS-FED: the budget moved
+  with the fleet it exists to judge.
+
+Third instance of the class after #8 (reserver duty, an +8.02 F variance that
+was pure arithmetic) and #7 (hauler spawnParts). After the fix the P4 lines
+match the commissions' declared `consumes` to the digit, infra budget reads
+−2.67, F1 unbudgeted drops 5% → 2% — **and the remaining infra gap is behaviour,
+which is the point.**
+
+The era pins that moved are the demonstration: the budget-dry boundary fixture
+went 0.987 → 0.936 because THAT era's fielded tender was fat, while the same fix
+moves the live capture the other way (43p → 48p). An actuals-fed budget reads
+high exactly when the fleet is fat. That is what it costs.
+
+### Fixed: the invader tax, derived instead of calibrated
+
+Owner: *"We can estimate the invader tax rate from first principles. 10 or 20
+energy mined per tick. Every 10,000 to 5,000 ticks for 100,000 trigger right?"*
+Right, and it collapses the calibration question:
+
+```
+ticks per raid cycle   = INVADER_RAID_MEAN_ENERGY / roomMinedRate
+ticks ARMED per cycle  = (MEAN - RAID_ARM_FLOOR) / roomMinedRate
+guard cost while armed = roomGuardSpawnLoad() x 65 e/part
+tax per energy mined   = guardCost x armedTicks / MEAN
+```
+
+`EXPECTED_RAID_DEFENSE_COST = 750` is "one guard body (650) + 15% margin" — a
+PER-RAID PURCHASE, which was the right model while nothing else priced guards.
+Since spec 51 phase 2 the guard is a STANDING fleet, so what a room owes is the
+TIME it holds one — inversely proportional to how fast it mines. **A single
+coefficient cannot express that**, so the tax is now a function of the ROOM's
+rate (the meter accrues per room).
+
+This retires R1's calibration gate for this quantity. Seven windows never
+converged because the numerator was wrong, and R1's own evidence gate says so:
+killed-WHERE reads 99–100% HOME ROOM, ~0% intel-hostile. Expected raid LOSS is a
+separate question and keeps its own constant.
+
+### A hypothesis of mine, FALSIFIED by reading the code
+
+I told the owner the guard body was now "charged twice in the same currency" —
+once as `infraSpawnEnergy` and once at admission. Wrong. `CorpPlanner`'s tax
+enters `net`, which GATES and RANKS candidates; no energy leaves the plan
+through it. `infraSpawnEnergy` sizes the spawn sink's actual demand. They are
+different books and both are correct. Recorded because the correction came from
+reading the call site, not from re-theorizing — the reflex the method is for.
+
+### Gate
+
+unit 2293; tsc clean both projects; flow-handoff, runt-economy, storage-depot
+PASS. `plan-t5-remote-pipeline` red on the refill SLA — ATTRIBUTED, identical
+assertion at the parent commit in a clean worktree (@395 vs @468; the cell is
+not tick-deterministic), and all four of its remote-ADMISSION assertions pass
+unchanged at both commits. Acquitted.
+
+Fiscal: FY4856-M06 closed (t72847500→t72849000, 100% coverage, handicap 16%).
+Sweep now at 17%.
+
+**Verdict: FIXED (two accounting seams closed) + NAMED (the pile-decay chain,
+with its mechanism measured end to end).**
