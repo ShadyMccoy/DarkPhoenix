@@ -17,6 +17,7 @@
 import "../types/Memory";
 import {
   AcquisitionPlan,
+  agendaWhy,
   ScheduleContext,
   ScheduleResult,
   SpawnDemand,
@@ -36,6 +37,7 @@ import { DemandWorld, getCorpKind, listCorpKinds } from "../economy/CorpKind";
 import { Position } from "../types/Position";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { pathDistance } from "../nodes/NodeNavigator";
+import { declaredStandingParts } from "../economy/replacementSchedule";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -227,12 +229,44 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
       // `cost` is the energy DEBITED for the body (methodology #8) - the
       // granted budget rounds high, and booking it put +3.99 e/t of phantom
       // spend on the evacuation line (49% of the t72734018 variance).
+      // THE PURCHASE RECEIPT (spec 39 phase 3, owner 2026-08-07: "what
+      // instrumenting do we need to get to the bottom of body to plan
+      // mismatches"). Everything measured before this was a SNAPSHOT AT REST -
+      // F2, the corp statement, the parts BOM all say "the fleet is wrong" and
+      // none can say how it got that way, because the mismatch is created at
+      // ONE instant, here, and nothing recorded it. Every open body question
+      // this session ended in the same place: three plausible mechanisms and no
+      // way to separate them.
+      //
+      // The fields below are the decision's own inputs, already in scope:
+      //   declared   what the PLAN priced this corp (spec 39 phase 3 lens)
+      //   want/min   what the corp asked for / would settle for
+      //   grant      what the scheduler funded, before the body rounded
+      //   cost/parts what was actually built (the pre-existing F1 actual side)
+      //   fill/cap   the room AT THIS TICK - the runt-at-purchase signal
+      //   pri/rank   where it ranked, and against how many rivals
+      //   why        the transition label (replacement / upsize / new-unit / infra)
+      //
+      // `grant / declared` is F1's question asked at the moment it is decided
+      // instead of a thousand ticks later, and `grant / want` against `fill`
+      // separates "lost the slot" from "won it small".
+      const rank = best.plan.agenda.findIndex(e => e.corp === chosen.buyerCorpId && e.role === chosen.role);
       blackBox("spawn", {
         spawn: winner.id,
         role: chosen.role,
         corp: chosen.buyerCorpId,
         cost: spawned.cost,
-        parts: spawned.parts
+        parts: spawned.parts,
+        declared: Math.round(declaredStandingParts(consumesOf(chosen.buyerCorpId)) * 100) / 100,
+        want: chosen.desiredCost,
+        min: chosen.minCost,
+        grant: result.energyBudget,
+        fill: st.energyLeft + spawned.cost, // the room BEFORE this purchase debited it
+        cap: ctxOf(winner).energyCapacity,
+        pri: Math.round(best.pri),
+        rank: rank >= 0 ? rank : undefined,
+        rivals: best.plan.agenda.length,
+        why: agendaWhy(chosen)
       });
       resetDemandClock(firstSeen, chosen.buyerCorpId, chosen.role);
     }
@@ -425,7 +459,7 @@ export function collectDemandsMatching(
 ): SpawnDemand[] {
   const demands: SpawnDemand[] = [];
   const world = buildDemandWorld();
-  const byKind = new Map<string, { corpId: string; corp: Corp }[]>();
+  const byKind = new Map<string, { corpId: string; corp: Corp; consumes?: { spawnPartsPerTick?: number } }[]>();
   for (const entry of allCommissionedCorps()) {
     const list = byKind.get(entry.kind) ?? [];
     list.push(entry);
@@ -433,16 +467,24 @@ export function collectDemandsMatching(
   }
 
   for (const kind of listCorpKinds()) {
-    for (const { corpId, corp } of byKind.get(kind.kind) ?? []) {
+    for (const { corpId, corp, consumes } of byKind.get(kind.kind) ?? []) {
       if (!isDemandingCorp(corp)) continue;
       if (!spawnMatches(corp.getSpawnId()) || corp.retiring) continue;
       const group = kind.demandGroup ? (kind.demandGroup as (c: Corp, id: string, w: DemandWorld) => { groupId: string; started: boolean } | null)(corp, corpId, world) : null;
-      for (const d of corp.getSpawnDemand(ctx)) {
+      // SPEC 39 PHASE 3: hand each corp the body its own commission priced, so a
+      // supply post can tell "alive" from "staffed". Per-corp, so the shared ctx
+      // is never mutated across the loop.
+      const declaredParts = declaredStandingParts(consumes?.spawnPartsPerTick);
+      const corpCtx: SpawnDemandContext = declaredParts > 0 ? { ...ctx, declaredParts } : ctx;
+      for (const d of corp.getSpawnDemand(corpCtx)) {
         if (group) {
           d.groupId = group.groupId;
           d.groupStarted = group.started;
         }
         d.kind = kind.kind;
+        // The regime, stamped ONCE for every demand (spec 39 phase 3) - the
+        // corps never set it, so it cannot drift per kind.
+        d.storageBacked = ctx.storageBacked === true;
         demands.push(d);
       }
     }
@@ -497,6 +539,25 @@ function estimateIncome(registry: CorpRegistry, room: Room): number {
  * for the flow adapter to route toward the spawn network (spec 11 phase 2).
  * Execution receipts accumulate beside the queue (recordAgendaExecution).
  */
+/**
+ * The commission's declared spawn price for a corp id, or undefined when it has
+ * none (auxiliary kinds still off-budget, and every harness path). Reads the
+ * SAME census entry the demand loop injects `declaredParts` from, so the receipt
+ * and the decision cannot disagree about what a corp was priced for.
+ */
+function consumesOf(runtimeCorpId: string): number | undefined {
+  for (const e of allCommissionedCorps()) {
+    // MATCH THE RUNTIME ID, not the commission id (the corp-id-prefix trap,
+    // CLAUDE.md): planner ids are pure - `harvest-{flowSourceId}` - while the
+    // receipt carries `chosen.buyerCorpId`, the corp's OWN id
+    // (`mining-W43N21-harvest-cd99`). Matching `e.corpId` printed declared=0 on
+    // all 47 receipts of the first live window; `corpById` two hundred lines up
+    // already joins on `corp.id` for exactly this reason.
+    if (e.corp.id === runtimeCorpId) return e.consumes?.spawnPartsPerTick;
+  }
+  return undefined;
+}
+
 function publishSpawnAgenda(spawnId: string, plan: AcquisitionPlan, _energyAvailable: number): void {
   if (typeof Memory === "undefined") return;
   const table = (Memory.spawnAgenda ??= {});

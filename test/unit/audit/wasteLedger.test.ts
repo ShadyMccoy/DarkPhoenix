@@ -12,7 +12,8 @@ import {
   planSpawnLoad
 } from "../../../scripts/waste-ledger";
 import { ALL_CORP_KINDS, ALL_SPAWN_ROLES } from "../../../src/execution/CommissionHost";
-import { haulerOverhead, reserverSpawnLoad } from "../../../src/economy/primitives";
+import { feederSpawnLoad, haulerOverhead, reserverSpawnLoad, tenderSpawnLoad } from "../../../src/economy/primitives";
+import { BASE_RESERVE, bankFedControllerRate } from "../../../src/economy/bank";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -57,10 +58,19 @@ describe("waste ledger (spec 15 phase 1)", () => {
     const p4 = rows2.find(r => r.id === "P4")!;
     // 2026-08-04: the recompute prices the feeder at the sip-floor law
     // (STORAGE_UPGRADE_TARGET dropped), ~1.3% of ceiling below the era's own
-    // 15-based plan - the boundary fixture reads 0.987 now. The pin's
-    // subject is unchanged: AT the budget-dry boundary the ledger must not
-    // print a false RED on recompute drift.
-    expect(p4.value).to.be.greaterThan(0.98); // the boundary shape, not a slack plan
+    // 15-based plan - the boundary fixture read 0.987.
+    //
+    // METHODOLOGY #17 moves it again, to 0.936, and the direction is the
+    // demonstration: the tender line used to be `sizing.target x MEASURED
+    // body`, which on this era's fixture was 3 x 24 = 72p where the plan
+    // charges TENDER_FLEET_PARTS = 48p. An actuals-fed budget reads high
+    // exactly when the fleet is fat, and low when it is thin - on the LIVE
+    // capture the same fix moves this line the other way (43p -> 48p). That
+    // is what "the budget moved with the fleet it exists to judge" costs.
+    //
+    // The pin's subject is unchanged: AT the budget-dry boundary the ledger
+    // must not print a false RED on recompute drift.
+    expect(p4.value).to.be.greaterThan(0.93); // the boundary shape, not a slack plan
     expect(p4.verdict).to.not.equal("FAIL"); // hot, worth watching - never a false red
   });
 
@@ -274,6 +284,66 @@ describe("waste ledger (spec 15 phase 1)", () => {
     const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
     expect(p8.verdict).to.equal("FAIL");
     expect(p8.detail).to.contain("CREW IDLE");
+  });
+
+  /**
+   * P8 MEASURES BUILD PROGRESS DIRECTLY (methodology #15, audit t72842655).
+   *
+   * P8's value was the sum of three acknowledged FLOORS - the home rooms'
+   * `siteProgress` delta, the road-receipts ratchet, and the poolWork
+   * remaining-decrease - each documented in place as undercounting. None is a
+   * measurement, and none can see a REMOTE site that completed and left the
+   * ledger, because every one of them reads state that vanishes with the site.
+   *
+   * Measured t72842655: `building-W43N21-construction` took its `produced`
+   * counter 6,270 -> 12,310 in 1,314 ticks - 6,040 units, 4.60 e/t - clearing
+   * 17 of 18 road sites. P8 reported the window at a small fraction of that and
+   * the ENERGY ACCOUNT, which reads P8 verbatim, booked construction ACTUAL at
+   * 0.42 e/t against a 30.00 budget. The -29.58 variance was the meter, not the
+   * colony; and the previous cycle's entry repeated "0 e/t built" as fact.
+   *
+   * The direct measurement was already published: a ConstructionCorp's
+   * `unitsProduced` IS build progress (segment 4 v14), so P8 now sums the
+   * construction corps' `produced` deltas and keeps the floors only as a
+   * fallback for captures that predate the counter.
+   *
+   * Per-corp deltas clamp at zero. A corp destroyed and rebuilt restarts its
+   * counter (measured -885 on `building-W43N24-construction` when the invader
+   * core took the room), and a negative delta is lost history, not negative
+   * building - so it undercounts, in the same direction as the floors it
+   * replaces.
+   */
+  it("P8 reads the construction corps' produced counters, not the vanishing site fields", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    // Sites standing at both ends and construction funded - the shape that used
+    // to read "CREW IDLE" - but the corp counter says 6,040 units were built.
+    Object.assign(capB.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 90 });
+    capB.data.corps.corps.push({ id: "building-W1N1-construction", kind: "construction", produced: 6270 });
+    capA.data.corps.corps.push({ id: "building-W1N1-construction", kind: "construction", produced: 12310 });
+    const dt = capA.tick - capB.tick;
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.value, "the corp counter is the measurement").to.be.closeTo(6040 / dt, 0.01);
+    expect(p8.verdict, "a crew that built 6,040 units is not idle").to.not.equal("FAIL");
+    expect(p8.detail).to.not.contain("CREW IDLE");
+  });
+
+  it("P8 clamps a rebuilt corp's counter reset to zero rather than booking negative building", () => {
+    // building-W43N24-construction went -885 when the invader core took the
+    // room and the corp was rebuilt. Lost history, not negative progress.
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    capB.data.corps.corps.push({ id: "building-A-construction", kind: "construction", produced: 885 });
+    capA.data.corps.corps.push({ id: "building-A-construction", kind: "construction", produced: 0 });
+    capB.data.corps.corps.push({ id: "building-B-construction", kind: "construction", produced: 1000 });
+    capA.data.corps.corps.push({ id: "building-B-construction", kind: "construction", produced: 3000 });
+    const dt = capA.tick - capB.tick;
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.value, "the reset contributes 0, not -885").to.be.closeTo(2000 / dt, 0.01);
   });
 
   it("P8 renders the siteLedger by room with window delta and ETA (core v34, owner 2026-08-05: stay informed of construction progress)", () => {
@@ -1165,6 +1235,81 @@ describe("F1 plan fidelity (waste ledger)", () => {
     const guard = lines.find(([n]) => String(n).startsWith("defense"))!;
     expect(guard, "the standing fleet is priced").to.not.equal(undefined);
     expect(guard[2]).to.be.closeTo(10 / 1500, 1e-9);
+  });
+
+  it("methodology #17: the depot-mover BUDGETS are the primitives, not a ledger recompute", () => {
+    // THE SECOND-BOOK CLASS, third instance. Methodology #8 caught the reserver
+    // line recomputing continuous duty while the primitive priced 0.5 (an +8.02 F
+    // "favorable" variance that was pure arithmetic); #7 caught P4's hauler line
+    // re-deriving spawnParts. This is the feeder and the tender.
+    //
+    // Measured t72849380: the ledger printed `feeder @ relay 100 (link-fed d1)
+    // 16p=0.011` while the feeder COMMISSION declared 0.02135 - exactly 2x,
+    // because the recompute `2 * carryPartsFor(relay, 1)` predates spec 45's
+    // volley-service floor and `feederSpawnLoad` clamps to it. The ledger was
+    // showing the plan charging half what it charges, on the account's single
+    // worst unfavourable line (infra -1.97 budget vs -12.61 actual).
+    //
+    // The tender line had the OTHER shape of the same defect: `sizing.target x
+    // measured body` is ACTUALS-FED, so its budget moved with the fleet it was
+    // supposed to judge.
+    const corps = [
+      {
+        id: "moving-W1N1-controllerFeeder",
+        kind: "controllerFeeder",
+        creepCount: 1,
+        bodyParts: 100,
+        body: { carry: 50, move: 50 },
+        sizing: { linkFed: true, relayRate: 100 }
+      },
+      { id: "moving-W1N1-tender", kind: "tender", creepCount: 2, bodyParts: 86, sizing: { target: 2 } }
+    ];
+    const cap = mk([], [0], corps);
+    const lines = planSpawnLoad(cap).lines;
+    const relay = bankFedControllerRate(0, BASE_RESERVE);
+
+    const feeder = lines.find(([n]) => String(n).startsWith("feeder"))!;
+    expect(feeder[2], "the feeder budget IS feederSpawnLoad - volley floor and all").to.be.closeTo(
+      feederSpawnLoad(relay, true),
+      1e-12
+    );
+
+    const tender = lines.find(([n]) => String(n).startsWith("tender"))!;
+    expect(tender[2], "the tender budget IS tenderSpawnLoad - one depot detail, not the measured fleet").to.be.closeTo(
+      tenderSpawnLoad(),
+      1e-12
+    );
+    // And it must NOT move when the fielded tender fleet does - that is what
+    // "actuals-fed budget" means, and it is the thing spec 14 forbids.
+    const fatter = mk([], [0], [corps[0], { ...corps[1], creepCount: 4, bodyParts: 300, sizing: { target: 4 } }]);
+    const tender2 = planSpawnLoad(fatter).lines.find(([n]) => String(n).startsWith("tender"))!;
+    expect(tender2[2], "a fatter fielded fleet does not raise its own budget").to.be.closeTo(tender[2], 1e-12);
+  });
+
+  it("methodology #16: the defense BUDGET is the PLAN's armed-room price, not the standing bodies", () => {
+    // #14 priced this line from the guards standing at capture time, which made
+    // the variance circular - measured bodies on both sides can never disagree.
+    // Since spec 51 phase 2 the plan itself charges one guard per ARMED room, so
+    // the budget reads that count and a gap becomes a real F1 signal.
+    const corps = [
+      { id: "raidGuard-A-raidGuard", kind: "raidGuard", creepCount: 1, bodyParts: 10, body: { attack: 5, move: 5 } }
+    ];
+    const cap = mk([], [0], corps);
+    // The solve was armed for THREE rooms; only one guard is standing right now.
+    cap.data.flow.fleetCharge = { infraInputs: { guardedRooms: 3 } };
+    const guard = planSpawnLoad(cap).lines.find(([n]) => String(n).startsWith("defense"))!;
+    expect(guard[2], "three armed rooms, not one standing body").to.be.closeTo(3 * (10 / 1500), 1e-12);
+    expect(guard[1], "and the parts column follows the same count").to.equal(30);
+
+    // A quiet solve prices nothing even with a guard still walking home.
+    const quiet = mk([], [0], corps);
+    quiet.data.flow.fleetCharge = { infraInputs: { guardedRooms: 0 } };
+    expect(planSpawnLoad(quiet).lines.find(([n]) => String(n).startsWith("defense"))).to.equal(undefined);
+
+    // Pre-spec-51 capture (no count published): the #14 measured reconstruction
+    // still runs, so old captures keep producing a defense line.
+    const legacy = planSpawnLoad(mk([], [0], corps)).lines.find(([n]) => String(n).startsWith("defense"))!;
+    expect(legacy[2]).to.be.closeTo(10 / 1500, 1e-12);
   });
 
   it("still surfaces a kind with NO plan line as UNPRICED (the detector outlives the hole)", () => {
@@ -2515,10 +2660,10 @@ describe("methodology #10: the recovery P&L (cure vs illness, published)", () =>
     expect(detail).to.include("5.0");
   });
 
-  it("the header stamps methodology #14 (TARGETS denominator = capacity; #12 capacity rule unchanged)", () => {
+  it("the header stamps methodology #17 (depot-mover budgets read the primitives)", () => {
     const { cap, base } = rig(zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    expect(text).to.include("[methodology #14]");
+    expect(text).to.include("[methodology #17]");
   });
 });
 
@@ -2640,7 +2785,7 @@ describe("methodology #14: the controller target is scored against CAPACITY", ()
     };
     expect(terms.get("controller")!.v).to.be.closeTo(actualOf("controller (score)"), 0.01);
     expect(terms.get("bank")!.v).to.be.closeTo(actualOf("to/(from) bank"), 0.01);
-    expect(terms.get("build")!.v).to.be.closeTo(actualOf("construction (site progress)"), 0.01);
+    expect(terms.get("build")!.v).to.be.closeTo(actualOf("construction (built, measured)"), 0.01);
   });
 
   it("each term's PERCENT is that term over capacity - the shares cannot drift from the values", () => {
@@ -2709,15 +2854,26 @@ describe("the budget column balances by construction (methodology #11, t72773737
       budgetOf("= total overhead") +
       budgetOf("= measured losses") -
       budgetOf("controller (score)") -
-      budgetOf("construction (site progress)") -
+      budgetOf("construction (built, measured)") -
       budgetOf("to/(from) bank");
-    expect(Math.abs(identity), `budget column sums to zero (got ${identity.toFixed(2)})`).to.be.lessThan(0.01);
+    // Tolerance is PRINT ROUNDING, not slack in the identity. This sums ten
+    // figures parsed back out of the formatted account at 2dp, so the worst
+    // case is 10 x 0.005 = 0.05. The old 0.01 was passing by luck: the
+    // 2026-08-07 feeder resize moved the bank residual and the printed terms
+    // landed at exactly 0.010000000000001 - a rounding artifact reading as a
+    // broken identity. The identity itself is exact by construction.
+    expect(Math.abs(identity), `budget column sums to zero (got ${identity.toFixed(2)})`).to.be.lessThan(0.05);
   });
 
   it("the bank budget is the plan residual, not the solver's routed net draw (-55.16 at t72773737)", () => {
     const bank = budgetOf("to/(from) bank");
     expect(bank, "the routed -55.16 fiction is gone").to.be.greaterThan(0);
-    expect(bank).to.be.closeTo(21.1, 1.0); // 100 - 30.50 fleet - 3.59 link - 5.17 losses - 39.64 ctrl
+    // 100 - fleet - 3.59 link - 5.17 losses - 39.64 ctrl. METHODOLOGY #17 raised
+    // the depot-mover budgets to the primitives' price (+1.28 e/t on this
+    // fixture), and because the column balances BY CONSTRUCTION the residual
+    // that falls to the bank drops by exactly that: 21.1 -> 19.82. The identity
+    // test above is what guarantees this pin only ever moves for that reason.
+    expect(bank).to.be.closeTo(19.82, 1.0);
   });
 
   it("the solver's routed net bank flow stays visible in the over-routing note", () => {

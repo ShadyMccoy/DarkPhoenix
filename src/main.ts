@@ -78,6 +78,8 @@ import { stashCompletedLedger } from "./telemetry/cpuLedgerCache";
 import { errRowCount, flush as blackBoxFlush, lastSpawnTick, record as blackBoxRecord } from "./telemetry/BlackBox";
 import { GovernorPlan, runGovernor } from "./execution/CpuGovernor";
 import { isPlanBudgetBoundary } from "./economy/primitives";
+import { isMonthBoundary } from "./economy/spawnSweep";
+import { onTick as fiscalArchiveTick } from "./telemetry/fiscalArchive";
 import { runWatchdogs } from "./telemetry/watchdogs";
 
 // =============================================================================
@@ -194,6 +196,29 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // ===========================================================================
   // PHASE 0: INIT - Lazy initialization (once per code push)
   // ===========================================================================
+
+  // FISCAL MONTH HOOK - FIRST, ahead of every initializer. Two jobs (spec 50):
+  // refresh the handicap sweep's pure-side mirror, and at a month boundary
+  // advance the sweep and mark the archive snapshot owed.
+  //
+  // It must precede ANY SOLVE, not merely "PHASE 2: PLANNING" - which is where
+  // it sat, and why it was wrong. `getOrCreateFlowEconomy` below runs a full
+  // solve inside PHASE 0 on the reset tick ("don't wait for the planning
+  // cycle"), so on a global reset the mirror was still empty when the colony's
+  // first plan of the VM was priced: measured live t72828763, the plan margin
+  // read the fail-safe 0.90 while Memory.spawnSweep said pct 3 (0.97).
+  //
+  // Under the 50-tick solve cadence that was one mislabelled plan. Under the
+  // FISCAL MONTH term (spec 46 phase A) the same plan stands until the next
+  // boundary, so one deploy mis-priced up to a whole month of the sweep - the
+  // experiment's own unit of measurement. Hence: earliest possible, not merely
+  // early.
+  //
+  // Still outside the TELEMETRY gate, so governor degradation delays a snapshot
+  // by a tick rather than losing the month. On a boundary tick the advance
+  // still lands before planning, so the month's first re-solve is priced at the
+  // handicap that labels it.
+  bulkhead("fiscal-month", () => runFiscalMonth());
 
   // Initialize corps from Memory if cache is empty (after code push)
   // This is a no-op if corps are already in the global cache
@@ -601,6 +626,36 @@ function updateTelemetry(activeColony: Colony, activeCorps: CorpRegistry): void 
  * dashboard only displays), and the segment flush. Runs EVERY tick, even
  * under full governor degradation - it is how the shedding is observed.
  */
+/**
+ * The fiscal-month tick hook (spec 50). On a month boundary it advances the
+ * handicap sweep and marks that an archive snapshot is owed; every other tick it
+ * is a single modulo.
+ *
+ * The controller reading it passes is the sweep's ACCELERATION input: the sweep
+ * races RCL 8 only when the home room is level 7, and it projects the arrival
+ * from the colony's own measured progress rate between month boundaries. The
+ * HIGHEST owned controller is the home room by construction here (the colony
+ * runs one owned room; a second would be a fresh claim well below it).
+ */
+function runFiscalMonth(): void {
+  // The controller scan is boundary-only; the hook itself runs every tick
+  // because it also refreshes the sweep's pure-side mirror (heap state, empty
+  // after a global reset) BEFORE the planner reads the margin.
+  let home: StructureController | undefined;
+  if (isMonthBoundary(Game.time)) {
+    for (const roomName in Game.rooms) {
+      const c = Game.rooms[roomName].controller;
+      if (!c?.my) continue;
+      if (!home || c.level > home.level) home = c;
+    }
+  }
+  fiscalArchiveTick(Game.time, {
+    rcl: home?.level,
+    rclProgress: home?.progress,
+    rclProgressTotal: home?.progressTotal
+  });
+}
+
 function runFlightRecorder(): void {
   let alerts: ReturnType<typeof runWatchdogs> = [];
   if (Game.time % 10 === 0) {

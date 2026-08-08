@@ -30,8 +30,50 @@ import { CARRY_CAPACITY, LINK_CAPACITY, volleyServiceCarry } from "../../../src/
  * it can only serve them one after the other. The stamp already records
  * `inboundSenders: 2` at the decision site, so the input was there all along.
  */
+/**
+ * RESIZED 2026-08-07 (owner): *"the core link has a feeder tender creep slave.
+ * It empties it to ensure incoming links can transfer... I recon it needs 8
+ * carry to do its job well in our room. At lower RCL maybe 4 is good."*
+ *
+ * Our room runs 2 inbound senders, so 4/sender is the owner's 8 and a
+ * single-sender room is the owner's 4 - one coefficient, both numbers.
+ *
+ * This does NOT overturn the t72819265 A/B, it corrects how that A/B was
+ * encoded. The A/B varied CARRY and CREEP COUNT together (1 feeder @ 16 vs 2
+ * feeders @ 32) and named CONCURRENCY as the mechanism - "one creep cannot
+ * cover two senders arriving at once" - with the single feeder measurably
+ * moving MORE per tick while clamping three times as often. One-creep-per-
+ * sender is kept; only the per-creep body shrinks.
+ */
+describe("volleyServiceCarry (the core shuttle, one creep per sender)", () => {
+  const { CORE_SERVICE_CARRY_PER_SENDER, LINK_PAYLOAD_CARRY, depositRouteCarryCap } =
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require("../../../src/economy/primitives");
+
+  it("is the owner's numbers: 8 CARRY at our 2 senders, 4 at one", () => {
+    expect(volleyServiceCarry(2), "our room").to.equal(8);
+    expect(volleyServiceCarry(1), "lower RCL, one source link").to.equal(4);
+    expect(CORE_SERVICE_CARRY_PER_SENDER).to.equal(4);
+  });
+
+  it("no longer scales with the LINK PAYLOAD - the two meanings are split", () => {
+    // These used to be one function. "How much fits in a link" (16) and "how
+    // big must the core's shuttle be" (4/sender) are not the same quantity.
+    expect(LINK_PAYLOAD_CARRY).to.equal(16);
+    expect(volleyServiceCarry(1)).to.not.equal(LINK_PAYLOAD_CARRY);
+  });
+
+  it("leaves the DEPOSIT-route cap on the landing quantum, untouched", () => {
+    // A creep unloading into a link port still places exactly one link's worth
+    // per arrival. Shrinking the shuttle must not shrink this.
+    expect(depositRouteCarryCap(37, true)).to.equal(16);
+    expect(depositRouteCarryCap(99, true)).to.equal(16);
+    expect(depositRouteCarryCap(9, true), "under the cap is unchanged").to.equal(9);
+  });
+});
+
 describe("volleyServiceCarry (drain latency scales with inbound senders)", () => {
-  const ONE_VOLLEY = LINK_CAPACITY / CARRY_CAPACITY;
+  const ONE_VOLLEY = 4; // CORE_SERVICE_CARRY_PER_SENDER - see the resize note above
 
   it("one sender still floors at exactly one volley - the old contract, unchanged", () => {
     expect(volleyServiceCarry(1)).to.equal(ONE_VOLLEY);

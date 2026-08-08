@@ -19,6 +19,7 @@
 
 import "../types/Memory"; // RoomMemory.roadRoutes augmentation (paved receipts)
 import { hostileRooms, isSourceKeeperRoom, roomLinearDistance } from "../utils/RoomDiscovery";
+import { guardTargetsFor } from "../utils/raidMeter";
 import {
   FlowSink,
   FlowSolution,
@@ -41,13 +42,14 @@ import {
   sourceLink,
   sourceBufferStock,
   controllerInputSpot,
-  controllerParkingTiles
+  controllerParkingTiles,
+  observedMouthStock
 } from "../corps/nodeEnergy";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import {
   BUILD_ENERGY_PER_WORK,
   HARVEST_ENERGY_PER_WORK,
-  INVADER_TAX_PER_ENERGY,
+  raidGuardTaxPerEnergy,
   UPGRADE_ENERGY_PER_WORK,
   infraSpawnEnergy,
   infraSpawnLoad,
@@ -874,6 +876,33 @@ export function convergeFleetCharge<T>(
   return { charge, solved, passes };
 }
 
+/**
+ * How many corrective re-solves the reserver set gets (see solveColony). Two,
+ * because the first is the ordinary case - the set moved by a room and the
+ * re-price settles it - and the second only exists to catch a room that its own
+ * freed charge funds back. A third would be chasing an oscillation, which is a
+ * residual to REPORT (infraInputs.remoteRoomsFunded), not to spend the tick's
+ * heaviest work on.
+ */
+const REMOTE_SET_MAX_PASSES = 2;
+
+/**
+ * The remote rooms a solved plan actually funds a miner in - the reserver set
+ * the reservation corps will be proposed for, and the set the NEXT solve prices
+ * its infra from (persisted as Memory.fundedRemoteRooms). Sorted, so two solves'
+ * sets compare and serialise identically.
+ */
+function fundedRemoteRoomsOf(problem: ColonyProblem, plan: { miners: { sourceId: string }[] }): string[] {
+  const spawnRoomSet = new Set(problem.spawns.map(s => s.pos.roomName));
+  const srcById = new Map(problem.sources.map(s => [s.id, s]));
+  const rooms = new Set<string>();
+  for (const m of plan.miners) {
+    const rn = srcById.get(m.sourceId)?.pos.roomName;
+    if (rn && !spawnRoomSet.has(rn)) rooms.add(rn);
+  }
+  return [...rooms].sort();
+}
+
 export function buildColonyProblem(
   graph: FlowGraph,
   dist: ColonyProblem["dist"] = pathDistance,
@@ -881,7 +910,15 @@ export function buildColonyProblem(
   linkHaulPos: Map<string, Position> = detectLinkHaulPositions(graph),
   pavedSources: Map<string, number> = detectPavedSources(),
   bankSources: PlannerSource[] = detectBankSources(),
-  remoteInvaderTax: number = INVADER_TAX_PER_ENERGY,
+  /**
+   * The remote admission tax, as a FUNCTION of the room's total mined rate
+   * (2026-08-07). It was a flat coefficient while the guard was priced as a
+   * per-raid purchase; since spec 51 phase 2 the guard is a STANDING fleet, so
+   * what a room owes is the TIME it holds one - inversely proportional to how
+   * fast it mines. Per ROOM, not per source, because the raid meter accrues per
+   * room. Pass `() => 0` to disable.
+   */
+  remoteInvaderTax: (roomMinedRate: number) => number = raidGuardTaxPerEnergy,
   valuation: SinkValuation = DEFAULT_VALUATION,
   prevBankDraw?: number,
   depositPorts: DepositPort[] = detectLinkDepositPorts(),
@@ -920,6 +957,16 @@ export function buildColonyProblem(
   // rooms: raid frequency is proportional to energy harvested, and at home
   // the tower absorbs the raid for the cost of its shots (~0).
   const spawnRooms = new Set(spawns.map(s => s.pos.roomName));
+
+  // ROOM mined rate - the tax's denominator. The engine's raid counter is
+  // per ROOM (raidMeter mirrors it that way), so a two-source remote reaches
+  // the trigger in half the ticks and holds its guard for half as long per
+  // unit mined. Summed over the room's own sources, not read per source.
+  const roomMinedRate = new Map<string, number>();
+  for (const s of graph.getSources()) {
+    if (spawnRooms.has(s.position.roomName)) continue;
+    roomMinedRate.set(s.position.roomName, (roomMinedRate.get(s.position.roomName) ?? 0) + s.capacity);
+  }
 
   const sources: PlannerSource[] = graph.getSources().map(s => {
     // The mid-build repricing verdict (roadEconomics): a route >= 1/2 built
@@ -960,19 +1007,38 @@ export function buildColonyProblem(
       // is towers + guards, and un-funding the home economy mid-raid would
       // be the death spiral, not honesty.
       ...(!spawnRooms.has(s.position.roomName) && hostileRooms().has(s.position.roomName) ? { defunded: true } : {}),
-      ...(spawnRooms.has(s.position.roomName) || remoteInvaderTax <= 0 ? {} : { invaderTax: remoteInvaderTax }),
+      ...(() => {
+        if (spawnRooms.has(s.position.roomName)) return {};
+        const tax = remoteInvaderTax(roomMinedRate.get(s.position.roomName) ?? s.capacity);
+        return tax > 0 ? { invaderTax: tax } : {};
+      })(),
       // STAGED MOUTH STOCK (phase 1 of the income-statement program): the
       // SAME sourceBufferStock lens the corp's drain term and E6's gate read,
       // so the plan prices the drain fleet the corp will actually field.
       // Walk-served mouths only - a link-served source's stock is the link
       // network's business, and pricing haulers for it would re-open the
-      // haul-of-zero contract. No vision => absent, never a fabricated zero.
+      // haul-of-zero contract.
+      //
+      // VISION IS NOT THE LENS (2026-08-07, the pile-decay cycle). "No vision
+      // => absent" read as prudence and was the bug: `Game.getObjectById`
+      // returns null for a source in a remote room with no creep standing in
+      // it, and the SOLVE runs whether or not one happens to be there. So the
+      // plan priced ZERO drain for exactly the mouths that were piling up.
+      // Measured t72850264: six of eleven mouths held 2,737-3,553 for 78-100%
+      // of the window (E6, from the miners' OWN stamps) while every hauler
+      // route in the published plan was sized at flow = 10 - the raw source
+      // rate, no drain anywhere. 13.36 e/t of decay, and self-reinforcing: the
+      // pile gates the miner off, the miner leaving takes the room's vision,
+      // and the plan goes blinder still.
+      //
+      // Live vision first (freshest), then the miner's durable stamp - the
+      // stranded-reserver rule applied to a source mouth: read the observation,
+      // never "is one of our creeps standing there".
       ...(() => {
         if (linkHaulPos.get(s.id) !== undefined) return {};
         if (typeof Game === "undefined" || !Game.getObjectById) return {};
         const live = Game.getObjectById(stripSourcePrefix(s.id) as Id<Source>);
-        if (!live) return {};
-        const staged = sourceBufferStock(live);
+        const staged = live ? sourceBufferStock(live) : observedMouthStock(s.id, Game.time);
         return staged !== null && staged > 0 ? { staged } : {};
       })()
     };
@@ -1065,9 +1131,37 @@ export function buildColonyProblem(
   // sizes with (primitives.projectAbsorbRate over total remaining work at
   // the farthest site's travel); each site's capacity is its pro-rata share
   // by remaining work. A single site degenerates to exactly the old number.
+  // CONSTRUCTION IS SCOPED TO THE ROOMS THE COLONY WORKS (2026-08-07).
+  //
+  // Not a distress gate and not a defund - the working set is simply what the
+  // plan is solving. A site in a room the plan does not work has no supply line
+  // to it: no miner, no hauler route, no reason for a builder to be there. The
+  // plan was funding those anyway because `graph.getSinks()` hands back EVERY
+  // site the engine knows about, with no test of whether the economy reaches it.
+  //
+  // Measured t72850264, and it was the colony's ENTIRE construction budget: one
+  // container in W41N25 at 4,582/5,000 - a two-source remote we last harvested
+  // ~12,000 ticks earlier and the plan has since stopped funding. It held
+  // 10 e/t of sink demand at priority 70 (ABOVE the controller, whose effective
+  // priority was 44.8 with 35.69 unmet) plus 0.135 p/t of spawn budget - four
+  // times the whole tender detail - and delivered 0.00 e/t for the window with
+  // its corp at creeps 0. Incoherent by construction: fund the room or don't,
+  // but never build infrastructure FOR a room you have decided not to work.
+  //
+  // The site itself is left standing, deliberately: it is a real 92%-paid asset
+  // and removing it would burn 4,582e of sunk work. If W41N25 comes back into
+  // the plan, its container comes back with it, and this scope test admits it
+  // again on the same solve.
+  //
+  // Scope = spawn rooms + the PREVIOUS solve's funded remotes, the same ratchet
+  // `pricedRelay` and the reserver set already use (no history admits
+  // everything for exactly one solve, then converges).
+  const workedRooms = new Set<string>(spawnRooms);
+  for (const r of prevFundedRemoteRooms ?? []) workedRooms.add(r);
   const constructionSites = graph
     .getSinks()
-    .filter(s => toSinkKind(s.type) === "construction" && s.progressRemaining !== undefined);
+    .filter(s => toSinkKind(s.type) === "construction" && s.progressRemaining !== undefined)
+    .filter(s => prevFundedRemoteRooms === undefined || workedRooms.has(s.position.roomName));
 
   // WARTIME (spec 33, owner 2026-07-27; COLONY-WIDE since owner 2026-08-05:
   // "I WANT construction to be the primary consumer over controller if we
@@ -1167,9 +1261,14 @@ export function buildColonyProblem(
   const poolAbsorb = poolRemaining > 0 ? projectAbsorbRate(poolRemaining, poolTravel, buildAccelerate) : 0;
 
   const sinks: PlannerSink[] = [];
+  const fundedSiteIds = new Set(constructionSites.map(s => s.id));
   for (const sink of graph.getSinks()) {
     const kind = toSinkKind(sink.type);
     if (!kind) continue;
+    // Out-of-scope construction never becomes a sink at all - the backlog math
+    // above already dropped it, and a sink the plan would fund while the
+    // backlog ignores it is two books again. See the workedRooms derivation.
+    if (kind === "construction" && !fundedSiteIds.has(sink.id)) continue;
     sinks.push({
       id: sink.id,
       kind,
@@ -1324,15 +1423,36 @@ export function buildColonyProblem(
       if (room && controllerLink(room)) linkFedRooms++;
     }
   }
-  const infraPartsPerTick = infraSpawnLoad(pricedRelay, roomsWithStorage.size, remoteRooms.size, linkFedRooms);
-  // Same three details, priced in ENERGY - the second currency the spawn sink
+  // ARMED ROOMS (spec 51 phase 2): one standing guard each, from the SAME lens
+  // RaidGuardCorp holds its posts with and the commission budgets from. Usually
+  // zero - this is the one infra term that is conditional on the world being
+  // dangerous, which is exactly why it reads a lens and not a constant.
+  const guardedRooms = new Set<string>();
+  for (const home of spawnRooms) for (const target of guardTargetsFor(home)) guardedRooms.add(target);
+  const infraPartsPerTick = infraSpawnLoad(
+    pricedRelay,
+    roomsWithStorage.size,
+    remoteRooms.size,
+    linkFedRooms,
+    1,
+    guardedRooms.size
+  );
+  // Same details, priced in ENERGY - the second currency the spawn sink
   // needs (see the two-pass solve in solveColony).
-  const infraEnergyPerTick = infraSpawnEnergy(pricedRelay, roomsWithStorage.size, remoteRooms.size, linkFedRooms);
+  const infraEnergyPerTick = infraSpawnEnergy(
+    pricedRelay,
+    roomsWithStorage.size,
+    remoteRooms.size,
+    linkFedRooms,
+    1,
+    guardedRooms.size
+  );
   const infraInputs = {
     pricedRelay,
     depotRooms: roomsWithStorage.size,
     remoteRooms: remoteRooms.size,
-    linkFedRooms
+    linkFedRooms,
+    guardedRooms: guardedRooms.size
   };
 
   return {
@@ -1469,7 +1589,7 @@ export function solveColony(
     detectLinkHaulPositions(graph),
     detectPavedSources(),
     bankSources,
-    INVADER_TAX_PER_ENERGY,
+    raidGuardTaxPerEnergy,
     compileGoal(goal),
     prevBankDraw,
     detectLinkDepositPorts(),
@@ -1512,26 +1632,93 @@ export function solveColony(
   // fleet it produces). Damping is what turns an oscillation into a
   // contraction; undamped, C_{n+1} = F(C_n) ping-pongs between the two ends.
   // Capped and tolerance-stopped so the solve can never run away.
-  const fleetOf = (p: { plan: { totalOverhead: number } }): number =>
-    p.plan.totalOverhead + (baseProblem.infraEnergyPerTick ?? 0);
+  // Reads the SOLVED problem's infra, not baseProblem's. Identical while the
+  // priced remote set is fixed (every iteration built it from the same input);
+  // it stops being identical once the reserver pass below re-prices that set, and
+  // a charge priced off a different problem's infra than the plan it ships is
+  // the same class of error the damping above exists to kill.
+  const fleetOf = (p: { plan: { totalOverhead: number }; problem: ColonyProblem }): number =>
+    p.plan.totalOverhead + (p.problem.infraEnergyPerTick ?? 0);
   const spawnCount = Math.max(1, baseProblem.spawns.length);
-  const solveWith = (perSpawn: number): ReturnType<typeof searchStructure> =>
+  const solveWith = (
+    perSpawn: number,
+    remotes: readonly string[] | undefined = prevFundedRemoteRooms
+  ): ReturnType<typeof searchStructure> =>
     searchStructure(
       buildColonyProblem(
         graph, dist, transientSources, detectLinkHaulPositions(graph), detectPavedSources(),
-        bankSources, INVADER_TAX_PER_ENERGY, compileGoal(goal), prevBankDraw,
-        detectLinkDepositPorts(), perSpawn, prevFundedRemoteRooms, fielded, prevFleetEnergyPerPart
+        bankSources, raidGuardTaxPerEnergy, compileGoal(goal), prevBankDraw,
+        detectLinkDepositPorts(), perSpawn, remotes, fielded, prevFleetEnergyPerPart
       )
     );
 
-  const converged = convergeFleetCharge(
-    seedCharge,
-    fleetOf(pass1) / spawnCount,
-    (s: ReturnType<typeof searchStructure>) => fleetOf(s) / spawnCount,
-    solveWith
-  );
-  spawnMaintenanceStamp = converged.charge;
-  const searched = converged.solved ?? pass1;
+  // ---- THE RESERVER TERM'S OWN LAG (spec 51, measured t72828763) ----
+  //
+  // `infraSpawnLoad` prices one reserver per remote room from
+  // `prevFundedRemoteRooms` - the PREVIOUS solve's answer - because the charge
+  // has to be deducted before the solve that decides this one's. The reservation
+  // CORPS, meanwhile, are proposed off THIS solve's draft. So the two books
+  // agree only while the funded set holds still, and diverge by one reserver per
+  // room that joined or left.
+  //
+  // That lag was survivable at a 50-tick solve cadence. It is not at the fiscal
+  // month term (spec 46 phase A): the plan built here IS the month's budget, so
+  // a remote that drops out at a boundary is charged to the colony for the whole
+  // month after it stopped being worked. And it drops out at exactly the moment
+  // the sweep is measuring - raising the handicap shrinks the spawn budget, and
+  // the first thing that budget does is stop admitting marginal remotes.
+  // Measured live: priced 9, funded 8, Sigma(auxiliary corps) short by exactly
+  // one roomReserverSpawnLoad (0.003704 p/t).
+  //
+  // So close it here, where THIS solve's answer is already in hand: when the plan
+  // funds a different number of remotes than it was priced for, re-solve with the
+  // set it actually funded. It also converges a COLD start in one solve rather
+  // than one replan - with no history the priced set is every scouted candidate
+  // (t72750467: 26 rooms against 8 funded).
+  //
+  // The re-price is OUTSIDE the damped charge iteration and each re-price runs a
+  // full one of its own. That is not belt-and-braces: dropping a reserver lowers
+  // `infraEnergyPerTick`, which is a TERM OF THE CHARGE (see fleetOf), so a
+  // corrective solve bolted on after convergence would ship a plan whose fleet
+  // costs less than the charge the spawn sink is still demanding - moving the
+  // same over-charge from the parts ledger into the energy ledger instead of
+  // removing it. The inner iteration is seeded from the converged charge, so when
+  // the set does not move it costs zero extra searches, and when it does it
+  // usually costs one.
+  //
+  // Not guaranteed to reach a fixed point: dropping a room frees its charge,
+  // which can fund it right back. Bounded at REMOTE_SET_MAX_PASSES; when that
+  // binds, the last plan ships and `infraInputs.remoteRoomsFunded` records the
+  // residual next to the priced count, so the reconciliation NAMES the
+  // disagreement instead of hiding it.
+  let remotes: readonly string[] | undefined = prevFundedRemoteRooms;
+  let searched = pass1;
+  let charge = seedCharge;
+  let dampedPasses = 0;
+  let fundedRemotes: string[] = [];
+  for (let pass = 0; ; pass += 1) {
+    const converged = convergeFleetCharge(
+      charge,
+      fleetOf(searched) / spawnCount,
+      (s: ReturnType<typeof searchStructure>) => fleetOf(s) / spawnCount,
+      (perSpawn: number) => solveWith(perSpawn, remotes)
+    );
+    charge = converged.charge;
+    dampedPasses += converged.passes;
+    if (converged.solved) searched = converged.solved;
+
+    fundedRemotes = fundedRemoteRoomsOf(searched.problem, searched.plan);
+    const priced = searched.problem.infraInputs?.remoteRooms;
+    if (pass >= REMOTE_SET_MAX_PASSES || priced === undefined || priced === fundedRemotes.length) break;
+    // Re-price, then re-converge from the charge we already have. The explicit
+    // solve is required: convergeFleetCharge stops on the charge's tolerance and
+    // would return `solved: undefined` - keeping the OLD set's plan - when only
+    // the SET moved.
+    remotes = fundedRemotes;
+    searched = solveWith(charge, remotes);
+  }
+  spawnMaintenanceStamp = charge;
+
   // DECISION STAMP (spec 14): every input of the charge, not just the result.
   // `spawnMaintenance` alone could not distinguish an unconverged iteration
   // from a wrong divisor from a mis-estimated infra term - two diagnoses off
@@ -1540,10 +1727,15 @@ export function solveColony(
   fleetChargeStamp = {
     fleetEnergy: fleetOf(searched),
     production: searched.plan.totalOverhead,
-    infra: baseProblem.infraEnergyPerTick ?? 0,
+    infra: searched.problem.infraEnergyPerTick ?? 0,
     spawnCount,
-    passes: converged.passes,
-    ...(baseProblem.infraInputs ? { infraInputs: baseProblem.infraInputs } : {})
+    // Summed across every charge iteration, including any the reserver re-price
+    // triggered - the field means "damped iterations actually run", and that is
+    // still what this counts.
+    passes: dampedPasses,
+    ...(searched.problem.infraInputs
+      ? { infraInputs: { ...searched.problem.infraInputs, remoteRoomsFunded: fundedRemotes.length } }
+      : {})
   };
   const problem = searched.problem;
   const plan = searched.plan;
@@ -1572,6 +1764,11 @@ export function solveColony(
       const src = problem.sources.find(s => s.id === m.sourceId);
       return src?.swampFraction !== undefined ? { swampFraction: src.swampFraction } : {};
     })(),
+    // The mouth buffer the drain reprice actually read (v17) - see MinerAssignment.
+    ...(() => {
+      const src = problem.sources.find(s => s.id === m.sourceId);
+      return src?.staged !== undefined ? { staged: src.staged } : {};
+    })(),
     efficiency: m.efficiency
   }));
 
@@ -1598,6 +1795,11 @@ export function solveColony(
       unmet: Math.max(0, k.demand - k.allocated),
       priority: k.value,
       ...(k.partsLeft !== undefined ? { partsLeft: k.partsLeft } : {}),
+      // What the ROUTING pass actually debited for this sink's consumer bodies
+      // (audit t72846447), published for EVERY sink kind - unlike `spawnLoad`
+      // below, which is construction-only by design. The pair is what makes
+      // `partsLedger.spent` decomposable from a capture.
+      ...(k.chargedWork !== undefined ? { chargedWork: k.chargedWork } : {}),
       ...(charge ? { spawnLoad: charge.load, spawnDist: charge.dist } : {}),
       sourceFlows: k.sources.map(sf => ({ sourceId: sf.sourceId, amount: sf.amount, distance: sf.distance }))
     };
@@ -1626,17 +1828,10 @@ export function solveColony(
     ...(fleetChargeStamp ? { fleetCharge: fleetChargeStamp } : {}),
     // The funded remote set this solve actually worked - persisted by the
     // execution layer (Memory.fundedRemoteRooms) to price the NEXT solve's
-    // reserver upkeep from reality (see buildColonyProblem.remoteRooms).
-    fundedRemoteRooms: (() => {
-      const spawnRoomSet = new Set(problem.spawns.map(s => s.pos.roomName));
-      const srcById = new Map(problem.sources.map(s => [s.id, s]));
-      const rooms = new Set<string>();
-      for (const m of plan.miners) {
-        const rn = srcById.get(m.sourceId)?.pos.roomName;
-        if (rn && !spawnRoomSet.has(rn)) rooms.add(rn);
-      }
-      return [...rooms].sort();
-    })(),
+    // reserver upkeep from reality (see buildColonyProblem.remoteRooms). Already
+    // computed above, where the corrective reserver pass converged it against
+    // the priced set; recomputing here would risk the two drifting apart.
+    fundedRemoteRooms: fundedRemotes,
     netEnergy: netEnergyTotal,
     efficiency: totalHarvest > 0 ? (netEnergyTotal / totalHarvest) * 100 : 0,
     unmetDemand,

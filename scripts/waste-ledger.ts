@@ -37,6 +37,12 @@ import {
   minerOverhead,
   pileDecayBudget,
   reserverSpawnLoad,
+  roomGuardSpawnLoad,
+  GUARD_PARTS_PER_ROOM,
+  FEEDER_NOMINAL_DISTANCE,
+  TENDER_FLEET_PARTS,
+  feederSpawnLoad,
+  tenderSpawnLoad,
   tombstoneLossBudget
 } from "../src/economy/primitives";
 import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerRate } from "../src/economy/bank";
@@ -181,7 +187,51 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
  * number moves when any of the three does. Prior windows' TARGET lines are
  * NOT comparable across this bump; every other account line is unchanged.
  */
-export const METHODOLOGY = 14;
+/**
+ * #15 (audit t72842655): P8 - and therefore the ENERGY ACCOUNT's construction
+ * ACTUAL line, which reads P8 verbatim - now MEASURES build progress from the
+ * construction corps' `produced` counters instead of summing three floors
+ * (home-room siteProgress, the road-receipts ratchet, poolWork decrease). All
+ * three read state that vanishes when a site completes, so a remote program
+ * that finished was invisible to every one of them: W43N21 built 6,040 units
+ * in 1,314 ticks clearing 17 of 18 road sites while the account booked
+ * construction at 0.42 e/t against a 30.00 budget. A #14 construction line and
+ * a #15 one differ by exactly the completed-and-departed sites, and the
+ * CONTROLLER VARIANCE BRIDGE's "construction above budget" term moves with it -
+ * never quote one against the other.
+ */
+/**
+ * #16 (spec 51 phase 2): the `defense (guards)` BUDGET line now reads the
+ * PLAN's own price - `infraInputs.guardedRooms * roomGuardSpawnLoad()` - on any
+ * capture that carries the count, instead of reconstructing it from the
+ * measured bodies standing at capture time.
+ *
+ * #14 introduced that reconstruction because the plan charged guards nothing;
+ * it closed the "-" budget but left the comparison circular - measured bodies
+ * on both sides of a variance can never disagree. With the plan pricing guards
+ * (raidGuardKind, from the armed-room lens), a budget-vs-actual gap on this line
+ * is now a real F1 signal. A #15 defense line and a #16 one differ whenever the
+ * armed-room count at solve time differs from the guards standing at capture
+ * time - which is precisely the information #14 could not show.
+ */
+/**
+ * #17 (audit t72849380): P4's FEEDER and TENDER budget lines now call the
+ * primitives (`feederSpawnLoad`, `tenderSpawnLoad`) instead of recomputing
+ * them. Both copies had drifted, in opposite directions:
+ *
+ * - feeder: the recompute `2 * carryPartsFor(relay, d)` predates spec 45's
+ *   volley-service floor, so at relay 100 link-fed it printed 16p=0.011 against
+ *   the feeder commission's own declared 0.02135 - the ledger reporting the
+ *   plan charging HALF what it charges, on the account's worst unfavourable
+ *   line (infra -1.97 budget vs -12.61 actual).
+ * - tender: `sizing.target x measured body` is ACTUALS-FED, so the budget moved
+ *   with the fleet it exists to judge (43p where the plan charges 48p).
+ *
+ * A #16 infra budget and a #17 one differ by ~0.7 e/t at a live relay - and the
+ * REMAINING infra gap after this is behaviour, which is the point. Same defect
+ * class as #8 (reserver duty) and #7 (hauler spawnParts).
+ */
+export const METHODOLOGY = 17;
 
 export interface LedgerRow {
   id: string;
@@ -335,18 +385,36 @@ export function planSpawnLoad(cap: any): {
   // plan's own formulas, and injecting actual bodies breaks it at every
   // equilibrium (the t72420007 boundary pin). The parked-post body shrink
   // (2026-07-22) shows up on the ACTUAL side of plan-vs-actual instead.
+  // AMORTIZED BY THE ONE HOME (methodology #17): `feederSpawnLoad` and
+  // `tenderSpawnLoad` are the primitives the PLAN charges with - the same two
+  // the auxiliary commissions declare and `infraSpawnLoad` composes. This line
+  // used to recompute them, and both copies had drifted:
+  //
+  //   feeder - `2 * carryPartsFor(relay, d)` predates spec 45's volley-service
+  //   floor, so at relay 100 link-fed it printed 16p=0.011 against the
+  //   commission's own 0.02135 - the ledger showing the plan charging HALF what
+  //   it charges, on the account's worst unfavourable line.
+  //
+  //   tender - `sizing.target x measured body` is ACTUALS-FED: the budget moved
+  //   with the fleet it exists to judge, which is the one thing spec 14's owner
+  //   directive rules out ("not quite yet... poor behavior we don't want to
+  //   encode as the budget").
+  //
+  // Same defect class as #8's reserver duty (an +8.02 F variance that was pure
+  // arithmetic) and #7's hauler re-derivation. Read the corp's linkFed STAMP -
+  // decision symmetry - but price with the plan's formula, never the plan's
+  // realized body: P4's budget-dry identity is built from the plan's own
+  // formulas, and injecting actual bodies breaks it at every equilibrium.
   const feederLinkFed = corps.find(c => (c.id ?? "").includes("controllerFeeder"))?.sizing?.linkFed === true;
-  const feederDist = feederLinkFed ? 1 : 6;
-  const feederParts = 2 * carryPartsFor(relay, feederDist);
+  const feederDist = feederLinkFed ? 1 : FEEDER_NOMINAL_DISTANCE;
+  const feederLoad = feederSpawnLoad(relay, feederLinkFed);
   lines.push([
     `feeder @ relay ${Math.round(relay)}${feederLinkFed ? " (link-fed d1)" : ""}`,
-    feederParts,
-    feederParts / effectiveLife(feederDist)
+    feederLoad * effectiveLife(feederDist),
+    feederLoad
   ]);
 
-  const tenderTarget = corps.find(c => c.kind === "tender")?.sizing?.target ?? 3;
-  const tenderBody = fleetParts(corps, "tender", 24);
-  lines.push(["tenders", tenderTarget * tenderBody, (tenderTarget * tenderBody) / 1500]);
+  lines.push(["tenders", TENDER_FLEET_PARTS, tenderSpawnLoad()]);
 
   // PER-ROOM corps are SUMMED, never sampled (measured t72683137): reservation
   // is one corp PER RESERVED ROOM, and `find()` priced only the first. The live
@@ -373,17 +441,31 @@ export function planSpawnLoad(cap: any): {
   const resLoad = reserverSpawnLoad(resParts);
   lines.push(["reservers (claim life)", resParts, resLoad]);
 
-  // DEFENSE (phase 1): raidGuard was F1's one standing UNPRICED class (0.027
-  // p/t live, 1.73 e/t of spend with a "-" budget on the account's defense
-  // line). Priced at the STANDING fleet's replacement cadence - per-corp
-  // summed like reservation (the per-room trap), each corp's own measured
-  // body, guards replaced over a creep lifetime. A colony with no standing
-  // guards prices zero - the raid-driven surge is exactly what the invader
-  // tax (phase-1's other defense seam) prices at ADMISSION, not here.
+  // DEFENSE. raidGuard was F1's one standing UNPRICED class (0.027 p/t live,
+  // 1.73 e/t of spend with a "-" budget on the account's defense line), so
+  // methodology #14 reconstructed the price here from MEASURED bodies. That
+  // reconstruction was itself a second book - the plan still charged nothing.
+  //
+  // Since spec 51 phase 2 the PLAN prices it (`roomGuardSpawnLoad` per armed
+  // room, from the same `guardTargetsFor` lens the corp holds its posts with),
+  // and this line reads the plan's own count whenever the capture carries it.
+  // The measured fallback stays for pre-spec-51 captures ONLY - on a modern
+  // capture, a gap between this line and the account's measured defense spend is
+  // now a real F1 signal (the plan disagreeing with the runtime) instead of a
+  // tautology comparing measured bodies to themselves.
+  //
+  // The raid-driven SURGE (replacements bought mid-fight) is not here either
+  // way: that is the invader tax, priced at ADMISSION.
+  const guardedRooms: number | undefined = flow.fleetCharge?.infraInputs?.guardedRooms;
   const guardParts = corps
     .filter(c => c.kind === "raidGuard")
     .reduce((sum, c) => sum + (c.creepCount > 0 ? c.bodyParts : 0), 0);
-  if (guardParts > 0) lines.push(["defense (guards)", guardParts, guardParts / 1500]);
+  if (guardedRooms !== undefined) {
+    const planned = guardedRooms * roomGuardSpawnLoad();
+    if (planned > 0) lines.push(["defense (guards)", guardedRooms * GUARD_PARTS_PER_ROOM, planned]);
+  } else if (guardParts > 0) {
+    lines.push(["defense (guards)", guardParts, guardParts / 1500]);
+  }
 
   const total = lines.reduce((s, [, , x]) => s + x, 0);
 
@@ -1601,7 +1683,52 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       const pool1 = poolWorkSum(base.data.corps);
       const pool2 = poolWorkSum(cap.data.corps);
       const poolBuilt = pool1 !== null && pool2 !== null ? Math.max(0, pool1 - pool2) : 0;
-      const flat = standing && !completion && delivered <= 0 && receiptsDelta <= 0 && poolBuilt <= 0;
+      // THE DIRECT MEASUREMENT (methodology #15, audit t72842655). Everything
+      // above is a FLOOR - home-room siteProgress, the receipts ratchet, the
+      // poolWork decrease - and each is documented in place as undercounting.
+      // They share one blind spot: all three read state that VANISHES when a
+      // site completes, so a remote program that finished is invisible to the
+      // lot of them.
+      //
+      // Measured: building-W43N21-construction took `produced` 6,270 -> 12,310
+      // in 1,314 ticks (6,040 units, 4.60 e/t) clearing 17 of 18 road sites,
+      // while P8 reported a fraction of it and the ENERGY ACCOUNT - which reads
+      // this row verbatim - booked construction ACTUAL at 0.42 e/t against a
+      // 30.00 budget. The -29.58 variance was the meter.
+      //
+      // A ConstructionCorp's `unitsProduced` IS build progress (segment 4 v14),
+      // so read it. Per-corp deltas clamp at zero: a corp destroyed and rebuilt
+      // restarts its counter (measured -885 on building-W43N24-construction
+      // when the invader core took the room), and that is lost history rather
+      // than negative building - so this still undercounts, the same direction
+      // as the floors it supersedes.
+      const corpBuilt = ((): number | null => {
+        const producedById = (corpsCap: any): Map<string, number> => {
+          const m = new Map<string, number>();
+          for (const c of corpsCap?.corps ?? []) {
+            if (c?.kind !== "construction") continue;
+            if (typeof c.produced === "number") m.set(c.id, c.produced);
+          }
+          return m;
+        };
+        const m1 = producedById(base.data.corps);
+        const m2 = producedById(cap.data.corps);
+        let sum = 0;
+        let seen = false;
+        for (const [id, p2] of m2) {
+          const p1 = m1.get(id);
+          if (p1 === undefined) continue; // unknown history - never assume all of it landed here
+          seen = true;
+          if (p2 > p1) sum += p2 - p1;
+        }
+        return seen ? sum : null;
+      })();
+      // Prefer the measurement; keep the floors for captures predating the
+      // counter. NOT summed together - they measure the same energy, so adding
+      // them would double-count.
+      const built = corpBuilt !== null ? corpBuilt : Math.max(0, delivered) + receiptsDelta + poolBuilt;
+      const flat =
+        standing && !completion && built <= 0 && delivered <= 0 && receiptsDelta <= 0 && poolBuilt <= 0;
       // SITE LEDGER (core v34; owner 2026-08-05: "I want to stay informed of
       // construction site progress"): the vision-free per-room roster from
       // Game.constructionSites, rendered per room with its window delta and
@@ -1615,7 +1742,7 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       if (sl2) {
         const roomNames = Object.keys(sl2).sort((a, b) => (sl2[b].rem ?? 0) - (sl2[a].rem ?? 0));
         const totalRem = roomNames.reduce((a, r) => a + (sl2[r].rem ?? 0), 0);
-        const rate = dt > 0 ? (Math.max(0, delivered) + receiptsDelta + poolBuilt) / dt : 0;
+        const rate = dt > 0 ? built / dt : 0;
         byRoom =
           `; by room: ` +
           roomNames
@@ -1634,8 +1761,8 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       }
       rows.push({
         id: "P8",
-        name: "build delivery (site progress)",
-        value: dt > 0 ? +((Math.max(0, delivered) + receiptsDelta + poolBuilt) / dt).toFixed(2) : 0,
+        name: "build delivery (corp produced counters)",
+        value: dt > 0 ? +(built / dt).toFixed(2) : 0,
         unit: "e/t built",
         verdict: flat && consAlloc > 5 ? "FAIL" : flat && consAlloc > 0 ? "WARN" : "ok",
         detail: completion
@@ -1644,6 +1771,7 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
             byRoom
           : standing || receiptsDelta > 0 || poolBuilt > 0
           ? `sites ${count1}->${count2}, remote ${remotes1}->${remotes2}, progress ${prog1}->${prog2}, plan alloc ${consAlloc.toFixed(1)} e/t` +
+            (corpBuilt !== null ? `, corps built ${corpBuilt}e (produced counters)` : ", corps: no counter (pre-v14 capture)") +
             (receiptsDelta > 0 ? `, remote roads +${receiptsDelta}e (receipts)` : "") +
             (poolBuilt > 0 ? `, within-site +${poolBuilt}e (poolWork ${pool1}->${pool2})` : "") +
             (flat ? " - CREW IDLE (energy allocated, nothing built)" : "") +
@@ -2996,7 +3124,7 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
       : []),
     "  APPROPRIATIONS",
     L("controller (score)", score, 4, bController),
-    L("construction (site progress)", build, 4, bConstruction),
+    L("construction (built, measured)", build, 4, bConstruction),
     L("to/(from) bank", bankDelta, 4, bBank, "neutral"),
     L("= total", approp, 4, bController + bConstruction + bBank),
     "  " + "-".repeat(46),

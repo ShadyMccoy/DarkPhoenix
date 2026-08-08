@@ -124,11 +124,11 @@ describe("assembleFieldedFleets (spec 39 phase 2: the actuals the plan receives)
 
     const fielded = { "harvest-s1": { miner: { count: 1, parts: 8, ttls: [900] } } };
     const withActuals = buildColonyProblem(
-      graph, dist, [], new Map(), new Map(), [], 0, undefined, undefined, [], 0, undefined, fielded
+      graph, dist, [], new Map(), new Map(), [], () => 0, undefined, undefined, [], 0, undefined, fielded
     );
     expect(withActuals.fielded, "the actuals ride the problem verbatim").to.deep.equal(fielded);
 
-    const without = buildColonyProblem(graph, dist, [], new Map(), new Map(), [], 0, undefined, undefined, [], 0, undefined);
+    const without = buildColonyProblem(graph, dist, [], new Map(), new Map(), [], () => 0, undefined, undefined, [], 0, undefined);
     expect(without.fielded, "no actuals passed -> no field").to.equal(undefined);
   });
 });

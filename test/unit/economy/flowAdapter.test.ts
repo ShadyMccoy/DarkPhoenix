@@ -1119,3 +1119,276 @@ describe("economy/flowAdapter - two-pass solve charges the spawn its fleet cost"
     expect(charged, "energy the spawn needs stops being handed down the ladder").to.be.lessThan(base);
   });
 });
+
+/**
+ * THE ADMISSION TAX FOLLOWS THE ROOM'S RATE (2026-08-07, owner: *"We can
+ * estimate the invader tax rate from first principles. 10 or 20 energy mined
+ * per tick. Every 10,000 to 5,000 ticks for 100,000 trigger right?"*).
+ *
+ * Right - and the consequence is that the tax cannot be a single coefficient.
+ * The engine's raid counter accrues per ROOM, so a two-source remote hits the
+ * trigger in half the ticks and holds its standing guard for half as long per
+ * unit mined. The flat `INVADER_TAX_PER_ENERGY` charged both the same.
+ *
+ * Pinned at the SEAM rather than in the primitive (which has its own coverage):
+ * what matters here is that the adapter feeds the primitive the ROOM's total
+ * rate, not the source's own, and that home sources are never taxed.
+ */
+describe("flowAdapter: the invader tax reads the ROOM's mined rate", () => {
+  const g = globalThis as unknown as { Game?: unknown };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  const pos = (x: number, roomName: string): Position => ({ x, y: 25, roomName });
+  const home = (): Node => {
+    const n = createNode("home", "W0N0", pos(5, "W0N0"), 100, ["W0N0"], 0);
+    n.resources = [
+      { type: "spawn", id: "spawn-0", position: pos(5, "W0N0") },
+      { type: "controller", id: "ctrl-0", position: pos(5, "W0N0"), isOwned: true }
+    ] as NodeResource[];
+    return n;
+  };
+  const remoteSrc = (id: string, room: string, x: number): Node => {
+    const n = createNode(id, room, pos(x, room), 50, [room], 0);
+    n.resources = [{ type: "source", id, position: pos(x, room), capacity: 3000 }] as NodeResource[];
+    return n;
+  };
+  const homeSrc = (id: string, x: number): Node => {
+    const n = createNode(id, "W0N0", pos(x, "W0N0"), 50, ["W0N0"], 0);
+    n.resources = [{ type: "source", id, position: pos(x, "W0N0"), capacity: 3000 }] as NodeResource[];
+    return n;
+  };
+
+  it("taxes a ONE-source room at twice the rate of a TWO-source room", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const { raidGuardTaxPerEnergy } = await import("../../../src/economy/primitives");
+    // W1N0 holds one source, W2N0 holds two - same distance class, same rate
+    // per source. Only the ROOM's accrual differs.
+    const graph = new FlowGraph([
+      home(),
+      remoteSrc("lone", "W1N0", 15),
+      remoteSrc("pairA", "W2N0", 15),
+      remoteSrc("pairB", "W2N0", 20)
+    ]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    const taxOf = (id: string): number => problem.sources.find(s => s.id.includes(id))!.invaderTax!;
+
+    const rate = problem.sources.find(s => s.id.includes("lone"))!.rate;
+    expect(taxOf("lone")).to.be.closeTo(raidGuardTaxPerEnergy(rate), 1e-12);
+    expect(taxOf("pairA")).to.be.closeTo(raidGuardTaxPerEnergy(2 * rate), 1e-12);
+    expect(taxOf("pairA"), "both sources in a room pay the room's rate").to.equal(taxOf("pairB"));
+    expect(taxOf("lone"), "the slow room pays double per unit mined").to.be.closeTo(2 * taxOf("pairA"), 1e-12);
+  });
+
+  it("never taxes a HOME source - the tower absorbs the raid for the cost of its shots", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const graph = new FlowGraph([home(), homeSrc("inRoom", 15), remoteSrc("away", "W1N0", 15)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    expect(problem.sources.find(s => s.id.includes("inRoom"))!.invaderTax).to.equal(undefined);
+    expect(problem.sources.find(s => s.id.includes("away"))!.invaderTax).to.be.greaterThan(0);
+  });
+
+  it("an injected () => 0 disables it entirely (the seam stays testable)", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const graph = new FlowGraph([home(), remoteSrc("away", "W1N0", 15)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), [], () => 0);
+    expect(problem.sources.find(s => s.id.includes("away"))!.invaderTax).to.equal(undefined);
+  });
+});
+
+/**
+ * THE MOUTH-STOCK LENS IS AN OBSERVATION, NOT A VISION CHECK (2026-08-07).
+ *
+ * The drain machinery was complete and correct: `CorpPlanner` prices
+ * `bufferDrainCarry(staged * share, distance)` into every route of a source
+ * that carries a `staged` buffer. The lens feeding it was not - it read
+ * `Game.getObjectById`, which returns null for a source in a remote room with
+ * no creep standing in it, and the SOLVE runs whether or not one is.
+ *
+ * So the plan priced ZERO drain for exactly the mouths that were piling up.
+ * Measured t72850264: six of eleven mouths held 2,737-3,553 for 78-100% of the
+ * window - from the MINERS' OWN stamps, which E6 reads - while every hauler
+ * route in the published plan was sized at `flow = 10`, the raw source rate,
+ * no drain term anywhere in the capture. 13.36 e/t of ground decay, the
+ * cycle's TOP LINE, and self-reinforcing: the pile costs the miner its spawn
+ * priority, the miner leaving takes the room's vision, and the plan goes
+ * blinder still.
+ *
+ * The stranded-reserver rule, applied to a source mouth: read the OBSERVATION,
+ * never "is one of our creeps standing there".
+ */
+describe("flowAdapter: the mouth-stock lens survives losing vision", () => {
+  const g = globalThis as unknown as { Game?: unknown; Memory?: unknown };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+
+  const SRC = "abc123";
+  const TAIL = SRC.slice(-6);
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    // No getObjectById hit for the source: a remote room with nobody in it,
+    // which is the state the solve actually finds most ticks.
+    g.Game = { time: 10_000, getObjectById: () => null, rooms: {}, creeps: {} };
+    g.Memory = {};
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  const pos = (x: number, roomName: string): Position => ({ x, y: 25, roomName });
+  const world = (): Node[] => {
+    const home = createNode("home", "W0N0", pos(5, "W0N0"), 100, ["W0N0"], 0);
+    home.resources = [
+      { type: "spawn", id: "spawn-0", position: pos(5, "W0N0") },
+      { type: "controller", id: "ctrl-0", position: pos(5, "W0N0"), isOwned: true }
+    ] as NodeResource[];
+    const remote = createNode(SRC, "W1N0", pos(20, "W1N0"), 50, ["W1N0"], 0);
+    remote.resources = [{ type: "source", id: SRC, position: pos(20, "W1N0"), capacity: 3000 }] as NodeResource[];
+    return [home, remote];
+  };
+
+  const stamp = (stock: number, at: number): void => {
+    (g.Memory as any).pileMeter = { [TAIL]: { t0: at, last: at, samples: 1, held: 1, since: at, stock, stockAt: at } };
+  };
+
+  const stagedOf = async (): Promise<number | undefined> => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const problem = buildColonyProblem(new FlowGraph(world()), manhattan, [], new Map(), new Map(), []);
+    return problem.sources.find(s => s.id.includes(SRC))!.staged;
+  };
+
+  it("prices the drain from the miner's stamp when the solve has NO vision", async () => {
+    stamp(3000, 9_900); // seen 100 ticks ago
+    expect(await stagedOf(), "the pile the miner saw reaches the plan").to.equal(3000);
+  });
+
+  it("and that staged buffer becomes real CARRY on the route - the whole point", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const { planColony } = await import("../../../src/economy/CorpPlanner");
+    const carryOf = (): number => {
+      const problem = buildColonyProblem(new FlowGraph(world()), manhattan, [], new Map(), new Map(), []);
+      return planColony(problem)
+        .haulers.filter(h => h.sourceId.includes(SRC))
+        .reduce((n, h) => n + h.carryParts, 0);
+    };
+    const blind = carryOf(); // no stamp: inflow-sized, exactly today's behaviour
+    stamp(3000, 9_900);
+    expect(carryOf(), "a 3000e mouth buys CARRY to clear it").to.be.greaterThan(blind);
+  });
+
+  it("ages the observation out after one creep generation - a stale pile is not priced forever", async () => {
+    const { MOUTH_STOCK_MAX_AGE } = await import("../../../src/corps/nodeEnergy");
+    stamp(3000, 10_000 - MOUTH_STOCK_MAX_AGE - 1);
+    expect(await stagedOf(), "nobody has looked in a generation").to.equal(undefined);
+    stamp(3000, 10_000 - MOUTH_STOCK_MAX_AGE + 1);
+    expect(await stagedOf(), "just inside the window still counts").to.equal(3000);
+  });
+
+  it("never fabricates a buffer for a mouth nobody has ever seen", async () => {
+    expect(await stagedOf()).to.equal(undefined);
+  });
+
+  it("a witnessed EMPTY mouth prices no drain (the term retires itself)", async () => {
+    stamp(0, 9_900);
+    expect(await stagedOf()).to.equal(undefined);
+  });
+});
+
+/**
+ * CONSTRUCTION IS SCOPED TO THE ROOMS THE COLONY WORKS (2026-08-07).
+ *
+ * Owner: *"What's construction even allocating for. I feel like at this point
+ * everything we need should be built."* It was allocating for exactly one
+ * thing, and they were right to ask.
+ *
+ * Measured t72850264 - the colony's ENTIRE construction budget was a container
+ * in W41N25 at 4,582/5,000, a two-source remote last harvested ~12,000 ticks
+ * earlier that the plan had since stopped funding. It held 10 e/t of sink
+ * demand at priority 70 - ABOVE the controller, which sat at effective 44.8
+ * with 35.69 unmet - plus 0.135 p/t of spawn budget, four times the whole
+ * tender detail. It delivered 0.00 e/t for the window with its corp at
+ * creeps 0, because there is no supply line to a room the plan does not work.
+ *
+ * Not a gate and not a defund: `graph.getSinks()` returns every site the ENGINE
+ * knows about, and the working set is simply what the plan is solving. Fund the
+ * room or don't - never build infrastructure FOR a room you decided not to work.
+ */
+describe("flowAdapter: construction only funds rooms the colony works", () => {
+  const g = globalThis as unknown as { Game?: unknown };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  const pos = (x: number, roomName: string): Position => ({ x, y: 25, roomName });
+  /** Home + a FUNDED remote + a site in each of: home, the remote, a dropped room. */
+  const world = (): Node[] => {
+    const home = createNode("home", "W0N0", pos(5, "W0N0"), 100, ["W0N0"], 0);
+    home.resources = [
+      { type: "spawn", id: "spawn-0", position: pos(5, "W0N0") },
+      { type: "controller", id: "ctrl-0", position: pos(5, "W0N0"), isOwned: true }
+    ] as NodeResource[];
+    const worked = createNode("worked", "W1N0", pos(20, "W1N0"), 50, ["W1N0"], 0);
+    worked.resources = [
+      { type: "source", id: "srcWorked", position: pos(20, "W1N0"), capacity: 3000 }
+    ] as NodeResource[];
+    // The W41N25 shape: a source AND a 92%-done container, in a room the plan
+    // has stopped funding.
+    const dropped = createNode("dropped", "W9N9", pos(30, "W9N9"), 50, ["W9N9"], 0);
+    dropped.resources = [
+      { type: "source", id: "srcDropped", position: pos(30, "W9N9"), capacity: 3000 }
+    ] as NodeResource[];
+    return [home, worked, dropped];
+  };
+
+  /** Sites are added through the graph's own API, as the live adapter does. */
+  const graphWithSites = (): FlowGraph => {
+    const graph = new FlowGraph(world());
+    graph.addConstructionSite("site-home", "home", pos(8, "W0N0"), 3000);
+    graph.addConstructionSite("site-worked", "worked", pos(21, "W1N0"), 3000);
+    graph.addConstructionSite("site-dropped", "dropped", pos(31, "W9N9"), 418);
+    return graph;
+  };
+
+  const siteRooms = async (funded?: readonly string[]): Promise<string[]> => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const problem = buildColonyProblem(
+      graphWithSites(), manhattan, [], new Map(), new Map(), [], () => 0,
+      undefined, undefined, [], 0, funded
+    );
+    return problem.sinks.filter(s => s.kind === "construction").map(s => s.pos.roomName).sort();
+  };
+
+  it("drops a site in a room the previous solve did NOT fund - the W41N25 case", async () => {
+    expect(await siteRooms(["W1N0"])).to.deep.equal(["W0N0", "W1N0"]);
+  });
+
+  it("keeps sites in the home room and in FUNDED remotes", async () => {
+    const rooms = await siteRooms(["W1N0", "W9N9"]);
+    expect(rooms, "a remote back in the plan brings its site with it").to.deep.equal(["W0N0", "W1N0", "W9N9"]);
+  });
+
+  it("admits everything on a COLD solve, then converges (the pricedRelay ratchet)", async () => {
+    // No history is not "fund nothing" - it is "we do not know yet". One
+    // over-funded solve, then the published funded set narrows it, exactly as
+    // the reserver pricing does.
+    expect(await siteRooms(undefined)).to.deep.equal(["W0N0", "W1N0", "W9N9"]);
+  });
+
+  it("an empty funded set still keeps the home room", async () => {
+    expect(await siteRooms([])).to.deep.equal(["W0N0"]);
+  });
+});

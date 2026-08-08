@@ -12,7 +12,7 @@ and pathing slop.
 value-per-intent, the concentration engine, peace-as-CPU-optimal. This document
 supplies the arc costs and the intent accounting that doctrine assumes but never
 derived. The actionable programme is
-[spec 46](specs/46-concentration-of-force.md); the intent-cost table §7 produces
+[spec 53](specs/53-concentration-of-force.md); the intent-cost table §7 produces
 is fed to [spec 29](specs/29-cpu-as-costed-resource.md), which asked for exactly
 it. Two reconciliations were forced and are flagged in place: §12.1's military
 framing is **withdrawn** in favour of GRAND_STRATEGY §5–§6, and §13.3's reading of

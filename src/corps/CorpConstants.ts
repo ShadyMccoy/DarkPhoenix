@@ -9,6 +9,8 @@
  * @module corps/CorpConstants
  */
 
+import { MAX_SCOUT_DISTANCE } from "../economy/primitives";
+
 // =============================================================================
 // SPAWN TIMING
 // =============================================================================
@@ -97,8 +99,15 @@ export const STALE_THRESHOLD = 5000;
 
 /**
  * Maximum distance (in room exits) to search for stale rooms.
+ *
+ * DECLARED in economy/primitives (the ONE leaf every tool can load) and
+ * re-exported here so its long-standing importers are unchanged. This module
+ * evaluates `JACK_BODY = [WORK, CARRY, MOVE]` at load time, so it cannot be
+ * required outside the game engine - and `utils/raidMeter` sits in the audit
+ * scripts' import graph. Importing this module from there crashed
+ * `npm run audit:ledger` at load with `ReferenceError: WORK is not defined`.
  */
-export const MAX_SCOUT_DISTANCE = 5;
+export { MAX_SCOUT_DISTANCE };
 
 /**
  * Maximum value for updating very old intel.

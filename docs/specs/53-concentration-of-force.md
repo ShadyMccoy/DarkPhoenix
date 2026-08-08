@@ -1,4 +1,4 @@
-# Spec 46 — Concentration of force: the RCL8 sprint, priced
+# Spec 53 — Concentration of force: the RCL8 sprint, priced
 
 **Status: BACKLOG 2026-08-06 (owner direction).** The *strategy* is not new —
 [GRAND_STRATEGY §4](../GRAND_STRATEGY.md) already names the concentration engine

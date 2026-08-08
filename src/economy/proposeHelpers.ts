@@ -70,13 +70,29 @@ export function perRoomAuxiliaryCommission(
   kind: string,
   roomName: string,
   spawnId: string,
-  assignment?: unknown
+  assignment?: unknown,
+  /**
+   * THE CORP'S BUDGET (spec 39 phase 4 / spec 51): spawn build-time this corp
+   * commits, parts/tick.
+   *
+   * Defaults to 0 - the historical behaviour - so an un-migrated kind is
+   * UNCHANGED rather than silently mispriced. But 0 is not "free": the colony's
+   * parts ledger still deducts this fleet as `infraPartsPerTick`, so a corp
+   * declaring 0 is one the colony pays for and no row owns. That hole is
+   * precisely what `waste-ledger.planSpawnLoad` was written to re-derive, and
+   * closing it is what makes the colony budget the SUM of the corps.
+   *
+   * Price it with the matching per-corp primitive (economy/primitives:
+   * `roomReserverSpawnLoad`, `tenderSpawnLoad`, `feederSpawnLoad`) - never a
+   * fresh formula, or the sum stops reconciling with the deduction.
+   */
+  spawnPartsPerTick = 0
 ): Commission {
   return {
     corpId: corpIdFor(kind, roomName),
     kind,
     shape: "auxiliary",
-    consumes: { spawnPartsPerTick: 0 },
+    consumes: { spawnPartsPerTick },
     produces: { valuePerTick: 0 },
     assignment: assignment ?? { roomName, spawnId }
   };

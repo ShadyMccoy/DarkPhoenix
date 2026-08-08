@@ -45,6 +45,15 @@ export type SpawnRole = string;
  * to an actual body via the body builders.
  */
 export interface SpawnDemand {
+  /**
+   * The anchor room has an owned STORAGE (spec 39 phase 3, owner 2026-08-07).
+   * Stamped centrally by the SpawnDirector alongside `kind`, never by the
+   * corps - one write, every demand, no per-corp drift.
+   *
+   * Read by {@link spawnPriority} to place the HEARTBEAT tier. See the tier
+   * stack there for why the regime changes the ORDER and not just the value.
+   */
+  storageBacked?: boolean;
   /** Corp that will own the spawned creep. */
   buyerCorpId: string;
   /**
@@ -381,6 +390,15 @@ export interface SpawnDemandContext {
    * and the cee0 runt ladder (3->6->9->12->15->30 parts) never starts.
    */
   storageBacked?: boolean;
+  /**
+   * Standing body parts this corp's COMMISSION declares (spec 39 phase 3),
+   * injected by the SpawnDirector from the census entry's own
+   * `consumes.spawnPartsPerTick`. The plan-side half of a replacement decision:
+   * a supply post compares its FIELDED parts against this to know whether it is
+   * merely alive or actually staffed. Absent for un-commissioned corps and
+   * every harness path - absence reads as "unknown", never as a deficit.
+   */
+  declaredParts?: number;
 }
 
 /** Live spawn/economy state the scheduler needs to make a decision. */
@@ -456,6 +474,28 @@ export function spawnPriority(demand: SpawnDemand): number {
   // carries STARTED. Racing the miner band on 4 points of VALUE is exactly the
   // fragility that made the rung inert in the first place.
   const HEARTBEAT = 5_000;
+  /**
+   * THE SAME HEARTBEAT, ABOVE BLOCKING, once a storage stands (owner
+   * 2026-08-07: *"currently we have a storage with enough energy to handle the
+   * full fiscal month. So we can assume we have energy available unlike the
+   * cold start... feeders and tenders could bid a lot then. And a cold start
+   * miner maybe bids even more."*).
+   *
+   * HEARTBEAT sits below BLOCKING by construction, and the reason is a COLD
+   * ROOM: without its first miner nothing ever flows, so the miner must win. A
+   * storage-backed room has already answered that question - measured
+   * t72851251, 169,712 banked against a whole fiscal month of spawn (~51k) plus
+   * controller draw (~75k). Energy availability is not the binding constraint
+   * there; THROUGHPUT is, and a starved extension network was costing 208
+   * parts/month while the supply post that fixes it ranked below every producer.
+   *
+   * So the regime decides the ORDER, and each regime's real constraint sets it:
+   * cold start keeps the blocking miner first (nothing to spend), storage-backed
+   * puts the heartbeat first (nothing to gain by starving it). This is not a
+   * rung nudge - the ladder VALUES are untouched and their relative shape is
+   * intact; it is the tier stack finally saying what it means in both worlds.
+   */
+  const HEARTBEAT_BANKED = 15_000; // > BLOCKING: the supply post outranks a blocking producer
   const STARTED = 1_000; // tiebreak WITHIN a blocking class: finish a started source before a fresh one
   let p = demand.value; // base corp/sink value, ~50-110
   if (demand.groupId !== undefined && demand.producesIncome) {
@@ -466,7 +506,7 @@ export function spawnPriority(demand: SpawnDemand): number {
     // The heartbeat outranks every SCALING producer and no BLOCKING one -
     // what FEEDER_LINCHPIN/TENDER_BOOTSTRAP always claimed, now expressed as
     // a tier instead of a value race it could not win.
-    p += INCOME_TIER + HEARTBEAT;
+    p += INCOME_TIER + (demand.storageBacked ? HEARTBEAT_BANKED : HEARTBEAT);
   } else if (demand.blocking) {
     // Non-income critical work (the first upgrader holding the controller against
     // downgrade): above idle consumption, but still below all income.

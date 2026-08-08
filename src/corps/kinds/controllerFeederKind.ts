@@ -15,6 +15,7 @@ import { Commission } from "../../economy/Commission";
 import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
 import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/proposeHelpers";
+import { feederSpawnLoad } from "../../economy/primitives";
 import { SerializedCorp } from "../Corp";
 import { ControllerFeederCorp, SerializedControllerFeederCorp } from "../ControllerFeederCorp";
 import { coreLink } from "../nodeEnergy";
@@ -49,15 +50,30 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
       if (!roomName) continue;
       ctrlFlowByRoom.set(roomName, (ctrlFlowByRoom.get(roomName) ?? 0) + (c.consumes.energyRate ?? 0));
     }
-    // Off-budget: a feeder MOVES energy already produced (bank -> controller),
-    // priced by the SpawnDirector's infrastructure tier, not the planner.
-    return [...homeSpawnsByRoom(problem)].map(([roomName, spawnId]) =>
-      perRoomAuxiliaryCommission("controllerFeeder", roomName, spawnId, {
+    // ON-BUDGET since spec 39 phase 4: the feeder declares the same shuttle
+    // price the colony's ledger already deducts as standing infra, from the
+    // SAME primitive (`feederSpawnLoad`) and the SAME two facts - the relay it
+    // is sized to, and whether the depot is link-fed (distance 1 vs 6, ~6x).
+    //
+    // Priced only where a DEPOT exists, matching infraSpawnLoad's
+    // `depotRoomCount > 0` gate: a room with no storage has nothing to shuttle
+    // FROM, and charging it would make the corps' sum exceed the deduction.
+    const depots = new Set(problem.depotRooms ?? []);
+    const linkFed = new Set(problem.linkFedRooms ?? []);
+    return [...homeSpawnsByRoom(problem)].map(([roomName, spawnId]) => {
+      const relay = ctrlFlowByRoom.get(roomName) ?? 0;
+      return perRoomAuxiliaryCommission(
+        "controllerFeeder",
         roomName,
         spawnId,
-        controllerAllocation: ctrlFlowByRoom.get(roomName) ?? 0
-      } as ControllerFeederAssignment)
-    );
+        {
+          roomName,
+          spawnId,
+          controllerAllocation: relay
+        } as ControllerFeederAssignment,
+        depots.has(roomName) ? feederSpawnLoad(relay, linkFed.has(roomName)) : 0
+      );
+    });
   },
 
   materialize(c: Commission, existing: ControllerFeederCorp | undefined): ControllerFeederCorp {

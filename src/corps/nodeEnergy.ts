@@ -18,6 +18,7 @@
 import "../types/Memory"; // RoomMemory.deadTiles augmentation (single-file ts-node runs)
 import { travelToBypass } from "./movement";
 import { LINK_FIRE_THRESHOLD } from "../economy/primitives";
+import { stripSourcePrefix } from "../economy/ids";
 
 /** A store-bearing structure a hauler can deposit into or draw from. */
 type StoreStructure = StructureContainer | StructureStorage | StructureSpawn | StructureExtension | StructureLink;
@@ -852,6 +853,45 @@ export function sourceBufferStock(source: Source): number | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * How stale a mouth observation may be and still price a drain fleet: one
+ * creep generation, the same horizon the drain law itself clears the buffer
+ * over.
+ *
+ * Erring long is the SAFE direction here, and the asymmetry is the argument.
+ * Over-price the drain and the plan buys CARRY that empties the mouth, after
+ * which the next observation reads ~0 and the term retires itself - one
+ * generation of slightly fat routes. Under-price it (today's behaviour) and
+ * the pile grows without bound, gates the miner off its own source, and takes
+ * the room's vision with it - which is why nothing self-corrects.
+ */
+export const MOUTH_STOCK_MAX_AGE = 1500;
+
+/**
+ * THE DURABLE MOUTH-STOCK LENS: what a miner last SAW at this source's mouth,
+ * or null if nobody has looked recently.
+ *
+ * Exists because `sourceBufferStock` needs VISION - `Game.getObjectById`
+ * returns null for a source in a remote room with no creep standing in it -
+ * and the SOLVE runs whether or not a creep happens to be there. The miner's
+ * read always succeeds (it is standing at the mouth), so it stamps what it
+ * sees and the plan reads the stamp. Exactly the durable-signal rule the
+ * stranded-reserver incident wrote: never key a decision on "one of our creeps
+ * is standing there", because it flaps on every death AND goes blind with the
+ * vision that creep provided.
+ *
+ * Measured t72850264: six of eleven mouths held 2,737-3,553 for 78-100% of the
+ * window while EVERY hauler route in the published plan was sized at
+ * `flow = 10` - the raw source rate, no drain term anywhere. The miner saw the
+ * pile (E6 reads these very stamps); the plan did not.
+ */
+export function observedMouthStock(sourceId: string, tick: number): number | null {
+  if (typeof Memory === "undefined") return null;
+  const w = Memory.pileMeter?.[stripSourcePrefix(sourceId).slice(-6)];
+  if (!w || w.stock === undefined || w.stockAt === undefined) return null;
+  return tick - w.stockAt <= MOUTH_STOCK_MAX_AGE ? w.stock : null;
 }
 
 /**

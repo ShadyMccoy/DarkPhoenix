@@ -57,7 +57,15 @@ export function tallyPileGate(
   meter: NonNullable<Memory["pileMeter"]>,
   sourceTail: string,
   tick: number,
-  held: boolean
+  held: boolean,
+  /**
+   * The buffer the miner ACTUALLY SAW this tick (null = fog). Recorded so the
+   * SOLVE can price a drain fleet for a mouth it cannot see - see
+   * `observedMouthStock`. Fog leaves the last observation standing rather than
+   * overwriting it with a fabricated zero: a pile does not vanish because we
+   * stopped looking.
+   */
+  observed: number | null = null
 ): { heldFor: number; heldFrac: number } {
   let w = meter[sourceTail];
   if (!w || tick - w.t0 >= PILE_METER_WINDOW) {
@@ -75,11 +83,16 @@ export function tallyPileGate(
       w.since = 0;
     }
   }
+  if (observed !== null) {
+    w.stock = observed;
+    w.stockAt = tick;
+  }
   return {
     heldFor: held && w.since ? tick - w.since + 1 : 0,
     heldFrac: w.samples > 0 ? w.held / w.samples : 0
   };
 }
+
 
 /**
  * De-price a piled source's miner demands (owner redesign 2026-07-29): the
@@ -635,7 +648,10 @@ export class HarvestCorp extends Corp {
             (Memory.pileMeter = Memory.pileMeter ?? {}),
             stripSourcePrefix(this.sourceId).slice(-6),
             ctx.tick,
-            piled
+            piled,
+            // The whole point of the durable stamp: this read SUCCEEDED (the
+            // miner is at the mouth), and the solve's own read will not.
+            buffered
           )
         : undefined;
     this.lastSizing = {

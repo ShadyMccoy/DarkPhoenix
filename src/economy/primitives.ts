@@ -15,6 +15,10 @@
  * @module economy/primitives
  */
 
+// The ONE non-constant input to this module: the handicap sweep's latched
+// margin. spawnSweep is itself a leaf (imports nothing), so this cannot cycle.
+import { currentHandicapPct } from "./spawnSweep";
+
 // ---------------------------------------------------------------------------
 // Screeps ground-truth constants - the founding numbers every formula below
 // derives from. Homed HERE (spec 35 phase B inverted the audited debt: this
@@ -41,6 +45,19 @@ export const BODY_COSTS = {
 
 /** Creep lifetime in ticks */
 export const CREEP_LIFETIME = 1500;
+
+/**
+ * Maximum distance (in room exits) a home works: the scouting radius, and with
+ * it the radius of every per-room lens keyed to a home (reservation targets,
+ * guard posts, core-buster reach).
+ *
+ * Lives HERE rather than in corps/CorpConstants - its historical home, which
+ * re-exports it - because this module is the leaf every tool can load.
+ * CorpConstants evaluates body literals (`[WORK, CARRY, MOVE]`) at import time
+ * and therefore cannot be required outside the game engine, and the lenses that
+ * need this constant (utils/raidMeter) are read by the audit scripts.
+ */
+export const MAX_SCOUT_DISTANCE = 5;
 
 /**
  * The PLAN's budget term (spec 46 phase A, owner 2026-08-05: "we take the
@@ -582,7 +599,6 @@ export function projectAbsorbRate(remainingWork: number, travelDistance = 0, acc
   return Math.max(5, remainingWork / projectBuildHorizon(travelDistance, accelerate));
 }
 
-
 /**
  * Body parts per WORK part of upgrader fleet, measured from the live fed-in-
  * place body (15W1C4M = 20 parts / 15 WORK). Used to convert a controller
@@ -628,7 +644,101 @@ export function constructionWorkSpawnLoad(energyPerTick: number, distance: numbe
 }
 
 /** Nominal feeder shuttle distance (storage -> controller input, measured live: 6). */
-const FEEDER_NOMINAL_DISTANCE = 6;
+export const FEEDER_NOMINAL_DISTANCE = 6;
+
+/** 2 CLAIM 2 MOVE - the full-budget live reserver body (see RESERVER_DUTY). */
+export const RESERVER_PARTS_PER_ROOM = 4;
+
+/** 2 tankers x measured 24-part body (owner ratchet 2026-07-22, priced WITH the
+ *  fleet-cap cut - P5: price = behavior). */
+export const TENDER_FLEET_PARTS = 48;
+
+// ---------------------------------------------------------------------------
+// PER-CORP STANDING INFRA (spec 39 phase 4 / spec 51).
+//
+// `infraSpawnLoad` below prices the standing infrastructure as ONE aggregate
+// from room COUNTS, because the solve needs the number before any auxiliary
+// commission exists (propose() reads the draft, so it cannot run first). That
+// aggregate is what the colony budget deducts - and, until now, what NO corp
+// owned: every auxiliary commission declared `spawnPartsPerTick: 0`, so the sum
+// of the corps was short by exactly this, and `waste-ledger.planSpawnLoad` was
+// written to re-derive the hole.
+//
+// These three functions are the aggregate DECOMPOSED per corp. Each auxiliary
+// kind prices ITSELF with the one that belongs to it, and `infraSpawnLoad`
+// composes the same three - so the corp sum and the solve's deduction are one
+// derivation in two shapes, not two books. `corpBudget.test.ts` pins the
+// identity; if a term ever drifts, the sum stops matching and the test fails.
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE depot room's feeder shuttle (storage -> controller input), parts/tick.
+ * The `feeder` term of {@link infraSpawnLoad}, extracted verbatim.
+ */
+export function feederSpawnLoad(relayRate: number, linkFed: boolean, linkFedSenders = 1): number {
+  // A LINK-FED depot's feeder leg shrinks to storage -> core link (spec 24
+  // rung 3, same controllerLink lens the corp reads): distance 1, ~1/6th the
+  // CARRY for the same relay.
+  const feederDist = linkFed ? 1 : FEEDER_NOMINAL_DISTANCE;
+  // Spec 45 volley-service floor: a link-fed feeder must clear a full volley
+  // PER INBOUND SENDER in one parked cycle (see volleyServiceCarry) - the plan
+  // prices the same floor the corp fields (F1: price = behavior).
+  const feederCarry = linkFed
+    ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry(linkFedSenders))
+    : carryPartsFor(relayRate, feederDist);
+  return (2 * feederCarry) / effectiveLife(feederDist);
+}
+
+/** ONE depot room's extension-tender detail, parts/tick. */
+export function tenderSpawnLoad(): number {
+  return TENDER_FLEET_PARTS / CREEP_LIFETIME;
+}
+
+/**
+ * 5 ATTACK + 5 MOVE - the full guard body `buildGuardBody` builds at its
+ * default 5-pair cap. Priced at the FULL body for the same reason
+ * RESERVER_PARTS_PER_ROOM is: under pressure the scheduler may fund the 3-pair
+ * floor, but the plan budgets for the body it asks for (F1 reads two-sided - an
+ * under-stating plan is as uncontrollable as an over-stating one).
+ */
+export const GUARD_PARTS_PER_ROOM = 10;
+
+/**
+ * ONE armed room's standing guard, parts/tick - the raid-defense term of
+ * {@link infraSpawnLoad}.
+ *
+ * Guards were F1's last standing UNPRICED class: the corp fields one per armed
+ * room continuously (RaidGuardCorp.getSpawnDemand, one demand per uncovered
+ * target) and the spawn pays for it every creep lifetime, but the commission
+ * declared `spawnPartsPerTick: 0`, so the colony's ledger never deducted it and
+ * the statement's `defense (guards)` line had to reconstruct the price from
+ * MEASURED bodies with a "-" budget beside it. Measured t72847768: 3 guards,
+ * 30 parts, 0.020 p/t of real spend that no row owned.
+ *
+ * Cadence is the STANDING fleet's replacement rate - body over creep lifetime -
+ * which is exactly the law `waste-ledger` measures with (`guardParts / 1500`),
+ * so plan and statement are one derivation. NOT walk-adjusted like the reserver:
+ * the reserver's price amortizes a DUTY CYCLE over the claim life it actually
+ * spends reserving, while a guard holds its post for its whole life and the
+ * spawn rebuilds it on the lifetime boundary regardless of how far it walked.
+ *
+ * The raid-driven SURGE (a wave that outlives its guard, replacements bought
+ * mid-fight) is not priced here - that is the invader tax, charged at ADMISSION
+ * where the room's income is netted.
+ */
+export function roomGuardSpawnLoad(): number {
+  return GUARD_PARTS_PER_ROOM / CREEP_LIFETIME;
+}
+
+/**
+ * ONE remote room's reservation corp, parts/tick. Linear in `parts`, so N of
+ * these sum EXACTLY to `reserverSpawnLoad(N * RESERVER_PARTS_PER_ROOM)` - which
+ * is what makes the per-corp price and the aggregate deduction reconcile to
+ * 1e-12 rather than approximately.
+ */
+export function roomReserverSpawnLoad(): number {
+  return reserverSpawnLoad(RESERVER_PARTS_PER_ROOM);
+}
 
 /**
  * Spawn build-time (parts/tick) of the standing infrastructure the plan
@@ -647,51 +757,51 @@ export function infraSpawnLoad(
   /** Inbound link senders on the core (deposit ports + source links). Scales
    * the volley floor - see volleyServiceCarry. Defaults to 1 so a caller that
    * does not know the topology prices exactly as it did before. */
-  linkFedSenders = 1
+  linkFedSenders = 1,
+  /** Rooms whose raid meter is ARMED (or under a live raid) - one standing
+   * guard each. Defaults to 0: a caller that does not know the defense picture
+   * prices exactly as it did before spec 51 phase 2. */
+  guardedRoomCount = 0
 ): number {
   // Feeder + tender are DEPOT movers: they exist only in rooms with a built
   // storage (`depotRoomCount`). Charging them unconditionally taxed early
   // worlds ~5-7% of the parts budget for infra that cannot exist there
   // (caught by grid cell plan-t1-single-source-loop on the first P4 gate).
-  // A LINK-FED depot's feeder leg shrinks to storage -> core link (spec 24
-  // rung 3, same controllerLink lens the corp reads): distance 1, ~1/6th
-  // the CARRY for the same relay. Priced like the original: one feeder
-  // detail for the depot room (multi-depot pricing arrives with expansion).
-  const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
-  // Spec 45 volley-service floor: a link-fed feeder must clear a full volley
-  // PER INBOUND SENDER in one parked cycle (see volleyServiceCarry) - the plan
-  // prices the same floor the corp fields (F1: price = behavior). Scaled by
-  // senders since the t72819265 A/B; `linkFedSenders` defaults to 1 so a
-  // caller that does not know the topology prices exactly as before.
-  const feederCarry =
-    linkFedRoomCount > 0
-      ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry(linkFedSenders))
-      : carryPartsFor(relayRate, feederDist);
-  const feeder = depotRoomCount > 0 ? (2 * feederCarry) / effectiveLife(feederDist) : 0;
-  // 2 tankers x measured 24-part body, per depot room (owner ratchet
-  // 2026-07-22, priced WITH the fleet-cap cut - P5: price = behavior).
-  const TENDER_FLEET_PARTS = 48;
-  const tender = (depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME;
-  const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE (the full-budget live body - see RESERVER_DUTY)
+  // Priced like the original: one feeder detail for the depot room (multi-depot
+  // pricing arrives with expansion).
+  //
+  // COMPOSED from the per-corp terms above (spec 39 phase 4): this aggregate and
+  // the auxiliary commissions that each declare their own share are ONE
+  // derivation in two shapes. Reservers are linear in parts, so N per-room
+  // prices sum to the aggregate EXACTLY - which is what lets the identity test
+  // assert to 1e-12 instead of approximately.
+  const feeder = depotRoomCount > 0 ? feederSpawnLoad(relayRate, linkFedRoomCount > 0, linkFedSenders) : 0;
+  const tender = depotRoomCount * tenderSpawnLoad();
   // Priced at the SHIPPED duty cycle (P5, verified live 2026-07-18): the
   // corp coasts on the reservation bank, one stint per ~1080t. Holding this
   // at 1.0 after the fix shipped was pure phantom slack (owner: no standing
   // reserves - defense preempts via priority when needed, it does not
   // reserve capacity). Composed from reserverSpawnLoad - the ONE home.
   const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM);
-  return feeder + tender + reservers;
+  // Standing guards, one per ARMED room (spec 51 phase 2). Zero when the colony
+  // is quiet, which is the common case - this is a CONDITIONAL standing fleet,
+  // so it must follow the armed-room lens and never a constant, or a peaceful
+  // colony pays for defense it never fields.
+  const guards = guardedRoomCount * roomGuardSpawnLoad();
+  return feeder + tender + reservers + guards;
 }
 
 /**
- * The ENERGY twin of {@link infraSpawnLoad} - the same three details, priced in
+ * The ENERGY twin of {@link infraSpawnLoad} - the same details, priced in
  * energy/tick instead of build-parts/tick.
  *
  * Kept adjacent and structurally identical ON PURPOSE: same signature, same
  * terms, same order, so a change to one is visibly a change to the other. The
  * only difference is the per-part price, and it is per-CLASS because the bodies
  * differ - feeder and tender are CARRY+MOVE pairs (100e per 2 parts) while a
- * reserver is CLAIM+MOVE (650e per 2). A single averaged rate would be the
- * biased conversion F1 warns about; per body it is exact.
+ * reserver is CLAIM+MOVE (650e per 2) and a guard ATTACK+MOVE (130e per 2). A
+ * single averaged rate would be the biased conversion F1 warns about; per body
+ * it is exact.
  *
  * Exists because the plan under-routed the spawn: `flowAdapter.discoverSinks`
  * priced the spawn sink at a hardcoded 10 e/t "base overhead" while the fleet
@@ -707,10 +817,13 @@ export function infraSpawnEnergy(
   /** Inbound link senders on the core (deposit ports + source links). Scales
    * the volley floor - see volleyServiceCarry. Defaults to 1 so a caller that
    * does not know the topology prices exactly as it did before. */
-  linkFedSenders = 1
+  linkFedSenders = 1,
+  /** Armed rooms - one standing guard each. See the parts twin. */
+  guardedRoomCount = 0
 ): number {
   const CARRY_MOVE_PER_PART = CARRY_MOVE_PAIR_COST / 2;
   const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
+  const ATTACK_MOVE_PER_PART = (BODY_COSTS.ATTACK + BODY_COSTS.MOVE) / 2;
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
   // Spec 45 volley-service floor - the SAME line as the parts twin above.
   const feederCarry =
@@ -718,11 +831,13 @@ export function infraSpawnEnergy(
       ? Math.max(carryPartsFor(relayRate, feederDist), volleyServiceCarry(linkFedSenders))
       : carryPartsFor(relayRate, feederDist);
   const feeder = depotRoomCount > 0 ? ((2 * feederCarry) / effectiveLife(feederDist)) * CARRY_MOVE_PER_PART : 0;
-  const TENDER_FLEET_PARTS = 48;
+  // The same two fleet constants the PARTS twin uses - hoisted to module scope
+  // by spec 39 phase 4 so the per-corp primitives, the parts aggregate and this
+  // energy aggregate all read one declaration instead of three copies.
   const tender = ((depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME) * CARRY_MOVE_PER_PART;
-  const RESERVER_PARTS_PER_ROOM = 4;
   const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
-  return feeder + tender + reservers;
+  const guards = guardedRoomCount * roomGuardSpawnLoad() * ATTACK_MOVE_PER_PART;
+  return feeder + tender + reservers + guards;
 }
 
 /**
@@ -753,8 +868,7 @@ export function reserverSpawnLoad(parts: number): number {
  */
 export function reserverRoomEnergy(): number {
   const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
-  const RESERVER_PARTS_PER_ROOM = 4; // 2 CLAIM 2 MOVE, the full-budget live body
-  return reserverSpawnLoad(RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
+  return roomReserverSpawnLoad() * CLAIM_MOVE_PER_PART;
 }
 
 /**
@@ -913,13 +1027,30 @@ export function energyPerSpawnPart(rate: number, distance: number): number {
 export const SPAWN_PLAN_FRACTION = 0.9;
 
 /**
+ * The margin ACTUALLY in force this tick.
+ *
+ * `SPAWN_PLAN_FRACTION` above is the DEFAULT and the fail-safe. When the
+ * handicap sweep is armed (economy/spawnSweep, owner 2026-08-06) the experiment
+ * owns this number instead and walks it 0%..20% one step per fiscal month. An
+ * unarmed colony - every grid cell, every sim, every unit test, and a live
+ * colony whose Memory was wiped - resolves to 0.9, the measured-good value.
+ *
+ * Deliberately the ONLY seam between the experiment and the planner: nothing
+ * else in the economy reads the sweep.
+ */
+export function spawnPlanFraction(): number {
+  const pct = currentHandicapPct();
+  return pct === undefined ? SPAWN_PLAN_FRACTION : 1 - pct / 100;
+}
+
+/**
  * Parts/tick the PLANNER may budget across `spawnCount` spawns - the ONE lens
  * every plan-side capacity read derives from, so the whole plan shrinks
  * uniformly (mining tranche and sink fill alike) rather than one tranche
  * eating the margin.
  */
 export function plannableSpawnParts(spawnCount: number): number {
-  return spawnCount * SPAWN_PARTS_PER_TICK * SPAWN_PLAN_FRACTION;
+  return spawnCount * SPAWN_PARTS_PER_TICK * spawnPlanFraction();
 }
 
 /**
@@ -984,8 +1115,70 @@ export const LINK_CAPACITY = 800;
  * `senders` defaults to 1 so every legacy call site is bit-identical; zero
  * senders means no service post and therefore no floor at all.
  */
+/**
+ * ONE link's payload expressed in CARRY parts (800 / 50 = 16) - the LANDING
+ * QUANTUM. A creep unloading into a link port can place exactly this much per
+ * arrival, which is what `depositRouteCarryCap` caps a deposit body at.
+ *
+ * Deliberately separate from the feeder's service floor below. Both used to be
+ * `volleyServiceCarry()`, one function meaning two different things: "how much
+ * fits in a link" and "how big must the core's shuttle be". They are not the
+ * same quantity and they no longer scale together.
+ */
+export const LINK_PAYLOAD_CARRY = LINK_CAPACITY / CARRY_CAPACITY;
+
+/**
+ * CARRY per inbound sender for the CORE LINK'S SHUTTLE (owner 2026-08-07:
+ * *"the core link has a feeder tender creep slave. It empties it to ensure
+ * incoming links can transfer (links coming off cooldown) and fills it when if
+ * necessary when it needs to send energy to the upgraders. I recon it needs 8
+ * carry to do its job well in our room. At lower RCL maybe 4 is good."*).
+ *
+ * Our room runs 2 inbound senders, so 4/sender IS the owner's 8; a
+ * single-sender room (lower RCL, one source link) is the owner's 4. One
+ * coefficient, both numbers.
+ *
+ * WHY 4 AND NOT 16 - and why this does not overturn the t72819265 A/B. That
+ * A/B varied CARRY and CREEP COUNT together (1 feeder @ 16 vs 2 feeders @ 32)
+ * and its own conclusion names the mechanism as CONCURRENCY, not capacity:
+ * *"One creep working harder cannot cover two senders arriving at once - it
+ * can only serve them one after the other"*, with the throughput meter showing
+ * the SINGLE feeder moving MORE per tick while the core clamped three times as
+ * often. The fix that shipped encoded the finding as CARRY-per-sender, but the
+ * finding was CREEPS-per-sender. That part is kept: the corp still fields one
+ * feeder per inbound sender (`wantedFeeders`), so the senders are served in
+ * parallel. Only the per-creep body shrinks.
+ *
+ * The physics: the shuttle sits one tile from both storage and the core, so a
+ * withdraw+transfer cycle is ~2 ticks. 4 CARRY clears 200e per cycle, 800e in
+ * ~8 ticks - inside a source link's own cooldown (LINK_COOLDOWN x range), which
+ * is what sets how often a volley can actually arrive. Sizing the shuttle to
+ * swallow a whole volley in ONE cycle was insurance against a latency the
+ * arrival rate cannot produce.
+ *
+ * Measured at the 16/sender floor (t72851251, 2 senders, 50 CARRY fielded):
+ * `hubClampShare 0.000` over the window, `coreEmptyShare 0.474`,
+ * `hubVolleyAvg 592` - the core never clamped once, sat drained half the time,
+ * and volleys were not even arriving full. The premium was 100 spawn parts,
+ * 15% of the colony's whole fleet, on the single most expensive corp.
+ *
+ * CPU VARIANT, deliberately NOT wired (owner: *"At cpu constraints 16 might be
+ * better"* - a hypothesis, and the firm numbers are 8 and 4). Doubling to 8
+ * halves the intent count for the same throughput: each withdraw/transfer pair
+ * costs ~0.2 CPU, so a 2x body moves the same energy in half the cycles. The
+ * trade is spawn parts for CPU and it belongs to the governor. It is not keyed
+ * to `CpuGovernor` here on purpose - the governor is DRY-RUN by default and
+ * the mockup meters REAL cpu, so keying a body size to it would couple grid
+ * cell behaviour to HOST LOAD (the documented trap that failed six
+ * baseline-green cells).
+ */
+export const CORE_SERVICE_CARRY_PER_SENDER = 4;
+
+/** The CPU-constrained variant of the above. See its note - not wired. */
+export const CORE_SERVICE_CARRY_PER_SENDER_CPU = 8;
+
 export function volleyServiceCarry(senders = 1): number {
-  return Math.max(0, Math.floor(senders)) * (LINK_CAPACITY / CARRY_CAPACITY);
+  return Math.max(0, Math.floor(senders)) * CORE_SERVICE_CARRY_PER_SENDER;
 }
 
 /**
@@ -1009,7 +1202,7 @@ export function volleyServiceCarry(senders = 1): number {
  * portRemaining debit, so this changes body shape, never routed energy.
  */
 export function depositRouteCarryCap(carry: number, isDepositRoute: boolean): number {
-  return isDepositRoute ? Math.min(carry, volleyServiceCarry()) : carry;
+  return isDepositRoute ? Math.min(carry, LINK_PAYLOAD_CARRY) : carry;
 }
 
 // ---------------------------------------------------------------------------
@@ -1104,6 +1297,46 @@ export function invaderTaxPerEnergy(expectedRaidCost: number): number {
 
 /** The default remote-source tax rate (~0.71% of gross at the derived cost). */
 export const INVADER_TAX_PER_ENERGY = invaderTaxPerEnergy(EXPECTED_RAID_DEFENSE_COST);
+
+/**
+ * THE ADMISSION TAX, DERIVED (owner 2026-08-07: *"We can estimate the invader
+ * tax rate from first principles. 10 or 20 energy mined per tick. Every 10,000
+ * to 5,000 ticks for 100,000 trigger right?"*). Right - and every term below is
+ * an engine fact or an already-derived primitive, so no free constant remains:
+ *
+ *   ticks per raid cycle   = INVADER_RAID_MEAN_ENERGY / roomMinedRate
+ *   ticks ARMED per cycle  = (MEAN - RAID_ARM_FLOOR) / roomMinedRate
+ *   guard cost while armed = roomGuardSpawnLoad() x the ATTACK+MOVE part price
+ *   tax per energy mined   = guardCost x armedTicks / MEAN
+ *
+ * WHY THE OLD SHAPE WAS WRONG, not merely mis-tuned. `EXPECTED_RAID_DEFENSE_COST
+ * = 750` is "one guard body (650) + 15% margin" - a PER-RAID PURCHASE. That was
+ * the right model when nothing else priced guards. Since spec 51 phase 2 the
+ * guard is a STANDING fleet, charged continuously from the moment the meter
+ * arms, so what a room owes is the time it holds a guard - and that is
+ * inversely proportional to how fast it mines. A slow 1-source room holds its
+ * guard for 4,000 ticks per raid; a 2-source room for 2,000. One global
+ * coefficient cannot express that, which is why this is a function of the ROOM's
+ * rate (the meter accrues per room, not per source).
+ *
+ * This retires the R1 calibration gate for THIS quantity. Seven windows never
+ * converged because the ledger was accumulating the wrong numerator - its own
+ * evidence gate reads killed-WHERE at 99-100% HOME ROOM, ~0% intel-hostile, so
+ * the attrition it measured was never raid loss. Expected raid LOSS is a
+ * separate question and keeps its own constant (see tombstoneLossBudget);
+ * conflating the two is what made both unfalsifiable.
+ *
+ * NOT a double charge against the guard's own infra price. `infraSpawnEnergy`
+ * sizes the SPAWN SINK's demand (energy that must actually flow to rebuild the
+ * fleet); this is a HURDLE RATE on a candidate's net, and no energy leaves the
+ * plan through it - it only decides which remotes are worth working.
+ */
+export function raidGuardTaxPerEnergy(roomMinedRate: number): number {
+  if (roomMinedRate <= 0) return 0;
+  const guardEnergyRate = roomGuardSpawnLoad() * ((BODY_COSTS.ATTACK + BODY_COSTS.MOVE) / 2);
+  const armedTicks = (INVADER_RAID_MEAN_ENERGY - RAID_ARM_FLOOR) / roomMinedRate;
+  return (guardEnergyRate * armedTicks) / INVADER_RAID_MEAN_ENERGY;
+}
 
 // ---------------------------------------------------------------------------
 // Mineral extraction (spec 22 estimate, ahead of the mineral corp). An
