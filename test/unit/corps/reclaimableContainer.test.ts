@@ -52,6 +52,56 @@ describe("reclaimableContainer (give back the slot a link already made dead)", (
     expect(r!.reason).to.contain("controller link");
   });
 
+  /**
+   * THE BLOCKING CASE (owner 2026-08-08: *"the controller link should not have
+   * a container"*), measured at t72862894.
+   *
+   * The superseded controller container sat at (41,36) and the deposit port at
+   * (43,38) - chebyshev 2, which is exactly the range `resolvePortBuffer`
+   * searches and `hasContainerNear` tests. So the dead container made the port
+   * rung believe that port was already served, forever, while the delivery side
+   * bound the CONTROLLER's store as the port's buffer. The table was 4/5 the
+   * whole time, so the FULL gate never fired and nothing noticed.
+   *
+   * One dead container silently costing a real port its buffer is not tidiness,
+   * which is why `full` is lifted here and only here.
+   */
+  it("reclaims a dead container that BLOCKS a port's buffer range, free slot or not", () => {
+    const blocking = census({
+      built: 4,
+      free: 1,
+      full: false,
+      containers: [c(41, 36, 40)],
+      ports: [{ pos: pos(43, 38), hasContainer: true }], // "served" - by the dead one
+      supersededControllerContainer: c(41, 36, 40)
+    });
+    const r = reclaimableContainer(blocking);
+    expect(r, "the dead container is inside the port's buffer range").to.not.equal(null);
+    expect(r!.pos.x).to.equal(41);
+    expect(r!.reason).to.contain("blocks");
+  });
+
+  /**
+   * DRAIN FIRST. Destroying a container spills its contents, and a ground pile
+   * decays at ceil(amount/1000) per tick - the live one held 1,900e. Nothing
+   * refills a superseded container, so a blocking reclaim can simply wait; the
+   * FULL-table reclaim cannot, and pays the spill as documented.
+   */
+  it("WAITS for a blocking container to drain rather than spilling its load", () => {
+    const loaded = census({
+      built: 4,
+      free: 1,
+      full: false,
+      containers: [c(41, 36, 1900)],
+      ports: [{ pos: pos(43, 38), hasContainer: true }],
+      supersededControllerContainer: c(41, 36, 1900)
+    });
+    expect(reclaimableContainer(loaded), "1,900e would hit the ground").to.equal(null);
+    // ...and once it has drained, the same census reclaims.
+    const drained = { ...loaded, containers: [c(41, 36, 20)], supersededControllerContainer: c(41, 36, 20) };
+    expect(reclaimableContainer(drained)).to.not.equal(null);
+  });
+
   it("does NOTHING while the table has a free slot - reclaim is a last resort, not a tidy-up", () => {
     // 5,000e of build is destroyed by a retire. If a rung can simply place,
     // it must; the swap exists only because the cap is hard.
