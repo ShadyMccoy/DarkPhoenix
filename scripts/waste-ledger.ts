@@ -50,6 +50,7 @@ import {
   tombstoneLossBudget
 } from "../src/economy/primitives";
 import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerRate } from "../src/economy/bank";
+import { AccountCategory } from "../src/economy/accountCategory";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -258,6 +259,16 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
  * what the spawn could afford). Two shadowing literals go with it: `1500` for
  * CREEP_LIFETIME on the legacy guard path, and a hand-copied `4/3` for
  * UPGRADER_PARTS_PER_WORK.
+ *
+ * Also in this stamp: `ACCOUNT_CLASS_OF_ROLE` is typed to the plan side's own
+ * `AccountCategory`, so the two tables (kind -> line, role -> line) share ONE
+ * vocabulary and a class-name typo is a compile error instead of a silent
+ * "other" bucket. With the type came the last unclassified role: `jack`, the
+ * cold-start body, moves from `UNCLASSIFIED [jack]` to a named `bootstrap`
+ * line. It stays INSIDE overhead where the unclassified bucket already carried
+ * it, so no total moves - a #17 overhead and a #18 overhead differ by nothing
+ * here, only the line's name. It keeps a "-" budget: the flow planner does not
+ * price a pre-economy body, and that absence is the honest part.
  *
  * Also in this stamp, from the PLAN side (spec 51 GAP 1): the construction
  * budget line echoes `consumerSpawnLoad`, which now shares ONE derivation with
@@ -2476,8 +2487,20 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
  * declarations), so a new kind's role fails the audit until someone decides
  * its account, rather than vanishing into a bucket. Any role that still slips
  * through prints as UNCLASSIFIED with its name, never as anonymous "other".
+ *
+ * TYPED to `AccountCategory` (2026-08-08, spec 51): this table and
+ * `economy/accountCategory`'s `CATEGORY_OF_KIND` are the SAME vocabulary
+ * projected two ways - the plan side keys by KIND, this side keys by ROLE
+ * because role is all `Memory.spawnLedger` carries (deliberately: a small
+ * closed set that cannot grow unboundedly as commissions churn - see the
+ * ledger's own header). Sharing the type makes a class-name typo a compile
+ * error instead of a silent "other" bucket, and it means the two sides cannot
+ * drift into naming the same line differently.
+ *
+ * They stay two TABLES until per-corp spawn accounting lands (spec 40 Part A),
+ * because role genuinely cannot resolve the two ambiguities noted below.
  */
-export const ACCOUNT_CLASS_OF_ROLE: Record<string, string> = {
+export const ACCOUNT_CLASS_OF_ROLE: Record<string, AccountCategory> = {
   // DIRECT COST OF MINING - the three roles whose spend is attributable to the
   // gross-mining revenue line, so the statement can show a NET MINING MARGIN
   // (owner 2026-08-01: "reserving is an overhead applied to the gross mining").
@@ -2506,7 +2529,16 @@ export const ACCOUNT_CLASS_OF_ROLE: Record<string, string> = {
   builder: "consumers",
   claimer: "expansion",
   buster: "incursion",
-  striker: "incursion"
+  striker: "incursion",
+  // `jack` is the BOOTSTRAP body - the cold-start generalist that mines, hauls
+  // and upgrades before any corp exists to own it. It had no class at all and
+  // printed as a dangling `UNCLASSIFIED [jack]` line (spec 51 names it as one
+  // of the three role-keying defects). The plan's vocabulary already had its
+  // home - `CATEGORY_OF_KIND.bootstrap`, whose type comment reads "cold-start
+  // bodies, before the economy exists to classify them" - so this is the two
+  // tables agreeing, not a new judgement. It stays inside OVERHEAD, where the
+  // unclassified bucket already carried it, so no total moves.
+  jack: "bootstrap"
 };
 
 export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
@@ -2531,9 +2563,10 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const spendBase = spendOf(base);
   const spawnSpanned = spendCap !== undefined && spendBase !== undefined;
 
+  // One bucket per AccountCategory, plus `other` for a role no table classifies.
   const cost: Record<string, number> = {
     extraction: 0, evacuation: 0, reservation: 0,
-    infra: 0, defense: 0, consumers: 0, expansion: 0, incursion: 0, other: 0
+    infra: 0, defense: 0, consumers: 0, expansion: 0, incursion: 0, bootstrap: 0, other: 0
   };
   const unknownRoles = new Set<string>();
   if (spawnSpanned) {
@@ -2566,7 +2599,9 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
       ? Math.max(0, (scavOf(spendCap) ?? 0) - (scavOf(spendBase) ?? 0))
       : undefined;
   const direct = cost.extraction + cost.evacuation + cost.reservation;
-  const overhead = cost.infra + cost.defense + cost.consumers + cost.other;
+  // `bootstrap` sits in overhead where `other` already carried it, so naming the
+  // class moves no total - it only stops the line printing as UNCLASSIFIED.
+  const overhead = cost.infra + cost.defense + cost.consumers + cost.bootstrap + cost.other;
   const capital = cost.expansion + cost.incursion;
   const spawnTotal = direct + overhead + capital;
 
@@ -2948,6 +2983,11 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     // prices at admission, not here).
     L("defense    (guard)", -perTick(cost.defense), 4, -bDefense, "cost"),
     L("consumers  (upgrader, builder)", -perTick(cost.consumers), 4, -bConsumers, "cost"),
+    // Cold-start bodies. Budget is "-" on purpose: the flow planner does not
+    // price bootstrap (there is no economy yet to price it against), so the
+    // spend is real and the plan states nothing - which is the honest read, not
+    // a zero implying it should cost nothing.
+    ...(cost.bootstrap > 0 ? [L("bootstrap  (jack)", -perTick(cost.bootstrap), 4)] : []),
     ...(cost.other > 0
       ? [L(`UNCLASSIFIED [${[...unknownRoles].join(", ")}]`, -perTick(cost.other), 4)]
       : []),

@@ -25,6 +25,7 @@ import {
   tenderSpawnLoad
 } from "../../../src/economy/primitives";
 import { BASE_RESERVE, bankFedControllerRate } from "../../../src/economy/bank";
+import { categoryOfKind, classifiedKinds } from "../../../src/economy/accountCategory";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -1516,14 +1517,57 @@ describe("F1 class map covers every registered corp kind", () => {
  * A chart of accounts with an anonymous bucket is not a chart of accounts.
  */
 describe("energy account: every spawnable role has an account", () => {
+  /**
+   * Roles the bot really buys from OUTSIDE the kind registry, so `ALL_SPAWN_ROLES`
+   * (derived from the kinds' own `roles` declarations) cannot see them. Each
+   * needs a named reason - the set exists so a typo still fails the ghost check
+   * rather than being waved through as "probably one of those".
+   */
+  const BOUGHT_OUTSIDE_THE_REGISTRY = new Set([
+    // BootstrapCorp spawns jacks directly, bypassing the SpawningCorp executor
+    // (it accrues to the ledger itself). There is no bootstrapKind to declare
+    // the role, but the spend is real and lands in the account.
+    "jack"
+  ]);
+
   it("classifies every role any registered kind can buy", () => {
     const unclassified = ALL_SPAWN_ROLES.filter(r => !ACCOUNT_CLASS_OF_ROLE[r]);
     expect(unclassified, `roles with no account: ${unclassified.join(", ")}`).to.deep.equal([]);
   });
 
   it("maps no role that no kind declares (the ghost-key check)", () => {
-    const ghosts = Object.keys(ACCOUNT_CLASS_OF_ROLE).filter(r => !ALL_SPAWN_ROLES.includes(r));
+    const ghosts = Object.keys(ACCOUNT_CLASS_OF_ROLE).filter(
+      r => !ALL_SPAWN_ROLES.includes(r) && !BOUGHT_OUTSIDE_THE_REGISTRY.has(r)
+    );
     expect(ghosts, `mapped roles no kind buys: ${ghosts.join(", ")}`).to.deep.equal([]);
+  });
+
+  /**
+   * `jack` was the last role with no account, printing as a dangling
+   * `UNCLASSIFIED [jack]` line - one of the three role-keying defects spec 51
+   * names. The plan's vocabulary already had its home: `CATEGORY_OF_KIND`
+   * classifies kind `bootstrap`, and `AccountCategory`'s own comment reads
+   * "cold-start bodies, before the economy exists to classify them".
+   *
+   * BootstrapCorp used to argue the opposite - "no account class on purpose ...
+   * which is honest for a pre-economy body" - but the honesty there is the
+   * ABSENT BUDGET, not the absent name, and a named line keeps the first while
+   * dropping the second. Pinned both ways: it is classified, and it stays inside
+   * overhead where the unclassified bucket already carried it, so naming it
+   * moved no total.
+   */
+  it("gives the cold-start body a NAME, not an UNCLASSIFIED bucket", () => {
+    expect(ACCOUNT_CLASS_OF_ROLE.jack).to.equal("bootstrap");
+    expect(categoryOfKind("bootstrap"), "the two tables agree on the line").to.equal(ACCOUNT_CLASS_OF_ROLE.jack);
+  });
+
+  it("shares ONE vocabulary with the plan side - every role class is a real AccountCategory", () => {
+    // The two tables key differently (role here, kind there) but must name the
+    // same lines. TypeScript pins this at compile time; this pins it against the
+    // plan side's actual roster so a category retired there fails here.
+    const planCategories = new Set(classifiedKinds().map(k => categoryOfKind(k) as string));
+    const strays = [...new Set(Object.values(ACCOUNT_CLASS_OF_ROLE))].filter(c => !planCategories.has(c));
+    expect(strays, `role classes no kind reports on: ${strays.join(", ")}`).to.deep.equal([]);
   });
 
   it("keeps expansion OUT of operating cost (capex, funded from the reserve)", () => {
