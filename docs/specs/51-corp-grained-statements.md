@@ -411,6 +411,36 @@ a gate; it cannot even compile.
 4. **The budget column becomes Σ corps.** `planSpawnLoad` and the per-line budget
    formulas are deleted, not refactored — the whole point is that there is one
    book.
+
+   **PART-WAY, 2026-08-08.** The column is now ONE book internally — every cost
+   line projects `planSpawnLoad(cap).energy`, so `TOTAL SPAWN` is the sum of the
+   lines that decompose it *by construction*, and that identity is a test.
+   Extraction and evacuation had been reduced independently from
+   `flow.sources` / `flow.haulers`; they agreed to 1e-15 across all 25 committed
+   fixtures, which is exactly the kind of agreement that survives right up until
+   it doesn't. The rendered report was byte-identical across the change.
+
+   The parts→energy conversion is also one declaration now
+   (`CARRY_MOVE_PER_PART` / `CLAIM_MOVE_PER_PART` / `ATTACK_MOVE_PER_PART`
+   exported from primitives, methodology #18). It had been THREE copies — two
+   sets of locals in primitives plus waste-ledger's own table — and on guards
+   they disagreed: the statement priced ATTACK+MOVE at a hand-written 80 e/part
+   against the colony's 65, a 23% over-statement landing exactly in the window
+   phase 2 had just created to make guard variance readable.
+
+   **What remains is the last step and it needs a capture.** The column still
+   reads `planSpawnLoad`, not the corps segment. Segment v17 publishes
+   `consumes`/`produces`/`account` per corp, but **the newest capture on disk is
+   v16**, so `npm run audit:corps` prints its PREDATES banner and the corp-sum
+   column cannot be validated against a real colony. Deploy and recapture first;
+   until then a corp-summed column would be untested code standing next to a
+   working book.
+
+   One design note for whoever does it: the corps segment publishes PARTS, and
+   the statement's column is ENERGY. Either widen `CommissionInputs` with a
+   spawn-energy term (spec §5's "one corp row, several columns"), or convert
+   per corp from the kind's declared body class — the three exported per-part
+   constants above are that conversion, already shared.
 5. **Every row drills to corp.** Free once corp rows are published: the row IS
    the sum of its corps, so the drill-down is the addends. `docs/fiscal/` closes
    gain a per-corp table under each category.
@@ -499,6 +529,21 @@ both ways.
 - Every category row expands to its corp rows; the expansion sums to the row.
 - No line's budget is computed anywhere except the corp that owns it —
   `planSpawnLoad` and `ACCOUNT_CLASS_OF_ROLE` are gone.
+
+  **Amended 2026-08-08 on the second half.** `ACCOUNT_CLASS_OF_ROLE` cannot
+  simply go: it is the ACTUAL side's classifier, and the actual side is
+  role-grained *by design* — `Memory.spawnLedger`'s own header says role totals
+  are a small closed set that cannot grow unboundedly as commissions churn,
+  while per-corp cumulative accounting is spec 40 Part A's remit. So the target
+  is one VOCABULARY, two projections, not one table: the role map is now typed
+  to `AccountCategory` and pinned against the plan side's roster, so a typo is a
+  compile error and a retired category fails a test instead of orphaning a line.
+
+  That also closed the third of the three role-keying defects this spec names.
+  `jack` was never an ambiguity like `tanker`/`hauler` — it was a missing entry,
+  and `bootstrap` was already declared for it. It now prints as a named line
+  inside overhead where the unclassified bucket already carried it, so no total
+  moved. `tanker` and `hauler` still need corp grain.
 - Categories still reconstructed (pre-39-phase-4) are LABELLED as such in the
   statement.
 
