@@ -11073,3 +11073,74 @@ Sweep now at 17%.
 
 **Verdict: FIXED (two accounting seams closed) + NAMED (the pile-decay chain,
 with its mechanism measured end to end).**
+
+---
+
+## Audit cycle t72851084 — one prediction confirmed, one falsified, one refused
+
+Post-deploy verification of the two previous cycles' fixes.
+
+### CONFIRMED, and larger than predicted: construction scope
+
+```
+construction sinks:  0            (was 1: W41N25, demand 10 @ priority 70)
+controller sink:     allocated 51.05, unmet 0   (was 32.58, unmet 35.69)
+P4:                  0.72x        (was 0.99x)
+account:             construction  0.00 / 0.00 / +0.00   (was 10.00 / 0.00 / -10.00 U)
+```
+
+**+18.47 e/t of plan allocation moved to the controller** — more than the ~10
+predicted, because the site was displacing through the ladder as well as taking
+its own claim. The site itself still stands in `siteLedger` (`W41N25 rem 418`),
+unfunded and costing nothing, exactly as designed.
+
+### FALSIFIED: "the mouth-stock stamp is not being written"
+
+A `Memory.pileMeter` probe reads nine mouths carrying fresh stock at the capture
+tick — dbcd8d 5274, dbcd98 3075, dbcedc 3003, dbcee0 2864, dbcee2 2002, dbd01f
+1945, dbcd94 1815, dbcd8e 1590. **The write side works.**
+
+But the drain uplift is not landing at anything like the priced size:
+
+| tail | stock | expected Δ p/t | actual Δ |
+|---|---|---|---|
+| dbcd8d | 5274 | +0.0081 | +0.0004 |
+| dbcee0 | 2864 | +0.0044 | −0.0002 |
+| dbcedc | 3003 | +0.0047 | −0.0002 |
+| dbcd98 | 3075 | +0.0100 | +0.0050 |
+| dbd01f | 1945 | +0.0059 | −0.0001 |
+
+The parts ledger is not dry either (`spent 0.339 / budget 0.403, dry false`), so
+the obvious second suspect is out.
+
+E6 reads 5 of 11 gated (was 6), pile decay 13.52 (was 13.36), forgone mining
+**10.32 e/t (was 2.82) — MISS**. The drain fix has not yet moved its target.
+
+### REFUSED: a third derivation
+
+**My own deploy prediction was wrong on a field the term never writes to.** I
+predicted "source routes carrying `flow > 10`"; the drain reprice adds to
+`carryParts` and `spawnParts` and never touches `flowRate`. It folds into
+`carryParts`, so from a capture "the lens is dead" and "the lens is fine, the
+uplift is small" print *identically*.
+
+Per the method — one falsified hypothesis ⇒ instrument, don't re-theorize — the
+plan now publishes its own input: `sources[].staged` (flow segment **v17**), the
+buffer the reprice actually read. Absent means the plan saw no buffer, which is
+a different statement from zero. One capture then decides between "the lens
+never reached the problem" and "it reached it and the uplift is eaten
+downstream".
+
+### Also moved, worth watching
+
+- **R1 5.70× the priced tax** (was 2.70×), and killed-where now reads **20% in
+  intel-hostile rooms** (W44N23) against 0% for every prior window. Tombstone
+  losses 3.47 e/t, 99% killed. That is the first window where the raid story has
+  real evidence behind it — the evidence gate that has been holding
+  `EXPECTED_RAID_DEFENSE_COST` may be about to open.
+- **Residual −4.27** (was +0.61). Bank draining 23.13 e/t; INCOME-FUNDED 39%.
+
+Fiscal: FY4856-M07 closed (t72849000→t72850500, 100%, handicap 17%).
+
+**Verdict: FIXED (construction scope, +18.47 e/t measured) + INSTRUMENTED (the
+drain term's input, after refusing to guess twice).**
