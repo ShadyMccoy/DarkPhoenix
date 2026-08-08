@@ -4,7 +4,7 @@ import "../../../src/types/Memory";
 import { setupGlobals, Game, RawMemory } from "../mock";
 import { Telemetry, CorpCensusEntry } from "../../../src/telemetry/Telemetry";
 import { UpgradingCorp } from "../../../src/corps/UpgradingCorp";
-import { ControllerFeederCorp } from "../../../src/corps/ControllerFeederCorp";
+import { LinkCorp } from "../../../src/corps/LinkCorp";
 import { ExtensionTenderCorp } from "../../../src/corps/ExtensionTenderCorp";
 import { SinkAllocation } from "../../../src/flow/FlowTypes";
 
@@ -151,13 +151,13 @@ describe("Telemetry sizing records (segment 4, spec 14 phase 2)", () => {
    * incident 2026-07-18: feeder+tender at 0 creeps across consecutive
    * captures, cause invisible because gates stamped nothing).
    */
-  it("ControllerFeederCorp stamps the gate that blocked it (no-spawn path)", () => {
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+  it("LinkCorp stamps the gate that blocked it (no-spawn path)", () => {
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     corp.getSpawnDemand({ energyCapacity: 550, tick: 100 });
     expect(corp.lastSizing).to.deep.include({ tick: 100, gate: "no-spawn" });
   });
 
-  it("ControllerFeederCorp stamps banked + hasMiner on the no-miner gate (the live suspect)", () => {
+  it("LinkCorp stamps banked + hasMiner on the no-miner gate (the live suspect)", () => {
     const room: any = {
       name: "W1N1",
       controller: { my: true },
@@ -167,7 +167,7 @@ describe("Telemetry sizing records (segment 4, spec 14 phase 2)", () => {
     (Game as any).getObjectById = () => ({ id: "spawn1", room, pos: { getRangeTo: () => 6 } });
     Game.creeps = {}; // no harvest creep STANDS in the room -> gate closes
 
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     corp.getSpawnDemand({ energyCapacity: 1800, tick: 100 });
 
     const s = corp.lastSizing!;

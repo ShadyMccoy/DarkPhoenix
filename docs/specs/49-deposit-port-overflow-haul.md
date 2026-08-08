@@ -183,3 +183,51 @@ whole in-room leg is paved trunk. That geometry is where `p + r < D` genuinely
 holds and where the overflow band pays outright rather than on second-order
 terms. Leg B is the pricing edge links need to exist; without it the plan
 refuses them the moment they fill faster than they fire.
+
+## Measured t72862894 — rho is MARGINAL, and the buffer that would fix it is never built
+
+The deposit-port rho stamp (flow segment v18) landed and read:
+
+```
+  link 4a83   40.0 e/t over 4 routes   rho 0.85 of 47.1
+  link 8f08   40.0 e/t over 4 routes   rho 0.78 of 51.5
+```
+
+**This FALSIFIES the saturation hypothesis** the stamp was shipped to test
+(predicted rho >= 0.85 on both, i.e. a rate deficit no buffer can fix). Neither
+port is rate-deficient. They sit in exactly the band
+`depositPortHeadroom`'s own docblock calls *marginal* — and at rho 0.85 an
+M/M/1 queue waits ~5.7x its service time, so heavy queueing is EXPECTED there
+without any rate deficit at all.
+
+That matters because spec 47's rule cuts the other way in this band: **a buffer
+fixes burstiness, never a rate deficit.** rho < 1 means a buffer is the right
+instrument.
+
+**And the buffer is already implemented — on the read side only.**
+`pickStorageDeposit` ranks `portBuffer` SECOND, ahead of waiting, with the
+ordering argued in its own comment ("the link outranks its own buffer... the
+buffer is the SECOND choice - ahead of waiting, never ahead of the link
+itself"). `CarryCorp.resolvePortBuffer` looks for a container within range 2 of
+the port link. **Nothing places that container.** No site in ConstructionCorp or
+the base layout targets a port link's neighbourhood.
+
+So the branch can never fire, and the measured consequence is exactly what the
+stamps show: `portFallbacks: 0` on all eight port-routed routes with
+`portWaits` up to 602 — the hauler's only two outcomes are deposit or wait,
+because the third one has no container to land in.
+
+The corroborating FAIL is H3 at the same capture: `mining-W43N24-harvest-cd8e`
+buffered 3268 -> 3542 GROWING with zero drain creeps at both captures, on the
+route served by link 4a83 (the rho 0.85 one). Its plan sizes 12 CARRY against
+the PORT leg (23 tiles, RT 46, 600/46 = 13 e/t — ample) and the queue is what
+eats the margin.
+
+Next: place a container beside each deposit port link. The consumption side
+needs no change.
+
+**The drain landed as spec 54** (2026-08-08): the port's buffer is emptied into
+its link by the LINK CORP, which now owns core, controller and ports together.
+The rho reading above is what redirected the fix - at 0.78-0.85 the ports are
+MARGINAL, not rate-deficient, so a buffer is the right instrument and it only
+ever needed something to empty it.

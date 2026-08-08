@@ -394,10 +394,30 @@ export function isSourceApproachTile(
 
 function besideOpenExit(terrain: RoomTerrain, x: number, y: number): boolean {
   let edge: [number, number][] | null = null;
-  if (x === 1) edge = [[0, y - 1], [0, y], [0, y + 1]];
-  if (x === 48) edge = [[49, y - 1], [49, y], [49, y + 1]];
-  if (y === 1) edge = [[x - 1, 0], [x, 0], [x + 1, 0]];
-  if (y === 48) edge = [[x - 1, 49], [x, 49], [x + 1, 49]];
+  if (x === 1)
+    edge = [
+      [0, y - 1],
+      [0, y],
+      [0, y + 1]
+    ];
+  if (x === 48)
+    edge = [
+      [49, y - 1],
+      [49, y],
+      [49, y + 1]
+    ];
+  if (y === 1)
+    edge = [
+      [x - 1, 0],
+      [x, 0],
+      [x + 1, 0]
+    ];
+  if (y === 48)
+    edge = [
+      [x - 1, 49],
+      [x, 49],
+      [x + 1, 49]
+    ];
   if (!edge) return false;
   return edge.some(([ex, ey]) => (terrain.get(ex, ey) & TERRAIN_MASK_WALL) === 0);
 }
@@ -787,7 +807,7 @@ export function controllerSideStock(controller: StructureController): number {
 
 /**
  * The FEEDER's narrow view of the same stock - the gate for its
- * CONTROLLER_FEED_TARGET top-up (ControllerFeederCorp). Deliberately
+ * CONTROLLER_FEED_TARGET top-up (LinkCorp). Deliberately
  * NARROWER than {@link controllerSideStock}; each difference is a reason,
  * not an accident:
  *  - EXCLUDES storage: a storage within reach of the controller is the BANK
@@ -932,4 +952,59 @@ export function coreInboundPending(room: Room, core: StructureLink, nearFireTick
     if ((link.store?.[RESOURCE_ENERGY] ?? 0) >= LINK_FIRE_THRESHOLD) return true;
   }
   return false;
+}
+
+/** Containers this close to the controller are its FEED store, not a port
+ *  buffer - the feeder fills them and the upgraders draw from them. */
+export const CONTROLLER_CONTAINER_RANGE = 3;
+
+/** A port link and the buffer container that feeds it. */
+export interface PortPost {
+  link: StructureLink;
+  buffer: StructureContainer;
+}
+
+/**
+ * Every deposit port in `room` that HAS a buffer container, paired with it.
+ *
+ * Mirrors `CarryCorp.resolvePortBuffer` deliberately - a container within range
+ * 2 of the port link - so the tender services exactly the container the haulers
+ * drop into. Two lenses reading one fact; a second definition here would be the
+ * staffsPost-symmetry trap (the delivery side and the drain side disagreeing
+ * about which container is the port's).
+ *
+ * Excludes the CORE link (it sits on storage - the feeder's job) and the
+ * CONTROLLER link (terminal; the feeder drains it too).
+ */
+export function portPosts(room: Room): PortPost[] {
+  // DEFENSIVE by contract: this is a read-only lens with three callers (the
+  // corp's post, the adapter's price, the host's problem lens) and partial
+  // mocks/harnesses supply rooms without a full structure API. A lens that
+  // throws would take the whole tick with it - `buildDepositInstrument` states
+  // the same rule for the same reason.
+  if (typeof room.find !== "function" || typeof room.getTerrain !== "function") return [];
+  const core = coreLink(room);
+  const ctrl = controllerLink(room);
+  const out: PortPost[] = [];
+  const links = room.find(FIND_MY_STRUCTURES, {
+    filter: s => s.structureType === STRUCTURE_LINK
+  }) as StructureLink[];
+  for (const link of links) {
+    if (!link || typeof link.pos?.findInRange !== "function") continue;
+    if (core && link.id === core.id) continue;
+    if (ctrl && link.id === ctrl.id) continue;
+    // NOT the controller's feed store. Measured t72862894: the port at (43,38)
+    // has no buffer of its own, and the nearest container within 2 is the
+    // CONTROLLER container at (41,36) - so an unguarded range-2 scan would have
+    // this tender pumping the controller's supply back out through a link, in
+    // direct opposition to the feeder that fills it. A port with no buffer of
+    // its own is simply not a post yet; the placement rung owes it one.
+    const ctrlPos = link.room.controller?.pos;
+    const buffer = link.pos.findInRange(FIND_STRUCTURES, 2, {
+      filter: s =>
+        s.structureType === STRUCTURE_CONTAINER && (!ctrlPos || s.pos.getRangeTo(ctrlPos) > CONTROLLER_CONTAINER_RANGE)
+    })[0] as StructureContainer | undefined;
+    if (buffer) out.push({ link, buffer });
+  }
+  return out;
 }

@@ -291,7 +291,7 @@ describe("controllerFloorRate (DANGER-GATED - owner 2026-08-04: 'Not the constan
 import { planColony, ColonyProblem, PlannerSink, PlannerSpawn } from "../../../src/economy/CorpPlanner";
 import { plannableSpawnParts } from "../../../src/economy/primitives";
 import { Position } from "../../../src/types/Position";
-import { feederRelayTarget, FEEDER_STOCK_HEADROOM } from "../../../src/corps/ControllerFeederCorp";
+import { feederRelayTarget, FEEDER_STOCK_HEADROOM } from "../../../src/corps/LinkCorp";
 import { upgraderSizing } from "../../../src/corps/UpgradingCorp";
 
 /**

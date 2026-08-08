@@ -24,7 +24,9 @@ import { FlowSolution } from "../flow/FlowTypes";
 import {
   BUILD_ENERGY_PER_WORK,
   HARVEST_ENERGY_PER_WORK,
+  SOURCE_RATE,
   UPGRADE_ENERGY_PER_WORK,
+  depositPortHeadroom,
   workPartsForEnergyRate
 } from "../economy/primitives";
 import { TELEMETRY_SEGMENTS } from "./segmentIds";
@@ -65,10 +67,12 @@ export interface FlowTelemetry {
   /** DEPOSIT-side link instrument (v10, spec-26 stage 4): for each REMOTE
    * source, the nearest deposit-capable home-room link and the haul it would
    * save by dropping there (a creep bridges the rooms; the link does the in-room
-   * hop). Plus per-link deposit flow (the throughput headroom). Read-only. */
+   * hop). Plus per-link deposit flow AND the port's own headroom/rho (v18) - the
+   * utilization the instrument always claimed to surface but never published.
+   * Read-only. */
   depositSavings?: {
     candidates: { sourceId: string; haulDist: number; linkId: string; linkDist: number; saving: number; flowRate: number }[];
-    perLink: { linkId: string; depositFlow: number; sources: number }[];
+    perLink: { linkId: string; depositFlow: number; sources: number; headroom?: number; rho?: number }[];
     /** The controller link (a bank-neutral deposit target up to controllerCapacity
      * e/t - it displaces the relay). */
     controllerLinkId?: string;
@@ -250,11 +254,25 @@ function buildDepositInstrumentUnsafe(
   // itself (it sits on storage; depositing there saves nothing and the core is
   // the hub, not a shortcut).
   const core = coreLink(home);
+  // Each port's HEADROOM from the planner's own primitive (audit t72860894), so
+  // the published rho is the routing's own budget rather than a second estimate:
+  // fire rate LINK_CAPACITY/range, less the flow the link's OWN adjacent source
+  // lands in it first. Absent when the core link is gone or the range is
+  // unreadable - rho then reads absent, never a flattering zero.
+  const roomSources = home.find(FIND_SOURCES);
   const links: DepositLink[] = (
     home.find(FIND_MY_STRUCTURES, {
       filter: s => s.structureType === STRUCTURE_LINK && (!core || s.id !== core.id)
     }) as StructureLink[]
-  ).map(l => ({ id: l.id, pos: { x: l.pos.x, y: l.pos.y, roomName: home!.name } }));
+  ).map(l => {
+    const range = core && typeof l.pos.getRangeTo === "function" ? l.pos.getRangeTo(core.pos) : undefined;
+    const owner = roomSources.find(s => s.pos.inRangeTo(l.pos, 2));
+    return {
+      id: l.id,
+      pos: { x: l.pos.x, y: l.pos.y, roomName: home!.name },
+      ...(range !== undefined ? { headroom: depositPortHeadroom(range, owner ? SOURCE_RATE : 0) } : {})
+    };
+  });
   if (links.length === 0) return undefined;
 
   const storagePos: Position = { x: home.storage.pos.x, y: home.storage.pos.y, roomName: home.name };
@@ -386,7 +404,10 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
     // echo (spec 34 P4: the ledger charges construction THROUGH the plan).
     // v12 adds partsLedger.plannable - the 90% planning margin
     // (SPAWN_PLAN_FRACTION, owner 2026-07-30) the fill spends from.
-    version: 17, // v17 sources[].staged - the mouth buffer the DRAIN reprice priced against (audit t72851084)
+    // v18 depositSavings.perLink[].headroom/rho - port UTILIZATION (audit
+    // t72860894: all 8 port-routed remotes backed up, all 4 non-port ones clear,
+    // and rho was the one number the capture could not answer).
+    version: 18,
     tick: Game.time,
     sources,
     haulers,

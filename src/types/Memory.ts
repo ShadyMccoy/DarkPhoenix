@@ -735,7 +735,7 @@ declare global {
 
     /**
      * True while a storage bank exists AND a live controller feeder is relaying it
-     * to the controller input. Set by ControllerFeederCorp, read by CarryCorp: when
+     * to the controller input. Set by LinkCorp, read by CarryCorp: when
      * set, controller-bound loads stop at the storage (the feeder runs the short
      * last leg to the upgraders); when the feeder dies it clears and haulers resume
      * delivering to the controller directly (so a dead feeder never starves

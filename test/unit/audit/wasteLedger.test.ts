@@ -5,6 +5,7 @@ import {
   ACCOUNT_CLASS_OF_ROLE,
   F1_CLASS_OF_KIND,
   F1_PLAN_PREFIX,
+  METHODOLOGY,
   computeChurn,
   computeLedger,
   formatAccounts,
@@ -12,8 +13,19 @@ import {
   planSpawnLoad
 } from "../../../scripts/waste-ledger";
 import { ALL_CORP_KINDS, ALL_SPAWN_ROLES } from "../../../src/execution/CommissionHost";
-import { feederSpawnLoad, haulerOverhead, reserverSpawnLoad, tenderSpawnLoad } from "../../../src/economy/primitives";
+import {
+  ATTACK_MOVE_PER_PART,
+  CARRY_MOVE_PER_PART,
+  CLAIM_MOVE_PER_PART,
+  feederSpawnLoad,
+  haulerOverhead,
+  reserverSpawnLoad,
+  roomGuardSpawnLoad,
+  roomReserverSpawnLoad,
+  tenderSpawnLoad
+} from "../../../src/economy/primitives";
 import { BASE_RESERVE, bankFedControllerRate } from "../../../src/economy/bank";
+import { categoryOfKind, classifiedKinds } from "../../../src/economy/accountCategory";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -1312,6 +1324,110 @@ describe("F1 plan fidelity (waste ledger)", () => {
     expect(legacy[2]).to.be.closeTo(10 / 1500, 1e-12);
   });
 
+  /**
+   * THE SECOND-BOOK CLASS, fifth instance - and the first on the ENERGY side.
+   *
+   * #16 (above) converged the defense line's PARTS onto the plan's armed-room
+   * count. Its ENERGY RATE was left behind: the account priced those parts from
+   * whatever guard bodies happened to be standing, defaulting to a hand-written
+   * 80 e/part when none were, while `infraSpawnEnergy` - the charge the colony's
+   * own solve deducts - prices the identical parts at ATTACK_MOVE_PER_PART = 65.
+   *
+   * The 23% gap landed in exactly the window #16 exists to make readable: the
+   * plan budgets a guard for an armed room and no body is standing yet. That is
+   * the F1 signal, and it was arriving pre-corrupted by an accounting constant.
+   *
+   * The classes below are the ones BOTH books price, so the invariant is simply
+   * that they agree. Guards are the case that was broken; feeder/tender/reserver
+   * are pinned beside them so the next divergence fails here rather than
+   * printing.
+   */
+  it("methodology #18: the infra ENERGY budget IS infraSpawnEnergy's own per-class rates", () => {
+    // The F1-signal case: three armed rooms priced by the plan, NO guard body
+    // standing to reconstruct a rate from.
+    const cap = mk([], [0], []);
+    cap.data.flow.fleetCharge = { infraInputs: { guardedRooms: 3 } };
+    const { energy } = planSpawnLoad(cap);
+    expect(
+      energy["defense (guards)"],
+      "guards are ATTACK+MOVE pairs - 65 e/part, the same rate the colony's charge uses"
+    ).to.be.closeTo(3 * roomGuardSpawnLoad() * ATTACK_MOVE_PER_PART, 1e-12);
+
+    // And it must not move when a body IS standing: the budget is the plan's,
+    // never the fielded fleet's (spec 14 - no actuals-fed budgets).
+    const standing = mk([], [0], [
+      { id: "raidGuard-A-raidGuard", kind: "raidGuard", creepCount: 1, bodyParts: 10, body: { attack: 5, move: 5 } }
+    ]);
+    standing.data.flow.fleetCharge = { infraInputs: { guardedRooms: 3 } };
+    expect(planSpawnLoad(standing).energy["defense (guards)"]).to.be.closeTo(energy["defense (guards)"], 1e-12);
+
+    // The other two classes both books price, pinned against the same constants.
+    const depot = mk([], [0], [
+      {
+        id: "moving-W1N1-controllerFeeder",
+        kind: "controllerFeeder",
+        creepCount: 1,
+        bodyParts: 100,
+        body: { carry: 50, move: 50 },
+        sizing: { linkFed: true, relayRate: 100 }
+      },
+      { id: "moving-W1N1-tender", kind: "tender", creepCount: 2, bodyParts: 86, sizing: { target: 2 } },
+      { id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 2 } }
+    ]);
+    const de = planSpawnLoad(depot).energy;
+    const relay = bankFedControllerRate(0, BASE_RESERVE);
+    const feederKey = Object.keys(de).find(k => k.startsWith("feeder"))!;
+    expect(de[feederKey]).to.be.closeTo(feederSpawnLoad(relay, true) * CARRY_MOVE_PER_PART, 1e-12);
+    expect(de.tenders).to.be.closeTo(tenderSpawnLoad() * CARRY_MOVE_PER_PART, 1e-12);
+    expect(de["reservers (claim life)"]).to.be.closeTo(2 * roomReserverSpawnLoad() * CLAIM_MOVE_PER_PART, 1e-12);
+  });
+
+  /**
+   * THE COST COLUMN ADDS UP (methodology #18).
+   *
+   * `TOTAL SPAWN (plan fleet, priced)` is the whole plan's fleet in energy, and
+   * the six cost lines above it are supposed to BE that fleet, split by
+   * account. So their budgets must sum to it - not approximately, exactly.
+   *
+   * They did agree before this was pinned, but only algebraically: four lines
+   * projected `planSpawnLoad`'s energy map while extraction and evacuation were
+   * reduced independently from `flow.sources` / `flow.haulers`. Two derivations
+   * that happen to be equal are one edit away from not being, and nothing would
+   * have caught it - the column has no self-check, and TOTAL SPAWN is the line
+   * the CONTROLLER VARIANCE BRIDGE charges its "fleet costs more than the plan
+   * prices" term against. A silent split there would have moved the bridge's
+   * closure into "rounding" and stayed there.
+   *
+   * Now every line reads the one book, so this is structural. Verified equal to
+   * 1e-15 across all 25 committed fixtures before the unification.
+   */
+  it("methodology #18: the six cost-line budgets SUM to the TOTAL SPAWN budget", () => {
+    const text = formatAccounts(cap72411542, cap72404213, computeLedger(cap72411542, cap72404213));
+    const budgetOf = (label: string): number => {
+      const line = text.split("\n").find(l => l.includes(label));
+      if (!line) throw new Error(`no line matching "${label}" in:\n${text}`);
+      const nums = (line.slice(line.indexOf(label) + label.length).match(/-?\d+\.\d\d/g) ?? []).map(Number);
+      // BUDGET ACTUAL VARIANCE - the budget is the FIRST of the three.
+      expect(nums.length, `"${label}" is a budgeted line`).to.be.greaterThanOrEqual(3);
+      return nums[0];
+    };
+    const parts = [
+      "extraction  (miner)",
+      "evacuation  (hauler)",
+      "reservation (reserver)",
+      "infra      (tanker, feeder, scout)",
+      "defense    (guard)",
+      "consumers  (upgrader, builder)"
+    ].map(budgetOf);
+    const total = budgetOf("= TOTAL SPAWN (plan fleet, priced)");
+    const sum = parts.reduce((s, v) => s + v, 0);
+    // 0.01 is the printed precision, not a tolerance on the arithmetic.
+    expect(sum, `lines ${parts.map(p => p.toFixed(2)).join(" + ")} vs total ${total.toFixed(2)}`).to.be.closeTo(
+      total,
+      0.011
+    );
+  });
+
   it("still surfaces a kind with NO plan line as UNPRICED (the detector outlives the hole)", () => {
     // An unpriced CLASS is a different defect from a mispriced one: no amount
     // of tuning an existing line can find it. The detector must survive the
@@ -1401,14 +1517,57 @@ describe("F1 class map covers every registered corp kind", () => {
  * A chart of accounts with an anonymous bucket is not a chart of accounts.
  */
 describe("energy account: every spawnable role has an account", () => {
+  /**
+   * Roles the bot really buys from OUTSIDE the kind registry, so `ALL_SPAWN_ROLES`
+   * (derived from the kinds' own `roles` declarations) cannot see them. Each
+   * needs a named reason - the set exists so a typo still fails the ghost check
+   * rather than being waved through as "probably one of those".
+   */
+  const BOUGHT_OUTSIDE_THE_REGISTRY = new Set([
+    // BootstrapCorp spawns jacks directly, bypassing the SpawningCorp executor
+    // (it accrues to the ledger itself). There is no bootstrapKind to declare
+    // the role, but the spend is real and lands in the account.
+    "jack"
+  ]);
+
   it("classifies every role any registered kind can buy", () => {
     const unclassified = ALL_SPAWN_ROLES.filter(r => !ACCOUNT_CLASS_OF_ROLE[r]);
     expect(unclassified, `roles with no account: ${unclassified.join(", ")}`).to.deep.equal([]);
   });
 
   it("maps no role that no kind declares (the ghost-key check)", () => {
-    const ghosts = Object.keys(ACCOUNT_CLASS_OF_ROLE).filter(r => !ALL_SPAWN_ROLES.includes(r));
+    const ghosts = Object.keys(ACCOUNT_CLASS_OF_ROLE).filter(
+      r => !ALL_SPAWN_ROLES.includes(r) && !BOUGHT_OUTSIDE_THE_REGISTRY.has(r)
+    );
     expect(ghosts, `mapped roles no kind buys: ${ghosts.join(", ")}`).to.deep.equal([]);
+  });
+
+  /**
+   * `jack` was the last role with no account, printing as a dangling
+   * `UNCLASSIFIED [jack]` line - one of the three role-keying defects spec 51
+   * names. The plan's vocabulary already had its home: `CATEGORY_OF_KIND`
+   * classifies kind `bootstrap`, and `AccountCategory`'s own comment reads
+   * "cold-start bodies, before the economy exists to classify them".
+   *
+   * BootstrapCorp used to argue the opposite - "no account class on purpose ...
+   * which is honest for a pre-economy body" - but the honesty there is the
+   * ABSENT BUDGET, not the absent name, and a named line keeps the first while
+   * dropping the second. Pinned both ways: it is classified, and it stays inside
+   * overhead where the unclassified bucket already carried it, so naming it
+   * moved no total.
+   */
+  it("gives the cold-start body a NAME, not an UNCLASSIFIED bucket", () => {
+    expect(ACCOUNT_CLASS_OF_ROLE.jack).to.equal("bootstrap");
+    expect(categoryOfKind("bootstrap"), "the two tables agree on the line").to.equal(ACCOUNT_CLASS_OF_ROLE.jack);
+  });
+
+  it("shares ONE vocabulary with the plan side - every role class is a real AccountCategory", () => {
+    // The two tables key differently (role here, kind there) but must name the
+    // same lines. TypeScript pins this at compile time; this pins it against the
+    // plan side's actual roster so a category retired there fails here.
+    const planCategories = new Set(classifiedKinds().map(k => categoryOfKind(k) as string));
+    const strays = [...new Set(Object.values(ACCOUNT_CLASS_OF_ROLE))].filter(c => !planCategories.has(c));
+    expect(strays, `role classes no kind reports on: ${strays.join(", ")}`).to.deep.equal([]);
   });
 
   it("keeps expansion OUT of operating cost (capex, funded from the reserve)", () => {
@@ -2660,10 +2819,15 @@ describe("methodology #10: the recovery P&L (cure vs illness, published)", () =>
     expect(detail).to.include("5.0");
   });
 
-  it("the header stamps methodology #17 (depot-mover budgets read the primitives)", () => {
+  it("the header stamps the CURRENT methodology, whatever it is", () => {
+    // Reads METHODOLOGY rather than restating it: the contract is that a report
+    // carries its own stamp (spec 41 - two reports compare only at the same
+    // one), not that the number is any particular value. Hardcoding it here
+    // made the constant a second book, so every bump broke a test that was
+    // never about the bump.
     const { cap, base } = rig(zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    expect(text).to.include("[methodology #17]");
+    expect(text).to.include(`[methodology #${METHODOLOGY}]`);
   });
 });
 

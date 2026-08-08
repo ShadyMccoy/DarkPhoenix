@@ -21,8 +21,12 @@
  *    whole of a build campaign - conceded in the mapping's own comment.
  *  - `hauler` spans source-route evacuation AND standalone scavenge corps; the
  *    SOURCE P&L has to disclaim the difference in prose.
- *  - `jack` (bootstrap) has no class at all and prints as a dangling
- *    `UNCLASSIFIED` line.
+ *  - `jack` (bootstrap) had no class at all and printed as a dangling
+ *    `UNCLASSIFIED` line. FIXED 2026-08-08 without waiting for corp grain: the
+ *    role map now points it at the `bootstrap` category declared below, and
+ *    both tables are typed to `AccountCategory` so they cannot name the same
+ *    line differently. It was the one defect of the three that role grain CAN
+ *    resolve - it was a missing entry, not an ambiguity.
  *
  * Keyed by KIND instead, all three disappear: a corp is exactly one kind, and a
  * kind reports on exactly one line. The category also travels ON the commission,

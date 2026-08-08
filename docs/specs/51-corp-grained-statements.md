@@ -101,8 +101,10 @@ So "the colony budget is the sum of the corps" is not aspirational. It is how
 produce and transport already work, and it is why the remaining two gaps are
 worth closing rather than working around.
 
-**GAP 1 — the consume envelope and the fill charge different numbers.**
-`consumerSpawnLoad`'s own docblock claims it is *"the SAME charge the planner's
+**GAP 1 — the consume envelope and the fill charge different numbers.
+→ CLOSED 2026-08-08.**
+
+`consumerSpawnLoad`'s own docblock claimed it was *"the SAME charge the planner's
 parts ledger paid for this sink."* Measured in the construction world:
 
 ```
@@ -110,13 +112,57 @@ build commission declares   0.074189 p/t
 the sink fill actually spent 0.041351 p/t      => 1.79x over-declaration
 ```
 
-The cause is structural, not a typo: the commission prices construction ALL-IN
-(spec 34 D4 — builder WORK bodies **plus a tanker supply vector** to fuel them),
-while `routeToSinks` charges `chargePerUnit = haul body + workPerUnit` per unit
-routed — the delivery leg and the work, with no crew fuel shuttle. Two
-quantities wearing one name. Note the controller branch deliberately omits the
-vector *because it would double-count* — so the two branches of the same
-function disagree about whether the vector belongs.
+**The whole of it was the SUPPLY VECTOR, and the builder term was identical on
+both sides throughout** — which is what makes this a seam bug rather than a
+disagreement about economics:
+
+```
+              CARRY   parts    load        model
+commission     73.8    99.0    0.066892    3C:1M gait, dEff 40, x1.5 margin
+fill           25.2    50.4    0.034054    1:1 laden-both-ways, d 20
+                                1.964x
+```
+
+The envelope had been moved to the gait the runtime really fields (spec 34
+vector-gait follow-up B, whose own note says the 1:1 model *"under-priced every
+unpaved campaign ~2x and F1 booked the fleet as breach"*) — and the fill was
+left on the 1:1 model. The very defect that follow-up existed to remove,
+still standing on the other side of the seam, for exactly the reason this spec
+is about: nobody was summing one side against the other.
+
+**Closed by ONE derivation, `roadEconomics.consumerUnitSpawnLoad(kind, dist)`** —
+the consumer charge per UNIT of energy routed. The fill (`routeToSinks`'s
+`workPerUnit`) debits it per unit; the envelope (`consumerSpawnLoad`) is that
+same law × the allocation. The identity is now arithmetic, not coincidence.
+
+Being per-UNIT is what makes it one law instead of two: the fill needs a rate to
+multiply by each `take`, so anything non-linear in the allocation cannot be
+shared. Hence `vectorSupplyPartsGaitRate` — `vectorSupplyPartsGait` with both
+ceilings removed. **The ceilings belong to a BODY; a budget is a RATE, and
+rounding a rate is what makes two books disagree.** This is
+`controllerWorkSpawnLoad`'s own stated precedent (*"a ceil made charge and audit
+disagree"*) applied to the vector. Sizing still ceils, on
+`tankerCarryNeededFor`; only the price is continuous. Worth 0.6% at rate 30
+(98.40 vs 99) — but 22% at rate 1, so removing it also stops the budget
+over-stating every marginal unit it prices.
+
+The controller branch still carries NO vector — its mover is the feeder, priced
+in `infraSpawnLoad` and declared by controllerFeeder's own corp, so a vector
+here would double-count. That asymmetry is real economics, and it now lives in
+one place instead of being restated (and mis-stated) at each call site.
+
+**What moved, in the plan.** The fill went UP and the envelope came DOWN, and
+they met: on the golden master's build sink, `chargedWork` 0.00254 → 0.00361
+against a declared 0.003877 → 0.00361. Construction is genuinely more expensive
+now, because a build crew's fuel shuttle is genuinely that expensive: in the
+organism scenario the founding site went from a full 16.07 e/t absorb to 12.58,
+**parts-bound** (`partsLeft` 0, ledger dry) rather than out-valued — it still
+takes the ledger ahead of A's own controller, which keeps only its reserve
+floor. The old plan promised 16.07 e/t of build while budgeting half the tanker
+fleet the runtime would field; that difference was F1 breach by construction.
+`organismScenario`'s assertion was re-pinned from the magnitude to the contract
+(priority, and parts-bound-not-value-bound), the way its sibling test had
+already been re-pinned in 2026-07-30.
 
 **GAP 2 — auxiliary corps declare a budget of ZERO. → CLOSED for the depot and
 remote kinds, 2026-08-06 (spec 39 phase 4).**
@@ -200,10 +246,17 @@ are absent from `infraSpawnLoad` — outside BOTH books. `planSpawnLoad` prices
 guards anyway (0.98 e/t measured t72823437), so that class remains a second-book
 seam: budgeted by nobody, charged by the statement.
 
-**Both gaps are pinned** by the suite: GAP 1 as a ratio bound (so it cannot
-silently widen), GAP 2 as an explicit assertion that the ledger's infra is
-unowned. Each has a `skip`ped TARGET assertion beside it that states the
-post-fix invariant — the fix flips a red test green rather than being argued.
+**Both gaps are pinned** by the suite. GAP 1's TARGET —
+`SIGMA(corp consumes) === minerLoad + spent`, consumers included — is now GREEN,
+and the ratio assertion beside it inverted from "between 1.5x and 2.1x" to
+"1.0 to 1e-9". GAP 2 keeps an explicit assertion that the ledger's infra is
+unowned, with a `skip`ped TARGET beside it for the combat/scout kinds — the fix
+flips a red test green rather than being argued.
+
+Two further pins came out of closing GAP 1, both stating the DIAGNOSIS rather
+than the total, so a regression names its own cause: that the construction
+vector is priced at the fielded gait (~1.95x the retired 1:1 model) and is
+linear in the rate, and that the controller charge is WORK only.
 
 ### Why scout / raidGuard / coreBuster are NOT just three more of the same
 
@@ -350,6 +403,7 @@ a gate; it cannot even compile.
    three fields.
 2. **Close GAP 1** — one derivation for the consumer charge, shared by the
    commission and the fill. Whichever number is right, both sites must read it.
+   **LANDED 2026-08-08** as `roadEconomics.consumerUnitSpawnLoad`; see §3b.
 3. **Close GAP 2 / migrate auxiliary kinds onto the budget** — spec 39 phase 4. Until then the
    statement must SHOW the split honestly: which categories are summed from corp
    budgets and which are still reconstructed. A half-projected statement that
@@ -357,6 +411,36 @@ a gate; it cannot even compile.
 4. **The budget column becomes Σ corps.** `planSpawnLoad` and the per-line budget
    formulas are deleted, not refactored — the whole point is that there is one
    book.
+
+   **PART-WAY, 2026-08-08.** The column is now ONE book internally — every cost
+   line projects `planSpawnLoad(cap).energy`, so `TOTAL SPAWN` is the sum of the
+   lines that decompose it *by construction*, and that identity is a test.
+   Extraction and evacuation had been reduced independently from
+   `flow.sources` / `flow.haulers`; they agreed to 1e-15 across all 25 committed
+   fixtures, which is exactly the kind of agreement that survives right up until
+   it doesn't. The rendered report was byte-identical across the change.
+
+   The parts→energy conversion is also one declaration now
+   (`CARRY_MOVE_PER_PART` / `CLAIM_MOVE_PER_PART` / `ATTACK_MOVE_PER_PART`
+   exported from primitives, methodology #18). It had been THREE copies — two
+   sets of locals in primitives plus waste-ledger's own table — and on guards
+   they disagreed: the statement priced ATTACK+MOVE at a hand-written 80 e/part
+   against the colony's 65, a 23% over-statement landing exactly in the window
+   phase 2 had just created to make guard variance readable.
+
+   **What remains is the last step and it needs a capture.** The column still
+   reads `planSpawnLoad`, not the corps segment. Segment v17 publishes
+   `consumes`/`produces`/`account` per corp, but **the newest capture on disk is
+   v16**, so `npm run audit:corps` prints its PREDATES banner and the corp-sum
+   column cannot be validated against a real colony. Deploy and recapture first;
+   until then a corp-summed column would be untested code standing next to a
+   working book.
+
+   One design note for whoever does it: the corps segment publishes PARTS, and
+   the statement's column is ENERGY. Either widen `CommissionInputs` with a
+   spawn-energy term (spec §5's "one corp row, several columns"), or convert
+   per corp from the kind's declared body class — the three exported per-part
+   constants above are that conversion, already shared.
 5. **Every row drills to corp.** Free once corp rows are published: the row IS
    the sum of its corps, so the drill-down is the addends. `docs/fiscal/` closes
    gain a per-corp table under each category.
@@ -445,6 +529,21 @@ both ways.
 - Every category row expands to its corp rows; the expansion sums to the row.
 - No line's budget is computed anywhere except the corp that owns it —
   `planSpawnLoad` and `ACCOUNT_CLASS_OF_ROLE` are gone.
+
+  **Amended 2026-08-08 on the second half.** `ACCOUNT_CLASS_OF_ROLE` cannot
+  simply go: it is the ACTUAL side's classifier, and the actual side is
+  role-grained *by design* — `Memory.spawnLedger`'s own header says role totals
+  are a small closed set that cannot grow unboundedly as commissions churn,
+  while per-corp cumulative accounting is spec 40 Part A's remit. So the target
+  is one VOCABULARY, two projections, not one table: the role map is now typed
+  to `AccountCategory` and pinned against the plan side's roster, so a typo is a
+  compile error and a retired category fails a test instead of orphaning a line.
+
+  That also closed the third of the three role-keying defects this spec names.
+  `jack` was never an ambiguity like `tanker`/`hauler` — it was a missing entry,
+  and `bootstrap` was already declared for it. It now prints as a named line
+  inside overhead where the unclassified bucket already carried it, so no total
+  moved. `tanker` and `hauler` still need corp grain.
 - Categories still reconstructed (pre-39-phase-4) are LABELLED as such in the
   statement.
 

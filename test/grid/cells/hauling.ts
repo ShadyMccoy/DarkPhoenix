@@ -468,7 +468,7 @@ export function buildHaulingT4Cells(): GridCell[] {
 
     {
       // The feeder follows the bank (commit 9c1a5cd): once a room has a
-      // storage and a miner, ControllerFeederCorp demands its feeder
+      // storage and a miner, LinkCorp demands its feeder
       // (value 95, non-blocking) and the scheduler fields it organically.
       // Measured in this world: spawned @83, active ~107 (8 parts).
       id: "haul-t4-feeder-fields-for-bank",

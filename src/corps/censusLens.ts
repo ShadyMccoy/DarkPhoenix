@@ -35,7 +35,7 @@ export function isFlowMinerCreep(memory: CreepMemory): boolean {
  * True once a flow miner is producing in the room (income before
  * infrastructure) - the tender/feeder no-miner gate: neither mover may
  * front-run the room's first real income. Verbatim re-home of the
- * ExtensionTenderCorp/ControllerFeederCorp private roomHasMiner helpers.
+ * ExtensionTenderCorp/LinkCorp private roomHasMiner helpers.
  */
 export function roomHasFlowMiner(roomName: string): boolean {
   for (const name in Game.creeps) {

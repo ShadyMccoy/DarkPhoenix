@@ -19,6 +19,7 @@
 
 import "../types/Memory"; // RoomMemory.roadRoutes augmentation (paved receipts)
 import { hostileRooms, isSourceKeeperRoom, roomLinearDistance } from "../utils/RoomDiscovery";
+import { portPosts } from "../corps/nodeEnergy";
 import { guardTargetsFor } from "../utils/raidMeter";
 import {
   FlowSink,
@@ -1429,13 +1430,25 @@ export function buildColonyProblem(
   // dangerous, which is exactly why it reads a lens and not a constant.
   const guardedRooms = new Set<string>();
   for (const home of spawnRooms) for (const target of guardTargetsFor(home)) guardedRooms.add(target);
+  // PORTED ROOMS (2026-08-08): home rooms carrying a deposit port that has a
+  // BUFFER container - the ports the port tender has a post at. Read through
+  // `portPosts`, the SAME lens the corp holds its post with and the delivery
+  // side resolves its buffer with, so the price and the behaviour cannot
+  // disagree about which ports exist (spec 17 P3, and the reason `guardedRooms`
+  // above is a lens rather than a count).
+  const portRooms = new Set<string>();
+  for (const roomName of spawnRooms) {
+    const room = Game.rooms[roomName];
+    if (room && portPosts(room).length > 0) portRooms.add(roomName);
+  }
   const infraPartsPerTick = infraSpawnLoad(
     pricedRelay,
     roomsWithStorage.size,
     remoteRooms.size,
     linkFedRooms,
     1,
-    guardedRooms.size
+    guardedRooms.size,
+    portRooms.size
   );
   // Same details, priced in ENERGY - the second currency the spawn sink
   // needs (see the two-pass solve in solveColony).
@@ -1445,14 +1458,16 @@ export function buildColonyProblem(
     remoteRooms.size,
     linkFedRooms,
     1,
-    guardedRooms.size
+    guardedRooms.size,
+    portRooms.size
   );
   const infraInputs = {
     pricedRelay,
     depotRooms: roomsWithStorage.size,
     remoteRooms: remoteRooms.size,
     linkFedRooms,
-    guardedRooms: guardedRooms.size
+    guardedRooms: guardedRooms.size,
+    portRooms: portRooms.size
   };
 
   return {
@@ -1937,7 +1952,7 @@ export class FlowEconomy {
       // bank.plannedControllerFlow: the feeder trunk's road-payback flow
       // (ConstructionCorp), and any future reader. The feeder corp itself
       // receives the same solve's number through its commission
-      // (controllerFeederKind), so the two channels cannot disagree by more
+      // (linkKind), so the two channels cannot disagree by more
       // than one solve's staleness. Same publish-don't-rederive pattern as
       // warchestTarget above.
       const ctrlByRoom: Record<string, number> = {};

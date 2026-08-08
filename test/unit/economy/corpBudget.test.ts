@@ -8,6 +8,13 @@ import {
   planColony
 } from "../../../src/economy/CorpPlanner";
 import { commissionsFromPlan } from "../../../src/economy/commissionPlan";
+import { consumerUnitSpawnLoad } from "../../../src/economy/roadEconomics";
+import {
+  constructionWorkSpawnLoad,
+  controllerWorkSpawnLoad,
+  effectiveLife,
+  vectorSupplyParts
+} from "../../../src/economy/primitives";
 import { Commission } from "../../../src/economy/Commission";
 import { AccountCategory, categoryOfKind } from "../../../src/economy/accountCategory";
 import { Position } from "../../../src/types/Position";
@@ -22,7 +29,7 @@ import { constructionKind } from "../../../src/corps/kinds/constructionKind";
 import { scoutKind } from "../../../src/corps/kinds/scoutKind";
 import { reservationKind } from "../../../src/corps/kinds/reservationKind";
 import { extensionTenderKind } from "../../../src/corps/kinds/extensionTenderKind";
-import { controllerFeederKind } from "../../../src/corps/kinds/controllerFeederKind";
+import { linkKind } from "../../../src/corps/kinds/linkKind";
 import { raidGuardKind } from "../../../src/corps/kinds/raidGuardKind";
 import { coreBusterKind } from "../../../src/corps/kinds/coreBusterKind";
 import { claimKind } from "../../../src/corps/kinds/claimKind";
@@ -37,7 +44,7 @@ const ALL_KINDS: string[] = [
   scoutKind.kind,
   reservationKind.kind,
   extensionTenderKind.kind,
-  controllerFeederKind.kind,
+  linkKind.kind,
   raidGuardKind.kind,
   coreBusterKind.kind,
   claimKind.kind,
@@ -212,23 +219,58 @@ describe("spec 51: the colony budget is the sum of the corp budgets", () => {
         ]
       });
 
-    it("the build commission over-declares against what the fill actually spent", () => {
+    it("the build commission declares EXACTLY what the fill spent", () => {
       const b = budgetOf(constructionWorld());
       const declared = b.byShape.consume ?? 0;
       const filled = b.ledger.spent - b.haulLoad; // the sinks' share of the fill
       expect(declared, "no consume commission was emitted - restage the world").to.be.greaterThan(0);
       expect(filled).to.be.greaterThan(0);
-      // Measured 2026-08-06: declared 0.074189 vs filled 0.041351 = 1.79x.
-      // Pinned as a RANGE so the number can be re-measured without churn but
-      // cannot silently drift; the fix drives this to 1.0 and flips the
-      // `skip`ped invariant below green.
-      const ratio = declared / filled;
-      expect(ratio, `consume envelope is ${ratio.toFixed(2)}x the fill's charge`).to.be.greaterThan(1.5);
-      expect(ratio).to.be.lessThan(2.1);
+      // Was 1.79x (declared 0.074189 vs filled 0.041351, measured 2026-08-06).
+      // Both sides now read `consumerUnitSpawnLoad`, so this is 1.0 by
+      // construction - the envelope IS the per-unit law times the allocation,
+      // and the fill debits the same law per unit routed.
+      expect(declared / filled, "envelope and fill must be one derivation").to.be.closeTo(1, 1e-9);
     });
 
-    it.skip("THE TARGET: SIGMA(corp consumes) === minerLoad + spent, consumers included", () => {
-      // Un-skip when the consume envelope and the fill share one derivation.
+    /**
+     * The gap was ENTIRELY the supply vector, and this pins that diagnosis so a
+     * regression names its own cause instead of just moving the total. The
+     * builder term was identical on both sides throughout: the envelope had
+     * been moved to the 3C:1M gait the runtime really fields (spec 34
+     * vector-gait follow-up B) while the fill kept the 1:1 model - the very
+     * ~2x under-pricing that follow-up existed to remove, left standing on the
+     * other side of the seam.
+     */
+    it("prices the construction supply vector at the gait the runtime FIELDS", () => {
+      const d = 20;
+      const builder = constructionWorkSpawnLoad(1, d);
+      const unit = consumerUnitSpawnLoad("construction", d);
+      const vector = unit - builder;
+      // The retired 1:1 model, for the contrast that makes the number legible.
+      const oldVector = vectorSupplyParts(1, d) / effectiveLife(d);
+      // 98.40 parts against the 1:1 model's 50.40, at d=20 (measured).
+      expect(vector / oldVector, "the 3C:1M gait costs ~2x the 1:1 model it replaced").to.be.closeTo(1.952, 0.01);
+      // Linear in the rate - the property that lets ONE law serve both sides.
+      expect(consumerUnitSpawnLoad("construction", d) * 30).to.be.closeTo(
+        consumerUnitSpawnLoad("construction", d) * 10 * 3,
+        1e-12
+      );
+    });
+
+    /**
+     * The controller branch carries NO supply vector: its mover is the feeder,
+     * priced in `infraSpawnLoad` and declared by controllerFeeder's own corp.
+     * Pinned because a "symmetry" refactor that gave the controller a vector
+     * would silently double-count the feeder.
+     */
+    it("charges the controller for WORK only - the feeder is its mover", () => {
+      const d = 10;
+      expect(consumerUnitSpawnLoad("controller", d)).to.be.closeTo(controllerWorkSpawnLoad(1, d), 1e-12);
+    });
+
+    it("THE TARGET: SIGMA(corp consumes) === minerLoad + spent, consumers included", () => {
+      // Green since the consume envelope and the fill share one derivation
+      // (`consumerUnitSpawnLoad`), 2026-08-08.
       const b = budgetOf(constructionWorld());
       expect(b.sigma).to.be.closeTo(b.ledger.minerLoad + b.ledger.spent, 1e-9);
     });
@@ -266,16 +308,19 @@ describe("spec 51: the colony budget is the sum of the corp budgets", () => {
     //     SIGMA(auxiliary corps) === infraSpawnLoad
     // is pinned to 1e-12 in test/unit/economy/auxiliaryBudget.test.ts.
     //
-    // STILL OPEN - scout, raidGuard, coreBuster and claim declare 0 AND are
-    // absent from infraSpawnLoad, so they sit outside BOTH books. The audit's
-    // planSpawnLoad prices guards ("defense (guards)") anyway, which is the
-    // remaining second-book seam: a class the plan never budgets but the
-    // statement charges. Measured live t72823437: guards 0.98 e/t.
+    // raidGuard ALSO closed, by spec 51 phase 2 (2026-08-07): it declares
+    // `guardedRooms x roomGuardSpawnLoad()` off the raid-meter lens, and
+    // infraSpawnLoad composes the same term.
+    //
+    // STILL OPEN - scout, coreBuster and claim declare 0 AND are absent from
+    // infraSpawnLoad, so they sit outside BOTH books. They are not three more
+    // of the same: scout needs a plan-side model that is not an actuals feed,
+    // while coreBuster and claim are CAPEX and want a capex-shaped budget line
+    // (total + reserve draw), not a parts-per-tick rate. See spec 51 section 3b.
     it.skip("THE REMAINING TARGET: the combat/scout kinds are budgeted too", () => {
-      // Un-skip when raidGuard/scout/coreBuster/claim price themselves AND
-      // infraSpawnLoad (or its successor) accounts for them, so no class is
-      // outside both books.
-      expect(false, "scout/raidGuard/coreBuster/claim still declare 0").to.equal(true);
+      // Un-skip when scout/coreBuster/claim price themselves AND infraSpawnLoad
+      // (or its successor) accounts for them, so no class is outside both books.
+      expect(false, "scout/coreBuster/claim still declare 0").to.equal(true);
     });
   });
 

@@ -19,7 +19,7 @@ describe("parkedRelayCarry (the stationary relay cycle - no phantom travel)", ()
 });
 
 import "../../../src/types/Memory";
-import { feederRelayTarget, FEEDER_STOCK_HEADROOM } from "../../../src/corps/ControllerFeederCorp";
+import { feederRelayTarget, FEEDER_STOCK_HEADROOM } from "../../../src/corps/LinkCorp";
 import { bankFedControllerRate, BASE_RESERVE } from "../../../src/economy/bank";
 
 /**

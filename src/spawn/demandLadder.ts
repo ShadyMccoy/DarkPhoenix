@@ -36,7 +36,7 @@
  * never WALLS (blocking stays false), so topping the ladder cannot spiral the
  * bank. (Full linchpin doctrine - the E4 idle-capital coupling, audit
  * t72553726: feeder 0 -> inflow 2 -> upgrader fleet decays 40->24 WORK ->
- * 40k stranded - lives at ControllerFeederCorp.getSpawnDemand.)
+ * 40k stranded - lives at LinkCorp.getSpawnDemand.)
  */
 export const FEEDER_LINCHPIN = 150;
 
@@ -106,7 +106,7 @@ export const FEEDER = 95;
 
 /**
  * The FIRST controller feeder while the bank is DRAINED (banked below
- * ControllerFeederCorp's FEEDER_INCOME_FIRST_FLOOR - the rare "NO energy"
+ * LinkCorp's FEEDER_INCOME_FIRST_FLOOR - the rare "NO energy"
  * case; owner 2026-07-24: "miners are more important than feeders if we have
  * NO energy, which is rare; the rest of the time feeder is more important"):
  * below the miner band so income rebuilds first.

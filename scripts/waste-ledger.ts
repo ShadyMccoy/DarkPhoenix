@@ -18,10 +18,16 @@
 import * as fs from "fs";
 import * as path from "path";
 import {
+  ATTACK_MOVE_PER_PART,
   BODY_COSTS,
+  PORT_TENDER_PARTS,
+  portTenderSpawnLoad,
   CARRY_MOVE_PAIR_COST,
+  CARRY_MOVE_PER_PART,
   CLAIM_LIFETIME,
+  CLAIM_MOVE_PER_PART,
   CREEP_LIFETIME,
+  UPGRADER_PARTS_PER_WORK,
   INVADER_TAX_PER_ENERGY,
   LINK_TRANSFER_LOSS,
   MINER_COST,
@@ -46,6 +52,7 @@ import {
   tombstoneLossBudget
 } from "../src/economy/primitives";
 import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerRate } from "../src/economy/bank";
+import { AccountCategory } from "../src/economy/accountCategory";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -231,7 +238,49 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
  * REMAINING infra gap after this is behaviour, which is the point. Same defect
  * class as #8 (reserver duty) and #7 (hauler spawnParts).
  */
-export const METHODOLOGY = 17;
+/**
+ * #18 (spec 51, 2026-08-08): the parts -> ENERGY conversion is now ONE
+ * declaration. `CARRY_MOVE_PER_PART` / `CLAIM_MOVE_PER_PART` /
+ * `ATTACK_MOVE_PER_PART` are exported from primitives and imported here; they
+ * used to be locals inside `infraSpawnEnergy` AND hand-written copies in this
+ * script's `ENERGY_PER_PART`, so the colony's own charge and the statement's
+ * budget could price identical parts differently.
+ *
+ * On guards they did. `defense (guards)` fell through to `mixedRate("raidGuard",
+ * 80)` - the standing bodies' measured rate, defaulting to a hand-written 80
+ * e/part when none stood - against the 65 the colony charges. A guard body is
+ * exactly N ATTACK + N MOVE (`buildGuardBody`), so 65 is not an approximation
+ * and 80 was simply wrong. The 23% over-statement landed precisely where #16
+ * had just made this line meaningful: the plan budgets a guard for an armed
+ * room, no body is standing yet, and the F1 signal arrives pre-corrupted by an
+ * accounting constant. Measured on the staged three-armed-room case: 1.6 e/t
+ * against a true 1.3.
+ *
+ * Guards therefore LEAVE `mixedRate`, which now serves only the two genuinely
+ * mixed-shape classes (upgraders, builders - their WORK:CARRY:MOVE varies with
+ * what the spawn could afford). Two shadowing literals go with it: `1500` for
+ * CREEP_LIFETIME on the legacy guard path, and a hand-copied `4/3` for
+ * UPGRADER_PARTS_PER_WORK.
+ *
+ * Also in this stamp: `ACCOUNT_CLASS_OF_ROLE` is typed to the plan side's own
+ * `AccountCategory`, so the two tables (kind -> line, role -> line) share ONE
+ * vocabulary and a class-name typo is a compile error instead of a silent
+ * "other" bucket. With the type came the last unclassified role: `jack`, the
+ * cold-start body, moves from `UNCLASSIFIED [jack]` to a named `bootstrap`
+ * line. It stays INSIDE overhead where the unclassified bucket already carried
+ * it, so no total moves - a #17 overhead and a #18 overhead differ by nothing
+ * here, only the line's name. It keeps a "-" budget: the flow planner does not
+ * price a pre-economy body, and that absence is the honest part.
+ *
+ * Also in this stamp, from the PLAN side (spec 51 GAP 1): the construction
+ * budget line echoes `consumerSpawnLoad`, which now shares ONE derivation with
+ * the planner's own fill - so a #17 construction budget and a #18 one differ by
+ * the supply vector's repricing (the 1:1 model -> the 3C:1M gait the runtime
+ * fields, ~1.95x on the vector term). A #17 defense or construction line is NOT
+ * comparable to a #18 one; every other account line is unchanged. Same defect
+ * class as #17 (depot movers), #8 (reserver duty) and #7 (hauler spawnParts).
+ */
+export const METHODOLOGY = 18;
 
 export interface LedgerRow {
   id: string;
@@ -260,12 +309,13 @@ function loadCapture(spec: string, fallbackIndex: number): any {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
-/** Measured parts-per-WORK from an actual upgrader body; 4/3 fallback (15W1C4M). */
+/** Measured parts-per-WORK from an actual upgrader body; the plan's own
+ *  UPGRADER_PARTS_PER_WORK as the fallback (was a hand-copied 4/3). */
 function upgraderPartsPerWork(corps: any[]): number {
   for (const c of corps) {
     if (c.kind === "upgrade" && c.bodyParts > 0 && (c.body.work ?? 0) > 0) return c.bodyParts / c.body.work;
   }
-  return 4 / 3;
+  return UPGRADER_PARTS_PER_WORK;
 }
 
 function fleetParts(corps: any[], kind: string, fallback: number): number {
@@ -293,17 +343,29 @@ function fleetParts(corps: any[], kind: string, fallback: number): number {
  * CARRY, so cost mis-ranks classes by build pressure. It is NOT an argument
  * against converting per BODY: each class's shape is known, so its energy per
  * part is exact. Only a FLAT rate across classes would be biased.
+ *
+ * The per-class rates are IMPORTED from primitives (methodology #18,
+ * 2026-08-08), not restated here. They used to be locals inside
+ * `infraSpawnEnergy` and hand-written copies here, so the colony's charge and
+ * this budget could price identical parts differently - and on guards they did.
  */
 const ENERGY_PER_PART: Record<string, number> = {
   // 5 WORK + 3 MOVE = 650e over 8 parts
   miners: MINER_COST / MINER_PARTS,
   // every hauler-shaped body is CARRY+MOVE pairs: 100e per 2 parts
-  "source-route haulers": CARRY_MOVE_PAIR_COST / 2,
-  "transient-route haulers (unbudgeted)": CARRY_MOVE_PAIR_COST / 2,
-  tenders: CARRY_MOVE_PAIR_COST / 2,
-  feeder: CARRY_MOVE_PAIR_COST / 2,
-  // CLAIM+MOVE pairs: (600 + 50) / 2
-  "reservers (claim life)": (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2
+  "source-route haulers": CARRY_MOVE_PER_PART,
+  "transient-route haulers (unbudgeted)": CARRY_MOVE_PER_PART,
+  tenders: CARRY_MOVE_PER_PART,
+  feeder: CARRY_MOVE_PER_PART,
+  "reservers (claim life)": CLAIM_MOVE_PER_PART,
+  // `buildGuardBody` emits exactly N ATTACK + N MOVE, so this is exact and the
+  // class does NOT belong in `mixedRate` below. It was there, defaulting to a
+  // hand-written 80 e/part whenever no guard was standing - 23% above the 65
+  // the colony's own charge uses, landing precisely in the window spec 51
+  // phase 2 created to make guard variance readable.
+  "defense (guards)": ATTACK_MOVE_PER_PART,
+  // CARRY+MOVE pairs, like every other mover - exact, not a mixed shape.
+  "port tenders": CARRY_MOVE_PER_PART
 };
 
 export function planSpawnLoad(cap: any): {
@@ -464,7 +526,16 @@ export function planSpawnLoad(cap: any): {
     const planned = guardedRooms * roomGuardSpawnLoad();
     if (planned > 0) lines.push(["defense (guards)", guardedRooms * GUARD_PARTS_PER_ROOM, planned]);
   } else if (guardParts > 0) {
-    lines.push(["defense (guards)", guardParts, guardParts / 1500]);
+    lines.push(["defense (guards)", guardParts, guardParts / CREEP_LIFETIME]);
+  }
+
+  // PORT TENDERS: one parked drain per PORTED room (a deposit port that has a
+  // buffer container). Reads the plan's own published count, exactly as the
+  // guard line reads `guardedRooms` - never the standing bodies, so a gap
+  // between this and the measured spend is an F1 signal rather than a tautology.
+  const portedRooms: number | undefined = flow.fleetCharge?.infraInputs?.portRooms;
+  if (portedRooms !== undefined && portedRooms > 0) {
+    lines.push(["port tenders", portedRooms * PORT_TENDER_PARTS, portedRooms * portTenderSpawnLoad()]);
   }
 
   const total = lines.reduce((s, [, , x]) => s + x, 0);
@@ -488,14 +559,14 @@ export function planSpawnLoad(cap: any): {
   };
   const energy: Record<string, number> = {};
   for (const [name, , load] of lines) {
-    const flat = ENERGY_PER_PART[name] ?? (name.startsWith("feeder") ? CARRY_MOVE_PAIR_COST / 2 : undefined);
-    const rate =
-      flat ??
-      (name.startsWith("upgraders")
-        ? mixedRate("upgrade", 85)
-        : name.startsWith("defense")
-          ? mixedRate("raidGuard", 80)
-          : mixedRate("construction", 65));
+    // The feeder line carries its relay in the name ("feeder @ relay 100"), so
+    // it matches by prefix; every other fixed-shape class matches exactly.
+    const flat = ENERGY_PER_PART[name] ?? (name.startsWith("feeder") ? CARRY_MOVE_PER_PART : undefined);
+    // Only the two genuinely MIXED-shape classes fall through: upgraders and
+    // builders vary their WORK:CARRY:MOVE with the body the spawn could afford,
+    // so there is no exact pair rate to import. Guards left this branch in
+    // methodology #18 - their shape is fixed, so they belong in the table.
+    const rate = flat ?? (name.startsWith("upgraders") ? mixedRate("upgrade", 85) : mixedRate("construction", 65));
     energy[name] = load * rate;
   }
   return { total, lines, energy };
@@ -660,7 +731,9 @@ export const F1_PLAN_PREFIX: Record<string, string[]> = {
   haulers: ["source-route haulers", "transient-route haulers"],
   "construction (all-in)": ["construction (all-in)"],
   tenders: ["tenders"],
-  feeder: ["feeder"],
+  // The LINK corp owns the whole link network and buys BOTH roles (feeder and
+  // port tender), so its spend settles against both plan lines together.
+  feeder: ["feeder", "port tenders"],
   reservers: ["reservers"],
   upgraders: ["upgraders"],
   "defense (guards)": ["defense (guards)"]
@@ -1306,7 +1379,14 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
           .map((l: any) => {
             const ctrl = l.linkId === dep.controllerLinkId;
             const cap = ctrl && dep.controllerCapacity !== undefined ? ` (controller: bank-neutral <=${dep.controllerCapacity.toFixed(0)}e/t)` : "";
-            return `${l.linkId.slice(-4)} ${l.depositFlow.toFixed(1)}e/t x${l.sources}${cap}`;
+            // rho = routed / headroom (segment v18). A port is a SERVER, not a
+            // bucket: at rho >= ~0.85 the queue is what the hauler pays, and the
+            // plan prices no queue at all. Absent on pre-v18 captures.
+            const rho =
+              l.rho !== undefined
+                ? ` [rho ${l.rho.toFixed(2)} of ${l.headroom.toFixed(1)}${l.rho >= 0.85 ? " SATURATED" : ""}]`
+                : "";
+            return `${l.linkId.slice(-4)} ${l.depositFlow.toFixed(1)}e/t x${l.sources}${rho}${cap}`;
           })
           .join(", ")}` +
         ` | ${totalFlow.toFixed(0)}e/t over ${cands.length} routes, ~${Math.round(savedPartsProxy)} tile*e/t saved`
@@ -2429,8 +2509,20 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
  * declarations), so a new kind's role fails the audit until someone decides
  * its account, rather than vanishing into a bucket. Any role that still slips
  * through prints as UNCLASSIFIED with its name, never as anonymous "other".
+ *
+ * TYPED to `AccountCategory` (2026-08-08, spec 51): this table and
+ * `economy/accountCategory`'s `CATEGORY_OF_KIND` are the SAME vocabulary
+ * projected two ways - the plan side keys by KIND, this side keys by ROLE
+ * because role is all `Memory.spawnLedger` carries (deliberately: a small
+ * closed set that cannot grow unboundedly as commissions churn - see the
+ * ledger's own header). Sharing the type makes a class-name typo a compile
+ * error instead of a silent "other" bucket, and it means the two sides cannot
+ * drift into naming the same line differently.
+ *
+ * They stay two TABLES until per-corp spawn accounting lands (spec 40 Part A),
+ * because role genuinely cannot resolve the two ambiguities noted below.
  */
-export const ACCOUNT_CLASS_OF_ROLE: Record<string, string> = {
+export const ACCOUNT_CLASS_OF_ROLE: Record<string, AccountCategory> = {
   // DIRECT COST OF MINING - the three roles whose spend is attributable to the
   // gross-mining revenue line, so the statement can show a NET MINING MARGIN
   // (owner 2026-08-01: "reserving is an overhead applied to the gross mining").
@@ -2453,13 +2545,25 @@ export const ACCOUNT_CLASS_OF_ROLE: Record<string, string> = {
   // resolve a corp that died inside the window.
   tanker: "infra",
   feeder: "infra",
+  // The deposit port's drain (PortTenderCorp). Infra like the depot movers
+  // beside it - the spawn network's own logistics.
+  porttender: "infra",
   scout: "infra",
   guard: "defense",
   upgrader: "consumers",
   builder: "consumers",
   claimer: "expansion",
   buster: "incursion",
-  striker: "incursion"
+  striker: "incursion",
+  // `jack` is the BOOTSTRAP body - the cold-start generalist that mines, hauls
+  // and upgrades before any corp exists to own it. It had no class at all and
+  // printed as a dangling `UNCLASSIFIED [jack]` line (spec 51 names it as one
+  // of the three role-keying defects). The plan's vocabulary already had its
+  // home - `CATEGORY_OF_KIND.bootstrap`, whose type comment reads "cold-start
+  // bodies, before the economy exists to classify them" - so this is the two
+  // tables agreeing, not a new judgement. It stays inside OVERHEAD, where the
+  // unclassified bucket already carried it, so no total moves.
+  jack: "bootstrap"
 };
 
 export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
@@ -2484,9 +2588,10 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const spendBase = spendOf(base);
   const spawnSpanned = spendCap !== undefined && spendBase !== undefined;
 
+  // One bucket per AccountCategory, plus `other` for a role no table classifies.
   const cost: Record<string, number> = {
     extraction: 0, evacuation: 0, reservation: 0,
-    infra: 0, defense: 0, consumers: 0, expansion: 0, incursion: 0, other: 0
+    infra: 0, defense: 0, consumers: 0, expansion: 0, incursion: 0, bootstrap: 0, other: 0
   };
   const unknownRoles = new Set<string>();
   if (spawnSpanned) {
@@ -2519,7 +2624,9 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
       ? Math.max(0, (scavOf(spendCap) ?? 0) - (scavOf(spendBase) ?? 0))
       : undefined;
   const direct = cost.extraction + cost.evacuation + cost.reservation;
-  const overhead = cost.infra + cost.defense + cost.consumers + cost.other;
+  // `bootstrap` sits in overhead where `other` already carried it, so naming the
+  // class moves no total - it only stops the line printing as UNCLASSIFIED.
+  const overhead = cost.infra + cost.defense + cost.consumers + cost.bootstrap + cost.other;
   const capital = cost.expansion + cost.incursion;
   const spawnTotal = direct + overhead + capital;
 
@@ -2681,31 +2788,41 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const meteredLosses = rot + tombLoss + repairSpend;
 
   // ---- BUDGET (what the PLAN says each line should be) ----
-  // Computed with the planner's own primitives, never a second formula:
-  // minerOverhead/haulerOverhead are the same functions flowAdapter sums into
-  // `totalOverhead`, so extraction+evacuation must reconcile to it - and the
-  // footer prints that check rather than assuming it.
+  // ONE BOOK (methodology #18): every line below is a projection of
+  // `planSpawnLoad(cap).energy`, so `TOTAL SPAWN` is the SUM of the lines that
+  // decompose it, by construction rather than by algebra.
+  //
+  // Extraction and evacuation used to be reduced here independently, from
+  // `flow.sources` / `flow.haulers`, while the other four projected the energy
+  // map. The two derivations agreed - verified equal to 1e-15 across all 25
+  // committed fixtures - because `planSpawnLoad`'s miners line is
+  // `MINER_PARTS/effectiveLife x MINER_COST/MINER_PARTS`, which is
+  // `minerOverhead` with the parts cancelled, and its hauler lines are the same
+  // `spawnParts x 50e` this did. But two expressions that happen to be equal
+  // are one edit from not being, on the line the CONTROLLER VARIANCE BRIDGE
+  // charges its fleet-execution term against.
   const planSources = (cap.data.flow?.sources ?? []) as any[];
   const planHaulers = (cap.data.flow?.haulers ?? []) as any[];
-  const bExtract = planSources.reduce((n, src) => n + minerOverhead(+src.spawnDistance || 0), 0);
-  // EVACUATION BUDGET on the plan's OWN parts basis (methodology #8). Every
-  // CARRY/MOVE part costs exactly 50e, so the planner's paved-aware
-  // `spawnParts` (1.5p/CARRY on roads, 2p/CARRY off them) converts to energy
-  // exactly. haulerOverhead prices every route at the 1:1 body - the plan's
-  // internal parts-vs-energy disagreement, worth -2.82 e/t of slack that
-  // MASKED real breach - and stays only as the fallback for older captures.
+  const planEnergy = planSpawnLoad(cap).energy;
+  /** Sum the energy map's lines by name prefix - the feeder line carries its
+   *  relay in the name, and the hauler lines split source-route vs transient. */
+  const pe = (...names: string[]): number =>
+    names.reduce(
+      (n, key) => n + Object.keys(planEnergy).filter(k => k.startsWith(key)).reduce((m, k) => m + planEnergy[k], 0),
+      0
+    );
+  const bExtract = pe("miners");
+  // Both hauler classes: the plan's budgeted source routes AND the transient
+  // (scavenge/bank) routes its mining budget never prices. The account's
+  // evacuation line has always charged both; keeping them together here is what
+  // makes the six lines close to TOTAL SPAWN.
+  const bEvac = pe("source-route haulers", "transient-route haulers");
+  // The 1:1 COUNTERFACTUAL, kept only for the footer's reconciliation check
+  // against the plan's own `totalOverhead` - which still prices every route at
+  // the 1:1 body. The gap between this and `bEvac` is the planner's INTERNAL
+  // parts-vs-energy disagreement (methodology #8), printed as a note, not a
+  // budget.
   const bEvacLegacy = planHaulers.reduce((n, h) => n + haulerOverhead(+h.carryParts || 0, +h.distance || 0), 0);
-  const haulersHaveParts = planHaulers.some(h => h.spawnParts !== undefined);
-  const bEvac = haulersHaveParts
-    ? planHaulers.reduce(
-        (n, h) =>
-          n +
-          (h.spawnParts !== undefined
-            ? (+h.spawnParts || 0) * (CARRY_MOVE_PAIR_COST / 2)
-            : haulerOverhead(+h.carryParts || 0, +h.distance || 0)),
-        0
-      )
-    : bEvacLegacy;
   const planOverhead = cap.data.flow?.summary?.totalOverhead;
   const sinks = (cap.data.flow?.sinks ?? []) as any[];
   const sinkAlloc = (type: string): number =>
@@ -2735,9 +2852,6 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   // conversion. The gap between this and `bSpawn` is the plan's INTERNAL
   // inconsistency: it knows what its fleet costs and routes less than that to
   // the spawns, which is why the controller allocation is ~ total net mining.
-  const planEnergy = planSpawnLoad(cap).energy;
-  const pe = (...names: string[]): number =>
-    names.reduce((n, key) => n + Object.keys(planEnergy).filter(k => k.startsWith(key)).reduce((m, k) => m + planEnergy[k], 0), 0);
   const bReserve = pe("reservers");
   const bInfra = pe("feeder", "tenders");
   const bDefense = pe("defense");
@@ -2894,6 +3008,11 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
     // prices at admission, not here).
     L("defense    (guard)", -perTick(cost.defense), 4, -bDefense, "cost"),
     L("consumers  (upgrader, builder)", -perTick(cost.consumers), 4, -bConsumers, "cost"),
+    // Cold-start bodies. Budget is "-" on purpose: the flow planner does not
+    // price bootstrap (there is no economy yet to price it against), so the
+    // spend is real and the plan states nothing - which is the honest read, not
+    // a zero implying it should cost nothing.
+    ...(cost.bootstrap > 0 ? [L("bootstrap  (jack)", -perTick(cost.bootstrap), 4)] : []),
     ...(cost.other > 0
       ? [L(`UNCLASSIFIED [${[...unknownRoles].join(", ")}]`, -perTick(cost.other), 4)]
       : []),

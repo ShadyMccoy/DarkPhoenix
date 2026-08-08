@@ -8,7 +8,7 @@ import { minerSpawnLoad } from "../../../src/economy/primitives";
  * EMERGENT kind selection (spec 02 feeder-router, owner 2026-07-26): a
  * link-served source - one whose energy EMERGES at the core link (haulPos set by
  * detectLinkHaulPositions) - is transported by the link network + the
- * ControllerFeederCorp, so the planner must NOT also field a walking haul
+ * LinkCorp, so the planner must NOT also field a walking haul
  * vector for it. A walking crew there would drain the very core link the
  * feeder loads (the storage->core->storage thrash, t72595372). This falls out
  * of the planner's own haulPos lens - not a bolt-on to the haul runtime

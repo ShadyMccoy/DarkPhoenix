@@ -108,15 +108,33 @@ describe("the organism scenario: founding B pulls the west economy (owner 2026-0
   describe("phase 1 - B is a construction site (no spawn of its own)", () => {
     const plan = planColony(organismWorld(false));
 
-    it("A funds the founding: the B site is allocated at its full absorb rate (the trivial part)", () => {
+    /**
+     * THE CONTRACT IS PRIORITY, not the magnitude (re-pinned 2026-08-08 with
+     * spec 51 GAP 1). The old letter - "allocated == demand" - was tuned to a
+     * construction charge that priced the crew's fuel vector at the retired 1:1
+     * model, ~2x under what the runtime fields. Priced honestly, a build crew
+     * 100 tiles from its spawn costs more parts than this single-spawn world
+     * has, so the founding is PARTS-bound at 12.58 of a 16.07 absorb rate.
+     *
+     * That is the change working, not a demotion: the founding still takes the
+     * ledger ahead of A's own controller, which is left on its reserve floor.
+     * Asserting the shortfall is parts and not value is what keeps this test
+     * catching the thing it was built for (the founding losing the value
+     * contest) while surviving an honest reprice.
+     */
+    it("A funds the founding AHEAD of its own consumers, to the last spawn part", () => {
       const founding = plan.sinks.find(s => s.sinkId === "founding-B")!;
-      expect(founding.allocated, "the founding outvalues A's own consumers").to.be.closeTo(
-        founding.demand,
-        1e-6
-      );
-      // and A's late-game controller gets only what remains after the founding
       const ctrl = plan.sinks.find(s => s.sinkId === "ctrl-A")!;
-      expect(founding.value).to.be.greaterThan(ctrl.value);
+      expect(founding.value, "the founding outvalues A's late-game controller").to.be.greaterThan(ctrl.value);
+      // It wins: it draws until the ledger is dry, and what stops it is spawn
+      // parts (partsLeft 0 at this sink), not a competitor outbidding it.
+      expect(founding.allocated, "the founding is funded").to.be.greaterThan(0);
+      expect(plan.partsLedger.dry, "the ledger ran dry funding it").to.equal(true);
+      expect(founding.partsLeft ?? 0, "the founding drained the ledger, so it is PARTS-bound").to.be.closeTo(0, 1e-9);
+      expect(founding.allocated).to.be.lessThan(founding.demand);
+      // A's own controller is left on its reserve floor - the founding took the
+      // rest. That ordering IS the scenario.
+      expect(ctrl.allocated, "A's controller keeps only its reserve floor").to.be.closeTo(2, 1e-6);
     });
 
     /**

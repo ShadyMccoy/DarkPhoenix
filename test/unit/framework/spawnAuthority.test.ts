@@ -60,7 +60,7 @@ const GET_SPAWN_DEMAND_DEBT = new Set([
   "corps/CarryCorp.ts",
   "corps/ClaimCorp.ts",
   "corps/ConstructionCorp.ts",
-  "corps/ControllerFeederCorp.ts",
+  "corps/LinkCorp.ts",
   "corps/CoreBusterCorp.ts",
   "corps/ExtensionTenderCorp.ts",
   "corps/HarvestCorp.ts",

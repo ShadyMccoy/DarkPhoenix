@@ -39,9 +39,6 @@ import {
   reserverRoomEnergy,
   bufferDrainCarry,
   carryPartsFor,
-  constructionWorkSpawnLoad,
-  operationSpawnLoad,
-  controllerWorkSpawnLoad,
   effectiveLife,
   minerOverhead,
   minerSpawnLoad,
@@ -51,7 +48,7 @@ import {
   scavengeFloorParts,
   SPAWN_PARTS_PER_TICK
 } from "./primitives";
-import { effectiveOneWayTiles, pavedNetEnergy, pavedSpawnPartsFor } from "./roadEconomics";
+import { consumerUnitSpawnLoad, effectiveOneWayTiles, pavedNetEnergy, pavedSpawnPartsFor } from "./roadEconomics";
 import { DEFAULT_VALUATION } from "./goals";
 import { bankRoomFromId, isBankSourceId, isMinedIncomeId } from "./ids";
 import { FieldedFleet } from "./Commission";
@@ -292,6 +289,14 @@ export interface ColonyProblem {
    * quiet, priced at zero - exactly the pre-spec-51 behaviour.
    */
   guardedRooms?: readonly string[];
+  /**
+   * Rooms carrying a DEPOSIT PORT with a buffer container - one standing port
+   * tender each. A host LENS like `depotRooms` / `guardedRooms`, never a room
+   * count recomputed per reader: the kind's `propose()` and the adapter's
+   * `infraSpawnLoad` call must read the SAME fact or the corps' sum stops
+   * reconciling with the colony's deduction (spec 17 P3's pattern).
+   */
+  portRooms?: readonly string[];
   /**
    * FIELDED-fleet actuals per commission corpId (spec 39 phase 2), assembled
    * by the host (CommissionHost.assembleFieldedFleets - the store owns the
@@ -845,15 +850,12 @@ function routeToSinks(
     // a controller, builders at construction (5x cheaper per e/t - BUILD is
     // 5 energy per WORK-tick). Spawn/storage sinks have no standing body.
     const workPerUnit =
-      sink.kind === "controller"
-        ? controllerWorkSpawnLoad(1, nearestSpawnDist(sink.pos))
-        : sink.kind === "construction"
-        ? // ALL-IN (spec 34 D4): the WORK bodies plus the supply vector that
-          // fuels them - the SAME charge the commission envelope declares
-          // (commissionPlan), linear in the rate so the per-unit form holds.
-          operationSpawnLoad(constructionWorkSpawnLoad(1, nearestSpawnDist(sink.pos)), [
-            { rate: 1, distance: nearestSpawnDist(sink.pos) }
-          ])
+      sink.kind === "controller" || sink.kind === "construction"
+        ? // THE one derivation, shared with the commission envelope
+          // (`consumerSpawnLoad` = allocated x this). Both sides used to price
+          // the consumer independently and disagreed 1.79x on construction -
+          // spec 51 GAP 1, closed 2026-08-08.
+          consumerUnitSpawnLoad(sink.kind, nearestSpawnDist(sink.pos))
         : 0;
 
     for (const { id, d } of order) {
@@ -1002,7 +1004,7 @@ function routeToSinks(
   // emerges at the CORE (the port fired it there); PRICE the short core->storage
   // drain by adding the deposited flow to the port's OWNING link-served source
   // (keeps the parts ledger honest and the remote route sized to the short leg).
-  // EXECUTION is the ControllerFeederCorp's job - the sole bidirectional core-
+  // EXECUTION is the LinkCorp's job - the sole bidirectional core-
   // link operator drains the core to storage (spec 02 feeder-router), and its
   // body carries a drain floor that includes this deposit headroom, so deposits
   // never back up (the silent-collapse mode the v1 leg punted on). Cheap

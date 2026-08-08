@@ -175,7 +175,13 @@ describe("fiscal archive", () => {
       const numbersOf = (lines: string[]) => {
         const out = new Map<string, number[]>();
         for (const l of lines) {
-          const m = /^\s*[=+-]?\s*([A-Za-z][A-Za-z ()/&.,'-]+?)\s{2,}(-?[\d,.]+.*)$/.exec(l);
+          // The value group accepts a LEADING + (2026-08-08). It used to be
+          // `-?`, so every positively-signed line fell out of both maps and was
+          // never compared - which silently excluded the whole CONTROLLER
+          // VARIANCE BRIDGE, whose terms are all `+`/`-` signed. It surfaced as
+          // a phantom "missing line" the first time a near-zero residual
+          // rounded to `+0.00` on one side and `-0.00` on the other.
+          const m = /^\s*[=+-]?\s*([A-Za-z][A-Za-z ()/&.,'-]+?)\s{2,}([+-]?[\d,.]+.*)$/.exec(l);
           if (!m) continue;
           const nums = (m[2].match(/-?\d[\d,]*\.?\d*/g) ?? []).map(s => Number(s.replace(/,/g, "")));
           if (nums.length) out.set(m[1].trim(), nums);

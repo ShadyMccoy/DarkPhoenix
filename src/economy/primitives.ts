@@ -166,12 +166,52 @@ export const CARRY_CAPACITY = 50;
  */
 export const CARRY_MOVE_PAIR_COST = BODY_COSTS.CARRY + BODY_COSTS.MOVE; // 100
 
-/** The tanker's CARRY:MOVE ratios - one constant, every reader (the body
- * builder, the fleet sizing, and since phase 1 the commission's all-in
- * price). A tanker is mostly PARKED, so it runs CARRY-heavy: 1 MOVE per 3
- * CARRY on plain, 1 per 5 where roads halve fatigue. */
+/**
+ * The tanker's CARRY:MOVE ratios - one constant, every reader (the body
+ * builder, the fleet sizing, and since phase 1 the commission's all-in price).
+ *
+ * 3:1 IS MEASURED OPTIMAL, not assumed (2026-08-08). Owner asked the good
+ * question - *"wouldn't 2:1 maybe make the most sense?"* - and the arithmetic
+ * agrees with them while the colony does not. Swept on
+ * `fid-t5-real-maze-steady-state`, which is DETERMINISTIC (a re-run reproduces
+ * every figure bit-identically, so these are signal, not draws):
+ *
+ *     ratio    1:1     2:1    [3:1]    4:1     5:1
+ *     gross     25%     43%     53%     47%     45%
+ *     carry     -       44%     45%     43%     40%
+ *  spawnIdle    -       16%     33%     21%     16%
+ *
+ * (1:1 from spec 34 item 3, which recorded the collapse twice.) Single-peaked
+ * at 3:1, so this is an interior optimum between two opposing effects - more
+ * CARRY per MOVE buys carry-per-body but costs loaded speed - and NOT the
+ * carry-per-part monotone that 1:1 < 2:1 < 3:1 alone would suggest (5:1 and 4:1
+ * carry more per part and do worse).
+ *
+ * WHY THE PARTS ARGUMENT MISLEADS HERE, because it is the trap to avoid
+ * re-deriving. By this module's own `tankerCarryNeededFor`, total parts to
+ * sustain 10 e/t scale as `(r+1)^2/r` on plain (minimized at r=1) and
+ * `(r+2)(r+1)/r` on road (2:1 best), which says 3:1 costs +32% over 1:1 unpaved
+ * and +32% over 2:1 paved. That is correct, and it optimizes the wrong thing:
+ * it prices SPAWN PARTS as the only scarce good, while a poor economy is also
+ * bound by energy per BODY. The sweep is what settles it - the cheapest fleet
+ * per unit of flow is not the fleet that delivers most when the spawn is poor.
+ *
+ * The old rationale ("a tanker is mostly PARKED, so it runs CARRY-heavy") is
+ * retired: `tankerCarryNeededFor` is a round-trip SHUTTLE model that prices the
+ * travel, so that justification never matched the formula it justified. The
+ * number was right; the reason was not.
+ *
+ * This also partly diagnoses spec 34 item 3's "demand-shape interaction that is
+ * NOT yet diagnosed": it is not a cliff at 1:1, it is a smooth curve and 1:1 is
+ * simply its far end.
+ */
 export const TANKER_CARRY_PER_MOVE_PLAIN = 3;
-export const TANKER_CARRY_PER_MOVE_ROAD = 5;
+/** Road gait. Every live caller builds with `useRoads=false`, so this is
+ *  reachable only through `buildTankerBody`'s default parameter and was never
+ *  swept above; left at the plain value rather than the retired 5 (which the
+ *  plain sweep ranks worst) so the dead default cannot ship a bad body if a
+ *  caller ever flips useRoads on. */
+export const TANKER_CARRY_PER_MOVE_ROAD = 3;
 
 /** Source energy capacity in claimed rooms (Screeps constant) */
 export const SOURCE_ENERGY_CAPACITY = 3000;
@@ -654,6 +694,36 @@ export const RESERVER_PARTS_PER_ROOM = 4;
 export const TENDER_FLEET_PARTS = 48;
 
 // ---------------------------------------------------------------------------
+// ENERGY PER BODY PART, BY FLEET CLASS - the parts <-> energy conversion.
+//
+// Every standing fleet is built from ONE repeating pair, so its energy per part
+// is EXACT, not an average: a hauler/feeder/tender is CARRY+MOVE (100e per 2),
+// a reserver CLAIM+MOVE (650e per 2), a guard ATTACK+MOVE (130e per 2 - see
+// buildGuardBody, which emits exactly N ATTACK + N MOVE).
+//
+// This is the conversion F1's warning is NOT about. F1 warns against using COST
+// as a proxy for spawn TIME across classes (a CLAIM part is 600e against 50e for
+// CARRY, so cost mis-ranks classes by build pressure). Per BODY the shape is
+// known and the conversion is exact; only a FLAT rate across classes is biased.
+//
+// Hoisted to module scope and EXPORTED 2026-08-08 (spec 51): these were locals
+// inside `infraSpawnEnergy` while `waste-ledger` kept its own copies, so the
+// colony's charge and the statement's budget for the same class could disagree
+// - and on guards they did (the audit's fallback priced ATTACK+MOVE at 80 e/part
+// against this 65, a 23% over-statement landing exactly when the plan budgets a
+// guard that is not currently standing, which is the F1-signal case spec 51
+// phase 2 had just created). Same treatment TENDER_FLEET_PARTS got in phase 4:
+// one declaration, every reader.
+// ---------------------------------------------------------------------------
+
+/** CARRY+MOVE pairs - haulers, feeders, tenders, tankers. */
+export const CARRY_MOVE_PER_PART = CARRY_MOVE_PAIR_COST / 2;
+/** CLAIM+MOVE pairs - reservers and claimers. */
+export const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
+/** ATTACK+MOVE pairs - the standing raid guard (buildGuardBody's exact shape). */
+export const ATTACK_MOVE_PER_PART = (BODY_COSTS.ATTACK + BODY_COSTS.MOVE) / 2;
+
+// ---------------------------------------------------------------------------
 // PER-CORP STANDING INFRA (spec 39 phase 4 / spec 51).
 //
 // `infraSpawnLoad` below prices the standing infrastructure as ONE aggregate
@@ -741,6 +811,37 @@ export function roomReserverSpawnLoad(): number {
 }
 
 /**
+ * CARRY parts a PORT TENDER is built with. It is PARKED between a deposit
+ * port's buffer container and the port link, so it is sized for the link's
+ * MOUTH, not for a route: a port at range r clears LINK_CAPACITY/r e/t (~47 on
+ * the live ports) and a parked creep can transfer its whole store every tick,
+ * so a handful of CARRY covers the fire rate many times over.
+ */
+export const PORT_TENDER_CARRY = 6;
+
+/** Standing body of one port tender: PORT_TENDER_CARRY CARRY plus its MOVE
+ *  share at the tanker gait (it travels to post EMPTY, so one MOVE would do;
+ *  the plan prices the body the builder actually emits). */
+export const PORT_TENDER_PARTS = PORT_TENDER_CARRY + Math.ceil(PORT_TENDER_CARRY / TANKER_CARRY_PER_MOVE_PLAIN);
+
+/**
+ * ONE ported room's standing port tender, parts/tick - the deposit-port term of
+ * {@link infraSpawnLoad}.
+ *
+ * Priced like the guard and the reserver: the full-budget body over the
+ * lifetime the spawn actually rebuilds it on. Declared, never measured (spec 14
+ * forbids an actuals-fed budget), and charged only where the plan says a port
+ * exists so the per-corp declaration and this aggregate stay one fact.
+ *
+ * Exists because the port's buffer had no drain (measured t72862894: the port
+ * container stood at 2000/2000 while `portFallbacks` was 0 and `portWaits` ran
+ * to 602 - both of a hauler's escape hatches shut). See PortTenderCorp.
+ */
+export function portTenderSpawnLoad(): number {
+  return PORT_TENDER_PARTS / CREEP_LIFETIME;
+}
+
+/**
  * Spawn build-time (parts/tick) of the standing infrastructure the plan
  * implies but does not commission through routeToSinks: the storage->
  * controller feeder shuttle sized to `relayRate`, the extension tender
@@ -761,7 +862,12 @@ export function infraSpawnLoad(
   /** Rooms whose raid meter is ARMED (or under a live raid) - one standing
    * guard each. Defaults to 0: a caller that does not know the defense picture
    * prices exactly as it did before spec 51 phase 2. */
-  guardedRoomCount = 0
+  guardedRoomCount = 0,
+  /** Rooms carrying a DEPOSIT PORT with a buffer container - one standing port
+   * tender each (the drain that keeps the port's mouth open). Defaults to 0, so
+   * a caller that does not know the link topology prices exactly as it did
+   * before the port tender existed. */
+  portedRoomCount = 0
 ): number {
   // Feeder + tender are DEPOT movers: they exist only in rooms with a built
   // storage (`depotRoomCount`). Charging them unconditionally taxed early
@@ -788,7 +894,8 @@ export function infraSpawnLoad(
   // so it must follow the armed-room lens and never a constant, or a peaceful
   // colony pays for defense it never fields.
   const guards = guardedRoomCount * roomGuardSpawnLoad();
-  return feeder + tender + reservers + guards;
+  const portTenders = portedRoomCount * portTenderSpawnLoad();
+  return feeder + tender + reservers + guards + portTenders;
 }
 
 /**
@@ -819,11 +926,13 @@ export function infraSpawnEnergy(
    * does not know the topology prices exactly as it did before. */
   linkFedSenders = 1,
   /** Armed rooms - one standing guard each. See the parts twin. */
-  guardedRoomCount = 0
+  guardedRoomCount = 0,
+  /** Rooms carrying a DEPOSIT PORT with a buffer container - one standing port
+   * tender each (the drain that keeps the port's mouth open). Defaults to 0, so
+   * a caller that does not know the link topology prices exactly as it did
+   * before the port tender existed. */
+  portedRoomCount = 0
 ): number {
-  const CARRY_MOVE_PER_PART = CARRY_MOVE_PAIR_COST / 2;
-  const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
-  const ATTACK_MOVE_PER_PART = (BODY_COSTS.ATTACK + BODY_COSTS.MOVE) / 2;
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
   // Spec 45 volley-service floor - the SAME line as the parts twin above.
   const feederCarry =
@@ -837,7 +946,8 @@ export function infraSpawnEnergy(
   const tender = ((depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME) * CARRY_MOVE_PER_PART;
   const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
   const guards = guardedRoomCount * roomGuardSpawnLoad() * ATTACK_MOVE_PER_PART;
-  return feeder + tender + reservers + guards;
+  const portTenders = portedRoomCount * portTenderSpawnLoad() * CARRY_MOVE_PER_PART;
+  return feeder + tender + reservers + guards + portTenders;
 }
 
 /**
@@ -867,7 +977,6 @@ export function reserverSpawnLoad(parts: number): number {
  * cannot disagree about what a room's reservation costs (~1.20 e/t).
  */
 export function reserverRoomEnergy(): number {
-  const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
   return roomReserverSpawnLoad() * CLAIM_MOVE_PER_PART;
 }
 

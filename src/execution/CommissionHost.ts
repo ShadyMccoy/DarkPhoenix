@@ -37,7 +37,8 @@ import { raidGuardKind } from "../corps/kinds/raidGuardKind";
 import { coreBusterKind } from "../corps/kinds/coreBusterKind";
 import { claimKind } from "../corps/kinds/claimKind";
 import { extensionTenderKind } from "../corps/kinds/extensionTenderKind";
-import { controllerFeederKind } from "../corps/kinds/controllerFeederKind";
+import { linkKind } from "../corps/kinds/linkKind";
+import { portPosts } from "../corps/nodeEnergy";
 import { harvestKind } from "../corps/kinds/harvestKind";
 import { carryKind } from "../corps/kinds/carryKind";
 import { upgradeKind } from "../corps/kinds/upgradeKind";
@@ -65,7 +66,7 @@ const KINDS: CorpKind[] = [
   coreBusterKind as CorpKind,
   claimKind as CorpKind,
   extensionTenderKind as CorpKind,
-  controllerFeederKind as CorpKind,
+  linkKind as CorpKind,
   constructionKind as CorpKind
 ];
 
@@ -154,6 +155,29 @@ function depotLens(): { depotRooms: string[]; linkFedRooms: string[] } {
  * resolution of anything that reads it. A SIGHTED raid is not delayed by this:
  * the corp's own targeting reads the lens live every tick; only the price waits.
  */
+/**
+ * PORTED-ROOM lens (2026-08-08): home rooms carrying a deposit port that HAS a
+ * buffer container - the ports the port tender has a post at.
+ *
+ * Reads `portPosts`, the same function `PortTenderCorp` holds its post with and
+ * the flow adapter prices `infraSpawnLoad` from, so "which ports do we tend" and
+ * "what do we pay to tend them" can never become two answers. Cached on the same
+ * 50-tick stride and the same reasoning as the depot lens: liveProblem rebuilds
+ * every tick and links/containers move on the order of hundreds.
+ */
+let portCache: { tick: number; rooms: string[] } | null = null;
+
+function portRoomsLens(): string[] {
+  if (portCache && Game.time - portCache.tick < DEPOT_LENS_STRIDE) return portCache.rooms;
+  const rooms: string[] = [];
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (room.controller?.my && portPosts(room).length > 0) rooms.push(roomName);
+  }
+  portCache = { tick: Game.time, rooms: rooms.sort() };
+  return portCache.rooms;
+}
+
 let guardCache: { tick: number; rooms: string[] } | null = null;
 
 function guardedRoomsLens(spawns: ColonyProblem["spawns"]): string[] {
@@ -176,6 +200,7 @@ function liveProblem(): ColonyProblem {
   const { depotRooms, linkFedRooms } = depotLens();
   return {
     guardedRooms: guardedRoomsLens(spawns),
+    portRooms: portRoomsLens(),
     spawns,
     sources: [],
     sinks: [],

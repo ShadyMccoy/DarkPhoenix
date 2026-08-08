@@ -1,5 +1,5 @@
 /**
- * @fileoverview ControllerFeederCorp - a LOCAL MOVER (type "moving") that relays
+ * @fileoverview LinkCorp - a LOCAL MOVER (type "moving") that relays
  * energy from the room's storage BANK to the controller's upgrade input, so the
  * long-range haulers deliver to ONE central destination - the storage - and this
  * dedicated feeder runs the short last leg to the parked upgraders.
@@ -15,7 +15,7 @@
  * feeder REPLACES the direct haul, it does not change how fast the controller is
  * upgraded.
  *
- * @module corps/ControllerFeederCorp
+ * @module corps/LinkCorp
  */
 
 import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
@@ -24,6 +24,8 @@ import { FEEDER, FEEDER_DRAINED, FEEDER_LINCHPIN } from "../spawn/demandLadder";
 import { Position } from "../types/Position";
 import {
   CoreDepot,
+  PortPost,
+  portPosts,
   controllerLink,
   coreDepot,
   coreLink,
@@ -34,8 +36,9 @@ import {
   feederRelayStock,
   sourceLink
 } from "./nodeEnergy";
-import { travelTo, travelToBypass } from "./movement";
+import { travelTo, travelToBypass, travelToLane } from "./movement";
 import { roomHasFlowMiner } from "./censusLens";
+import { PORT_TENDER_CARRY } from "../economy/primitives";
 import { stampControllerFeederRegime } from "./regimes";
 import {
   CARRY_MOVE_PAIR_COST,
@@ -48,7 +51,7 @@ import {
 } from "../economy/primitives";
 import { bankFedControllerRate, resolveReserveTarget } from "../economy/bank";
 
-export interface SerializedControllerFeederCorp extends SerializedSpawnAnchoredCorp {
+export interface SerializedLinkCorp extends SerializedSpawnAnchoredCorp {
   controllerAllocation?: number;
   /** Throughput meter (rolling ~1500t window, survives resets). */
   moveEnergy?: number;
@@ -76,7 +79,7 @@ const CONTROLLER_FEED_TARGET = 2000;
 const FEEDER_INCOME_FIRST_FLOOR = 2000;
 
 /**
- * ControllerFeederCorp fields the shuttle fleet (usually one feeder; more only
+ * LinkCorp fields the shuttle fleet (usually one feeder; more only
  * while a bank surplus is being drawn down) that relays storage -> controller input.
  */
 /** Container-refill headroom the relay carries above the plan's controller
@@ -121,7 +124,7 @@ export function feederRelayTarget(surplusRate: number, planFlow: number | undefi
   return planFlow !== undefined ? planFlow + FEEDER_STOCK_HEADROOM : surplusRate;
 }
 
-export class ControllerFeederCorp extends SpawnAnchoredCorp {
+export class LinkCorp extends SpawnAnchoredCorp {
   /** The plan's controller-side flow (commission-owned, refreshed every round). */
   private controllerAllocation?: number;
   /**
@@ -200,6 +203,10 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return;
     const room = spawn.room;
+    // PORTS FIRST and independent: a port tender never touches the core link, so
+    // it must not sit behind the feeder's own gates (a room with no controller
+    // or no bank still has ports to drain).
+    this.runPortPosts(room);
     const controller = room.controller;
     if (!controller) return;
 
@@ -471,7 +478,17 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
    * leg; pretending one 13-CARRY feeder covers it would starve the upgraders
    * the plan just scaled up).
    */
+  /**
+   * The corp's demands: the FEEDER's (gated by bank/controller state) plus the
+   * PORT tenders' (gated only by whether a port has a buffer). Appending here
+   * rather than adding a second corp is what keeps the spec-39 demand surface
+   * from growing - one owner, one demand site, two roles.
+   */
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
+    return [...this.feederDemands(ctx), ...this.portDemands()];
+  }
+
+  private feederDemands(ctx: SpawnDemandContext): SpawnDemand[] {
     // Decision-symmetry stamp (spec 14 phase 2): for an infrastructure corp
     // the GATES are the decision - "why zero feeders with a fat bank" is a
     // gate verdict, so every return records which gate fired and what it read.
@@ -628,7 +645,96 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     ];
   }
 
-  public serialize(): SerializedControllerFeederCorp {
+  // =========================================================================
+  // DEPOSIT PORTS (owner 2026-08-08: *"the link+tender+container can all be
+  // ruled by the link corp"*). One corp owns the whole link network - core,
+  // controller, and every deposit port - because those three are one machine:
+  // the container is the mouth, the tender is the throat, the link is the pipe.
+  // Splitting them across owners is how the port drain went missing at all (the
+  // container had a placement rung, the link had a price, and nothing owned the
+  // thing between them).
+  // =========================================================================
+
+  private getPortTenders(): Creep[] {
+    return this.creepsOfWorkType("porttend", { includeSpawning: false });
+  }
+
+  /** A tile adjacent to BOTH the buffer and the link, so the creep withdraws and
+   *  transfers from a standstill. */
+  private postTile(post: PortPost): RoomPosition | null {
+    const room = post.link.room;
+    const terrain = room.getTerrain();
+    let fallback: RoomPosition | null = null;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const x = post.buffer.pos.x + dx;
+        const y = post.buffer.pos.y + dy;
+        if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+        if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+        const pos = new RoomPosition(x, y, room.name);
+        if (pos.getRangeTo(post.link.pos) > 1) continue;
+        const blocked = room.lookForAt(LOOK_STRUCTURES, x, y).some(s => s.structureType !== STRUCTURE_ROAD);
+        if (!blocked) return pos;
+        fallback = fallback ?? pos;
+      }
+    }
+    return fallback;
+  }
+
+  /**
+   * Run the port tenders: park between buffer and link, and shuttle without
+   * moving (withdraw + transfer are both legal in one tick). Kept OFF the
+   * feeder's own path entirely - a port tender never touches the core link, so
+   * the heartbeat cannot be slowed by port work.
+   */
+  private runPortPosts(room: Room): void {
+    const posts = portPosts(room);
+    const tenders = this.getPortTenders();
+    if (posts.length === 0 || tenders.length === 0) return;
+    tenders.forEach((creep, i) => {
+      if (creep.spawning) return;
+      const post = posts[i % posts.length];
+      const stand = this.postTile(post);
+      if (stand && !creep.pos.isEqualTo(stand)) {
+        travelToLane(creep, stand, { range: 0, visualizePathStyle: { stroke: "#ffaa00" } });
+      }
+      // TRANSFER FIRST, then top up: draining into the link is the point, and a
+      // creep refilled with nowhere to put its load just parks energy aboard a
+      // body instead of leaving it where the haulers can see the free capacity.
+      const carrying = creep.store[RESOURCE_ENERGY] ?? 0;
+      const linkFree = post.link.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0;
+      if (carrying > 0 && linkFree > 0 && creep.pos.getRangeTo(post.link.pos) <= 1) {
+        creep.transfer(post.link, RESOURCE_ENERGY, Math.min(carrying, linkFree));
+      }
+      const free = creep.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0;
+      const buffered = post.buffer.store[RESOURCE_ENERGY] ?? 0;
+      if (free > 0 && buffered > 0 && creep.pos.getRangeTo(post.buffer.pos) <= 1) {
+        creep.withdraw(post.buffer, RESOURCE_ENERGY, Math.min(free, buffered));
+      }
+    });
+  }
+
+  /** One tender per deposit port that HAS a buffer. Appended to the feeder's own
+   *  demand, so no new demand SITE joins the spec-39 surface. */
+  private portDemands(): SpawnDemand[] {
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return [];
+    const posts = portPosts(spawn.room);
+    const staffed = this.getPortTenders().length;
+    if (posts.length === 0 || staffed >= posts.length) return [];
+    return [
+      {
+        buyerCorpId: this.id,
+        role: "porttender",
+        value: 78,
+        blocking: false,
+        infrastructure: true,
+        bodyParam: PORT_TENDER_CARRY
+      } as SpawnDemand
+    ];
+  }
+
+  public serialize(): SerializedLinkCorp {
     return {
       ...super.serialize(),
       controllerAllocation: this.controllerAllocation,
@@ -639,7 +745,7 @@ export class ControllerFeederCorp extends SpawnAnchoredCorp {
     };
   }
 
-  public deserialize(data: SerializedControllerFeederCorp): void {
+  public deserialize(data: SerializedLinkCorp): void {
     super.deserialize(data);
     this.controllerAllocation = data.controllerAllocation;
     this.moveEnergy = data.moveEnergy ?? 0;

@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { ControllerFeederCorp } from "../../../src/corps/ControllerFeederCorp";
+import { LinkCorp } from "../../../src/corps/LinkCorp";
 
 /** The corp id the base class derives from type + nodeId (see feederRouter.test). */
 const CORP_ID = "moving-W1N1-controllerFeeder";
@@ -79,7 +79,7 @@ describe("controller feeder staffing lens (no double-order while spawning)", () 
 
   it("a feeder ALREADY SPAWNING counts toward staffing - the demand must not re-arm", () => {
     mkWorld(1, 0);
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     // The lens the demand side reads. One body on the way IS one body staffed:
     // anything else re-orders every tick of a ~96-tick spawn.
     expect(corp.staffedFeeders(), "a spawning feeder must count as staffed").to.equal(1);
@@ -87,20 +87,20 @@ describe("controller feeder staffing lens (no double-order while spawning)", () 
 
   it("the WORK lens still excludes it - a spawning creep cannot relay", () => {
     mkWorld(1, 0);
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     expect(corp.getCreepCount(), "work-side count excludes the unborn").to.equal(0);
   });
 
   it("counts live and spawning together", () => {
     mkWorld(1, 1);
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     expect(corp.staffedFeeders()).to.equal(2);
     expect(corp.getCreepCount()).to.equal(1);
   });
 
   it("with nothing at all, staffing is zero (the demand SHOULD arm)", () => {
     mkWorld(0, 0);
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     expect(corp.staffedFeeders()).to.equal(0);
   });
 });

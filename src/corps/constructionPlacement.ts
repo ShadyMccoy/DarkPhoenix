@@ -570,25 +570,61 @@ export function bestPortContainerTile(
  * PRECEDENT: the LINK SWAP rung already retires the weakest source link to
  * free a link-table slot for the controller link. This is that, one table over.
  *
- * THREE CONDITIONS, and each is a guard rather than a preference:
- *  - the table must be FULL. Retiring destroys 5,000e of build; while a rung
- *    can simply place, it must.
- *  - something must WANT the slot - here, a deposit port with no buffer.
- *    Reclaiming for tidiness is pure loss.
+ * CONDITIONS, each a guard rather than a preference:
  *  - the census must have PROVEN the container superseded, which it only does
  *    with a controller link present. Without one the container IS the input
  *    spot and retiring it strands the upgraders mid-upgrade.
+ *  - something must WANT it gone. Reclaiming for tidiness is pure loss, so
+ *    either the table is FULL and a port needs the slot, or - added
+ *    2026-08-08 - the dead container is itself BLOCKING a port.
+ *
+ * THE BLOCKING CASE (owner 2026-08-08: *"the controller link should not have a
+ * container"*). Measured t72862894: the superseded controller container at
+ * (41,36) sits within 2 of the deposit port at (43,38), and that range is not
+ * incidental - it is exactly the range `resolvePortBuffer` searches and
+ * `hasContainerNear` tests. So the dead container made the port rung believe
+ * that port was already served (it never places one, forever) while the
+ * delivery side bound the CONTROLLER's store as the port's buffer. The table
+ * was 4/5 with a free slot the whole time, so the FULL gate never fired and
+ * nothing ever noticed.
+ *
+ * That is not tidiness - one dead container silently costs a real port its
+ * buffer. The `full` gate is therefore lifted for this case only.
+ *
+ * THE SPILL IS ACCEPTED (owner 2026-08-08: *"I don't care about draining it
+ * first. I just want this done asap"*). Destroying a container drops its
+ * contents, and a ground pile decays at ceil(amount/1000) per tick - the live
+ * one held 1,900e. That is a ONE-OFF bounded by the container cap; the block it
+ * clears costs a whole deposit port its buffer for every tick it stands.
+ * `energyLost` is still reported so the trade is visible, never silent.
  */
+/** The range `resolvePortBuffer` searches for a port's buffer, and therefore
+ *  the range at which a foreign container BLOCKS one. */
+export const PORT_BUFFER_RANGE = 2;
+
 export function reclaimableContainer(
   census: ContainerCensus | null
 ): { pos: Position; energyLost: number; reason: string } | null {
-  if (!census || !census.full) return null;
-  if (!census.ports.some(p => !p.hasContainer)) return null;
+  if (!census) return null;
   const dead = census.supersededControllerContainer;
   if (!dead) return null;
+  const cheb = (a: Position, b: Position): number => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+  // Is this dead container the thing a port is mistaking for its buffer? Range
+  // 2 because that is what resolvePortBuffer and hasContainerNear both use - a
+  // third number here would be the two-books failure by construction.
+  const blocking = census.ports.some(p => cheb(p.pos, dead.pos) <= PORT_BUFFER_RANGE);
+  const wanted = census.full && census.ports.some(p => !p.hasContainer);
+  if (!wanted && !blocking) return null;
+  // NO DRAIN WAIT (owner 2026-08-08: *"I don't care about draining it first"*).
+  // The spill is real - a ground pile decays at ceil(amount/1000) per tick - but
+  // it is one-off and bounded by the container cap, while the block it clears
+  // costs a whole port its buffer for as long as it stands. `energyLost` still
+  // reports the spill, so the trade stays visible rather than silent.
   return {
     pos: dead.pos,
     energyLost: dead.energy,
-    reason: "controller link owns the input spot; this container predates it and nothing reads it"
+    reason: blocking
+      ? "controller link owns the input spot; this dead container is inside a deposit port's buffer range and blocks it"
+      : "controller link owns the input spot; this container predates it and nothing reads it"
   };
 }

@@ -276,8 +276,11 @@ export class BootstrapCorp extends Corp {
       if (result === OK) {
         // Bootstrap bypasses the SpawningCorp executor, so it must feed the
         // cumulative spend ledger itself or cold-start bodies vanish from the
-        // account. "jack" has no account class on purpose: it prints as
-        // UNCLASSIFIED, which is honest for a pre-economy body.
+        // account. "jack" reports on the `bootstrap` account line (spec 51);
+        // it carries no BUDGET, because the flow planner does not price a
+        // pre-economy body - which is the honest part. It used to carry no NAME
+        // either, printing as UNCLASSIFIED; a named line keeps the absent budget
+        // and drops the anonymity.
         accrueSpawnSpend("jack", JACK_COST, JACK_BODY.length);
         this.emergencyJackNames.push(name);
       }
