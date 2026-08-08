@@ -3201,6 +3201,25 @@ export class ConstructionCorp extends Corp {
     // regardless of the ratio built).
     const pavedF = this.buildFuelPavedFraction(room, site);
     const carryNeeded = tankerCarryNeededFor(consumption, dist, pavedF, TANKER_CARRY_PER_MOVE_PLAIN);
+    // STAMP THE PAVEMENT (2026-08-08). `pavedF` was computed here, consumed on
+    // the line above, and recorded NOWHERE - a pricing term with no stamp,
+    // which is the exact failure `sources[].swampFraction` was added to fix
+    // ("the very next capture could not say whether carry was unchanged because
+    // the routes have no swamp or because the wiring was dead").
+    //
+    // It bit immediately: the tanker gait sweep could not say which PAVEMENT
+    // regime it measured, so "3:1 is optimal" was scoped to an unknown. And the
+    // gait it is priced against is `TANKER_CARRY_PER_MOVE_PLAIN` unconditionally
+    // while `buildTankerBody(..., false)` builds the plain body at every call
+    // site - so `TANKER_CARRY_PER_MOVE_ROAD` has no live caller and a fully
+    // paved fuel route still fields the plain shape. Owner 2026-08-08:
+    // *"builders tend to build roads so 2:1 is good"* - that is the case this
+    // stamp exists to make measurable before the ratio is made conditional.
+    this.stampSizing({
+      tankerPavedF: Math.round(pavedF * 100) / 100,
+      tankerDist: dist,
+      tankerCarryNeeded: carryNeeded
+    });
     // At least TWO bodies so one is always staged for a seamless hot swap, but
     // size EACH to its SHARE of the real carryNeeded - never the max body.
     // The old code fielded max(2, ...) bodies each at perTankerMax (16 CARRY at
