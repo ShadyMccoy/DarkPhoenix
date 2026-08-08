@@ -1364,7 +1364,14 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
           .map((l: any) => {
             const ctrl = l.linkId === dep.controllerLinkId;
             const cap = ctrl && dep.controllerCapacity !== undefined ? ` (controller: bank-neutral <=${dep.controllerCapacity.toFixed(0)}e/t)` : "";
-            return `${l.linkId.slice(-4)} ${l.depositFlow.toFixed(1)}e/t x${l.sources}${cap}`;
+            // rho = routed / headroom (segment v18). A port is a SERVER, not a
+            // bucket: at rho >= ~0.85 the queue is what the hauler pays, and the
+            // plan prices no queue at all. Absent on pre-v18 captures.
+            const rho =
+              l.rho !== undefined
+                ? ` [rho ${l.rho.toFixed(2)} of ${l.headroom.toFixed(1)}${l.rho >= 0.85 ? " SATURATED" : ""}]`
+                : "";
+            return `${l.linkId.slice(-4)} ${l.depositFlow.toFixed(1)}e/t x${l.sources}${rho}${cap}`;
           })
           .join(", ")}` +
         ` | ${totalFlow.toFixed(0)}e/t over ${cands.length} routes, ~${Math.round(savedPartsProxy)} tile*e/t saved`

@@ -41,6 +41,14 @@ export interface DepositSource {
 export interface DepositLink {
   id: string;
   pos: Position;
+  /**
+   * e/t this port can actually absorb - `depositPortHeadroom(rangeToCore,
+   * ownSourceRate)`, the SAME primitive the planner sizes ports with, so the
+   * instrument and the routing read one derivation. Optional: a caller with no
+   * geometry (a harness, a room whose core link is gone) leaves it absent and
+   * the load line reads `rho` ABSENT rather than a flattering zero.
+   */
+  headroom?: number;
 }
 
 /** One source's best deposit opportunity. */
@@ -61,6 +69,24 @@ export interface LinkLoad {
   /** Sum of flowRate of sources that would deposit here. */
   depositFlow: number;
   sources: number;
+  /** The port's own absorb budget (`DepositLink.headroom`), when the caller knows it. */
+  headroom?: number;
+  /**
+   * UTILIZATION - `depositFlow / headroom`, absent when headroom is unknown.
+   *
+   * The number that makes this instrument able to answer its own question. Its
+   * docblock has always claimed it aggregates flow "so an over-subscribed link
+   * is visible before we route to it", and `depositPortHeadroom`'s reasons in
+   * exactly these terms (rho 0.45 "fine", 0.82 "marginal", 1.24 "SATURATED") -
+   * but rho was never published, so a capture could show the numerator and
+   * never the ratio.
+   *
+   * Read it as a QUEUE gauge, not a capacity check. A server at rho 1.0 does not
+   * merely "just keep up": with any arrival variance its queue grows without
+   * bound, and a hauler holding at a full port is carrying nothing and doing
+   * nothing. `>= 1` is a rate deficit no buffer can fix (spec 47).
+   */
+  rho?: number;
 }
 
 export interface DepositSavingsReport {
@@ -109,10 +135,22 @@ export function computeDepositSavings(
       saving,
       flowRate: s.flowRate
     });
-    const l = load.get(best.link.id) ?? { linkId: best.link.id, depositFlow: 0, sources: 0 };
+    const l = load.get(best.link.id) ?? {
+      linkId: best.link.id,
+      depositFlow: 0,
+      sources: 0,
+      ...(best.link.headroom !== undefined ? { headroom: best.link.headroom } : {})
+    };
     l.depositFlow += s.flowRate;
     l.sources += 1;
     load.set(best.link.id, l);
+  }
+
+  // rho last, so it is the ratio of the FINAL totals rather than a running one.
+  // A zero-headroom port would divide by zero; it is not routable in the first
+  // place (`detectLinkDepositPorts` drops it), so leave rho absent there too.
+  for (const l of load.values()) {
+    if (l.headroom !== undefined && l.headroom > 0) l.rho = l.depositFlow / l.headroom;
   }
 
   return { candidates, perLink: [...load.values()] };
