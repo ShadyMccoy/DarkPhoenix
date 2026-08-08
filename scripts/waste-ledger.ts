@@ -2728,31 +2728,41 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const meteredLosses = rot + tombLoss + repairSpend;
 
   // ---- BUDGET (what the PLAN says each line should be) ----
-  // Computed with the planner's own primitives, never a second formula:
-  // minerOverhead/haulerOverhead are the same functions flowAdapter sums into
-  // `totalOverhead`, so extraction+evacuation must reconcile to it - and the
-  // footer prints that check rather than assuming it.
+  // ONE BOOK (methodology #18): every line below is a projection of
+  // `planSpawnLoad(cap).energy`, so `TOTAL SPAWN` is the SUM of the lines that
+  // decompose it, by construction rather than by algebra.
+  //
+  // Extraction and evacuation used to be reduced here independently, from
+  // `flow.sources` / `flow.haulers`, while the other four projected the energy
+  // map. The two derivations agreed - verified equal to 1e-15 across all 25
+  // committed fixtures - because `planSpawnLoad`'s miners line is
+  // `MINER_PARTS/effectiveLife x MINER_COST/MINER_PARTS`, which is
+  // `minerOverhead` with the parts cancelled, and its hauler lines are the same
+  // `spawnParts x 50e` this did. But two expressions that happen to be equal
+  // are one edit from not being, on the line the CONTROLLER VARIANCE BRIDGE
+  // charges its fleet-execution term against.
   const planSources = (cap.data.flow?.sources ?? []) as any[];
   const planHaulers = (cap.data.flow?.haulers ?? []) as any[];
-  const bExtract = planSources.reduce((n, src) => n + minerOverhead(+src.spawnDistance || 0), 0);
-  // EVACUATION BUDGET on the plan's OWN parts basis (methodology #8). Every
-  // CARRY/MOVE part costs exactly 50e, so the planner's paved-aware
-  // `spawnParts` (1.5p/CARRY on roads, 2p/CARRY off them) converts to energy
-  // exactly. haulerOverhead prices every route at the 1:1 body - the plan's
-  // internal parts-vs-energy disagreement, worth -2.82 e/t of slack that
-  // MASKED real breach - and stays only as the fallback for older captures.
+  const planEnergy = planSpawnLoad(cap).energy;
+  /** Sum the energy map's lines by name prefix - the feeder line carries its
+   *  relay in the name, and the hauler lines split source-route vs transient. */
+  const pe = (...names: string[]): number =>
+    names.reduce(
+      (n, key) => n + Object.keys(planEnergy).filter(k => k.startsWith(key)).reduce((m, k) => m + planEnergy[k], 0),
+      0
+    );
+  const bExtract = pe("miners");
+  // Both hauler classes: the plan's budgeted source routes AND the transient
+  // (scavenge/bank) routes its mining budget never prices. The account's
+  // evacuation line has always charged both; keeping them together here is what
+  // makes the six lines close to TOTAL SPAWN.
+  const bEvac = pe("source-route haulers", "transient-route haulers");
+  // The 1:1 COUNTERFACTUAL, kept only for the footer's reconciliation check
+  // against the plan's own `totalOverhead` - which still prices every route at
+  // the 1:1 body. The gap between this and `bEvac` is the planner's INTERNAL
+  // parts-vs-energy disagreement (methodology #8), printed as a note, not a
+  // budget.
   const bEvacLegacy = planHaulers.reduce((n, h) => n + haulerOverhead(+h.carryParts || 0, +h.distance || 0), 0);
-  const haulersHaveParts = planHaulers.some(h => h.spawnParts !== undefined);
-  const bEvac = haulersHaveParts
-    ? planHaulers.reduce(
-        (n, h) =>
-          n +
-          (h.spawnParts !== undefined
-            ? (+h.spawnParts || 0) * (CARRY_MOVE_PAIR_COST / 2)
-            : haulerOverhead(+h.carryParts || 0, +h.distance || 0)),
-        0
-      )
-    : bEvacLegacy;
   const planOverhead = cap.data.flow?.summary?.totalOverhead;
   const sinks = (cap.data.flow?.sinks ?? []) as any[];
   const sinkAlloc = (type: string): number =>
@@ -2782,9 +2792,6 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   // conversion. The gap between this and `bSpawn` is the plan's INTERNAL
   // inconsistency: it knows what its fleet costs and routes less than that to
   // the spawns, which is why the controller allocation is ~ total net mining.
-  const planEnergy = planSpawnLoad(cap).energy;
-  const pe = (...names: string[]): number =>
-    names.reduce((n, key) => n + Object.keys(planEnergy).filter(k => k.startsWith(key)).reduce((m, k) => m + planEnergy[k], 0), 0);
   const bReserve = pe("reservers");
   const bInfra = pe("feeder", "tenders");
   const bDefense = pe("defense");

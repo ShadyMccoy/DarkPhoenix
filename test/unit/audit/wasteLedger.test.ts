@@ -1381,6 +1381,52 @@ describe("F1 plan fidelity (waste ledger)", () => {
     expect(de["reservers (claim life)"]).to.be.closeTo(2 * roomReserverSpawnLoad() * CLAIM_MOVE_PER_PART, 1e-12);
   });
 
+  /**
+   * THE COST COLUMN ADDS UP (methodology #18).
+   *
+   * `TOTAL SPAWN (plan fleet, priced)` is the whole plan's fleet in energy, and
+   * the six cost lines above it are supposed to BE that fleet, split by
+   * account. So their budgets must sum to it - not approximately, exactly.
+   *
+   * They did agree before this was pinned, but only algebraically: four lines
+   * projected `planSpawnLoad`'s energy map while extraction and evacuation were
+   * reduced independently from `flow.sources` / `flow.haulers`. Two derivations
+   * that happen to be equal are one edit away from not being, and nothing would
+   * have caught it - the column has no self-check, and TOTAL SPAWN is the line
+   * the CONTROLLER VARIANCE BRIDGE charges its "fleet costs more than the plan
+   * prices" term against. A silent split there would have moved the bridge's
+   * closure into "rounding" and stayed there.
+   *
+   * Now every line reads the one book, so this is structural. Verified equal to
+   * 1e-15 across all 25 committed fixtures before the unification.
+   */
+  it("methodology #18: the six cost-line budgets SUM to the TOTAL SPAWN budget", () => {
+    const text = formatAccounts(cap72411542, cap72404213, computeLedger(cap72411542, cap72404213));
+    const budgetOf = (label: string): number => {
+      const line = text.split("\n").find(l => l.includes(label));
+      if (!line) throw new Error(`no line matching "${label}" in:\n${text}`);
+      const nums = (line.slice(line.indexOf(label) + label.length).match(/-?\d+\.\d\d/g) ?? []).map(Number);
+      // BUDGET ACTUAL VARIANCE - the budget is the FIRST of the three.
+      expect(nums.length, `"${label}" is a budgeted line`).to.be.greaterThanOrEqual(3);
+      return nums[0];
+    };
+    const parts = [
+      "extraction  (miner)",
+      "evacuation  (hauler)",
+      "reservation (reserver)",
+      "infra      (tanker, feeder, scout)",
+      "defense    (guard)",
+      "consumers  (upgrader, builder)"
+    ].map(budgetOf);
+    const total = budgetOf("= TOTAL SPAWN (plan fleet, priced)");
+    const sum = parts.reduce((s, v) => s + v, 0);
+    // 0.01 is the printed precision, not a tolerance on the arithmetic.
+    expect(sum, `lines ${parts.map(p => p.toFixed(2)).join(" + ")} vs total ${total.toFixed(2)}`).to.be.closeTo(
+      total,
+      0.011
+    );
+  });
+
   it("still surfaces a kind with NO plan line as UNPRICED (the detector outlives the hole)", () => {
     // An unpriced CLASS is a different defect from a mispriced one: no amount
     // of tuning an existing line can find it. The detector must survive the
