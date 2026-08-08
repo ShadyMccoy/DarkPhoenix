@@ -11402,3 +11402,101 @@ port containers. Next cycle's stamp, if prediction 3 is ambiguous.
 
 **Verdict: FIXED (the demand) + CLASS CLOSED (the cost seam) + a measurement
 gap named (port buffer fill).**
+
+### Post-deploy verification (capture t72866550, 572 ticks after the deploy)
+
+**Prediction 1 — CONFIRMED, mechanically and exactly.** The purchase receipt,
+the first one this body has ever had:
+
+```
+{ t: 72866365, k: "spawn", d: { role: "porttender",
+  corp: "moving-W43N23-controllerFeeder", cost: 400, parts: 8,
+  want: 400, min: 200, grant: 400, fill: 4500, cap: 5600,
+  pri: 17000078, rank: 0, why: "infra" } }
+```
+
+`parts: 8` is `PORT_TENDER_PARTS`, `grant == want == 400`, `why "infra"` as
+declared, `rank 0`. The corp's body confirms both creeps on one post: 14 CARRY /
+10 MOVE / 24 parts = feeder (8C/8M) + port tender (6C/2M). (`creepCount` still
+reads 1 — the census counts the primary role; the parts table is the truthful
+side. Minor, noted, not chased.)
+
+**Prediction 2 — CONFIRMED.** No `gate: "impossible"` on either queue; both
+heads are real haulers at `gate: "buy"`. Zero `hold` rows in the new ring (was
+16 of 16). **Zero `err` rows** — the new seam guard fired on nothing, so no
+other kind is shipping cost-less demands.
+
+**Prediction 3 — went AGAINST what I predicted, and I cannot attribute it.**
+I said idle would STAY, because `walkDemands` provably never holds for an
+impossible demand. Idle instead collapsed:
+
+| | t72865978 | t72866550 |
+|---|---|---|
+| Spawn1 idle | 18% (hold 100%) | 3.0% over the new 572t |
+| Spawn2 idle | 38% (hold 100%) | 1.9% over the new 572t |
+| S4 recoverable | 0.18 WARN | 0.04 ok |
+| P1 funded flips | 2 FAIL | 0 ok |
+
+**This is not evidence for the fix.** There is no mechanism: an impossible demand
+sets neither `outcome` nor `holdForBlocking`, so the walk passes straight over
+it. Part of the change is pure RECLASSIFICATION (the old head was always the
+impossible port tender, so every idle tick was forced into "hold"), the
+pre-samples were 134 and 333 ticks, and the deploy's global reset lands inside
+both meter windows. Recorded as coincident, not caused.
+
+**Prediction 4, the heartbeat guard — HELD.** Controller delivery 40.15 -> 39.00
+e/t (flat). P7 moved ok -> WARN 0.73x only because the PLAN rose (published
+allocation 53.61 -> 63.41; P12 still 1x of the law). Bucket 10000, no losses, no
+deadlock — the instrument is safe. **Watch item:** the core link is fuller —
+`coreEmptyShare` 0.392 -> 0.303, `coreCongestedShare` 0.083 -> 0.134,
+`hubClampShare` 0.41 -> 0.75. Consistent with the port drain now delivering into
+the core, and a less-drained core is the direction doctrine calls unhealthy.
+200-tick window; re-read next cycle before acting.
+
+### The number I am NOT claiming
+
+Forgone mining read **37.11 -> 2.06 e/t** (gross mined 82.89 -> 117.94, 98% of
+the 120 capacity), and the residual's over-attribution nearly closed
+(-25.74 -> -6.48). That would be the largest single move this project has
+measured, and it is exactly why it needs a real window before it is claimed:
+
+- 572 ticks against a 38,456-tick baseline. CLAUDE.md's multi-draw rule prices
+  identical-code 3000-tick draws at +-20-30%; this sample is five times shorter
+  than that.
+- **E6 contradicts it.** Deferred miner ops went 5 of 12 -> **10 of 12**, and the
+  pile-gate `heldFrac` stamps explain 76.13 e/t (up from 72.05). The miners say
+  haul is MORE binding; the mined counter says almost nothing is forgone. Both
+  cannot be right.
+- The window straddles a global reset, and `forgone` is a difference of
+  cumulative counters.
+
+**Next cycle re-reads forgone over >=3000 ticks with no reset inside it.** If it
+holds, the port drain is worth more than every leak row on the sheet; if it does
+not, the discrepancy is in the mined counter and that is the bug.
+
+### Two findings this verification produced on its own
+
+1. **The ledger cannot price the port tender.** The `port tenders` plan line is
+   gated on `flow.fleetCharge?.infraInputs?.portRooms`, and `fleetCharge` is
+   absent from BOTH captures — so F1 books the tender's 8 parts as unbudgeted
+   `feeder` spend (0.148 vs 0.011 planned, a 13x breach that is really a missing
+   plan line), and P4 lists no port-tender row at all.
+2. **Why it is absent is the interesting part.** `fleetChargeStamp` is a
+   module-level `let` in flowAdapter, set only on the solve path. After a global
+   reset the plan is restored from Memory, so the stamp stays empty until the
+   next full re-plan — up to a 1500-tick cadence (spec 46) of blindness in the
+   one stamp that makes the fleet charge auditable, after every deploy. Same
+   class the spawn meter already solved by keeping window state in Memory rather
+   than the heap. **Named for next cycle; not fixed blind here.**
+
+**NEW TOP LINE: L1 — ground pile decay 18.85 e/t against a budget of 0.00**
+(75x the worst-line tolerance, 21% of capacity now sitting in the losses block).
+It was 14.99 last cycle and grew, which is consistent with more energy being
+mined into the same drain. It is the same story as E6: the colony's constraint is
+HAULING, and the port drain is one leg of it.
+
+**Cycle verdict: FIXED + VERIFIED (the port tender fields, 400e/8p, first buy at
+the first opportunity) · CLASS CLOSED (the cost seam, and it caught nothing else
+- confirming this was the only such demand) · ONE OF MY OWN PREDICTIONS
+FALSIFIED (the idle mechanism) · one headline number DEFERRED for want of a
+window · two new instrumentation gaps named.**
