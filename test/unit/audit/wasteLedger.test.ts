@@ -2856,7 +2856,13 @@ describe("the budget column balances by construction (methodology #11, t72773737
       budgetOf("controller (score)") -
       budgetOf("construction (built, measured)") -
       budgetOf("to/(from) bank");
-    expect(Math.abs(identity), `budget column sums to zero (got ${identity.toFixed(2)})`).to.be.lessThan(0.01);
+    // Tolerance is PRINT ROUNDING, not slack in the identity. This sums ten
+    // figures parsed back out of the formatted account at 2dp, so the worst
+    // case is 10 x 0.005 = 0.05. The old 0.01 was passing by luck: the
+    // 2026-08-07 feeder resize moved the bank residual and the printed terms
+    // landed at exactly 0.010000000000001 - a rounding artifact reading as a
+    // broken identity. The identity itself is exact by construction.
+    expect(Math.abs(identity), `budget column sums to zero (got ${identity.toFixed(2)})`).to.be.lessThan(0.05);
   });
 
   it("the bank budget is the plan residual, not the solver's routed net draw (-55.16 at t72773737)", () => {

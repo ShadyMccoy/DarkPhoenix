@@ -1115,8 +1115,70 @@ export const LINK_CAPACITY = 800;
  * `senders` defaults to 1 so every legacy call site is bit-identical; zero
  * senders means no service post and therefore no floor at all.
  */
+/**
+ * ONE link's payload expressed in CARRY parts (800 / 50 = 16) - the LANDING
+ * QUANTUM. A creep unloading into a link port can place exactly this much per
+ * arrival, which is what `depositRouteCarryCap` caps a deposit body at.
+ *
+ * Deliberately separate from the feeder's service floor below. Both used to be
+ * `volleyServiceCarry()`, one function meaning two different things: "how much
+ * fits in a link" and "how big must the core's shuttle be". They are not the
+ * same quantity and they no longer scale together.
+ */
+export const LINK_PAYLOAD_CARRY = LINK_CAPACITY / CARRY_CAPACITY;
+
+/**
+ * CARRY per inbound sender for the CORE LINK'S SHUTTLE (owner 2026-08-07:
+ * *"the core link has a feeder tender creep slave. It empties it to ensure
+ * incoming links can transfer (links coming off cooldown) and fills it when if
+ * necessary when it needs to send energy to the upgraders. I recon it needs 8
+ * carry to do its job well in our room. At lower RCL maybe 4 is good."*).
+ *
+ * Our room runs 2 inbound senders, so 4/sender IS the owner's 8; a
+ * single-sender room (lower RCL, one source link) is the owner's 4. One
+ * coefficient, both numbers.
+ *
+ * WHY 4 AND NOT 16 - and why this does not overturn the t72819265 A/B. That
+ * A/B varied CARRY and CREEP COUNT together (1 feeder @ 16 vs 2 feeders @ 32)
+ * and its own conclusion names the mechanism as CONCURRENCY, not capacity:
+ * *"One creep working harder cannot cover two senders arriving at once - it
+ * can only serve them one after the other"*, with the throughput meter showing
+ * the SINGLE feeder moving MORE per tick while the core clamped three times as
+ * often. The fix that shipped encoded the finding as CARRY-per-sender, but the
+ * finding was CREEPS-per-sender. That part is kept: the corp still fields one
+ * feeder per inbound sender (`wantedFeeders`), so the senders are served in
+ * parallel. Only the per-creep body shrinks.
+ *
+ * The physics: the shuttle sits one tile from both storage and the core, so a
+ * withdraw+transfer cycle is ~2 ticks. 4 CARRY clears 200e per cycle, 800e in
+ * ~8 ticks - inside a source link's own cooldown (LINK_COOLDOWN x range), which
+ * is what sets how often a volley can actually arrive. Sizing the shuttle to
+ * swallow a whole volley in ONE cycle was insurance against a latency the
+ * arrival rate cannot produce.
+ *
+ * Measured at the 16/sender floor (t72851251, 2 senders, 50 CARRY fielded):
+ * `hubClampShare 0.000` over the window, `coreEmptyShare 0.474`,
+ * `hubVolleyAvg 592` - the core never clamped once, sat drained half the time,
+ * and volleys were not even arriving full. The premium was 100 spawn parts,
+ * 15% of the colony's whole fleet, on the single most expensive corp.
+ *
+ * CPU VARIANT, deliberately NOT wired (owner: *"At cpu constraints 16 might be
+ * better"* - a hypothesis, and the firm numbers are 8 and 4). Doubling to 8
+ * halves the intent count for the same throughput: each withdraw/transfer pair
+ * costs ~0.2 CPU, so a 2x body moves the same energy in half the cycles. The
+ * trade is spawn parts for CPU and it belongs to the governor. It is not keyed
+ * to `CpuGovernor` here on purpose - the governor is DRY-RUN by default and
+ * the mockup meters REAL cpu, so keying a body size to it would couple grid
+ * cell behaviour to HOST LOAD (the documented trap that failed six
+ * baseline-green cells).
+ */
+export const CORE_SERVICE_CARRY_PER_SENDER = 4;
+
+/** The CPU-constrained variant of the above. See its note - not wired. */
+export const CORE_SERVICE_CARRY_PER_SENDER_CPU = 8;
+
 export function volleyServiceCarry(senders = 1): number {
-  return Math.max(0, Math.floor(senders)) * (LINK_CAPACITY / CARRY_CAPACITY);
+  return Math.max(0, Math.floor(senders)) * CORE_SERVICE_CARRY_PER_SENDER;
 }
 
 /**
@@ -1140,7 +1202,7 @@ export function volleyServiceCarry(senders = 1): number {
  * portRemaining debit, so this changes body shape, never routed energy.
  */
 export function depositRouteCarryCap(carry: number, isDepositRoute: boolean): number {
-  return isDepositRoute ? Math.min(carry, volleyServiceCarry()) : carry;
+  return isDepositRoute ? Math.min(carry, LINK_PAYLOAD_CARRY) : carry;
 }
 
 // ---------------------------------------------------------------------------

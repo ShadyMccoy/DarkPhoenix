@@ -484,9 +484,15 @@ describe("volleyServiceCarry (spec 45: the feeder is a SERVICE creep, sized for 
   // Measured: a 4-CARRY feeder (parkedRelayCarry-sized to average flow)
   // needs ~8 ticks per 800e volley while two deposit ports land one every
   // ~7t - the feeder itself clamps the network (coreEmptyShare 0.26).
-  it("is exactly one full link volley of CARRY", () => {
-    expect(volleyServiceCarry()).to.equal(LINK_CAPACITY / CARRY_CAPACITY);
-    expect(volleyServiceCarry()).to.equal(16);
+  it("is one sender's SERVICE carry - no longer the link's payload", () => {
+    // Resized 2026-08-07 (owner: 8 CARRY at our 2 senders, 4 at lower RCL).
+    // The two meanings that used to share this function are now split:
+    // LINK_PAYLOAD_CARRY (16) is what fits in a link and still caps a deposit
+    // body; this is how big the core's shuttle must be, which is a different
+    // question with a different answer.
+    expect(volleyServiceCarry()).to.equal(4);
+    expect(volleyServiceCarry(2), "our room").to.equal(8);
+    expect(LINK_CAPACITY / CARRY_CAPACITY, "the payload quantum is unchanged").to.equal(16);
   });
 
   it("infraSpawnLoad prices the link-fed feeder at the SAME floor the corp fields (F1: price = behavior)", () => {
