@@ -128,6 +128,16 @@ export interface FlowSink {
  * Miner assignment from the solver.
  */
 export interface MinerAssignment {
+  /**
+   * The mouth BUFFER the plan priced this source's drain fleet against (v17).
+   *
+   * Published because the drain term is otherwise undiagnosable from a capture:
+   * `carryParts` carries it folded in and `flowRate` never shows it at all, so
+   * "the lens is dead" and "the lens is fine, the uplift is small" print
+   * identically. Absent = the plan saw no buffer, which is a DIFFERENT
+   * statement from zero.
+   */
+  staged?: number;
   /** Source being mined */
   sourceId: string;
 

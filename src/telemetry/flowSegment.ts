@@ -80,6 +80,8 @@ export interface FlowTelemetry {
     nodeId: string;
     harvestRate: number;
     workParts: number;
+    /** v17: mouth buffer the drain reprice priced against (absent = none seen). */
+    staged?: number;
     /** Mining efficiency percentage (0-100) */
     efficiency: number;
     /** Distance from spawn */
@@ -315,6 +317,10 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
         // v14: this source's transport is the LINK network, so its haul leg is
         // ~1 tile and it pays the engine's 3%-per-hop transfer tax instead.
         ...(miner.linkServed ? { linkServed: true } : {}),
+        // v17: the mouth buffer the plan priced this source's DRAIN fleet
+        // against. Without it the drain term cannot be read from a capture -
+        // it folds into carryParts and never touches flowRate.
+        ...(miner.staged !== undefined ? { staged: miner.staged } : {}),
         ...(miner.swampFraction !== undefined ? { swampFraction: miner.swampFraction } : {})
       });
     }
@@ -380,7 +386,7 @@ export function updateFlowTelemetry(flowSolution?: FlowSolution): void {
     // echo (spec 34 P4: the ledger charges construction THROUGH the plan).
     // v12 adds partsLedger.plannable - the 90% planning margin
     // (SPAWN_PLAN_FRACTION, owner 2026-07-30) the fill spends from.
-    version: 16, // v16 haulers[].charged + sinks[].chargedWork - what the ledger ACTUALLY debited (audit t72846447)
+    version: 17, // v17 sources[].staged - the mouth buffer the DRAIN reprice priced against (audit t72851084)
     tick: Game.time,
     sources,
     haulers,

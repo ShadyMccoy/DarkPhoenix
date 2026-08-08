@@ -1764,6 +1764,11 @@ export function solveColony(
       const src = problem.sources.find(s => s.id === m.sourceId);
       return src?.swampFraction !== undefined ? { swampFraction: src.swampFraction } : {};
     })(),
+    // The mouth buffer the drain reprice actually read (v17) - see MinerAssignment.
+    ...(() => {
+      const src = problem.sources.find(s => s.id === m.sourceId);
+      return src?.staged !== undefined ? { staged: src.staged } : {};
+    })(),
     efficiency: m.efficiency
   }));
 
