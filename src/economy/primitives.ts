@@ -811,6 +811,37 @@ export function roomReserverSpawnLoad(): number {
 }
 
 /**
+ * CARRY parts a PORT TENDER is built with. It is PARKED between a deposit
+ * port's buffer container and the port link, so it is sized for the link's
+ * MOUTH, not for a route: a port at range r clears LINK_CAPACITY/r e/t (~47 on
+ * the live ports) and a parked creep can transfer its whole store every tick,
+ * so a handful of CARRY covers the fire rate many times over.
+ */
+export const PORT_TENDER_CARRY = 6;
+
+/** Standing body of one port tender: PORT_TENDER_CARRY CARRY plus its MOVE
+ *  share at the tanker gait (it travels to post EMPTY, so one MOVE would do;
+ *  the plan prices the body the builder actually emits). */
+export const PORT_TENDER_PARTS = PORT_TENDER_CARRY + Math.ceil(PORT_TENDER_CARRY / TANKER_CARRY_PER_MOVE_PLAIN);
+
+/**
+ * ONE ported room's standing port tender, parts/tick - the deposit-port term of
+ * {@link infraSpawnLoad}.
+ *
+ * Priced like the guard and the reserver: the full-budget body over the
+ * lifetime the spawn actually rebuilds it on. Declared, never measured (spec 14
+ * forbids an actuals-fed budget), and charged only where the plan says a port
+ * exists so the per-corp declaration and this aggregate stay one fact.
+ *
+ * Exists because the port's buffer had no drain (measured t72862894: the port
+ * container stood at 2000/2000 while `portFallbacks` was 0 and `portWaits` ran
+ * to 602 - both of a hauler's escape hatches shut). See PortTenderCorp.
+ */
+export function portTenderSpawnLoad(): number {
+  return PORT_TENDER_PARTS / CREEP_LIFETIME;
+}
+
+/**
  * Spawn build-time (parts/tick) of the standing infrastructure the plan
  * implies but does not commission through routeToSinks: the storage->
  * controller feeder shuttle sized to `relayRate`, the extension tender
@@ -831,7 +862,12 @@ export function infraSpawnLoad(
   /** Rooms whose raid meter is ARMED (or under a live raid) - one standing
    * guard each. Defaults to 0: a caller that does not know the defense picture
    * prices exactly as it did before spec 51 phase 2. */
-  guardedRoomCount = 0
+  guardedRoomCount = 0,
+  /** Rooms carrying a DEPOSIT PORT with a buffer container - one standing port
+   * tender each (the drain that keeps the port's mouth open). Defaults to 0, so
+   * a caller that does not know the link topology prices exactly as it did
+   * before the port tender existed. */
+  portedRoomCount = 0
 ): number {
   // Feeder + tender are DEPOT movers: they exist only in rooms with a built
   // storage (`depotRoomCount`). Charging them unconditionally taxed early
@@ -858,7 +894,8 @@ export function infraSpawnLoad(
   // so it must follow the armed-room lens and never a constant, or a peaceful
   // colony pays for defense it never fields.
   const guards = guardedRoomCount * roomGuardSpawnLoad();
-  return feeder + tender + reservers + guards;
+  const portTenders = portedRoomCount * portTenderSpawnLoad();
+  return feeder + tender + reservers + guards + portTenders;
 }
 
 /**
@@ -889,7 +926,12 @@ export function infraSpawnEnergy(
    * does not know the topology prices exactly as it did before. */
   linkFedSenders = 1,
   /** Armed rooms - one standing guard each. See the parts twin. */
-  guardedRoomCount = 0
+  guardedRoomCount = 0,
+  /** Rooms carrying a DEPOSIT PORT with a buffer container - one standing port
+   * tender each (the drain that keeps the port's mouth open). Defaults to 0, so
+   * a caller that does not know the link topology prices exactly as it did
+   * before the port tender existed. */
+  portedRoomCount = 0
 ): number {
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
   // Spec 45 volley-service floor - the SAME line as the parts twin above.
@@ -904,7 +946,8 @@ export function infraSpawnEnergy(
   const tender = ((depotRoomCount * TENDER_FLEET_PARTS) / CREEP_LIFETIME) * CARRY_MOVE_PER_PART;
   const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
   const guards = guardedRoomCount * roomGuardSpawnLoad() * ATTACK_MOVE_PER_PART;
-  return feeder + tender + reservers + guards;
+  const portTenders = portedRoomCount * portTenderSpawnLoad() * CARRY_MOVE_PER_PART;
+  return feeder + tender + reservers + guards + portTenders;
 }
 
 /**

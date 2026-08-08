@@ -88,6 +88,9 @@ const CATEGORY_OF_KIND: { [kind: string]: AccountCategory } = {
   tender: "infra",
   extensionTender: "infra",
   controllerFeeder: "infra",
+  // The deposit port's drain - the spawn network's own logistics, same class
+  // as the depot movers beside it.
+  portTender: "infra",
   scout: "infra",
   spawning: "infra",
   raidGuard: "defense",

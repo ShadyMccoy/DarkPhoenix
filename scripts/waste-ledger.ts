@@ -20,6 +20,8 @@ import * as path from "path";
 import {
   ATTACK_MOVE_PER_PART,
   BODY_COSTS,
+  PORT_TENDER_PARTS,
+  portTenderSpawnLoad,
   CARRY_MOVE_PAIR_COST,
   CARRY_MOVE_PER_PART,
   CLAIM_LIFETIME,
@@ -361,7 +363,9 @@ const ENERGY_PER_PART: Record<string, number> = {
   // hand-written 80 e/part whenever no guard was standing - 23% above the 65
   // the colony's own charge uses, landing precisely in the window spec 51
   // phase 2 created to make guard variance readable.
-  "defense (guards)": ATTACK_MOVE_PER_PART
+  "defense (guards)": ATTACK_MOVE_PER_PART,
+  // CARRY+MOVE pairs, like every other mover - exact, not a mixed shape.
+  "port tenders": CARRY_MOVE_PER_PART
 };
 
 export function planSpawnLoad(cap: any): {
@@ -523,6 +527,15 @@ export function planSpawnLoad(cap: any): {
     if (planned > 0) lines.push(["defense (guards)", guardedRooms * GUARD_PARTS_PER_ROOM, planned]);
   } else if (guardParts > 0) {
     lines.push(["defense (guards)", guardParts, guardParts / CREEP_LIFETIME]);
+  }
+
+  // PORT TENDERS: one parked drain per PORTED room (a deposit port that has a
+  // buffer container). Reads the plan's own published count, exactly as the
+  // guard line reads `guardedRooms` - never the standing bodies, so a gap
+  // between this and the measured spend is an F1 signal rather than a tautology.
+  const portedRooms: number | undefined = flow.fleetCharge?.infraInputs?.portRooms;
+  if (portedRooms !== undefined && portedRooms > 0) {
+    lines.push(["port tenders", portedRooms * PORT_TENDER_PARTS, portedRooms * portTenderSpawnLoad()]);
   }
 
   const total = lines.reduce((s, [, , x]) => s + x, 0);
@@ -709,7 +722,10 @@ export const F1_CLASS_OF_KIND: Record<string, string> = {
   // Priced since phase 1 (standing-fleet replacement cadence in
   // planSpawnLoad) - raidGuard was the one class F1 flagged UNPRICED on
   // every live cycle (0.027 p/t / 1.73 e/t of real defense spend).
-  raidGuard: "defense (guards)"
+  raidGuard: "defense (guards)",
+  // Priced since 2026-08-08: the deposit port's drain (portTenderSpawnLoad per
+  // PORTED room, from the same portPosts lens the corp holds its post with).
+  portTender: "port tenders"
 };
 
 /** Plan-line prefix that each actual class settles against. */
@@ -721,7 +737,8 @@ export const F1_PLAN_PREFIX: Record<string, string[]> = {
   feeder: ["feeder"],
   reservers: ["reservers"],
   upgraders: ["upgraders"],
-  "defense (guards)": ["defense (guards)"]
+  "defense (guards)": ["defense (guards)"],
+  "port tenders": ["port tenders"]
 };
 
 /**
@@ -2530,6 +2547,9 @@ export const ACCOUNT_CLASS_OF_ROLE: Record<string, AccountCategory> = {
   // resolve a corp that died inside the window.
   tanker: "infra",
   feeder: "infra",
+  // The deposit port's drain (PortTenderCorp). Infra like the depot movers
+  // beside it - the spawn network's own logistics.
+  porttender: "infra",
   scout: "infra",
   guard: "defense",
   upgrader: "consumers",

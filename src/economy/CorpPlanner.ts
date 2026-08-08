@@ -290,6 +290,14 @@ export interface ColonyProblem {
    */
   guardedRooms?: readonly string[];
   /**
+   * Rooms carrying a DEPOSIT PORT with a buffer container - one standing port
+   * tender each. A host LENS like `depotRooms` / `guardedRooms`, never a room
+   * count recomputed per reader: the kind's `propose()` and the adapter's
+   * `infraSpawnLoad` call must read the SAME fact or the corps' sum stops
+   * reconciling with the colony's deduction (spec 17 P3's pattern).
+   */
+  portRooms?: readonly string[];
+  /**
    * FIELDED-fleet actuals per commission corpId (spec 39 phase 2), assembled
    * by the host (CommissionHost.assembleFieldedFleets - the store owns the
    * runtime-id -> commission-id join) and threaded through the adapter. The
