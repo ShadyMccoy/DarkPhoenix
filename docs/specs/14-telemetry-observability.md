@@ -11812,3 +11812,97 @@ cycle before treating it as real.
 red cell acquitted by pre-change attribution), DEPLOYED, and honestly
 LIVE-UNVERIFIED — the wartime branch did not run, and the improvements measured
 after the deploy belong to the backlog draining, not to the patch.**
+
+---
+
+## Perennial source piles: the drain term is PRICED, then DECLINED at the spawn (t72869702)
+
+Owner 2026-08-08, correcting the framing: *"forget about the scavenger. That's
+for things close to the core not perennial source piles. The reason we have
+source piles is simply because our hauling is not efficient enough. Otherwise
+miner spawn idling, and decay would always get rid of the piles... We just have
+to focus on clearing up the hauling."*
+
+Correct, and it localises to ONE gate. Three reads, in order:
+
+**1. The plan asks for the drain, exactly right.** `flow.haulers[].carryParts`
+against the sustained-only `carryPartsFor(rate, distance)`:
+
+```
+src     dist  plan carry  sustained  implied DRAIN  buffered
+cd8d      41       21.90      16.80          5.10      4558
+cd98      85       41.83      34.40          7.43      3248
+d01f      80       39.17      32.40          6.77      3141
+cbd8      75       30.42      30.40          0.02        10
+```
+
+cd8d predicted: `bufferDrainCarry(4558/1500, 41)` = 5.11 vs 5.10 measured. The law
+is exact, and it correctly asks ~0 where there is no pile (cbd8). **Not a plan
+bug.**
+
+**2. The fleet is fielded at 89% of the ask, and the shortfall is EXACTLY the
+piled sources.** Plan 271.5 CARRY colony-wide, fielded 241:
+
+```
+cd98  ask 41.8  fielded 32  gap -9.8   buffered 3248
+d01f  ask 39.2  fielded 32  gap -7.2   buffered 3141
+cd94  ask 22.0  fielded 16  gap -6.0   buffered 3772
+cd8d  ask 21.9  fielded 16  gap -5.9   buffered 4558
+cedc  ask 21.1  fielded 16  gap -5.1   buffered 3382
+cee2  ask 34.6  fielded 32  gap -2.6   buffered 3305
+cee0  ask 17.6  fielded 28  gap +10.4  buffered  737   <- no pile, over-fielded
+cbd8  ask 30.4  fielded 32  gap +1.6   buffered   10   <- no pile, over-fielded
+```
+
+Perfect rank correlation: every under-fielded route has a pile, every
+over-fielded route does not.
+
+**3. The MATURE DEAD-BAND declines every one of them.** `CarryCorp` line ~1536:
+
+```ts
+if (ctx.storageBacked === true && current >= targetHaulers &&
+    !worthABody(carryNeeded - fieldedCarry, haulerBodyCarry(ctx.energyCapacity, carryNeeded)))
+  { this.lastExit = "deadband"; return []; }
+```
+
+`worthABody(d, share) = d*2 >= share`, so it declines while `deficit <
+share/2`. At capacity 5600 the body share is 18-24 CARRY, so the threshold is
+**9-12 CARRY** - and every measured deficit (1.7-9.8) falls under it:
+
+```
+cd98 deficit 9.8 vs half-share 10.5  DECLINED
+cd94 deficit 6.0 vs half-share 11.0  DECLINED
+cd8d deficit 5.9 vs half-share 11.0  DECLINED
+cee2 deficit 2.6 vs half-share  9.0  DECLINED
+```
+
+**7 of 7 piled/near-piled sources declined.** The gate's own justification is
+solve-to-solve jitter - *"the drain-priced routes move carryNeeded +-1 CARRY solve
+to solve"* - but its threshold is **~10x** that jitter, so it swallows the entire
+drain term. The plan prices the pile-clearing body every solve; the spawn declines
+it every solve; the pile is therefore permanent, at 19.48 e/t of decay.
+
+This also explains H1's long-standing note ("haulers BUSY => plan under-asks") as
+a MISREAD: duty is 0.96 and the plan does not under-ask. The fleet is what falls
+short, at one gate.
+
+### The fix, and the one risk that must not be waved through
+
+Sizing the dead-band to the jitter it was written for (~1-2 CARRY, not half a
+body) releases ~30 CARRY colony-wide against 19.48 e/t of decay - by the transport
+arithmetic (~0.045 e/t per CARRY part amortized) that is ~1.4 e/t of bodies for a
+19.48 e/t recovery.
+
+**The risk is real and is on the same source.** The dead-band exists because of
+the t72773737 treadmill: *"the even-share treadmill that bought d01f eight bodies
+in ~1200t (5.17 e/t vs a 1.27 e/t plan)"* - and d01f is one of the six piled
+sources above. The treadmill is buy-then-cull churn, and the ask gate and the
+RECYCLE POUNCE read the SAME predicate (`worthABody`, noted at CarryCorp:461: *"the
+same predicate the ask gate reads"*). So loosening the ask alone also makes the
+pounce cull more eagerly, which is the churn. **The two sides have to be
+decoupled** - the ask may buy the drain body without the pounce culling an
+incumbent over the same margin - and that is a two-sided change needing X5/E5
+churn pinned by test, not a threshold nudge.
+
+Recorded as the next work item with the mechanism fully localised. Not patched in
+this pass: a one-sided loosening re-opens a measured incident.
