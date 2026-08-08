@@ -11206,3 +11206,91 @@ burned by an empty extension network. Extensions are room-wide, so the 7% vs 35%
 sampling windows on one - which puts it on the TENDER, standing 34 parts against
 the plan's own `TENDER_FLEET_PARTS = 48`. That is the one infra line that is
 UNDER-fielded, and its failure is the 208.
+
+---
+
+## Audit cycle t72854064 — the purchase receipt earns itself on its first window, and overturns two of my conclusions
+
+47 receipts landed. They settled in one capture what three cycles of derivation
+could not, and both answers were against me.
+
+### The tender was never starved, outranked, or under-bodied
+
+```
+t72853869  tanker  moving-W43N23-tender
+           want=2500  grant=2500  cost=1700  parts=34  fill=5300/5600  rank=0/5
+```
+
+It asked for a full body, was granted the **entire ask**, from a room at **95%
+fill**, having won its slot **first of five** — and built 34 parts anyway. Its
+own sizing stamp closes it: `neededCarry 25, fieldedCarry 25, target 1`.
+
+**The tender is at exactly its own stated need.** The 34-against-48 gap I chased
+for three cycles is between the PLAN's `TENDER_FLEET_PARTS = 48` and the CORP's
+25-CARRY law — a price-vs-behaviour disagreement (P5's class), not a shortage.
+Every mechanism I proposed for it — count-gated promotion, refill starvation,
+the heartbeat lane — was answering a question that was not being asked.
+
+### And the extension network is no longer starving the spawn
+
+```
+Spawn1  util 0.973  idle {empty: 0, buy: 6}
+Spawn2  util 0.983  idle {empty: 0, buy: 7}      (was empty 210 of 606)
+```
+
+`empty: 0` on both. S5 reads 0.98x the physical ceiling — the spawns run flat
+out. The "208 parts/month burned by an empty extension network" line from the
+previous cycle is gone. NOT ATTRIBUTED: the regime tier (a4dc3c4) and the
+shuttle resize (5d7a567) both deployed into this window, and one window cannot
+separate them from ordinary variance. Recorded as a delta, not a cause.
+
+### Confirmed: the shuttle resize landed exactly as specified
+
+```
+controllerFeeder  creeps 1  parts 16  body {carry: 8, move: 8}  neededCarry 8
+```
+
+The owner's 8 CARRY, live. Down from 100 parts — 84 parts/month returned, the
+single largest corp line in the colony.
+
+### The receipt's own first bug, found by the same window
+
+`declared` read 0 on all 47 rows: `consumesOf` matched `e.corpId` (the
+planner-pure commission id) against `chosen.buyerCorpId` (the corp's runtime
+id). The corp-id-prefix trap; `corpById` two hundred lines above already joins
+on `corp.id`. Fixed and deployed the same cycle.
+
+### THE NEW TOP LINE: relegation without delivery
+
+The ledger names P1 (2 flapping sources), but the larger number is P12 at
+**0x** — published controller allocation **0.00** against a law cap of 59.11:
+
+```
+controller   demand 0     alloc 0      pri 45.1
+construction demand 10    alloc 10     pri 70
+storage      demand 417   alloc 110    pri 1
+account:     controller BUDGET 0.00 / ACTUAL 42.16 · to bank BUDGET 49.46
+```
+
+This is spec 33 WARTIME RELEGATION working as written (owner 2026-08-05: *"I
+WANT construction to be the primary consumer over controller if we have a
+construction project"*). A backlog reappeared — `W43N21 1 site rem 5000`, a
+real site in a WORKED room, admitted by the construction-scope fix — so every
+controller relegates to its floor and the residual banks.
+
+The problem is the other half: **construction built 0.00 e/t against its 10.00
+budget.** `building-W43N21-construction` stands 1 creep / 4 parts against a
+declared 0.1377 p/t (~207 parts). So the colony relegated ~59 e/t of controller
+allocation to fund a project that fielded a 4-part builder and delivered
+nothing. The controller's 42.16 actual is bank drawdown, not plan.
+
+Relegation is correct doctrine; relegating for a consumer that cannot convert is
+the leak, and it is worth more than pile decay (14.42) by a factor of four.
+
+**Next capture reads `want`/`grant`/`declared` on the `building-W43N21` rows.**
+That is exactly the discrimination the receipt was built for, and with the id
+join fixed it will now carry the declared side.
+
+**Verdict: INSTRUMENTED (the receipt, earning out immediately) + TWO PRIOR
+CONCLUSIONS FALSIFIED (tender starvation, network starvation) + NEW TOP LINE
+NAMED (relegation without delivery, ~59 e/t).**
