@@ -449,6 +449,9 @@ export function collectDemandsMatching(
           d.groupStarted = group.started;
         }
         d.kind = kind.kind;
+        // The regime, stamped ONCE for every demand (spec 39 phase 3) - the
+        // corps never set it, so it cannot drift per kind.
+        d.storageBacked = ctx.storageBacked === true;
         demands.push(d);
       }
     }
