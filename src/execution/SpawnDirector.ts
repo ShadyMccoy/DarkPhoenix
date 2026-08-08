@@ -545,9 +545,15 @@ function estimateIncome(registry: CorpRegistry, room: Room): number {
  * SAME census entry the demand loop injects `declaredParts` from, so the receipt
  * and the decision cannot disagree about what a corp was priced for.
  */
-function consumesOf(corpId: string): number | undefined {
+function consumesOf(runtimeCorpId: string): number | undefined {
   for (const e of allCommissionedCorps()) {
-    if (e.corpId === corpId) return e.consumes?.spawnPartsPerTick;
+    // MATCH THE RUNTIME ID, not the commission id (the corp-id-prefix trap,
+    // CLAUDE.md): planner ids are pure - `harvest-{flowSourceId}` - while the
+    // receipt carries `chosen.buyerCorpId`, the corp's OWN id
+    // (`mining-W43N21-harvest-cd99`). Matching `e.corpId` printed declared=0 on
+    // all 47 receipts of the first live window; `corpById` two hundred lines up
+    // already joins on `corp.id` for exactly this reason.
+    if (e.corp.id === runtimeCorpId) return e.consumes?.spawnPartsPerTick;
   }
   return undefined;
 }
