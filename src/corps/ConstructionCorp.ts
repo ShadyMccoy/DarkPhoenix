@@ -58,7 +58,7 @@ import {
   tankerCarryNeededFor,
   RoadRouteSpec
 } from "../economy/roadEconomics";
-import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, isSpawnRefillStock, sourceBufferStock, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isPortBuffer, isRoomEdgeTile, isSourceApproachTile, isSpawnRefillStock, pickPortBuffer, sourceBufferStock, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { buildPool, buildPoolAbsorbRate, buildPoolBacklog, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
 import {
@@ -185,6 +185,9 @@ export class ConstructionCorp extends Corp {
    * just re-arms the scan a cooldown early, which is harmless). */
   private lastRoadAttempt = 0;
   private remoteTrunks: { sourceId: string; pos: Position; flow: number }[] = [];
+  /** Per-tick memo for `roomDepositPorts` (heap only - a reset just re-scans). */
+  private portScan: ReturnType<typeof detectLinkDepositPorts> = [];
+  private portScanTick = -1;
 
   /**
    * Builder count the demand lens wanted at its last walk - stashed by
@@ -522,11 +525,7 @@ export class ConstructionCorp extends Corp {
       filter: s => s.structureType !== STRUCTURE_ROAD && s.structureType !== STRUCTURE_TOWER
     }).length;
 
-    const wantsContainer =
-      containersUnlocked(rcl, currentExtensions >= maxExtensions) &&
-      (this.findMissingSourceContainer(room) !== null ||
-        this.findMissingCoreDepot(room) !== null ||
-        this.findMissingControllerContainer(room) !== null);
+    const wantsContainer = this.wantsAnyContainer(room, rcl, currentExtensions >= maxExtensions);
     const wantsStorage = this.findMissingStorage(room, rcl) !== null;
     const wantsLink = this.findMissingLink(room, rcl) !== null;
     const wantsTower = this.findMissingTower(room, rcl) !== null;
@@ -2291,19 +2290,78 @@ export class ConstructionCorp extends Corp {
    */
   private findMissingPortContainer(room: Room): { x: number; y: number } | null {
     if (this.containerBudgetFull(room)) return null;
-    const ports = detectLinkDepositPorts().filter(p => p.pos.roomName === room.name);
+    const ports = this.roomDepositPorts(room);
     if (ports.length === 0) return null;
     const terrain = room.getTerrain();
     const isBlocked = (x: number, y: number): boolean => terrain.get(x, y) === TERRAIN_MASK_WALL;
     const isOccupied = (x: number, y: number): boolean =>
       room.lookForAt(LOOK_STRUCTURES, x, y).length > 0 || room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0;
+    // "Already served?" through the SHARED predicate (spec 56). The bare
+    // range-2 scan that stood here counted the CONTROLLER's feed store as this
+    // port's buffer - the one container the tender's lens refuses - so the
+    // rung skipped the live (43,38) port permanently while the port had no
+    // post and no drain. Pending SITES count too: a placed-but-unbuilt buffer
+    // must not be re-placed every cooldown.
+    const built = this.roomContainerTiles(room);
     for (const port of ports) {
-      const pos = new RoomPosition(port.pos.x, port.pos.y, room.name);
-      if (this.hasContainerNear(room, pos, 2)) continue;
+      if (pickPortBuffer(port.pos, built, room.controller?.pos)) continue;
       const tile = bestPortContainerTile(port.pos, this.portApproaches(room), isBlocked, isOccupied);
       if (tile) return tile;
     }
     return null;
+  }
+
+  /**
+   * Does ANY container rung want a slot? The gate's `wantsMore` term.
+   *
+   * EVERY container rung `tryPlaceNextSite` can reach must be represented
+   * here, or that rung is unreachable (spec 56). `placementGateOpen` takes
+   * this as `wantsMore` and a false `wantsMore` short-circuits BEFORE
+   * `tryPlaceNextSite` runs at all - so rung 1.6, the deposit-port buffer, was
+   * gated on some OTHER rung wanting something. In a mature room - extensions
+   * at cap, storage/links/tower built, no second spawn wanted, roads surveyed
+   * - no other rung does, and a mature room is precisely the room that HAS
+   * deposit ports. That is one of the two reasons "the deposit-port rung has
+   * never placed anything"; the stale buffer lens was the other.
+   *
+   * Extracted from `work()` so the omission is a TESTABLE fact rather than a
+   * line of an inline boolean nobody re-reads when a rung is added. When you
+   * add a container rung to `tryPlaceNextSite`, add it here too.
+   */
+  private wantsAnyContainer(room: Room, rcl: number, extensionsAtCap: boolean): boolean {
+    if (!containersUnlocked(rcl, extensionsAtCap)) return false;
+    return (
+      this.findMissingSourceContainer(room) !== null ||
+      this.findMissingCoreDepot(room) !== null ||
+      this.findMissingPortContainer(room) !== null ||
+      this.findMissingControllerContainer(room) !== null
+    );
+  }
+
+  /**
+   * This room's deposit ports, memoised for the tick.
+   *
+   * `detectLinkDepositPorts` walks every owned room's structures, and spec 56
+   * put it on the EVERY-TICK path (the gate's `wantsAnyContainer`) where it
+   * previously only ran when the gate was already open. Two callers per tick
+   * times a global scan is a CPU regression on a corp that runs beside the
+   * heartbeat; one scan per tick is not.
+   */
+  private roomDepositPorts(room: Room): ReturnType<typeof detectLinkDepositPorts> {
+    if (this.portScanTick !== Game.time) {
+      this.portScan = detectLinkDepositPorts();
+      this.portScanTick = Game.time;
+    }
+    return this.portScan.filter(p => p.pos.roomName === room.name);
+  }
+
+  /** Every container tile in the room, BUILT or pending as a site - the shape
+   *  `pickPortBuffer` ranks over. */
+  private roomContainerTiles(room: Room): { pos: RoomPosition }[] {
+    return [
+      ...room.find(FIND_STRUCTURES, { filter: s => s.structureType === STRUCTURE_CONTAINER }),
+      ...room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_CONTAINER })
+    ].map(s => ({ pos: s.pos }));
   }
 
   /**
@@ -2498,6 +2556,20 @@ export class ConstructionCorp extends Corp {
     // wanted.
     const input = controllerInputSpot(ctrl);
     if (input.structure) return null;
+    // NEVER INSIDE A PORT'S BUFFER RANGE (spec 56; spec 54 open item 4, which
+    // went BACKWARDS in the live window: containers 3->4 with the new one at
+    // (41,36), immediately flagged `supersededControllerContainer`). This rung
+    // and `reclaimableContainer` were reading different lenses about the same
+    // tile, so construction spent a 5,000e site placing the exact container the
+    // reclaim rung exists to demolish - and each round costs a builder. Refuse
+    // the tile instead: two subsystems that fight are one lens short, and the
+    // port needs that slot more than the controller does (the owner's call -
+    // "the controller link should not have a container").
+    const ports = this.roomDepositPorts(room);
+    // `isPortBuffer` with no controller argument asks exactly "is this tile
+    // inside a port's buffer range" - the same predicate, so the refusal here
+    // and the reclaim there can never drift apart.
+    if (ports.some(p => isPortBuffer(input.pos, p.pos))) return null;
     return { x: input.pos.x, y: input.pos.y };
   }
 

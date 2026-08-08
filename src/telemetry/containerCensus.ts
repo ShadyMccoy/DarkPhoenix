@@ -32,7 +32,7 @@
 
 import { Position } from "../types/Position";
 import { CONTAINER_LIMIT } from "../corps/constructionPlacement";
-import { controllerLink, coreLink } from "../corps/nodeEnergy";
+import { CONTROLLER_CONTAINER_RANGE, controllerLink, coreLink, isPortBuffer } from "../corps/nodeEnergy";
 
 /** What a container is FOR, derived from the thing it stands beside. */
 export type ContainerRole = "source" | "coreDepot" | "controller" | "port" | "other";
@@ -109,9 +109,13 @@ export function classifyContainers(room: CensusRoom | undefined): ContainerCensu
     .filter(l => !samePos(l, room.coreLink) && !samePos(l, room.controllerLink))
     .map(l => ({
       pos: l,
-      // Range 2 is what resolvePortBuffer searches; a container further out is
-      // not this port's buffer however convenient it looks on a map.
-      hasContainer: room.containers.some(c => cheb(c.pos, l) <= 2)
+      // THE shared predicate (spec 56), not a range-2 scan of its own. The bare
+      // scan that stood here reported the live (43,38) port BUFFERED off the
+      // controller's feed store, which the tender refuses - so the census said
+      // "served", `reclaimableContainer`'s `wanted` never fired, and the port
+      // that needed a slot never got one. A census that answers a question
+      // differently from the rung reading it is a second book.
+      hasContainer: room.containers.some(c => isPortBuffer(c.pos, l, room.controllerPos))
     }));
 
   const roleOf = (p: Position): ContainerRole => {
@@ -120,8 +124,14 @@ export function classifyContainers(room: CensusRoom | undefined): ContainerCensu
     // source's own buffer must not be misread as that link's port buffer.
     if (room.sources.some(s => cheb(p, s) <= 1)) return "source";
     if (near(p, room.storage, 2)) return "coreDepot";
-    if (near(p, room.controllerPos, 4)) return "controller";
-    if (ports.some(pt => cheb(p, pt.pos) <= 2)) return "port";
+    // CONTROLLER_CONTAINER_RANGE, not a local 4 (spec 56). The role decides
+    // `supersededControllerContainer`, which is what `reclaimableContainer`
+    // DESTROYS - so a bare 4 here meant a genuine port buffer sitting 4 tiles
+    // from the controller (a valid buffer to every other reader, since the
+    // tender's guard is 3) could be classified as dead controller plumbing and
+    // demolished while a tender was standing on it.
+    if (near(p, room.controllerPos, CONTROLLER_CONTAINER_RANGE)) return "controller";
+    if (ports.some(pt => isPortBuffer(p, pt.pos, room.controllerPos))) return "port";
     return "other";
   };
 

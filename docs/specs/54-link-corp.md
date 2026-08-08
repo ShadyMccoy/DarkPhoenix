@@ -178,6 +178,18 @@ it stands. `energyLost` still reports it, so the trade is visible, never silent.
    `supersededControllerContainer` / `controllerLink` lens the census does, so a
    room with a controller LINK never sites a controller container. Until then the
    reclaim and the rung will fight, and each round costs a builder purchase.
+
+   **ADDRESSED by [spec 56](56-port-buffer-one-lens.md) (2026-08-08).** The
+   diagnosis above was right about the class and understated the count: there
+   were FOUR readers of "which container is this port's buffer" and three of
+   them ran a bare range-2 scan, so placement did not merely disagree about
+   (41,36) — it read the port as ALREADY SERVED and skipped it permanently,
+   while the census reported `hasContainer: true` and so never let
+   `reclaimableContainer` free a slot for it. Spec 56 puts the predicate in one
+   place (`isPortBuffer`), refuses a controller-container tile inside a port's
+   buffer range, and fixes a second, independent reason the rung never fired:
+   it was missing from the placement gate's `wantsMore` term entirely. Still
+   LIVE-UNVERIFIED — the second post has not been observed to exist yet.
 5. **The controller-range guard in `portPosts` becomes moot** once (4) resolves —
    it exists to stop the tender draining the controller's feed store into a
    link. Keep it (defence in depth, and other rooms will have other geometry),
@@ -193,6 +205,14 @@ it stands. `energyLost` still reports it, so the trade is visible, never silent.
    actually working or parked beside a full link" is not a read. The standalone
    corp had this and it was dropped in the absorb. Cheap to restore and it is
    the gauge item (1) will want.
+
+   **PARTIALLY ANSWERED by [spec 57](57-the-tender-check.md) (2026-08-08)** —
+   but only the stuck half. The `port-untended` watchdog answers *"is this
+   buffer being drained at all"* from a STOCK against its own capacity (the one
+   reading a rate meter structurally cannot give: a jammed port and a quiet port
+   are the same small number). It does NOT answer *"how hard is the tender
+   working"*, so tender SIZING still has no measured basis. The duty meter
+   remains open.
 
 8. **NEITHER HOME SOURCE HAS A CONTAINER** (measured t72869702, and possibly the
    more interesting finding). The census classifies a container as `"source"`

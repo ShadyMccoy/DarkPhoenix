@@ -17,7 +17,17 @@ import { isIntelId, isScavengeId, parsePositionalId, stripSourcePrefix } from ".
 import { SCAVENGE_THRESHOLD } from "../economy/scavenge";
 import { isTenderCreep } from "./censusLens";
 import { tenderOwnsExtensions } from "./regimes";
-import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
+import {
+  CoreDepot,
+  PORT_BUFFER_RANGE,
+  controllerDeliverySpot,
+  coreDepot,
+  livePortTenders,
+  pickPortBuffer,
+  scavengeSpot,
+  sourcePickupSpot,
+  workSpot
+} from "./nodeEnergy";
 import { travelToLane, travelToQueued } from "./movement";
 import { driveRecycle, runtUpsizeThreshold, worthABody } from "./recycle";
 import {
@@ -1038,7 +1048,15 @@ export class CarryCorp extends Corp {
     const decision = pickStorageDeposit({
       depositPos,
       portFree: port ? port.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
-      ...(portBuffer ? { portBufferFree: portBuffer.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 } : {}),
+      ...(portBuffer
+        ? {
+            portBufferFree: portBuffer.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0,
+            // Counted the same way the LinkCorp's demand side counts its own
+            // tenders (spec 57) - so "there is a drain here" and "we need a
+            // drain here" can never be two different answers.
+            portTended: livePortTenders(portBuffer.room) > 0
+          }
+        : {}),
       storageFree: storage && storage.my ? storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
       portWaitedTicks
     });
@@ -1131,19 +1149,22 @@ export class CarryCorp extends Corp {
   /** Resolve a deposit port position to its live link, or null if it is gone /
    * not ours (delivery then falls back to the storage hub). */
   /**
-   * The container buffering this port link, if one has been built. Range 2 is
-   * not arbitrary: it is the radius `bestPortContainerTile` sites within,
-   * which is itself the radius a parked tender can bridge (a tile adjacent to
-   * both). Nearest-first so a room with several containers nearby picks the
-   * one actually beside the link.
+   * The container buffering this port link, if one has been built - through
+   * `pickPortBuffer`, the ONE predicate every reader shares (spec 56).
+   *
+   * The bare range-2 scan that stood here is what bound the CONTROLLER's feed
+   * store as a port buffer at t72862894: haulers dropped loads into the
+   * upgraders' container, the tender correctly refused to pump the
+   * controller's supply back out through a link, and the load sat there. The
+   * delivery side and the drain side must resolve the same container or the
+   * drop has no drain - the staffsPost-symmetry class, asked about a structure.
    */
   private resolvePortBuffer(port: StructureLink): StructureContainer | null {
     try {
-      const found = port.pos.findInRange(FIND_STRUCTURES, 2, {
+      const found = port.pos.findInRange(FIND_STRUCTURES, PORT_BUFFER_RANGE, {
         filter: s => s.structureType === STRUCTURE_CONTAINER
       }) as StructureContainer[];
-      if (found.length === 0) return null;
-      return found.reduce((a, b) => (port.pos.getRangeTo(a.pos) <= port.pos.getRangeTo(b.pos) ? a : b));
+      return pickPortBuffer(port.pos, found, port.room?.controller?.pos);
     } catch {
       return null; // partial harness link without a wired pos.findInRange
     }
