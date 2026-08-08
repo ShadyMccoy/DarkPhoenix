@@ -27,16 +27,13 @@ import {
   BUILD_ENERGY_PER_WORK,
   HARVEST_ENERGY_PER_WORK,
   MINER_PARTS,
-  TANKER_CARRY_PER_MOVE_PLAIN,
   UPGRADE_ENERGY_PER_WORK,
   constructionWorkSpawnLoad,
-  controllerWorkSpawnLoad,
   effectiveLife,
   minerSpawnLoad,
-  operationSpawnLoad,
   workPartsForEnergyRate
 } from "./primitives";
-import { vectorSupplyPartsGait } from "./roadEconomics";
+import { consumerUnitSpawnLoad } from "./roadEconomics";
 import { Position } from "../types/Position";
 
 /**
@@ -111,8 +108,12 @@ export function consumerSpawnLoad(
   if (k.kind !== "controller" && k.kind !== "construction") return null;
   const dist =
     !sinkPos || problem.spawns.length === 0 ? 0 : Math.min(...problem.spawns.map(s => problem.dist(s.pos, sinkPos)));
+  // THE one derivation, shared with the fill (`routeToSinks`'s `workPerUnit`),
+  // which debits exactly this per unit routed - spec 51 GAP 1. The envelope is
+  // the same law x the allocation, so `SIGMA(corp consumes) === the ledger's
+  // spend` holds by construction rather than by coincidence.
+  const load = consumerUnitSpawnLoad(k.kind, dist) * k.allocated;
   if (k.kind === "controller") {
-    const load = controllerWorkSpawnLoad(k.allocated, dist);
     return {
       load,
       dist,
@@ -125,15 +126,13 @@ export function consumerSpawnLoad(
       }
     };
   }
-  // The supply vector priced at the body the runtime FIELDS (spec 34
-  // vector-gait follow-up B): the 3C:1M tanker's real loaded gait,
-  // unpaved worst case (the commission cannot see paving receipts;
-  // over-pricing a paved fuel route is conservative and stated, while
-  // the old 1:1 model under-priced every unpaved campaign ~2x and F1
-  // booked the fleet as breach).
+  // The fleet DECOMPOSITION of that one price. The supply vector is priced at
+  // the gait the runtime FIELDS (spec 34 vector-gait follow-up B): the 3C:1M
+  // tanker's real loaded gait, unpaved worst case (the commission cannot see
+  // paving receipts; over-pricing a paved fuel route is conservative and
+  // stated, while the old 1:1 model under-priced every unpaved campaign ~2x
+  // and F1 booked the fleet as breach).
   const builderLoad = constructionWorkSpawnLoad(k.allocated, dist);
-  const tankerParts = vectorSupplyPartsGait(k.allocated, dist, 0, TANKER_CARRY_PER_MOVE_PLAIN);
-  const load = operationSpawnLoad(builderLoad, [{ rate: k.allocated, distance: dist, parts: tankerParts }]);
   return {
     load,
     dist,
@@ -143,9 +142,12 @@ export function consumerSpawnLoad(
         load: builderLoad,
         workingParts: k.allocated / BUILD_ENERGY_PER_WORK
       },
+      // The residual IS the vector - taken as `load - builderLoad` rather than
+      // recomputed, so the invariant SIGMA(fleet.load) == load is arithmetic
+      // and cannot drift from the price it decomposes.
       tanker: {
-        parts: tankerParts,
-        load: tankerParts / effectiveLife(dist)
+        parts: (load - builderLoad) * effectiveLife(dist),
+        load: load - builderLoad
       }
     }
   };

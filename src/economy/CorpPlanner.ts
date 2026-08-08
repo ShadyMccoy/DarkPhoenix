@@ -39,9 +39,6 @@ import {
   reserverRoomEnergy,
   bufferDrainCarry,
   carryPartsFor,
-  constructionWorkSpawnLoad,
-  operationSpawnLoad,
-  controllerWorkSpawnLoad,
   effectiveLife,
   minerOverhead,
   minerSpawnLoad,
@@ -51,7 +48,7 @@ import {
   scavengeFloorParts,
   SPAWN_PARTS_PER_TICK
 } from "./primitives";
-import { effectiveOneWayTiles, pavedNetEnergy, pavedSpawnPartsFor } from "./roadEconomics";
+import { consumerUnitSpawnLoad, effectiveOneWayTiles, pavedNetEnergy, pavedSpawnPartsFor } from "./roadEconomics";
 import { DEFAULT_VALUATION } from "./goals";
 import { bankRoomFromId, isBankSourceId, isMinedIncomeId } from "./ids";
 import { FieldedFleet } from "./Commission";
@@ -845,15 +842,12 @@ function routeToSinks(
     // a controller, builders at construction (5x cheaper per e/t - BUILD is
     // 5 energy per WORK-tick). Spawn/storage sinks have no standing body.
     const workPerUnit =
-      sink.kind === "controller"
-        ? controllerWorkSpawnLoad(1, nearestSpawnDist(sink.pos))
-        : sink.kind === "construction"
-        ? // ALL-IN (spec 34 D4): the WORK bodies plus the supply vector that
-          // fuels them - the SAME charge the commission envelope declares
-          // (commissionPlan), linear in the rate so the per-unit form holds.
-          operationSpawnLoad(constructionWorkSpawnLoad(1, nearestSpawnDist(sink.pos)), [
-            { rate: 1, distance: nearestSpawnDist(sink.pos) }
-          ])
+      sink.kind === "controller" || sink.kind === "construction"
+        ? // THE one derivation, shared with the commission envelope
+          // (`consumerSpawnLoad` = allocated x this). Both sides used to price
+          // the consumer independently and disagreed 1.79x on construction -
+          // spec 51 GAP 1, closed 2026-08-08.
+          consumerUnitSpawnLoad(sink.kind, nearestSpawnDist(sink.pos))
         : 0;
 
     for (const { id, d } of order) {

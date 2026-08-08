@@ -14,7 +14,7 @@ import {
   minerSpawnLoad,
   workPartsForEnergyRate
 } from "../../../src/economy/primitives";
-import { vectorSupplyPartsGait } from "../../../src/economy/roadEconomics";
+import { vectorSupplyPartsGait, vectorSupplyPartsGaitRate } from "../../../src/economy/roadEconomics";
 import { harvestKind } from "../../../src/corps/kinds/harvestKind";
 import { carryKind } from "../../../src/corps/kinds/carryKind";
 import { upgradeKind } from "../../../src/corps/kinds/upgradeKind";
@@ -175,7 +175,12 @@ describe("commission fleet declaration (spec 39 phase 1: the plan owns the fleet
     expect(f.builder.workingParts).to.be.closeTo(rate / BUILD_ENERGY_PER_WORK, 1e-9);
     expect(f.builder.load).to.be.closeTo(constructionWorkSpawnLoad(rate, d), 1e-9);
     expect(f.builder.parts).to.be.closeTo(constructionWorkSpawnLoad(rate, d) * effectiveLife(d), 1e-9);
-    expect(f.tanker.parts).to.be.closeTo(vectorSupplyPartsGait(rate, d, 0, TANKER_CARRY_PER_MOVE_PLAIN), 1e-9);
+    // The CONTINUOUS gait (spec 51 GAP 1, 2026-08-08): the budget is a rate, so
+    // it is not ceiled to a fieldable body - that rounding is what let the
+    // envelope and the fill drift apart. `vectorSupplyPartsGait` still ceils
+    // and still sizes the actual tanker; the two differ 0.6% here (10.88 vs 12).
+    expect(f.tanker.parts).to.be.closeTo(vectorSupplyPartsGaitRate(rate, d, 0, TANKER_CARRY_PER_MOVE_PLAIN), 1e-9);
+    expect(vectorSupplyPartsGait(rate, d, 0, TANKER_CARRY_PER_MOVE_PLAIN), "the sizing form still ceils").to.equal(12);
 
     const sum = f.builder.load + f.tanker.load;
     expect(sum, "fleet load == the all-in price").to.be.closeTo(build.consumes.spawnPartsPerTick ?? 0, 1e-9);
