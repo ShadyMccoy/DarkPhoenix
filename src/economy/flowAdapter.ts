@@ -344,10 +344,26 @@ export function controllerRoutingCapacity(
   // WARTIME (spec 33, owner 2026-07-27 "surplus ... normally for upgrading,
   // but now for building"): a MEANINGFUL construction backlog stands in this
   // room, so upgrading RELEGATES to the floor and the surplus flows to
-  // construction (value 70) instead. Relegated != off - the anti-downgrade
-  // floor still holds; the mode exits the moment the backlog drains.
-  // Doctrine keyed to a real backlog, NOT a bank level; it outranks the
+  // construction (value 70) instead. The mode exits the moment the backlog
+  // drains. Doctrine keyed to a real backlog, NOT a bank level; it outranks the
   // bank-fed rate.
+  //
+  // RELEGATED IS OFF, and that is intended - the comment here used to claim
+  // "Relegated != off - the anti-downgrade floor still holds", which is FALSE
+  // for a healthy controller: `bank.controllerFloorRate` is 0 unless the
+  // downgrade timer is low, so this returns 0 and the sink carries no demand at
+  // all. A sink with no demand occupies no rung, so the surplus construction
+  // cannot absorb falls past the controller to storage (value 1) and banks. The
+  // ladder's `controllerMin` = 40 rung is NOT used for this.
+  //
+  // That is the owner's ruling, not an oversight (2026-08-05): *"I WANT
+  // construction to be the primary consumer over controller if we have a
+  // construction project. Banking excess it can't consume is fine."* Pinned
+  // both ways - `flowAdapter.test.ts` ("the residual BANKS") and
+  // `wartimeControllerRung.test.ts`, which carries the measured cost of the
+  // ruling so the shape reads as intent. Audit t72868738 wrote the
+  // value-relegation alternative, went green, and reverted it on reading the
+  // directive: do not "fix" this in code.
   if (wartimeRooms.has(sink.position.roomName)) {
     return controllerFloor;
   }

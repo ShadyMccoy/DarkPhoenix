@@ -2772,6 +2772,21 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const grossPlan = minedKnown
     ? Math.min(grossCapacity, minedRate)
     : Math.max(0, grossCapacity - (forgoneKnown ? forgone : 0));
+  // THE CLAMP MUST NOT BE SILENT (audit t72868738). `Math.min` above holds the
+  // balancing identity (revenue is PLAN CAPACITY less the pile change, never a
+  // delivery meter, so the residual stays non-circular) - but it also means
+  // `forgone = capacity - gross` can never go negative. An OVER-producing
+  // colony therefore prints "forgone 0.00 e/t target ~0 MET", which is
+  // indistinguishable from mining exactly to plan.
+  //
+  // Measured: raw 116.51 e/t against a funded capacity of 115.00 - the excess is
+  // standing miners still working a source the plan DEFUNDED (doctrine: scarcity
+  // acts at the spawn, incumbents keep their routes), so it is real energy the
+  // revenue line cannot show. 1.51 e/t here; the point is that nothing said so.
+  // Reported beside the line rather than folded into it: changing `grossPlan`
+  // would move the chart of accounts and force a METHODOLOGY bump, and the
+  // number is worth less than the comparability.
+  const minedClamped = minedKnown && minedRate > grossCapacity + 1e-9;
   // GROUND ROT (v19): dropped energy loses ceil(amount/1000) per tick; container
   // energy keeps. Averaged across the window's two endpoints - the piles move
   // slowly relative to the window, and the endpoints are all we sample.
@@ -3061,7 +3076,15 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
           ...(forgoneKnown
             ? [`      of which the miners' pile-gate stamps explain ${forgone.toFixed(2)} e/t (heldFrac)`]
             : []),
-          L("= gross mining (measured mined)", grossPlan, 4, grossCapacity)
+          L("= gross mining (measured mined)", grossPlan, 4, grossCapacity),
+          ...(minedClamped
+            ? [
+                `      CLAMPED: raw measured mining is ${minedRate.toFixed(2)} e/t, ` +
+                  `${(minedRate - grossCapacity).toFixed(2)} e/t ABOVE funded capacity - ` +
+                  `standing miners on defunded/unpriced sources. "forgone 0.00" above is the ` +
+                  `clamp, NOT a measurement of mining to plan.`
+              ]
+            : [])
         ]
       : forgoneKnown
         ? [

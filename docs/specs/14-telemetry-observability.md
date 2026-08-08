@@ -11586,3 +11586,122 @@ that had been deployed for two weeks (under-sizing, not link backlog) + one
 latent defect found and pinned rather than half-fixed.** No deploy: nothing in
 this cycle changes bot behaviour, and a global reset for a script change would
 cost the instrument for nothing.
+
+---
+
+## Audit cycle t72868738 — I nearly reverted an owner ruling; the cycle's value is that I didn't
+
+2131 RESET-FREE ticks (first clean window since the port-tender deploy), so this
+cycle also settles last cycle's deferred question.
+
+### SETTLED: the forgone-mining collapse was real
+
+Last cycle refused to claim forgone 37.11 -> 2.06 for want of a window. Over 2131
+reset-free ticks it holds: **forgone 0.00, raw measured mining 117.15 e/t against
+a funded capacity of 115.00.** The colony now mines slightly ABOVE its funded
+capacity, and E6's deferred-op count fell 10-of-12 -> 5-of-14. The port-tender
+fix and the deposit-port drain are earning: the port container at (44,12) reads
+**energy 0** (it is being drained), and P11's notional link-carry went to 0.
+
+### FIXED: the revenue line's clamp was silent
+
+`grossPlan = Math.min(grossCapacity, minedRate)` holds the balancing identity,
+but it also means `forgone = capacity - gross` can never go negative — so an
+over-producing colony prints **"forgone 0.00 target ~0 MET"**, which is
+indistinguishable from mining exactly to plan. That is what this cycle's account
+did. The excess is standing miners still working a source the plan DEFUNDED
+(capacity fell 120 -> 115 on an occupied room; doctrine says incumbents keep
+their routes). The line now states it:
+
+```
+= gross mining (measured mined)   115.00  115.00  +0.00
+  CLAMPED: raw measured mining is 117.15 e/t, 2.15 e/t ABOVE funded capacity -
+  standing miners on defunded/unpriced sources. "forgone 0.00" above is the
+  clamp, NOT a measurement of mining to plan.
+```
+
+Reported BESIDE the line, not folded into it: changing `grossPlan` moves the
+chart of accounts and forces a METHODOLOGY bump, and 2.15 e/t is worth less than
+report comparability.
+
+### THE NEAR-MISS, which is the real content of this cycle
+
+The ledger's top line was **E4: idle capital 154,472 above reserve, slope +25.68
+e/t**, with `equilibrium past the absorbable knee - income the spend path cannot
+use`. The chain is exact and reads as a textbook defect:
+
+```
+controller sink   demand 0   allocated 0   workParts 0      <- P12 FAIL, 0x of the law's cap
+storage sink      allocated 106.69 e/t
+bank              +25.68 e/t -> 234,972
+construction      budget 10.06, BUILT 5.11
+G1                "25.68 pts/t of capacity BANKED instead of delivered"
+```
+
+I traced it to `controllerRoutingCapacity`: in wartime it returns
+`controllerFloor`, and `controllerFloorRate` is **0 unless the downgrade timer is
+low** — so a healthy controller's DEMAND goes to zero, it occupies no rung, and
+the surplus construction cannot absorb falls past it to storage (value 1). The
+ladder's `controllerMin: 40` rung — CLAUDE.md's documented "controller floor 40",
+sitting strictly between construction 70 and storage 1 — is never used for this.
+The code's own comment claimed *"Relegated != off - the anti-downgrade floor
+still holds"*, which is false in the normal case.
+
+I wrote the fix (relegate by VALUE, keep the demand, so the residual reaches the
+controller instead of the bank), took it green through 2365 unit cases, and then
+**reverted it** on reading the test it broke:
+
+> Owner 2026-08-05: *"I WANT construction to be the primary consumer over
+> controller if we have a construction project. **Banking excess it can't
+> consume is fine.**"*
+
+"Banking excess it can't consume is fine" is this exact situation, already
+decided. `flowAdapter.test.ts` pins it ("the residual BANKS"). The behaviour is
+intent, not oversight, and my change was a directive reversal dressed as a bug
+fix — reached by a chain of individually sound reads. Worth recording as a method
+failure: **a FAIL row plus a coherent mechanism is not sufficient warrant for a
+behaviour change; check for a ruling first.**
+
+Kept from the work: `test/unit/economy/wartimeControllerRung.test.ts` now pins
+the TRUE contract (wartime -> 0 for a healthy controller) with the ruling and the
+measured cost in its header, and the false comment in flowAdapter is corrected to
+say what actually happens and why. The next session that finds this row will read
+the ruling before writing the patch.
+
+### STILL OPEN — an owner decision, not a bug (numbers for it)
+
+The ruling and the instrument disagree about whether this is a leak, and the
+disagreement is now large:
+
+- E4 ranks it the colony's **top line**: 154,472 idle, +25.68 e/t, projected
+  equilibrium 273,496 against an absorbable knee of 150,000.
+- G1: 25.68 of 55.49 sustainable pts/t banked rather than delivered.
+- The beneficiary converts **half** its budget: construction built 5.11 of 10.06,
+  1 site with 4,700 remaining, ETA ~1000t.
+- CLAUDE.md's own doctrine reads the other way: *"a warchest far above target
+  means the spend path is broken, not that we're rich."*
+
+The 2026-08-05 ruling was made when the bank was far smaller. If the answer is
+still "banking is fine", E4's verdict should be relaxed for wartime rooms so the
+row stops ranking intent as the top leak; if it is not, the value-relegation
+patch is written and reverted in this commit's history. **Do not resolve in code
+without the owner.**
+
+### Also read, not acted on
+
+- **A source was lost.** `4adbcbd8 funded->defunded` (occupied/hostile), capacity
+  120 -> 115. R1 measured attrition 4.11 e/t against 0.82 priced (5x); 10% of
+  kills in intel-hostile rooms. The invader tax remains under-priced, and spec
+  15's own rule is to swap `EXPECTED_RAID_DEFENSE_COST` only at >=10 accumulated
+  fiscal windows — not yet.
+- **X3 untracked creeps 4** (41/45), first FAIL on that row in this session.
+- **L1 remains a FAIL** at pile decay 16.61 (was 18.68): last cycle's outflow
+  split now reads `1 of 1 stocks LOSING, we collect 23%, the engine takes 77%`
+  on a single 5,933e pile. Unchanged mechanism, smaller absolute.
+
+**Verdict: ONE DEFERRED QUESTION SETTLED (forgone collapse real, held 2131
+reset-free ticks) + ONE ACCOUNTING BLIND SPOT CLOSED (the silent revenue clamp)
++ A BEHAVIOUR CHANGE WRITTEN, GREEN, AND DELIBERATELY REVERTED against an owner
+ruling, with the contract and the ruling's measured cost pinned by test so the
+next session does not repeat it. No deploy: the only src change is a corrected
+comment.**
