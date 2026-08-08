@@ -19,7 +19,7 @@
  * by construction, not by tuning. Bank flows also never materialize as
  * CarryCorp haulers (commissionPlan skips them): the depot movers already run
  * the last legs - the extension tender (bank -> spawn/extensions) and the
- * ControllerFeederCorp (bank -> controller input) - and both size themselves
+ * LinkCorp (bank -> controller input) - and both size themselves
  * from these same primitives, so plan and runtime cannot drift apart.
  *
  * @module economy/bank

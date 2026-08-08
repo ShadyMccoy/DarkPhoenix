@@ -1004,7 +1004,7 @@ function routeToSinks(
   // emerges at the CORE (the port fired it there); PRICE the short core->storage
   // drain by adding the deposited flow to the port's OWNING link-served source
   // (keeps the parts ledger honest and the remote route sized to the short leg).
-  // EXECUTION is the ControllerFeederCorp's job - the sole bidirectional core-
+  // EXECUTION is the LinkCorp's job - the sole bidirectional core-
   // link operator drains the core to storage (spec 02 feeder-router), and its
   // body carries a drain floor that includes this deposit headroom, so deposits
   // never back up (the silent-collapse mode the v1 leg punted on). Cheap

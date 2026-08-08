@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect } from "chai";
 import "../../../src/types/Memory";
-import { ControllerFeederCorp } from "../../../src/corps/ControllerFeederCorp";
+import { LinkCorp } from "../../../src/corps/LinkCorp";
 
 /**
  * The feeder is the SOLE bidirectional operator of the core link (spec 02
@@ -151,14 +151,14 @@ function cleanupGlobals(): void {
   (global as any).Memory = { creeps: {}, rooms: {} };
 }
 
-describe("ControllerFeederCorp bidirectional link router (spec 02)", () => {
+describe("LinkCorp bidirectional link router (spec 02)", () => {
   afterEach(cleanupGlobals);
   it("feederRouter.empty: core OVER target + controller sated -> feeder WITHDRAWS from the core (not storage)", () => {
     // core 600, controller nearly full (free 50): target 50, drain 550. The old
     // load-only feeder (empty, working=false) would reload from STORAGE; the
     // router pulls the surplus from the CORE to bank it.
     const w = mkWorld({ coreEnergy: 600, ctrlFree: 50, creepEnergy: 0 });
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     corp.work(1000);
     expect(w.creep.memory.linkMode, "commits to draining").to.equal("drain");
     expect(w.actions.withdraw.map(a => a.id), "withdraws from the CORE, never storage").to.deep.equal(["core"]);
@@ -167,7 +167,7 @@ describe("ControllerFeederCorp bidirectional link router (spec 02)", () => {
 
   it("feederRouter.empty: pulls only the EXCESS above target (no over-drain self-thrash)", () => {
     const w = mkWorld({ coreEnergy: 600, ctrlFree: 50, creepEnergy: 0, creepCap: 2000 });
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     corp.work(1000);
     // target 50 -> drain 550; the withdraw is capped at the excess, not the whole core.
     expect(w.actions.withdraw[0].amt).to.equal(550);
@@ -175,7 +175,7 @@ describe("ControllerFeederCorp bidirectional link router (spec 02)", () => {
 
   it("feederRouter.drain: carrying in drain mode -> deposits into STORAGE (banks the income)", () => {
     const w = mkWorld({ coreEnergy: 600, ctrlFree: 50, creepEnergy: 300, linkMode: "drain" });
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     corp.work(1000);
     expect(w.actions.transfer.map(a => a.id)).to.deep.equal(["storage"]);
     expect(w.actions.withdraw, "does not also pull more this tick").to.have.length(0);
@@ -184,14 +184,14 @@ describe("ControllerFeederCorp bidirectional link router (spec 02)", () => {
   it("feederRouter.load: core BELOW target + controller hungry -> loads storage->core (unchanged)", () => {
     // core 0, controller drained (free 400): target 400, loadRoom 400, drain 0.
     const empty = mkWorld({ coreEnergy: 0, ctrlFree: 400, creepEnergy: 0 });
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     corp.work(1000);
     expect(empty.creep.memory.linkMode).to.equal("load");
     expect(empty.actions.withdraw.map(a => a.id), "fills from storage first").to.deep.equal(["storage"]);
 
     // Now carrying: it transfers into the core (up to loadRoom).
     const carrying = mkWorld({ coreEnergy: 0, ctrlFree: 400, creepEnergy: 300, linkMode: "load" });
-    const corp2 = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp2 = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     corp2.work(1000);
     expect(carrying.actions.transfer.map(a => a.id), "loads into the core").to.deep.equal(["core"]);
   });
@@ -199,7 +199,7 @@ describe("ControllerFeederCorp bidirectional link router (spec 02)", () => {
   it("feederRouter: at target exactly -> holds (no load, no drain)", () => {
     // core == target (ctrlFree 400 -> target 400, core 400): nothing to do.
     const w = mkWorld({ coreEnergy: 400, ctrlFree: 400, creepEnergy: 0 });
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     corp.work(1000);
     expect(w.actions.withdraw, "no drain at target").to.have.length(0);
     expect(w.actions.transfer, "no load at target").to.have.length(0);
@@ -270,11 +270,11 @@ function mkSizingWorld(sourceLinkCount: number, banked: number) {
   return { room };
 }
 
-describe("ControllerFeederCorp body drain-floor sizing (spec 02 anti-collapse)", () => {
+describe("LinkCorp body drain-floor sizing (spec 02 anti-collapse)", () => {
   afterEach(cleanupGlobals);
   it("sizes the link-fed body to the core drain, DERIVED from each link's range", () => {
     mkSizingWorld(2, 5000); // banked < reserve: save regime, relay ~15 e/t
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     corp.getSpawnDemand({ tick: 1000, energyCapacity: 1800 } as any);
     const s = corp.lastSizing as any;
     // NO COPIED CONSTANT (2026-08-06). This read `2 * (10 + 30) = 80` from a
@@ -295,7 +295,7 @@ describe("ControllerFeederCorp body drain-floor sizing (spec 02 anti-collapse)",
 
   it("no source links -> no drain floor, the body is unchanged (relay only)", () => {
     mkSizingWorld(0, 5000);
-    const corp = new ControllerFeederCorp("W1N1-controllerFeeder", "spawn1");
+    const corp = new LinkCorp("W1N1-controllerFeeder", "spawn1");
     corp.getSpawnDemand({ tick: 1000, energyCapacity: 1800 } as any);
     const s = corp.lastSizing as any;
     expect(s.coreDrain, "no core inflow to drain").to.equal(undefined);

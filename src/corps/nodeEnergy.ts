@@ -807,7 +807,7 @@ export function controllerSideStock(controller: StructureController): number {
 
 /**
  * The FEEDER's narrow view of the same stock - the gate for its
- * CONTROLLER_FEED_TARGET top-up (ControllerFeederCorp). Deliberately
+ * CONTROLLER_FEED_TARGET top-up (LinkCorp). Deliberately
  * NARROWER than {@link controllerSideStock}; each difference is a reason,
  * not an accident:
  *  - EXCLUDES storage: a storage within reach of the controller is the BANK

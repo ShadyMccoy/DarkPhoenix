@@ -37,8 +37,7 @@ import { raidGuardKind } from "../corps/kinds/raidGuardKind";
 import { coreBusterKind } from "../corps/kinds/coreBusterKind";
 import { claimKind } from "../corps/kinds/claimKind";
 import { extensionTenderKind } from "../corps/kinds/extensionTenderKind";
-import { controllerFeederKind } from "../corps/kinds/controllerFeederKind";
-import { portTenderKind } from "../corps/kinds/portTenderKind";
+import { linkKind } from "../corps/kinds/linkKind";
 import { portPosts } from "../corps/nodeEnergy";
 import { harvestKind } from "../corps/kinds/harvestKind";
 import { carryKind } from "../corps/kinds/carryKind";
@@ -67,8 +66,7 @@ const KINDS: CorpKind[] = [
   coreBusterKind as CorpKind,
   claimKind as CorpKind,
   extensionTenderKind as CorpKind,
-  controllerFeederKind as CorpKind,
-  portTenderKind as CorpKind,
+  linkKind as CorpKind,
   constructionKind as CorpKind
 ];
 

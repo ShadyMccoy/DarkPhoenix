@@ -226,7 +226,7 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
   for (const [sourceId, routes] of routesBySource) {
     // Bank sources (spec 03 withdrawal) get NO transport commission: the depot
     // movers already run those legs - the extension tender (bank -> spawn) and
-    // the ControllerFeederCorp (bank -> controller input, sized to the same
+    // the LinkCorp (bank -> controller input, sized to the same
     // economy/bank primitives). A CarryCorp here would fight the feeder for
     // the input tile and, via the feeder-active redirect, pump the load
     // straight back into the storage it withdrew from.
@@ -235,7 +235,7 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
     // LINK-SERVED sources get NO walking carry commission either (spec 02
     // feeder-router, owner 2026-07-26): a source whose energy EMERGES at the
     // core link (haulPos set by detectLinkHaulPositions) is transported by the
-    // link network + the ControllerFeederCorp - the sole bidirectional core-link
+    // link network + the LinkCorp - the sole bidirectional core-link
     // operator (source link -> core link fire, then the feeder banks/relays).
     // A CarryCorp here would drain the very core link the feeder loads - the
     // storage->core->storage thrash (t72595372). This is the EMERGENT

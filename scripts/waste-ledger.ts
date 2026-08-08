@@ -722,10 +722,7 @@ export const F1_CLASS_OF_KIND: Record<string, string> = {
   // Priced since phase 1 (standing-fleet replacement cadence in
   // planSpawnLoad) - raidGuard was the one class F1 flagged UNPRICED on
   // every live cycle (0.027 p/t / 1.73 e/t of real defense spend).
-  raidGuard: "defense (guards)",
-  // Priced since 2026-08-08: the deposit port's drain (portTenderSpawnLoad per
-  // PORTED room, from the same portPosts lens the corp holds its post with).
-  portTender: "port tenders"
+  raidGuard: "defense (guards)"
 };
 
 /** Plan-line prefix that each actual class settles against. */
@@ -734,11 +731,12 @@ export const F1_PLAN_PREFIX: Record<string, string[]> = {
   haulers: ["source-route haulers", "transient-route haulers"],
   "construction (all-in)": ["construction (all-in)"],
   tenders: ["tenders"],
-  feeder: ["feeder"],
+  // The LINK corp owns the whole link network and buys BOTH roles (feeder and
+  // port tender), so its spend settles against both plan lines together.
+  feeder: ["feeder", "port tenders"],
   reservers: ["reservers"],
   upgraders: ["upgraders"],
-  "defense (guards)": ["defense (guards)"],
-  "port tenders": ["port tenders"]
+  "defense (guards)": ["defense (guards)"]
 };
 
 /**

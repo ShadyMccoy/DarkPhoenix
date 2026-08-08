@@ -3,7 +3,7 @@ import { ColonyProblem, PlannerSpawn } from "../../../src/economy/CorpPlanner";
 import { Commission } from "../../../src/economy/Commission";
 import { reservationKind } from "../../../src/corps/kinds/reservationKind";
 import { extensionTenderKind } from "../../../src/corps/kinds/extensionTenderKind";
-import { controllerFeederKind } from "../../../src/corps/kinds/controllerFeederKind";
+import { linkKind } from "../../../src/corps/kinds/linkKind";
 import { raidGuardKind } from "../../../src/corps/kinds/raidGuardKind";
 import {
   feederSpawnLoad,
@@ -62,7 +62,7 @@ function auxiliaryBudget(problem: ColonyProblem, draft: Commission[]): { total: 
   const all = [
     ...reservationKind.propose(problem, draft),
     ...extensionTenderKind.propose(problem, draft),
-    ...controllerFeederKind.propose(problem, draft),
+    ...linkKind.propose(problem, draft),
     ...raidGuardKind.propose(problem, draft)
   ];
   const byKind = new Map<string, number>();

@@ -82,12 +82,11 @@ describe("reclaimableContainer (give back the slot a link already made dead)", (
   });
 
   /**
-   * DRAIN FIRST. Destroying a container spills its contents, and a ground pile
-   * decays at ceil(amount/1000) per tick - the live one held 1,900e. Nothing
-   * refills a superseded container, so a blocking reclaim can simply wait; the
-   * FULL-table reclaim cannot, and pays the spill as documented.
+   * NO DRAIN WAIT (owner 2026-08-08: *"I don't care about draining it first"*).
+   * The spill is one-off and bounded by the container cap; the block costs a
+   * port its buffer every tick it stands. `energyLost` keeps the trade visible.
    */
-  it("WAITS for a blocking container to drain rather than spilling its load", () => {
+  it("reclaims a LOADED blocking container too - the spill is accepted, not hidden", () => {
     const loaded = census({
       built: 4,
       free: 1,
@@ -96,10 +95,9 @@ describe("reclaimableContainer (give back the slot a link already made dead)", (
       ports: [{ pos: pos(43, 38), hasContainer: true }],
       supersededControllerContainer: c(41, 36, 1900)
     });
-    expect(reclaimableContainer(loaded), "1,900e would hit the ground").to.equal(null);
-    // ...and once it has drained, the same census reclaims.
-    const drained = { ...loaded, containers: [c(41, 36, 20)], supersededControllerContainer: c(41, 36, 20) };
-    expect(reclaimableContainer(drained)).to.not.equal(null);
+    const r = reclaimableContainer(loaded);
+    expect(r, "a full container still blocks the port").to.not.equal(null);
+    expect(r!.energyLost, "and the spill is reported, never silent").to.equal(1900);
   });
 
   it("does NOTHING while the table has a free slot - reclaim is a last resort, not a tidy-up", () => {

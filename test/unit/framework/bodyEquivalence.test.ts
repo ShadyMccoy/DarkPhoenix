@@ -17,6 +17,7 @@
 import { expect } from "chai";
 import { setupGlobals } from "../mock";
 import { BodyHints, CorpKind } from "../../../src/economy/CorpKind";
+import { PORT_TENDER_CARRY } from "../../../src/economy/primitives";
 import {
   UpgraderStrategy,
   buildGuardBody,
@@ -33,7 +34,7 @@ import { constructionKind } from "../../../src/corps/kinds/constructionKind";
 import { scoutKind } from "../../../src/corps/kinds/scoutKind";
 import { reservationKind } from "../../../src/corps/kinds/reservationKind";
 import { extensionTenderKind } from "../../../src/corps/kinds/extensionTenderKind";
-import { controllerFeederKind } from "../../../src/corps/kinds/controllerFeederKind";
+import { linkKind } from "../../../src/corps/kinds/linkKind";
 import { raidGuardKind } from "../../../src/corps/kinds/raidGuardKind";
 import { coreBusterKind } from "../../../src/corps/kinds/coreBusterKind";
 import { claimKind } from "../../../src/corps/kinds/claimKind";
@@ -65,6 +66,10 @@ function referenceBody(
       return buildBuilderBody(bodyParam ?? 2, 2, energyBudget).body;
     case "tanker":
       return buildTankerBody(bodyParam ?? 4, energyBudget, false).body;
+    // The link corp's PORT TENDER (2026-08-08): a parked CARRY+MOVE body, same
+    // builder as every other mover, defaulting to PORT_TENDER_CARRY.
+    case "porttender":
+      return buildTankerBody(bodyParam ?? PORT_TENDER_CARRY, energyBudget, false).body;
     case "feeder": {
       const carry = Math.max(1, Math.min(bodyParam ?? 4, Math.floor(energyBudget / 100), 25));
       const feederBody: BodyPartConstant[] = [];
@@ -132,7 +137,8 @@ const CASES: Case[] = [
   { kind: constructionKind as CorpKind, role: "builder" },
   { kind: constructionKind as CorpKind, role: "tanker" },
   { kind: extensionTenderKind as CorpKind, role: "tanker" },
-  { kind: controllerFeederKind as CorpKind, role: "feeder" },
+  { kind: linkKind as CorpKind, role: "feeder" },
+  { kind: linkKind as CorpKind, role: "porttender" },
   { kind: scoutKind as CorpKind, role: "scout" },
   { kind: reservationKind as CorpKind, role: "reserver" },
   { kind: claimKind as CorpKind, role: "claimer" },
@@ -161,7 +167,7 @@ describe("CorpKind.body equals the retired SpawningCorp role switch (spec 17)", 
     const covered = new Set(CASES.map(c => `${c.kind.kind}:${c.role}`));
     const kinds = [
       harvestKind, carryKind, upgradeKind, constructionKind, scoutKind, reservationKind,
-      extensionTenderKind, controllerFeederKind, raidGuardKind, coreBusterKind, claimKind
+      extensionTenderKind, linkKind, raidGuardKind, coreBusterKind, claimKind
     ] as CorpKind[];
     for (const kind of kinds) {
       for (const role of Object.keys(kind.roles)) {

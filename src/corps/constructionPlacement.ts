@@ -591,21 +591,16 @@ export function bestPortContainerTile(
  * That is not tidiness - one dead container silently costs a real port its
  * buffer. The `full` gate is therefore lifted for this case only.
  *
- * DRAIN FIRST, always. Destroying a container spills its contents on the
- * ground, where a pile decays at ceil(amount/1000) per tick. The live one held
- * 1,900e. So a blocking reclaim waits until the container is nearly empty -
- * nothing refills a superseded controller container, so it drains on its own
- * and the wait costs nothing but patience. Under the FULL gate the slot is
- * needed NOW and the spill is the documented price; here it is avoidable, so
- * it is avoided.
+ * THE SPILL IS ACCEPTED (owner 2026-08-08: *"I don't care about draining it
+ * first. I just want this done asap"*). Destroying a container drops its
+ * contents, and a ground pile decays at ceil(amount/1000) per tick - the live
+ * one held 1,900e. That is a ONE-OFF bounded by the container cap; the block it
+ * clears costs a whole deposit port its buffer for every tick it stands.
+ * `energyLost` is still reported so the trade is visible, never silent.
  */
 /** The range `resolvePortBuffer` searches for a port's buffer, and therefore
  *  the range at which a foreign container BLOCKS one. */
 export const PORT_BUFFER_RANGE = 2;
-
-/** A blocking reclaim waits until the dead container holds no more than this,
- *  so destroying it spills a rounding rather than a load. */
-export const RECLAIM_DRAINED_BELOW = 100;
 
 export function reclaimableContainer(
   census: ContainerCensus | null
@@ -620,10 +615,11 @@ export function reclaimableContainer(
   const blocking = census.ports.some(p => cheb(p.pos, dead.pos) <= PORT_BUFFER_RANGE);
   const wanted = census.full && census.ports.some(p => !p.hasContainer);
   if (!wanted && !blocking) return null;
-  // A blocking reclaim has time on its side: nothing refills a superseded
-  // container, so waiting until it is nearly empty costs patience instead of
-  // energy. A FULL-table reclaim does not - the slot is needed now.
-  if (blocking && !wanted && dead.energy > RECLAIM_DRAINED_BELOW) return null;
+  // NO DRAIN WAIT (owner 2026-08-08: *"I don't care about draining it first"*).
+  // The spill is real - a ground pile decays at ceil(amount/1000) per tick - but
+  // it is one-off and bounded by the container cap, while the block it clears
+  // costs a whole port its buffer for as long as it stands. `energyLost` still
+  // reports the spill, so the trade stays visible rather than silent.
   return {
     pos: dead.pos,
     energyLost: dead.energy,

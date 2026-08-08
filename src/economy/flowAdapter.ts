@@ -1952,7 +1952,7 @@ export class FlowEconomy {
       // bank.plannedControllerFlow: the feeder trunk's road-payback flow
       // (ConstructionCorp), and any future reader. The feeder corp itself
       // receives the same solve's number through its commission
-      // (controllerFeederKind), so the two channels cannot disagree by more
+      // (linkKind), so the two channels cannot disagree by more
       // than one solve's staleness. Same publish-don't-rederive pattern as
       // warchestTarget above.
       const ctrlByRoom: Record<string, number> = {};

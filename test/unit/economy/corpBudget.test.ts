@@ -29,7 +29,7 @@ import { constructionKind } from "../../../src/corps/kinds/constructionKind";
 import { scoutKind } from "../../../src/corps/kinds/scoutKind";
 import { reservationKind } from "../../../src/corps/kinds/reservationKind";
 import { extensionTenderKind } from "../../../src/corps/kinds/extensionTenderKind";
-import { controllerFeederKind } from "../../../src/corps/kinds/controllerFeederKind";
+import { linkKind } from "../../../src/corps/kinds/linkKind";
 import { raidGuardKind } from "../../../src/corps/kinds/raidGuardKind";
 import { coreBusterKind } from "../../../src/corps/kinds/coreBusterKind";
 import { claimKind } from "../../../src/corps/kinds/claimKind";
@@ -44,7 +44,7 @@ const ALL_KINDS: string[] = [
   scoutKind.kind,
   reservationKind.kind,
   extensionTenderKind.kind,
-  controllerFeederKind.kind,
+  linkKind.kind,
   raidGuardKind.kind,
   coreBusterKind.kind,
   claimKind.kind,

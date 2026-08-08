@@ -24,7 +24,7 @@ import {
   WARTIME_BACKLOG_THRESHOLD
 } from "../economy/primitives";
 import { bankSurplusRate, resolveReserveTarget } from "../economy/bank";
-import { FEEDER_STOCK_HEADROOM } from "./ControllerFeederCorp";
+import { FEEDER_STOCK_HEADROOM } from "./LinkCorp";
 import { CONTROLLER_STARVE_FLOOR } from "./haulPolicy";
 import { buildPoolAbsorbRate, buildPoolBacklog } from "./constructionLedger";
 import { travelTicksPerTile } from "./economics";

@@ -60,23 +60,9 @@ const GET_SPAWN_DEMAND_DEBT = new Set([
   "corps/CarryCorp.ts",
   "corps/ClaimCorp.ts",
   "corps/ConstructionCorp.ts",
-  "corps/ControllerFeederCorp.ts",
+  "corps/LinkCorp.ts",
   "corps/CoreBusterCorp.ts",
   "corps/ExtensionTenderCorp.ts",
-  // ADDED 2026-08-08, and it is a DEBT ENTRY, not an exemption. The ratchet's
-  // instruction - "new corps integrate through the plan (spec 39), never a new
-  // demand site" - has no path behind it yet for AUXILIARY kinds: the
-  // SpawnDirector does not read `commission.fleet`, and every auxiliary
-  // commission still declares none (the conformance suite asserts exactly
-  // that). Spec 39 phase 4 migrated their BUDGET, not their spawning. So a new
-  // auxiliary kind can either join this list or field no creeps at all.
-  //
-  // Recorded here rather than argued away: the seam is the bug, and closing it
-  // (a plan-driven fleet path for auxiliary kinds) retires this entry along
-  // with the four above it. The ratchet's primary target is untouched - the
-  // port tender adds no `.spawnCreep(` authority and buys through SpawningCorp
-  // like everything else.
-  "corps/PortTenderCorp.ts",
   "corps/HarvestCorp.ts",
   "corps/RaidGuardCorp.ts",
   "corps/ReservationCorp.ts",

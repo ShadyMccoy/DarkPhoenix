@@ -1,5 +1,5 @@
 /**
- * @fileoverview controllerFeederKind - ControllerFeederCorp as a registered
+ * @fileoverview linkKind - LinkCorp as a registered
  * CorpKind: an auxiliary local mover, the controller analogue of the extension
  * tender (docs/specs/00-corp-framework.md).
  *
@@ -8,16 +8,17 @@
  * room produces energy") lives at RUNTIME in getSpawnDemand(), which reads live
  * structures and creeps - a corp with no bank demands nothing and costs nothing.
  *
- * @module corps/kinds/controllerFeederKind
+ * @module corps/kinds/linkKind
  */
 
 import { Commission } from "../../economy/Commission";
 import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
 import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/proposeHelpers";
-import { feederSpawnLoad } from "../../economy/primitives";
+import { buildTankerBody } from "../../spawn/BodyBuilder";
+import { PORT_TENDER_CARRY, feederSpawnLoad, portTenderSpawnLoad } from "../../economy/primitives";
 import { SerializedCorp } from "../Corp";
-import { ControllerFeederCorp, SerializedControllerFeederCorp } from "../ControllerFeederCorp";
+import { LinkCorp, SerializedLinkCorp } from "../LinkCorp";
 import { coreLink } from "../nodeEnergy";
 import { buildRatioHaulerBody } from "../../spawn/BodyBuilder";
 
@@ -34,9 +35,12 @@ export interface ControllerFeederAssignment {
   controllerAllocation: number;
 }
 
-export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
+export const linkKind: CorpKind<LinkCorp> = {
   kind: "controllerFeeder",
-  roles: { feeder: { workType: "feed" } },
+  // TWO roles, one owner: the feeder walks storage -> controller, the port
+  // tender parks between a deposit port's buffer and its link. Distinct
+  // workTypes so orphan rescue can tell them apart.
+  roles: { feeder: { workType: "feed" }, porttender: { workType: "porttend" } },
   runOrder: 41, // local mover, right after the extension tender (40)
 
   propose(problem: ColonyProblem, draft: readonly Commission[]): Commission[] {
@@ -59,6 +63,7 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
     // `depotRoomCount > 0` gate: a room with no storage has nothing to shuttle
     // FROM, and charging it would make the corps' sum exceed the deduction.
     const depots = new Set(problem.depotRooms ?? []);
+    const ported = new Set(problem.portRooms ?? []);
     const linkFed = new Set(problem.linkFedRooms ?? []);
     return [...homeSpawnsByRoom(problem)].map(([roomName, spawnId]) => {
       const relay = ctrlFlowByRoom.get(roomName) ?? 0;
@@ -71,30 +76,35 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
           spawnId,
           controllerAllocation: relay
         } as ControllerFeederAssignment,
-        depots.has(roomName) ? feederSpawnLoad(relay, linkFed.has(roomName)) : 0
+        // ONE price for the whole link network this corp owns: the feeder's
+        // relay body plus one port tender per PORTED room. Both terms are the
+        // same primitives `infraSpawnLoad` composes, so SIGMA(auxiliary corps)
+        // still reconciles with the colony's own deduction.
+        (depots.has(roomName) ? feederSpawnLoad(relay, linkFed.has(roomName)) : 0) +
+          (ported.has(roomName) ? portTenderSpawnLoad() : 0)
       );
     });
   },
 
-  materialize(c: Commission, existing: ControllerFeederCorp | undefined): ControllerFeederCorp {
+  materialize(c: Commission, existing: LinkCorp | undefined): LinkCorp {
     const a = c.assignment as ControllerFeederAssignment;
     if (existing) {
       existing.setSpawnId(a.spawnId); // commission-owned: never let it go stale
       existing.setControllerAllocation(a.controllerAllocation);
       return existing;
     }
-    const corp = new ControllerFeederCorp(`${a.roomName}-controllerFeeder`, a.spawnId);
+    const corp = new LinkCorp(`${a.roomName}-controllerFeeder`, a.spawnId);
     corp.setControllerAllocation(a.controllerAllocation);
     return corp;
   },
 
-  serializeCorp(corp: ControllerFeederCorp): SerializedControllerFeederCorp {
+  serializeCorp(corp: LinkCorp): SerializedLinkCorp {
     return corp.serialize();
   },
 
-  deserializeCorp(data: SerializedCorp): ControllerFeederCorp {
-    const d = data as SerializedControllerFeederCorp;
-    const corp = new ControllerFeederCorp(d.nodeId, d.spawnId, d.id);
+  deserializeCorp(data: SerializedCorp): LinkCorp {
+    const d = data as SerializedLinkCorp;
+    const corp = new LinkCorp(d.nodeId, d.spawnId, d.id);
     corp.deserialize(d);
     return corp;
   },
@@ -108,7 +118,13 @@ export const controllerFeederKind: CorpKind<ControllerFeederCorp> = {
     return coreLink(room)?.pos ?? (room.storage?.my ? room.storage.pos : null);
   },
 
-  body(_role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
+  body(role: string, bodyParam: number | undefined, energyBudget: number): BodyPartConstant[] {
+    // TWO SHAPES, because the two roles do opposite things. The feeder WALKS
+    // storage -> controller, so it is a balanced 1:1 shuttle. The port tender
+    // PARKS between a buffer and its link and never carries a step, so it takes
+    // the CARRY-heavy tanker shape - the same one the sweep on
+    // TANKER_CARRY_PER_MOVE_PLAIN measured optimal.
+    if (role === "porttender") return buildTankerBody(bodyParam ?? PORT_TENDER_CARRY, energyBudget, false).body;
     // Balanced 1:1 CARRY:MOVE shuttle (bodyParam = desired CARRY parts) - the
     // shared hauler builder at 1:1 IS the feeder body (bit-identical, pinned
     // by bodyEquivalence's "feeder" case). Floored at 1 CARRY so a zero

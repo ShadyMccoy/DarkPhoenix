@@ -1,5 +1,5 @@
 /**
- * ControllerFeederCorp on the corp framework (proof ladder rungs 1-4,
+ * LinkCorp on the corp framework (proof ladder rungs 1-4,
  * docs/specs/00-corp-framework.md). The controller analogue of the extension
  * tender: a dedicated local mover that relays the storage bank to the controller
  * input. Its runtime trigger (rung 3) fires only once a storage bank exists AND a
@@ -20,8 +20,8 @@ import {
   serializeStore
 } from "../../../src/economy/CorpKind";
 import { planCommissions } from "../../../src/economy/commissionPlan";
-import { ControllerFeederCorp, FEEDER_STOCK_HEADROOM } from "../../../src/corps/ControllerFeederCorp";
-import { controllerFeederKind } from "../../../src/corps/kinds/controllerFeederKind";
+import { LinkCorp, FEEDER_STOCK_HEADROOM } from "../../../src/corps/LinkCorp";
+import { linkKind } from "../../../src/corps/kinds/linkKind";
 import { describeCorpKindConformance } from "./conformance";
 
 const HOME = "W1N1";
@@ -109,7 +109,7 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
   beforeEach(() => {
     resetCorpKinds();
     resetWorld();
-    registerCorpKind(controllerFeederKind as never);
+    registerCorpKind(linkKind as never);
   });
   after(() => {
     resetCorpKinds();
@@ -129,7 +129,7 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
   it("rung 3 - BIND: materialize keeps the LEGACY moving-corp id", () => {
     const store: CorpStore = new Map();
     materializeCommissions(planCommissions(world).commissions, store);
-    const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+    const corp = store.get("controllerFeeder-W1N1")!.corp as LinkCorp;
     // Type "moving" (a local mover), so its runtime id is `moving-${nodeId}`.
     expect(corp.id).to.equal("moving-W1N1-controllerFeeder");
     expect(corp.getSpawnId()).to.equal("spawn1");
@@ -138,7 +138,7 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
   it("rung 3 - TRIGGER: demands a feeder only with a storage bank + a miner", () => {
     const store: CorpStore = new Map();
     materializeCommissions(planCommissions(world).commissions, store);
-    const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+    const corp = store.get("controllerFeeder-W1N1")!.corp as LinkCorp;
     const ctx = { energyCapacity: 1300 } as never;
 
     installRoom(false, true); // miner producing but NO storage yet
@@ -168,7 +168,7 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     const store: CorpStore = new Map();
     const { commissions } = planCommissions(world);
     materializeCommissions(commissions, store);
-    const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+    const corp = store.get("controllerFeeder-W1N1")!.corp as LinkCorp;
     const alloc = (commissions.find(c => c.kind === "controllerFeeder")!.assignment as {
       controllerAllocation?: number;
     }).controllerAllocation!;
@@ -197,7 +197,7 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     const { carryPartsFor } = await import("../../../src/economy/primitives");
     const store: CorpStore = new Map();
     materializeCommissions(planCommissions(world).commissions, store);
-    const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+    const corp = store.get("controllerFeeder-W1N1")!.corp as LinkCorp;
 
     installRoom(true, true); // bank at 5000: below the warchest target (save regime)
 
@@ -224,7 +224,7 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     const { carryPartsFor } = await import("../../../src/economy/primitives");
     const store: CorpStore = new Map();
     materializeCommissions(planCommissions(world).commissions, store);
-    const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+    const corp = store.get("controllerFeeder-W1N1")!.corp as LinkCorp;
 
     installRoom(true, true);
     // The plan published this reserve last solve; the corp reads it the same
@@ -280,10 +280,10 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     materializeCommissions(planCommissions(world).commissions, store);
     expect(() => runCommissionedCorps(store, Game.time)).to.not.throw();
 
-    const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+    const corp = store.get("controllerFeeder-W1N1")!.corp as LinkCorp;
     corp.recordProduction(7);
     const restored = deserializeStore(JSON.parse(JSON.stringify(serializeStore(store))));
-    const back = restored.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+    const back = restored.get("controllerFeeder-W1N1")!.corp as LinkCorp;
     expect(back.id).to.equal(corp.id);
     expect(back.getSpawnId()).to.equal("spawn1");
   });
@@ -293,7 +293,7 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
     const room = Game.rooms[HOME] as { memory: { controllerFeederActive?: boolean } };
     const store: CorpStore = new Map();
     materializeCommissions(planCommissions(world).commissions, store);
-    const corp = store.get("controllerFeeder-W1N1")!.corp as ControllerFeederCorp;
+    const corp = store.get("controllerFeeder-W1N1")!.corp as LinkCorp;
     // No feeder creep in the field yet -> the flag must stay false (a dead feeder
     // must never leave haulers stranded at the bank; they feed the controller).
     corp.work(Game.time);
@@ -326,7 +326,7 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
 
 describe("controller-feeder kind rung 1", () => {
   beforeEach(resetWorld);
-  describeCorpKindConformance(controllerFeederKind as never, {
+  describeCorpKindConformance(linkKind as never, {
     problem: world,
     commission: {
       corpId: "controllerFeeder-W1N1",

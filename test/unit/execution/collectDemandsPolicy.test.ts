@@ -30,7 +30,7 @@ import { RaidGuardCorp } from "../../../src/corps/RaidGuardCorp";
 import { CoreBusterCorp } from "../../../src/corps/CoreBusterCorp";
 import { ClaimCorp } from "../../../src/corps/ClaimCorp";
 import { ExtensionTenderCorp } from "../../../src/corps/ExtensionTenderCorp";
-import { ControllerFeederCorp } from "../../../src/corps/ControllerFeederCorp";
+import { LinkCorp } from "../../../src/corps/LinkCorp";
 import { ConstructionCorp } from "../../../src/corps/ConstructionCorp";
 import { UpgradingCorp } from "../../../src/corps/UpgradingCorp";
 import { CarryCorp } from "../../../src/corps/CarryCorp";
@@ -106,7 +106,7 @@ describe("SpawnDirector.collectDemands - per-kind policy pins (spec 17)", () => 
     const cases: [string, Corp, SpawnRole][] = [
       ["claim", new ClaimCorp(`${ROOM}-claim`, SPAWN_ID), "claimer"],
       ["tender", new ExtensionTenderCorp(`${ROOM}-tender`, SPAWN_ID), "tanker"],
-      ["controllerFeeder", new ControllerFeederCorp(`${ROOM}-feeder`, SPAWN_ID), "feeder"],
+      ["controllerFeeder", new LinkCorp(`${ROOM}-feeder`, SPAWN_ID), "feeder"],
       ["construction", new ConstructionCorp(`${ROOM}-construction`, SPAWN_ID), "builder"],
       ["upgrade", new UpgradingCorp(`${ROOM}-upgrading`, SPAWN_ID), "upgrader"]
     ];
