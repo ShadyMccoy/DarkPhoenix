@@ -42,7 +42,8 @@ import {
   sourceLink,
   sourceBufferStock,
   controllerInputSpot,
-  controllerParkingTiles
+  controllerParkingTiles,
+  observedMouthStock
 } from "../corps/nodeEnergy";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import {
@@ -1016,13 +1017,28 @@ export function buildColonyProblem(
       // so the plan prices the drain fleet the corp will actually field.
       // Walk-served mouths only - a link-served source's stock is the link
       // network's business, and pricing haulers for it would re-open the
-      // haul-of-zero contract. No vision => absent, never a fabricated zero.
+      // haul-of-zero contract.
+      //
+      // VISION IS NOT THE LENS (2026-08-07, the pile-decay cycle). "No vision
+      // => absent" read as prudence and was the bug: `Game.getObjectById`
+      // returns null for a source in a remote room with no creep standing in
+      // it, and the SOLVE runs whether or not one happens to be there. So the
+      // plan priced ZERO drain for exactly the mouths that were piling up.
+      // Measured t72850264: six of eleven mouths held 2,737-3,553 for 78-100%
+      // of the window (E6, from the miners' OWN stamps) while every hauler
+      // route in the published plan was sized at flow = 10 - the raw source
+      // rate, no drain anywhere. 13.36 e/t of decay, and self-reinforcing: the
+      // pile gates the miner off, the miner leaving takes the room's vision,
+      // and the plan goes blinder still.
+      //
+      // Live vision first (freshest), then the miner's durable stamp - the
+      // stranded-reserver rule applied to a source mouth: read the observation,
+      // never "is one of our creeps standing there".
       ...(() => {
         if (linkHaulPos.get(s.id) !== undefined) return {};
         if (typeof Game === "undefined" || !Game.getObjectById) return {};
         const live = Game.getObjectById(stripSourcePrefix(s.id) as Id<Source>);
-        if (!live) return {};
-        const staged = sourceBufferStock(live);
+        const staged = live ? sourceBufferStock(live) : observedMouthStock(s.id, Game.time);
         return staged !== null && staged > 0 ? { staged } : {};
       })()
     };

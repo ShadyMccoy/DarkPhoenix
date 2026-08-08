@@ -1201,3 +1201,104 @@ describe("flowAdapter: the invader tax reads the ROOM's mined rate", () => {
     expect(problem.sources.find(s => s.id.includes("away"))!.invaderTax).to.equal(undefined);
   });
 });
+
+/**
+ * THE MOUTH-STOCK LENS IS AN OBSERVATION, NOT A VISION CHECK (2026-08-07).
+ *
+ * The drain machinery was complete and correct: `CorpPlanner` prices
+ * `bufferDrainCarry(staged * share, distance)` into every route of a source
+ * that carries a `staged` buffer. The lens feeding it was not - it read
+ * `Game.getObjectById`, which returns null for a source in a remote room with
+ * no creep standing in it, and the SOLVE runs whether or not one is.
+ *
+ * So the plan priced ZERO drain for exactly the mouths that were piling up.
+ * Measured t72850264: six of eleven mouths held 2,737-3,553 for 78-100% of the
+ * window - from the MINERS' OWN stamps, which E6 reads - while every hauler
+ * route in the published plan was sized at `flow = 10`, the raw source rate,
+ * no drain term anywhere in the capture. 13.36 e/t of ground decay, the
+ * cycle's TOP LINE, and self-reinforcing: the pile costs the miner its spawn
+ * priority, the miner leaving takes the room's vision, and the plan goes
+ * blinder still.
+ *
+ * The stranded-reserver rule, applied to a source mouth: read the OBSERVATION,
+ * never "is one of our creeps standing there".
+ */
+describe("flowAdapter: the mouth-stock lens survives losing vision", () => {
+  const g = globalThis as unknown as { Game?: unknown; Memory?: unknown };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+
+  const SRC = "abc123";
+  const TAIL = SRC.slice(-6);
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    // No getObjectById hit for the source: a remote room with nobody in it,
+    // which is the state the solve actually finds most ticks.
+    g.Game = { time: 10_000, getObjectById: () => null, rooms: {}, creeps: {} };
+    g.Memory = {};
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  const pos = (x: number, roomName: string): Position => ({ x, y: 25, roomName });
+  const world = (): Node[] => {
+    const home = createNode("home", "W0N0", pos(5, "W0N0"), 100, ["W0N0"], 0);
+    home.resources = [
+      { type: "spawn", id: "spawn-0", position: pos(5, "W0N0") },
+      { type: "controller", id: "ctrl-0", position: pos(5, "W0N0"), isOwned: true }
+    ] as NodeResource[];
+    const remote = createNode(SRC, "W1N0", pos(20, "W1N0"), 50, ["W1N0"], 0);
+    remote.resources = [{ type: "source", id: SRC, position: pos(20, "W1N0"), capacity: 3000 }] as NodeResource[];
+    return [home, remote];
+  };
+
+  const stamp = (stock: number, at: number): void => {
+    (g.Memory as any).pileMeter = { [TAIL]: { t0: at, last: at, samples: 1, held: 1, since: at, stock, stockAt: at } };
+  };
+
+  const stagedOf = async (): Promise<number | undefined> => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const problem = buildColonyProblem(new FlowGraph(world()), manhattan, [], new Map(), new Map(), []);
+    return problem.sources.find(s => s.id.includes(SRC))!.staged;
+  };
+
+  it("prices the drain from the miner's stamp when the solve has NO vision", async () => {
+    stamp(3000, 9_900); // seen 100 ticks ago
+    expect(await stagedOf(), "the pile the miner saw reaches the plan").to.equal(3000);
+  });
+
+  it("and that staged buffer becomes real CARRY on the route - the whole point", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const { planColony } = await import("../../../src/economy/CorpPlanner");
+    const carryOf = (): number => {
+      const problem = buildColonyProblem(new FlowGraph(world()), manhattan, [], new Map(), new Map(), []);
+      return planColony(problem)
+        .haulers.filter(h => h.sourceId.includes(SRC))
+        .reduce((n, h) => n + h.carryParts, 0);
+    };
+    const blind = carryOf(); // no stamp: inflow-sized, exactly today's behaviour
+    stamp(3000, 9_900);
+    expect(carryOf(), "a 3000e mouth buys CARRY to clear it").to.be.greaterThan(blind);
+  });
+
+  it("ages the observation out after one creep generation - a stale pile is not priced forever", async () => {
+    const { MOUTH_STOCK_MAX_AGE } = await import("../../../src/corps/nodeEnergy");
+    stamp(3000, 10_000 - MOUTH_STOCK_MAX_AGE - 1);
+    expect(await stagedOf(), "nobody has looked in a generation").to.equal(undefined);
+    stamp(3000, 10_000 - MOUTH_STOCK_MAX_AGE + 1);
+    expect(await stagedOf(), "just inside the window still counts").to.equal(3000);
+  });
+
+  it("never fabricates a buffer for a mouth nobody has ever seen", async () => {
+    expect(await stagedOf()).to.equal(undefined);
+  });
+
+  it("a witnessed EMPTY mouth prices no drain (the term retires itself)", async () => {
+    stamp(0, 9_900);
+    expect(await stagedOf()).to.equal(undefined);
+  });
+});

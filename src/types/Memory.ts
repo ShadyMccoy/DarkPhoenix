@@ -310,7 +310,23 @@ declare global {
      * instruments join.
      */
     pileMeter?: {
-      [sourceTail: string]: { t0: number; last: number; samples: number; held: number; since: number };
+      [sourceTail: string]: {
+        t0: number;
+        last: number;
+        samples: number;
+        held: number;
+        since: number;
+        /**
+         * DURABLE MOUTH STOCK (2026-08-07): the buffer the miner last actually
+         * SAW, and the tick it saw it. The miner stands at the mouth while it
+         * works, so its read always succeeds; the SOLVE's read
+         * (`Game.getObjectById`) returns null in any remote room with no creep
+         * in it right now. Without this the plan priced zero drain for exactly
+         * the piled remotes - see flowAdapter's staged lens.
+         */
+        stock?: number;
+        stockAt?: number;
+      };
     };
 
     spawnAgenda?: {
