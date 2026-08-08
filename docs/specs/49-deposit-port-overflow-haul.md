@@ -225,3 +225,9 @@ eats the margin.
 
 Next: place a container beside each deposit port link. The consumption side
 needs no change.
+
+**The drain landed as spec 54** (2026-08-08): the port's buffer is emptied into
+its link by the LINK CORP, which now owns core, controller and ports together.
+The rho reading above is what redirected the fix - at 0.78-0.85 the ports are
+MARGINAL, not rate-deficient, so a buffer is the right instrument and it only
+ever needed something to empty it.
