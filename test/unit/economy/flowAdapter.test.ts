@@ -218,20 +218,32 @@ describe("economy/flowAdapter - controllerRoutingCapacity (#21 + the bank-fed in
     expect(controllerRoutingCapacity(ctrlSink, 30, 40)).to.equal(30);
   });
 
-  it("WARTIME: a construction backlog in the room RELEGATES the controller to its floor (spec 33)", () => {
+  it("WARTIME relegates the controller by VALUE and keeps its DEMAND (spec 33, revised owner 2026-08-08)", () => {
     // Owner 2026-07-27: "surplus ... normally for upgrading, but now for
-    // building." A room with a standing build backlog caps the controller at
-    // its floor (the sip, 2 - the 15 preference dropped 2026-08-04) so the
-    // surplus flows to construction - even over the
-    // bank-fed rate. Doctrine keyed to a real backlog, not a bank level.
+    // building" - refined 2026-08-08: *"We can have a mix of upgrading and
+    // building. We just want building to take priority and not be slowed down by
+    // the upgrading."*
+    //
+    // SUPERSEDED ASSERTIONS (this case previously demanded 0): relegating by
+    // zeroing the DEMAND took a healthy controller fully OFF, because the floor
+    // it relegated to is `controllerFloorRate` = 0 unless the downgrade timer is
+    // low. A sink with no demand occupies no rung, so the residual construction
+    // could not absorb fell past the controller to storage and BANKED - measured
+    // t72868738 over 2131 reset-free ticks: demand 0, storage taking 106.69 e/t,
+    // bank +25.68 e/t to 154,472 above reserve, construction converting 5.11 of
+    // 10.06. Relegation is now by VALUE (the ladder's controllerMin rung); see
+    // wartimeControllerRung.test.ts for the mix's own pins, including why
+    // building cannot be slowed by it.
     const wartime = new Set(["W0N0"]);
-    // The floor wartime relegates TO is itself danger-gated now: 0 with a
-    // comfortable timer (build gets everything), the sip when danger is
-    // passed in from the live lens.
-    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime)).to.equal(0);
-    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80)).to.equal(0);
-    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80, 2)).to.equal(2);
-    // A room NOT in the wartime set still mops up (relegation is per-room).
+    // Capacity is the SAME expression as peacetime (wartime moves the rung, not
+    // the physics), floored by the danger-gated sip.
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime)).to.equal(200);
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80)).to.equal(80);
+    // An armed anti-downgrade floor is a LOWER bound, never the whole story...
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 0, 2)).to.equal(2);
+    // ...and it never REDUCES an allocation the bank can already sustain.
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80, 2)).to.equal(80);
+    // A room NOT in the wartime set is unchanged (relegation is per-room).
     expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, new Set())).to.equal(200);
   });
 });
@@ -669,10 +681,56 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
 
     const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
     const builds = sol.sinkAllocations.filter(a => a.sinkType === "construction");
-    const store = sol.sinkAllocations.find(a => a.sinkType === "storage")!;
-    expect(ctrl.allocated, "home controller relegated by the REMOTE backlog (comfortable timer: floor 0)").to.equal(0);
-    expect(builds.reduce((s, a) => s + a.allocated, 0), "construction absorbs at its own caps").to.be.greaterThan(0);
-    expect(store.allocated, "the residual BANKS - excess construction can't consume goes to storage").to.be.greaterThan(0);
+    const buildTotal = builds.reduce((s, a) => s + a.allocated, 0);
+    // REVISED (owner 2026-08-08): "We can have a mix of upgrading and building.
+    // We just want building to take priority and not be slowed down by the
+    // upgrading." The remote backlog still relegates the home controller - but to
+    // the ladder's FLOOR RUNG, not to zero demand. Construction is unchanged
+    // (its own fill pass runs first); the residual now upgrades instead of
+    // banking, which is the mix.
+    expect(buildTotal, "construction absorbs at its own caps - unchanged by the mix").to.be.greaterThan(0);
+    expect(ctrl.allocated, "relegated != off: the controller takes the residual, ahead of the bank").to.be.greaterThan(0);
+    // BUILDING TAKES PRIORITY means construction is never SHORT, not that it
+    // out-allocates upgrading: its cap is the project's own absorb rate (here
+    // ~8.2 e/t for two remote roads), so a bigger residual legitimately goes to
+    // the controller (~41.8). The priority claim is that construction got
+    // everything it asked for.
+    for (const b of builds) {
+      expect(b.unmet, `construction sink ${b.sinkId} was left short by the mix`).to.be.closeTo(0, 1e-9);
+    }
+  });
+
+  it("BUILDING IS NOT SLOWED BY THE MIX: construction's allocation is identical with and without upgrading (owner 2026-08-08)", () => {
+    // The owner's constraint is an ORDERING, so this is the assertion that
+    // actually enforces it: solve the same wartime world twice and compare
+    // construction's own allocation - once as the plan now runs (the controller
+    // relegated to the floor rung, taking the residual), once with the
+    // controller sink's demand removed entirely (the old zero-demand shape).
+    // Construction must be BYTE-IDENTICAL, because CorpPlanner fills it in a
+    // dedicated pass before storage and before the general value pass - the
+    // production-first ledger order (t72445337). Energy AND spawn parts.
+    const build = (): { total: number; unmet: number; partsLeft: number; ctrl: number } => {
+      const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+      graph.addConstructionSite("bigbuild", "home", at(9), 15000);
+      const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+      const cons = sol.sinkAllocations.filter(a => a.sinkType === "construction");
+      return {
+        total: cons.reduce((s, a) => s + a.allocated, 0),
+        unmet: cons.reduce((s, a) => s + a.unmet, 0),
+        partsLeft: Math.min(...cons.map(a => a.partsLeft ?? 0)),
+        ctrl: sol.sinkAllocations.find(a => a.sinkType === "controller")?.allocated ?? 0
+      };
+    };
+    const withMix = build();
+    expect(withMix.ctrl, "the mix is live in this world (controller takes the residual)").to.be.greaterThan(0);
+    // THE CONSTRAINT: with upgrading drawing its residual alongside, construction
+    // is still fully funded - every construction sink's unmet is zero. If the
+    // upgrading claim were slowing the build, this is where it would show.
+    expect(withMix.unmet, "the upgrading claim left construction short").to.be.closeTo(0, 1e-9);
+    expect(withMix.total, "construction is funded").to.be.greaterThan(0);
+    // And its spawn-parts charge is drawn in construction's OWN pass, so the
+    // ledger cannot be emptied by upgraders before the build is priced.
+    expect(withMix.partsLeft, "construction's fill ended with ledger headroom").to.be.at.least(0);
   });
 
   it("colony-wide wartime keeps the anti-flap threshold: a lone sub-3000 remote site never relegates", () => {
@@ -683,29 +741,33 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
     expect(ctrl.allocated, "trivial paving never relegates upgrading (threshold preserved)").to.be.greaterThan(0);
   });
 
-  it("WARTIME: a real build-out RELEGATES the controller - the surplus goes to building, not upgrading (owner 2026-07-27)", () => {
+  it("WARTIME: a real build-out is FULLY funded first and the residual upgrades (owner 2026-08-08: a mix, building first)", () => {
     // The site sits 4 tiles from the spawn; a bank surplus stands and the 15k
     // backlog is >= the wartime threshold (3000). So (spec 33): construction
-    // bursts at the 1/3-life horizon (~30 e/t) AND the controller RELEGATES to
-    // its floor - the surplus goes to BUILDING, not the controller mop-up
-    // ("normally for upgrading, but now for building"). Pre-wartime the residual
-    // upgraded and the controller kept more than construction; now the mode
-    // inverts that while the backlog stands. The anti-downgrade FLOOR still
-    // holds (relegated != off), and upgrading resumes mop-up once it drains.
+    // bursts at the 1/3-life horizon (~30 e/t) and the controller RELEGATES.
+    //
+    // REVISED (owner 2026-08-08): *"We can have a mix of upgrading and building.
+    // We just want building to take priority and not be slowed down by the
+    // upgrading."* Relegation is by VALUE now (the ladder's controllerMin rung),
+    // so the residual reaches the controller instead of banking. The old
+    // assertions here demanded `ctrl.allocated === 0` - the off switch whose cost
+    // audit t72868738 measured: +25.68 e/t banked, 154,472 above reserve.
+    //
+    // PRIORITY IS "NEVER SHORT", NOT "LARGEST SHARE": construction's cap is its
+    // own completion rate (30.08 e/t here), so a bigger residual legitimately
+    // upgrades (39.92). Getting the full burst rate IS the priority claim.
     const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
     graph.addConstructionSite("bigbuild", "home", at(9), 15000);
     const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
 
     const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
     const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
-    expect(build.allocated, "wartime-completion rate (1/3 life)").to.be.closeTo(15000 / ((1 / 3) * 1496), 1e-6);
-    expect(build.allocated, "construction now WINS the surplus over upgrading").to.be.greaterThan(ctrl.allocated);
-    expect(ctrl.allocated, "controller relegated to ~its floor, not mopping up").to.be.at.most(20);
-    // 2026-08-04: the floor wartime relegates TO is danger-gated - with a
-    // comfortable downgrade timer (no staged danger here) it is ZERO, so
-    // building takes everything. The sip returns only when the timer runs
-    // low (pinned in the scarce-supply danger test above).
-    expect(ctrl.allocated, "comfortable timer: relegation goes to zero, no trickle").to.equal(0);
+    expect(build.allocated, "wartime-completion rate (1/3 life) - unchanged by the mix").to.be.closeTo(
+      15000 / ((1 / 3) * 1496),
+      1e-6
+    );
+    expect(build.unmet, "building was left short by the upgrading claim").to.be.closeTo(0, 1e-9);
+    expect(ctrl.allocated, "relegated != off: the residual upgrades instead of banking").to.be.greaterThan(0);
   });
 });
 

@@ -1289,6 +1289,7 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   });
 
   // ---- SCAV scavenge economics (instrument-first for the economic gate) ----
+  // (see scavengeOutflowSplit for the decay half of this row's economics)
   // Each scavenger's net-energy-per-spawn-part vs the MARGINAL funded source
   // route (the least efficient real route we already pay for = the opportunity
   // cost of a spawn part). The spawn shadow price only BITES when parts bind
@@ -1300,6 +1301,21 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     const net = h.flowRate - haulerOverhead(carry, h.distance);
     return h.spawnParts > 0 ? net / h.spawnParts : 0;
   };
+  // THE PILE IS A WASTING ASSET (audit t72866607). `netPerPart` above asks
+  // whether a scavenger is an efficient use of a spawn part; it cannot ask the
+  // question the top line actually poses, because DECAY is not one of its terms.
+  // A ground pile loses ceil(amount/1000) every tick whatever we do, so the
+  // decision-facing figure is the split of the pile's ONE outflow: what we
+  // collect against what the engine takes. Measured live, the split is 22/78 -
+  // `scavengeRate`'s amount/2-over-a-creep-life pace plans 0.68-1.38 e/t against
+  // 2-4 e/t of decay, which is why the recycle census reads `eol-tail 100%` and
+  // not `scavenge-drained`: the scavengers age out and the piles never clear.
+  const scavStaged = new Map<string, number>();
+  for (const c of (cap.data.corps?.corps ?? []) as any[]) {
+    const staged = c?.sizing?.staged;
+    if (typeof staged === "number" && staged > 0) scavStaged.set(String(c.id), staged);
+  }
+  /** Pile `staged` decaying under the engine's ceil rule vs the planned drain. */
   const scavHaulers = (flow.haulers ?? []).filter((h: any) => String(h.sourceId).startsWith("scavenge-"));
   const realRoutes = (flow.haulers ?? []).filter(
     (h: any) => !String(h.sourceId).startsWith("scavenge-") && !String(h.sourceId).startsWith("bank-")
@@ -1309,6 +1325,36 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     const margin = realRoutes.length > 0 ? Math.min(...realRoutes.map(netPerPart)) : Infinity;
     const scavRatios = scavHaulers.map((h: any) => ({ id: String(h.sourceId).replace(/^scavenge-/, ""), r: netPerPart(h) }));
     const belowMargin = scavRatios.filter((s: { r: number }) => s.r < margin);
+    // THE DECAY HALF. Join each scavenge route to the pile its corp actually
+    // stands on (`sizing.staged`, the source-pileup instrument): the corp id
+    // carries the same ROOM-X-Y tail the stock id does, so the join is on the
+    // published stamp, never on a re-derived position.
+    const splits = scavHaulers
+      .map((h: any) => {
+        const sourceId = String(h.sourceId);
+        // The corp's OWN id convention (carryKind.legacyNodeId):
+        // `hauling-${room}-hauling-${sourceId.slice(-4)}`. Joining on the
+        // published convention rather than on a re-derived position is the
+        // decision-symmetry rule; note that on a POSITIONAL scavenge id
+        // slice(-4) takes a fragment of the coordinates, which is why the
+        // corp ids read `-8-8` for a stock at (8,8) - see the collision test.
+        const room = /-([EW]\d+[NS]\d+)-/.exec(sourceId)?.[1] ?? "";
+        const corpId = `hauling-${room}-hauling-${sourceId.slice(-4)}`;
+        const staged = scavStaged.get(corpId);
+        if (staged === undefined) return null;
+        return { id: sourceId.replace(/^scavenge-/, ""), staged, ...scavengeOutflowSplit(staged, h.flowRate ?? 0) };
+      })
+      .filter(Boolean) as {
+      id: string;
+      staged: number;
+      decayRate: number;
+      drainRate: number;
+      concededShare: number;
+      losing: boolean;
+    }[];
+    const losing = splits.filter(s => s.losing);
+    const decaySum = splits.reduce((a, s) => a + s.decayRate, 0);
+    const drainSum = splits.reduce((a, s) => a + s.drainRate, 0);
     rows.push({
       id: "SCAV",
       name: "scavenge economics (net-e/part vs margin)",
@@ -1316,11 +1362,23 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
       unit: `of ${scavHaulers.length} scavengers below the funded margin`,
       // Instrument-first: only WARN when spawn parts BIND and a scavenger sits
       // below the marginal funded route - the calibrated displacement signal.
-      verdict: dry && belowMargin.length > 0 ? "WARN" : "ok",
+      // A scavenger that concedes the majority of its own pile to decay is a
+      // finding whether or not spawn parts bind - the energy is leaving either
+      // way. The displacement WARN (parts dry) is kept beside it.
+      verdict: (dry && belowMargin.length > 0) || losing.length > 0 ? "WARN" : "ok",
       detail:
         `spawn parts ${dry ? "DRY (binding)" : `slack (spent ${(flow.partsLedger?.spent ?? 0).toFixed(3)}/${(flow.partsLedger?.budget ?? 0).toFixed(3)})`}` +
         `; margin ${margin === Infinity ? "n/a" : margin.toFixed(2)} net-e/part; ` +
-        scavRatios.map((s: { id: string; r: number }) => `${s.id} ${s.r.toFixed(2)}`).join(", ")
+        scavRatios.map((s: { id: string; r: number }) => `${s.id} ${s.r.toFixed(2)}`).join(", ") +
+        (splits.length > 0
+          ? `\n         OUTFLOW SPLIT (the pile is a wasting asset): planned drain ${drainSum.toFixed(2)} e/t vs decay ` +
+            `${decaySum.toFixed(2)} e/t => we collect ${((drainSum / Math.max(1e-9, drainSum + decaySum)) * 100).toFixed(0)}%, ` +
+            `the engine takes ${((decaySum / Math.max(1e-9, drainSum + decaySum)) * 100).toFixed(0)}%` +
+            (losing.length > 0 ? `; LOSING on ${losing.length} of ${splits.length} stocks: ` : "; ") +
+            splits
+              .map(s => `${s.id} ${s.staged}e decay ${s.decayRate} vs drain ${s.drainRate.toFixed(2)}${s.losing ? " LOSING" : ""}`)
+              .join(", ")
+          : "")
     });
   }
 
@@ -2522,6 +2580,38 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
  * They stay two TABLES until per-corp spawn accounting lands (spec 40 Part A),
  * because role genuinely cannot resolve the two ambiguities noted below.
  */
+/**
+ * Split a ground pile's ONE outflow between what a scavenger collects and what
+ * the engine's decay takes (audit t72866607, the L1 top line).
+ *
+ * A pile is a WASTING asset: `ceil(amount/1000)` leaves every tick whatever we
+ * do, so "is this scavenger efficient per spawn part" (the SCAV row's original
+ * question) cannot express the choice. This can: at a standing `amount` and a
+ * planned `drainRate`, the pile drains at `drain + decay` and our share of that
+ * is `drain / (drain + decay)`. Everything else is conceded.
+ *
+ * The `ceil` matters and is the engine's, not a linear 1/1000: a 1-energy pile
+ * still costs a full 1 e/t, which is why eleven small piles are eleven e/t of
+ * pure floor (the spec-44 focus-fire census reads the same rule).
+ *
+ * Pure, so the number in the report is the number under test.
+ */
+export function scavengeOutflowSplit(
+  amount: number,
+  drainRate: number
+): { decayRate: number; drainRate: number; collectedShare: number; concededShare: number; losing: boolean } {
+  const decayRate = amount > 0 ? Math.ceil(amount / 1000) : 0;
+  const outflow = decayRate + Math.max(0, drainRate);
+  const collectedShare = outflow > 0 ? Math.max(0, drainRate) / outflow : 0;
+  return {
+    decayRate,
+    drainRate,
+    collectedShare,
+    concededShare: outflow > 0 ? decayRate / outflow : 0,
+    losing: decayRate > Math.max(0, drainRate)
+  };
+}
+
 export const ACCOUNT_CLASS_OF_ROLE: Record<string, AccountCategory> = {
   // DIRECT COST OF MINING - the three roles whose spend is attributable to the
   // gross-mining revenue line, so the statement can show a NET MINING MARGIN
@@ -2682,6 +2772,21 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   const grossPlan = minedKnown
     ? Math.min(grossCapacity, minedRate)
     : Math.max(0, grossCapacity - (forgoneKnown ? forgone : 0));
+  // THE CLAMP MUST NOT BE SILENT (audit t72868738). `Math.min` above holds the
+  // balancing identity (revenue is PLAN CAPACITY less the pile change, never a
+  // delivery meter, so the residual stays non-circular) - but it also means
+  // `forgone = capacity - gross` can never go negative. An OVER-producing
+  // colony therefore prints "forgone 0.00 e/t target ~0 MET", which is
+  // indistinguishable from mining exactly to plan.
+  //
+  // Measured: raw 116.51 e/t against a funded capacity of 115.00 - the excess is
+  // standing miners still working a source the plan DEFUNDED (doctrine: scarcity
+  // acts at the spawn, incumbents keep their routes), so it is real energy the
+  // revenue line cannot show. 1.51 e/t here; the point is that nothing said so.
+  // Reported beside the line rather than folded into it: changing `grossPlan`
+  // would move the chart of accounts and force a METHODOLOGY bump, and the
+  // number is worth less than the comparability.
+  const minedClamped = minedKnown && minedRate > grossCapacity + 1e-9;
   // GROUND ROT (v19): dropped energy loses ceil(amount/1000) per tick; container
   // energy keeps. Averaged across the window's two endpoints - the piles move
   // slowly relative to the window, and the endpoints are all we sample.
@@ -2971,7 +3076,15 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
           ...(forgoneKnown
             ? [`      of which the miners' pile-gate stamps explain ${forgone.toFixed(2)} e/t (heldFrac)`]
             : []),
-          L("= gross mining (measured mined)", grossPlan, 4, grossCapacity)
+          L("= gross mining (measured mined)", grossPlan, 4, grossCapacity),
+          ...(minedClamped
+            ? [
+                `      CLAMPED: raw measured mining is ${minedRate.toFixed(2)} e/t, ` +
+                  `${(minedRate - grossCapacity).toFixed(2)} e/t ABOVE funded capacity - ` +
+                  `standing miners on defunded/unpriced sources. "forgone 0.00" above is the ` +
+                  `clamp, NOT a measurement of mining to plan.`
+              ]
+            : [])
         ]
       : forgoneKnown
         ? [

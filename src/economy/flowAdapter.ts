@@ -344,12 +344,49 @@ export function controllerRoutingCapacity(
   // WARTIME (spec 33, owner 2026-07-27 "surplus ... normally for upgrading,
   // but now for building"): a MEANINGFUL construction backlog stands in this
   // room, so upgrading RELEGATES to the floor and the surplus flows to
-  // construction (value 70) instead. Relegated != off - the anti-downgrade
-  // floor still holds; the mode exits the moment the backlog drains.
-  // Doctrine keyed to a real backlog, NOT a bank level; it outranks the
+  // construction (value 70) instead. The mode exits the moment the backlog
+  // drains. Doctrine keyed to a real backlog, NOT a bank level; it outranks the
   // bank-fed rate.
+  //
+  // RELEGATE BY VALUE, NOT BY DEMAND (owner 2026-08-08: *"We can have a mix of
+  // upgrading and building. We just want building to take priority and not be
+  // slowed down by the upgrading."*).
+  //
+  // This branch used to `return controllerFloor` - the ANTI-DOWNGRADE floor,
+  // which `bank.controllerFloorRate` defines as 0 unless the downgrade timer is
+  // low. So for a healthy controller wartime zeroed the sink's DEMAND, and a
+  // sink with no demand occupies no rung: the surplus construction could not
+  // absorb fell past the controller to storage (value 1) and banked. Measured
+  // t72868738 over 2131 reset-free ticks - controller demand 0 / allocated 0 /
+  // workParts 0, storage taking 106.69 e/t, bank +25.68 e/t to 154,472 above
+  // reserve ("equilibrium past the absorbable knee"), while construction, the
+  // relegation's beneficiary, converted 5.11 of its 10.06 budget.
+  //
+  // The mix the owner asks for is what the LADDER already expresses: the
+  // controller keeps a real demand and prices at `controllerMin` = 40 (CLAUDE.md's
+  // "controller floor 40"), strictly below construction (70) and strictly above
+  // storage (1) - see `wartimeControllerValue`.
+  //
+  // "NOT SLOWED DOWN BY THE UPGRADING" is guaranteed STRUCTURALLY, not by the
+  // values: CorpPlanner's fill order runs construction in its own pass BEFORE
+  // storage and before the general value pass (the production-first ledger order,
+  // t72445337), so construction takes its energy AND its spawn parts first and
+  // upgrading can only claim the remainder. The ordering here is what keeps the
+  // remainder from banking instead.
+  //
+  // The anti-downgrade floor keeps its real job - the `reserve` pre-pass - so it
+  // is a LOWER bound here, never the whole allocation.
   if (wartimeRooms.has(sink.position.roomName)) {
-    return controllerFloor;
+    // The SAME capacity expression as peacetime below: wartime moves the rung,
+    // not the physics of what the fleet can burn. Deliberately NOT
+    // `physicalUpgradeCap` alone - that is Infinity on harness paths, and an
+    // unbounded demand is how the t72429680 infeasible-upgrade plan out-competed
+    // remote mining.
+    const relegated =
+      bankFedAllocation !== undefined
+        ? Math.min(bankFedAllocation, physicalUpgradeCap)
+        : Math.min(Math.max(totalSupply, 1), physicalUpgradeCap);
+    return Math.max(controllerFloor, relegated);
   }
   // #21 (owner 2026-07-19): never faster than the upgrader fleet can
   // PHYSICALLY burn (parking tiles x affordable WORK - see
@@ -507,11 +544,37 @@ export function controllerValue(remaining: number, val: SinkValuation = DEFAULT_
  * construction, and each controller prices by its remaining progress. Live
  * Game lookups are guarded so harness/unit paths fall back to the defaults.
  */
+/**
+ * A WARTIME controller prices at the ladder's floor rung (owner 2026-08-08: a
+ * MIX of upgrading and building, with building taking priority).
+ *
+ * `controllerMin` is CLAUDE.md's "controller floor 40" - strictly below
+ * construction (70) and strictly above storage (1). That ordering IS the
+ * relegation, and it is the whole mechanism: construction is funded first, and
+ * what it cannot absorb reaches the controller instead of banking. Before this
+ * the rung was dead code for wartime, which relegated by zeroing the sink's
+ * demand and so sent the residual to storage (audit t72868738: +25.68 e/t
+ * banked, 154,472 above reserve).
+ *
+ * Pure and separate from `perInstanceSinkValue` so the ordering invariant
+ * (`storage < controllerMin <= construction`) is testable across every goal
+ * profile without a Game.
+ */
+export function wartimeControllerValue(val: SinkValuation = DEFAULT_VALUATION): number {
+  return val.controllerMin;
+}
+
 function perInstanceSinkValue(
   kind: SinkKind,
   sink: { gameId?: string; position: Position },
-  val: SinkValuation = DEFAULT_VALUATION
+  val: SinkValuation = DEFAULT_VALUATION,
+  /** Rooms under spec-33 wartime relegation - their controller prices at the
+   *  ladder's floor rung instead of its remaining-progress band. */
+  wartimeRooms: ReadonlySet<string> = new Set()
 ): number {
+  if (kind === "controller" && wartimeRooms.has(sink.position.roomName)) {
+    return wartimeControllerValue(val);
+  }
   if (kind === "construction" && typeof Game !== "undefined" && Game.getObjectById && sink.gameId) {
     const site = Game.getObjectById(sink.gameId as Id<ConstructionSite>);
     if (site && site.structureType === "spawn") return val.newSpawnSite;
@@ -1274,7 +1337,7 @@ export function buildColonyProblem(
       id: sink.id,
       kind,
       pos: sink.position,
-      value: perInstanceSinkValue(kind, sink, valuation),
+      value: perInstanceSinkValue(kind, sink, valuation, wartimeRooms),
       capacity:
         kind === "spawn"
           ? // Overhead need PLUS the agenda's funding need (spec 11 phase 2,
