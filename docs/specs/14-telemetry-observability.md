@@ -11294,3 +11294,111 @@ join fixed it will now carry the declared side.
 **Verdict: INSTRUMENTED (the receipt, earning out immediately) + TWO PRIOR
 CONCLUSIONS FALSIFIED (tender starvation, network starvation) + NEW TOP LINE
 NAMED (relegation without delivery, ~59 e/t).**
+
+---
+
+## Audit cycle t72865978 — the port tender was never buildable, and it blinded both wedge instruments
+
+Window t72827522 -> t72865978 (dt 38,456; the colony ran unattended for ~25
+fiscal months). The ledger's TOP LINE was P1 (2 flapping sources); the actual
+work item was found one level below it, in the agenda.
+
+### The read
+
+The queue HEAD on **both** spawns was the same demand, and it had been there for
+1804+ ticks:
+
+```
+{ role: "porttender", corp: "moving-W43N23-controllerFeeder",
+  mustFund: false, why: "consume", since: 72864174, gate: "impossible" }
+```
+
+`gate: "impossible"` is the verdict reserved for a body this RCL can NEVER
+build. No `minCost`, no `desiredCost` in the published entry. The flight
+recorder agreed, 16 rows out of 16, twice at `bank: 5600` — the room's FULL
+energy capacity:
+
+```
+{ t: 72865475, k: "hold", d: { role: "porttender",
+  corp: "moving-W43N23-controllerFeeder", bank: 5600 } }   // no minCost field
+```
+
+`LinkCorp.portDemands` built its demand through an `as SpawnDemand` cast (the
+only such cast in `src/`) and omitted both required cost fields. Nothing threw:
+every funding decision in the walk is a numeric `>=`, and `x >= undefined` is
+false, so `canEverAfford` was false and the demand was recorded "impossible"
+forever. **No port tender has ever spawned** — 0 of 92 spawn rows in the ring;
+the corp stands 1 creep (the feeder, 8 CARRY / 8 MOVE).
+
+### What makes this a spec-14 incident and not just a bug
+
+The same missing field disabled BOTH instruments built to catch a wedged spawn,
+and both then printed something reassuring:
+
+- `minCost > energyAvailable` is also false, so `buildAgendaQueue` published no
+  `bank>=N` precondition. `classifySpawnIdle` keys on exactly that to separate
+  energy-starved from a chosen wait, so it booked every idle tick as **"hold"**.
+  S4 read `idle 18% of window [hold 100%]` — 18% and 38% on the two spawns,
+  100% attributed to a CHOSEN wait.
+- S3 formats the head as `head ${role}@${minCost}` and tests
+  `energyAvailable >= head.minCost`. It printed
+  `head porttender@undefined vs bank 3857 (holding/funding - not a stall)` and
+  verdicted **ok**.
+
+A malformed demand does not just fail to buy; it degrades into the one gate
+value that means "nothing to see here" while suppressing the signal every
+downstream reader uses. That is why the fix is at the SEAM, not only at the
+call site.
+
+### The economic surface behind the dead body
+
+The plan is already committed to this drain. `depositSavings` routes 40 e/t
+through each of two ports (`rho` 0.85 / 0.78 of headroom), 8 remote sources are
+priced at the SHORT leg (savings 8-16 tiles each, ~990 tile*e/t), CorpPlanner's
+stage-4 deposit drain prices the port->storage leg, and `infraSpawnLoad` charges
+`portTenderSpawnLoad()` for a body that could not exist. The runtime side is
+live too: `pickStorageDeposit` prefers the port link, falls back to the port
+BUFFER, then WAITS up to `PORT_WAIT_CAP` (30t) before walking the long leg —
+and the buffer is what the tender drains.
+
+### Fixed
+
+- `LinkCorp.portDemands(ctx)` declares `desiredCost` =
+  `buildTankerBody(PORT_TENDER_CARRY, capacity, false).cost` (400e, exactly the
+  `PORT_TENDER_PARTS` body the plan prices, so F1/F2 compare like with like),
+  `minCost` = the feeder's 2-pair floor (200), and `why: "infra"` — declared per
+  spec 35 phase D, where `agendaWhy` had been falling through to "consume".
+- **The class, at the seam**: `hasFundableCosts` (SpawnScheduler) + a check in
+  `collectDemandsMatching`, the single point every corp's demand crosses. A
+  demand whose costs are not two finite non-negative numbers never reaches the
+  pool, and the drop records a black-box `err` row naming the role and corp.
+  Zero stays legal (cold-start floor bodies price that way).
+
+Red-first: `test/unit/corps/portTenderDemand.test.ts` (6 cases, including
+"never gate 'impossible' at full capacity" and "publishes bank>=N so the idle
+classifier sees 'bank'") and `test/unit/execution/demandCostGuard.test.ts`
+(5 cases). Gate: unit 2351 passing, plus `flow-handoff`, `runt-economy`,
+`storage-depot` green on the rebuilt bundle.
+
+### Predictions for the post-deploy capture
+
+1. A `porttend` creep on `moving-W43N23-controllerFeeder`: 6 CARRY + 2 MOVE,
+   400e, within ~50 ticks (infra lane, bank never below 200).
+2. No `gate: "impossible"` head on either spawn; no `hold` row naming
+   `porttender`.
+3. **The discriminating read**: if the impossible head was merely riding along,
+   spawn `idle.hold` stays ~18%/38% and its head becomes something else. If the
+   ports were genuinely starved of a drain, the port-routed haul legs stop
+   waiting and E6's chronic miner holds (5 of 12 ops) should ease. The walk
+   never HOLDS for an impossible demand, so prediction 3 is a real test, not a
+   formality — I expect idle to stay and the port drain to be the payoff.
+
+### Not fixed this cycle, named with data
+
+There is no meter on the port BUFFER's fill, so "the buffer backed up while
+nothing drained it" remains a HYPOTHESIS: the capture carries `sourceBuffers`
+(per-source containers) and the hub/controller link rates, but nothing reads the
+port containers. Next cycle's stamp, if prediction 3 is ambiguous.
+
+**Verdict: FIXED (the demand) + CLASS CLOSED (the cost seam) + a measurement
+gap named (port buffer fill).**

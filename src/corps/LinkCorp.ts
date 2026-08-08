@@ -39,6 +39,7 @@ import {
 import { travelTo, travelToBypass, travelToLane } from "./movement";
 import { roomHasFlowMiner } from "./censusLens";
 import { PORT_TENDER_CARRY } from "../economy/primitives";
+import { buildTankerBody } from "../spawn/BodyBuilder";
 import { stampControllerFeederRegime } from "./regimes";
 import {
   CARRY_MOVE_PAIR_COST,
@@ -485,7 +486,7 @@ export class LinkCorp extends SpawnAnchoredCorp {
    * from growing - one owner, one demand site, two roles.
    */
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
-    return [...this.feederDemands(ctx), ...this.portDemands()];
+    return [...this.feederDemands(ctx), ...this.portDemands(ctx)];
   }
 
   private feederDemands(ctx: SpawnDemandContext): SpawnDemand[] {
@@ -715,22 +716,54 @@ export class LinkCorp extends SpawnAnchoredCorp {
   }
 
   /** One tender per deposit port that HAS a buffer. Appended to the feeder's own
-   *  demand, so no new demand SITE joins the spec-39 surface. */
-  private portDemands(): SpawnDemand[] {
+   *  demand, so no new demand SITE joins the spec-39 surface.
+   *
+   * COSTS ARE NOT OPTIONAL (incident t72865978). This demand shipped through an
+   * `as SpawnDemand` cast with neither cost field, and every funding comparison
+   * in the scheduler is a numeric `>=` against them - `x >= undefined` is false,
+   * so the walk recorded gate "impossible" (the verdict for a body the RCL can
+   * never build) forever, at the HEAD of both spawn queues, for 1804+ ticks.
+   * `minCost > energyAvailable` was false too, so no `bank>=N` precondition was
+   * published and both wedge instruments read benign (S3 "not a stall",
+   * `classifySpawnIdle` "hold" = a CHOSEN wait). Meanwhile the plan routed
+   * 80 e/t through the ports this body drains and priced its parts via
+   * `portTenderSpawnLoad`. The seam in `collectDemandsMatching` now rejects a
+   * cost-less demand outright so the class cannot recur silently.
+   */
+  private portDemands(ctx: SpawnDemandContext): SpawnDemand[] {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return [];
     const posts = portPosts(spawn.room);
     const staffed = this.getPortTenders().length;
     if (posts.length === 0 || staffed >= posts.length) return [];
+    // Ask for exactly the body the PLAN prices (PORT_TENDER_PARTS is
+    // `buildTankerBody(PORT_TENDER_CARRY, ..., false)`'s shape), so F1/F2
+    // compare the port-tender line against a like-for-like actual. The
+    // executor builds through the same builder off `bodyParam`.
+    const desired = buildTankerBody(PORT_TENDER_CARRY, ctx.energyCapacity, false);
+    if (desired.cost <= 0) return []; // room cannot hold even 1 CARRY+MOVE
     return [
       {
         buyerCorpId: this.id,
         role: "porttender",
+        // DECLARED, never derived (spec 35 phase D): the drain beside the depot
+        // movers is infra, and `agendaWhy` would otherwise fall through to
+        // "consume" - which is what the live agenda printed.
+        why: "infra",
         value: 78,
         blocking: false,
         infrastructure: true,
+        producesIncome: false,
+        desiredCost: desired.cost,
+        // The feeder's floor, for the feeder's reason: a PARKED shuttle
+        // transfers its whole store every tick, so 2 CARRY already covers a
+        // port's ~47 e/t fire rate many times over. A cheap min lets the infra
+        // lane pierce a hold promptly - the point of the drain - and in a
+        // storage-backed room the grant is the full desired body anyway.
+        minCost: Math.min(desired.cost, Math.min(PORT_TENDER_CARRY, 2) * CARRY_MOVE_PAIR_COST),
+        since: 0,
         bodyParam: PORT_TENDER_CARRY
-      } as SpawnDemand
+      }
     ];
   }
 

@@ -25,6 +25,7 @@ import {
   campaignConsumerLift,
   detectWallPreemption,
   effectivePriority,
+  hasFundableCosts,
   planAcquisitions
 } from "../spawn/SpawnScheduler";
 import { record as blackBox } from "../telemetry/BlackBox";
@@ -477,6 +478,20 @@ export function collectDemandsMatching(
       const declaredParts = declaredStandingParts(consumes?.spawnPartsPerTick);
       const corpCtx: SpawnDemandContext = declaredParts > 0 ? { ...ctx, declaredParts } : ctx;
       for (const d of corp.getSpawnDemand(corpCtx)) {
+        // THE COST SEAM (incident t72865978). A demand whose costs the walk
+        // cannot compare never reaches the pool: it would rank, head the
+        // agenda, and read as gate "impossible" forever while suppressing the
+        // `bank>=N` precondition both wedge instruments key on. Loud, because
+        // silence is what made it a 1804-tick incident instead of a crash.
+        if (!hasFundableCosts(d)) {
+          blackBox("err", {
+            phase: "demand",
+            msg: `unfundable demand dropped: ${d.role}@${d.buyerCorpId} min=${String(d.minCost)} want=${String(
+              d.desiredCost
+            )}`
+          });
+          continue;
+        }
         if (group) {
           d.groupId = group.groupId;
           d.groupStarted = group.started;

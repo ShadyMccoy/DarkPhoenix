@@ -249,6 +249,41 @@ export interface AgendaEntry {
 }
 
 /**
+ * Can the funding walk EVALUATE this demand's costs? (incident t72865978.)
+ *
+ * `minCost`/`desiredCost` are required by the type, but a cast can bypass it and
+ * one did - `LinkCorp.portDemands` shipped a port tender with neither field.
+ * Nothing threw: every funding decision here is a numeric `>=`, and `x >=
+ * undefined` is false, so the demand fell through to `canEverAfford === false`
+ * and was recorded "impossible" - the verdict reserved for a body this RCL can
+ * never build. It then sat at the head of both spawn queues for 1804+ ticks.
+ *
+ * The instruments could not see it, and that is the part worth guarding: with
+ * `minCost` undefined, `minCost > energyAvailable` is ALSO false, so
+ * {@link buildAgendaQueue} published no `bank>=N` precondition - the one signal
+ * `classifySpawnIdle` uses to call an idle tick energy-starved rather than a
+ * CHOSEN wait, and the one S3 reads to call a spawn stalled. The colony ran 18%
+ * and 38% spawn idle, booked 100% "hold", with a flight-recorder row every
+ * sample saying free spawns bought nothing at full capacity.
+ *
+ * So a demand whose costs are not two finite non-negative numbers is not a
+ * demand. Enforced at the collection seam (SpawnDirector.collectDemandsMatching),
+ * the single place every corp's demand crosses, so no kind can forget it.
+ * Zero is legal (cold-start floor bodies price that way); NaN, Infinity,
+ * undefined and negatives are not.
+ */
+export function hasFundableCosts(d: SpawnDemand): boolean {
+  return (
+    typeof d.minCost === "number" &&
+    typeof d.desiredCost === "number" &&
+    Number.isFinite(d.minCost) &&
+    Number.isFinite(d.desiredCost) &&
+    d.minCost >= 0 &&
+    d.desiredCost >= 0
+  );
+}
+
+/**
  * Derive the transition label for a demand (corp-provided `why` wins). The
  * "infra" label is DECLARED by the demand (`SpawnDemand.why = "infra"` on the
  * tender/feeder/construction-tanker demands; a future scout demand declares

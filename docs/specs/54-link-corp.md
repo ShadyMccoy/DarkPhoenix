@@ -117,13 +117,24 @@ it stands. `energyLost` still reports it, so the trade is visible, never silent.
 
 ## 5. Open items
 
-1. **LIVE-UNVERIFIED — the whole thing.** Deployed 2026-08-08, never captured
-   after. The gauges, in order: a `porttender` creep exists at all; the port
-   container at (44,12) comes off 2000/2000; `portWaits` falls and
-   `portFallbacks` stays 0 for the right reason (nothing to fall back FROM);
-   and the heartbeat is unharmed — `P7` (controller delivery, last read 0.73x)
-   and `coreEmptyShare`. **A regression on the last two outranks every gain
-   here** (CLAUDE.md: the tender is a heartbeat).
+1. ~~**LIVE-UNVERIFIED — the whole thing.**~~ **CAPTURED t72865978, and the
+   first gauge answered NO.** "A `porttender` creep exists at all" — none, ever.
+   `portDemands` built its SpawnDemand through an `as SpawnDemand` cast with
+   neither `minCost` nor `desiredCost`, so every `>=` in the funding walk
+   compared against `undefined`, the demand was recorded gate `"impossible"`
+   (the RCL-can-never-build verdict), and it sat at the HEAD of both spawn
+   queues for 1804+ ticks — including at bank 5600, the room's full capacity.
+   The plan meanwhile routed 40 e/t through each port and charged
+   `portTenderSpawnLoad()` for the body. Fixed + class closed at the collection
+   seam; full write-up and the post-deploy predictions are in
+   [spec 14, cycle t72865978](14-telemetry-observability.md).
+
+   The REST of the gauge list is still unread, and now reads against a live
+   tender: the port container at (44,12) coming off 2000/2000; `portWaits`
+   falling with `portFallbacks` staying 0 for the right reason; and the
+   heartbeat unharmed — `P7` (controller delivery, last read 1x of the lower
+   endpoint) and `coreEmptyShare` (0.39). **A regression on the last two
+   outranks every gain here** (CLAUDE.md: the tender is a heartbeat).
 2. **The auxiliary spawn seam — the framework gap this exposed.** Spec 39's cop
    forbids new `getSpawnDemand` sites, but the SpawnDirector does not read
    `commission.fleet` and every auxiliary commission declares none (the
