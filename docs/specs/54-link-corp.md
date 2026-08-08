@@ -129,12 +129,16 @@ it stands. `energyLost` still reports it, so the trade is visible, never silent.
    seam; full write-up and the post-deploy predictions are in
    [spec 14, cycle t72865978](14-telemetry-observability.md).
 
-   The REST of the gauge list is still unread, and now reads against a live
-   tender: the port container at (44,12) coming off 2000/2000; `portWaits`
-   falling with `portFallbacks` staying 0 for the right reason; and the
-   heartbeat unharmed — `P7` (controller delivery, last read 1x of the lower
-   endpoint) and `coreEmptyShare` (0.39). **A regression on the last two
-   outranks every gain here** (CLAUDE.md: the tender is a heartbeat).
+   **CHAIN CONFIRMED WORKING on ONE post, t72869702.** The port container at
+   (44,12) came off 2000/2000 and now cycles (0e at t72868738 -> 516e at
+   t72869702), so haulers deposit and the tender drains. Both creeps live
+   together across generations — the corp's body reads 20C/12M = 32 parts at
+   t72868738 and 14C/10M = 24 at t72869702, i.e. feeder + port tender in both.
+   Heartbeat unharmed: controller delivery flat at 39.0 e/t, `coreEmptyShare`
+   0.46 -> 0.30, bucket 9,800. **A regression on the heartbeat outranks every
+   gain here** (CLAUDE.md: the tender is a heartbeat). Still unread: `portWaits`
+   / `portFallbacks` (needs item 7's meter), and the second post has never
+   existed (item 4).
 2. **The auxiliary spawn seam — the framework gap this exposed.** Spec 39's cop
    forbids new `getSpawnDemand` sites, but the SpawnDirector does not read
    `commission.fleet` and every auxiliary commission declares none (the
@@ -152,7 +156,28 @@ it stands. `energyLost` still reports it, so the trade is visible, never silent.
    controller container retires and the placement rung runs. Until then the link
    corp has ONE post, not two. The chain is: dead container reclaims → rung sees
    the port as bare → places a real buffer → the tender gets its second post.
-   Worth confirming end-to-end on a capture rather than assuming.
+
+   **MEASURED t72869702, and it went BACKWARDS: construction BUILT the blocking
+   container during the observation window.** Containers went 3 → 4 and sites
+   1 → 0 between t72868738 and t72869702, and the new one is at **(41,36)** —
+   which the census immediately flags:
+
+   ```
+   supersededControllerContainer: { pos: (41,36), role: "controller", energy: 0 }
+   ```
+
+   So the colony spent a build (5,000 energy of site) placing the exact container
+   this spec shipped a reclaim path to REMOVE, and it is the one thing blocking
+   the second post. `portPosts` excludes it by the controller-range guard (item
+   5), correctly — but the placement rung does not know that, so the two
+   subsystems disagree about whether that tile should hold a container and
+   construction is currently winning.
+
+   **This is the item to fix first**, and it is a placement-side fix, not a link
+   corp one: whatever rung placed (41,36) must read the same
+   `supersededControllerContainer` / `controllerLink` lens the census does, so a
+   room with a controller LINK never sites a controller container. Until then the
+   reclaim and the rung will fight, and each round costs a builder purchase.
 5. **The controller-range guard in `portPosts` becomes moot** once (4) resolves —
    it exists to stop the tender draining the controller's feed store into a
    link. Keep it (defence in depth, and other rooms will have other geometry),
@@ -168,6 +193,48 @@ it stands. `energyLost` still reports it, so the trade is visible, never silent.
    actually working or parked beside a full link" is not a read. The standalone
    corp had this and it was dropped in the absorb. Cheap to restore and it is
    the gauge item (1) will want.
+
+8. **NEITHER HOME SOURCE HAS A CONTAINER** (measured t72869702, and possibly the
+   more interesting finding). The census classifies a container as `"source"`
+   when it sits within range 1 of a source. **W43N23 has zero of them:**
+
+   ```
+   (41,22)  other       1363e
+   (36,27)  coreDepot    169e
+   (44,12)  port         516e
+   (41,36)  controller     0e   <- superseded, see item 4
+   ```
+
+   The source buffers agree — `dbcd90: 114`, `dbcd92: 0` — near-empty because
+   there is nothing there to hold energy. Both home sources are link-served (the
+   SOURCE P&L prices them with a `link` cost and no hauler; `flow.haulers` shows
+   them at distance 1), so the link takes the harvest directly.
+
+   The question this raises, and it is the L1 pile story one layer in: **what
+   happens to harvest the source link cannot absorb that tick?** A link holds 800
+   and fires on a cooldown; a 10 e/t source with no container to buffer into has
+   only the ground. The home sources are the two lowest-buffered in the colony,
+   which is consistent with either "the link keeps up" or "it spills and decays"
+   — and nothing currently distinguishes them. Needs a read before a fix: per-source
+   dropped energy is exactly the `sourceDropped` field that is ABSENT from every
+   capture (see spec 14 t72869702), so this is blocked on that meter.
+
+9. **The census and the lens disagree about `hasContainer`.** `classifyContainers`
+   sets `hasContainer: room.containers.some(c => cheb(c.pos, l) <= 2)` with no
+   controller-range exclusion, while `portPosts` applies the
+   `CONTROLLER_CONTAINER_RANGE` guard. So the census reports port (43,38) as
+   buffered (`hasContainer: true` from t72869702) while the tender cannot use it
+   and holds no post there. Any dashboard or future gate reading the census will
+   draw the wrong conclusion — the same decision-symmetry rule this codebase
+   applies everywhere else (one lens, both sides). Cheap fix: the census calls
+   `portPosts`, or shares its filter.
+
+10. **An orphan container holds 1,363e** at (41,22), classified `"other"` — not
+    within 1 of a source, not within 2 of storage, not within 4 of the
+    controller, not within 2 of any port link. Real energy in a container nothing
+    claims. Either it serves something the ladder does not model, or it is a
+    leftover the reclaim rung should collect. Unidentified; listed so it is not
+    lost.
 
 ## 6. Related
 
