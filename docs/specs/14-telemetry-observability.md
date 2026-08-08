@@ -11762,3 +11762,53 @@ change just made is the most likely thing to move it.
 4. **The constraint, and the thing to check first:** construction's `unmet` stays
    0 and its built rate does NOT fall below 5.11 e/t. If building slowed, that is
    a revert.
+
+### Post-deploy verification (capture t72869702, 964 ticks) — SAFE, but the changed path did not run
+
+Every headline number moved the predicted way, and **none of it is attributable to
+this change.** State that first, because the numbers are tempting:
+
+| | t72868738 | t72869702 |
+|---|---|---|
+| P12 valve coherence | **FAIL 0x** (published 0.00) | **ok 1x** (97.36 vs law 97.36) |
+| controller sink | demand 0, alloc 0, workParts 0 | demand 97.36, alloc 97.36, unmet 0, workParts 98 |
+| E4 idle capital | **FAIL** 154,472, slope **+25.68** | WARN 146,036, slope **-5.12** (draining) |
+| G1 | WARN "25.68 pts/t banked" | **ok**, 87% income-funded |
+| construction built | 5.11 e/t | **15.38 e/t** (3x, not slowed) |
+
+**Why it is not attributable: the colony is not in wartime.** `siteCount 0`,
+`siteProgress 0/0`, the upgrader's `sizing.wartime` is `undefined`, and there is no
+construction sink in the plan at all. The W43N23 site (4,700 remaining, ETA
+~1000t) COMPLETED inside this 964-tick window, so wartime exited on its own and
+the controller resumed its ordinary peacetime bank-fed allocation — which it would
+have done under the old code too. **The changed branch never executed.**
+
+What IS confirmed:
+
+- **Prediction 2, cleanly and independent of wartime:** the four disagreeing
+  numbers collapsed to one. Controller sink `allocated` 97.357 == upgrader
+  `planAllocated` 97.357 == `allocated` 97.357 == commission `energyRate` 97.357.
+  (The earlier 2x/halving spread came from `effectiveAllocated`'s dedicated-source
+  divisor, which is inactive with no sites.)
+- **The instrument is safe:** bucket 9,800, no deadlock, no lost rooms, bank
+  draining rather than climbing, and the build finished its site.
+- **Prediction 4's constraint is not violated:** construction built MORE
+  (15.38 e/t), though over a window where the site completed — the tail of a
+  build, not evidence about the mix.
+
+**So the change ships LIVE-UNVERIFIED on its own path.** It is covered by unit
+2371 + the three solver-level wartime cases in `flowAdapter.test.ts`, and it will
+get its live read the next time a backlog >= WARTIME_BACKLOG_THRESHOLD (3000)
+stands. The gauge, for whoever sees that first: `flow.sinks[controller].demand`
+> 0 with a construction sink present, construction's `unmet` at 0, and the bank
+slope not turning positive.
+
+**Also new, and a reset artifact rather than a finding:** E5 runt purchases 5 of
+the last 8 receipts. A deploy is a global reset and the recovery double-orders for
+about one window — the same caveat CLAUDE.md already attaches to X5. Re-read next
+cycle before treating it as real.
+
+**Cycle verdict: FIXED per the owner's ruling, GATED (unit 2371 + trio + grid, one
+red cell acquitted by pre-change attribution), DEPLOYED, and honestly
+LIVE-UNVERIFIED — the wartime branch did not run, and the improvements measured
+after the deploy belong to the backlog draining, not to the patch.**
