@@ -1302,3 +1302,93 @@ describe("flowAdapter: the mouth-stock lens survives losing vision", () => {
     expect(await stagedOf()).to.equal(undefined);
   });
 });
+
+/**
+ * CONSTRUCTION IS SCOPED TO THE ROOMS THE COLONY WORKS (2026-08-07).
+ *
+ * Owner: *"What's construction even allocating for. I feel like at this point
+ * everything we need should be built."* It was allocating for exactly one
+ * thing, and they were right to ask.
+ *
+ * Measured t72850264 - the colony's ENTIRE construction budget was a container
+ * in W41N25 at 4,582/5,000, a two-source remote last harvested ~12,000 ticks
+ * earlier that the plan had since stopped funding. It held 10 e/t of sink
+ * demand at priority 70 - ABOVE the controller, which sat at effective 44.8
+ * with 35.69 unmet - plus 0.135 p/t of spawn budget, four times the whole
+ * tender detail. It delivered 0.00 e/t for the window with its corp at
+ * creeps 0, because there is no supply line to a room the plan does not work.
+ *
+ * Not a gate and not a defund: `graph.getSinks()` returns every site the ENGINE
+ * knows about, and the working set is simply what the plan is solving. Fund the
+ * room or don't - never build infrastructure FOR a room you decided not to work.
+ */
+describe("flowAdapter: construction only funds rooms the colony works", () => {
+  const g = globalThis as unknown as { Game?: unknown };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  const pos = (x: number, roomName: string): Position => ({ x, y: 25, roomName });
+  /** Home + a FUNDED remote + a site in each of: home, the remote, a dropped room. */
+  const world = (): Node[] => {
+    const home = createNode("home", "W0N0", pos(5, "W0N0"), 100, ["W0N0"], 0);
+    home.resources = [
+      { type: "spawn", id: "spawn-0", position: pos(5, "W0N0") },
+      { type: "controller", id: "ctrl-0", position: pos(5, "W0N0"), isOwned: true }
+    ] as NodeResource[];
+    const worked = createNode("worked", "W1N0", pos(20, "W1N0"), 50, ["W1N0"], 0);
+    worked.resources = [
+      { type: "source", id: "srcWorked", position: pos(20, "W1N0"), capacity: 3000 }
+    ] as NodeResource[];
+    // The W41N25 shape: a source AND a 92%-done container, in a room the plan
+    // has stopped funding.
+    const dropped = createNode("dropped", "W9N9", pos(30, "W9N9"), 50, ["W9N9"], 0);
+    dropped.resources = [
+      { type: "source", id: "srcDropped", position: pos(30, "W9N9"), capacity: 3000 }
+    ] as NodeResource[];
+    return [home, worked, dropped];
+  };
+
+  /** Sites are added through the graph's own API, as the live adapter does. */
+  const graphWithSites = (): FlowGraph => {
+    const graph = new FlowGraph(world());
+    graph.addConstructionSite("site-home", "home", pos(8, "W0N0"), 3000);
+    graph.addConstructionSite("site-worked", "worked", pos(21, "W1N0"), 3000);
+    graph.addConstructionSite("site-dropped", "dropped", pos(31, "W9N9"), 418);
+    return graph;
+  };
+
+  const siteRooms = async (funded?: readonly string[]): Promise<string[]> => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const problem = buildColonyProblem(
+      graphWithSites(), manhattan, [], new Map(), new Map(), [], () => 0,
+      undefined, undefined, [], 0, funded
+    );
+    return problem.sinks.filter(s => s.kind === "construction").map(s => s.pos.roomName).sort();
+  };
+
+  it("drops a site in a room the previous solve did NOT fund - the W41N25 case", async () => {
+    expect(await siteRooms(["W1N0"])).to.deep.equal(["W0N0", "W1N0"]);
+  });
+
+  it("keeps sites in the home room and in FUNDED remotes", async () => {
+    const rooms = await siteRooms(["W1N0", "W9N9"]);
+    expect(rooms, "a remote back in the plan brings its site with it").to.deep.equal(["W0N0", "W1N0", "W9N9"]);
+  });
+
+  it("admits everything on a COLD solve, then converges (the pricedRelay ratchet)", async () => {
+    // No history is not "fund nothing" - it is "we do not know yet". One
+    // over-funded solve, then the published funded set narrows it, exactly as
+    // the reserver pricing does.
+    expect(await siteRooms(undefined)).to.deep.equal(["W0N0", "W1N0", "W9N9"]);
+  });
+
+  it("an empty funded set still keeps the home room", async () => {
+    expect(await siteRooms([])).to.deep.equal(["W0N0"]);
+  });
+});

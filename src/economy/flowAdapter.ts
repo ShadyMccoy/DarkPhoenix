@@ -1131,9 +1131,37 @@ export function buildColonyProblem(
   // sizes with (primitives.projectAbsorbRate over total remaining work at
   // the farthest site's travel); each site's capacity is its pro-rata share
   // by remaining work. A single site degenerates to exactly the old number.
+  // CONSTRUCTION IS SCOPED TO THE ROOMS THE COLONY WORKS (2026-08-07).
+  //
+  // Not a distress gate and not a defund - the working set is simply what the
+  // plan is solving. A site in a room the plan does not work has no supply line
+  // to it: no miner, no hauler route, no reason for a builder to be there. The
+  // plan was funding those anyway because `graph.getSinks()` hands back EVERY
+  // site the engine knows about, with no test of whether the economy reaches it.
+  //
+  // Measured t72850264, and it was the colony's ENTIRE construction budget: one
+  // container in W41N25 at 4,582/5,000 - a two-source remote we last harvested
+  // ~12,000 ticks earlier and the plan has since stopped funding. It held
+  // 10 e/t of sink demand at priority 70 (ABOVE the controller, whose effective
+  // priority was 44.8 with 35.69 unmet) plus 0.135 p/t of spawn budget - four
+  // times the whole tender detail - and delivered 0.00 e/t for the window with
+  // its corp at creeps 0. Incoherent by construction: fund the room or don't,
+  // but never build infrastructure FOR a room you have decided not to work.
+  //
+  // The site itself is left standing, deliberately: it is a real 92%-paid asset
+  // and removing it would burn 4,582e of sunk work. If W41N25 comes back into
+  // the plan, its container comes back with it, and this scope test admits it
+  // again on the same solve.
+  //
+  // Scope = spawn rooms + the PREVIOUS solve's funded remotes, the same ratchet
+  // `pricedRelay` and the reserver set already use (no history admits
+  // everything for exactly one solve, then converges).
+  const workedRooms = new Set<string>(spawnRooms);
+  for (const r of prevFundedRemoteRooms ?? []) workedRooms.add(r);
   const constructionSites = graph
     .getSinks()
-    .filter(s => toSinkKind(s.type) === "construction" && s.progressRemaining !== undefined);
+    .filter(s => toSinkKind(s.type) === "construction" && s.progressRemaining !== undefined)
+    .filter(s => prevFundedRemoteRooms === undefined || workedRooms.has(s.position.roomName));
 
   // WARTIME (spec 33, owner 2026-07-27; COLONY-WIDE since owner 2026-08-05:
   // "I WANT construction to be the primary consumer over controller if we
@@ -1233,9 +1261,14 @@ export function buildColonyProblem(
   const poolAbsorb = poolRemaining > 0 ? projectAbsorbRate(poolRemaining, poolTravel, buildAccelerate) : 0;
 
   const sinks: PlannerSink[] = [];
+  const fundedSiteIds = new Set(constructionSites.map(s => s.id));
   for (const sink of graph.getSinks()) {
     const kind = toSinkKind(sink.type);
     if (!kind) continue;
+    // Out-of-scope construction never becomes a sink at all - the backlog math
+    // above already dropped it, and a sink the plan would fund while the
+    // backlog ignores it is two books again. See the workedRooms derivation.
+    if (kind === "construction" && !fundedSiteIds.has(sink.id)) continue;
     sinks.push({
       id: sink.id,
       kind,
