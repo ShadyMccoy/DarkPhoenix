@@ -11144,3 +11144,65 @@ Fiscal: FY4856-M07 closed (t72849000→t72850500, 100%, handicap 17%).
 
 **Verdict: FIXED (construction scope, +18.47 e/t measured) + INSTRUMENTED (the
 drain term's input, after refusing to guess twice).**
+
+---
+
+## Gate note — the core-link shuttle resize (5d7a567), and two false alarms I raised on my own test runs
+
+**Gate: GREEN, deployed.** unit 2305, tsc clean both projects, build clean,
+`flow-handoff` PASS, `runt-economy` PASS (`1 passing (4m)`, 221559ms, "upsize
+PROVEN" at tick 460), `storage-depot` PASS (7s).
+
+The commit message says *"GATE INCOMPLETE - NOT DEPLOYED"*; that was true when
+written and is superseded here.
+
+### The methodology failure worth keeping
+
+I twice reported `runt-economy` as anomalous, and both readings were artifacts
+of how I ran it, not of the test:
+
+1. **"Reproducible >600s slowdown, and host load is 0.20 so it isn't the
+   documented contention case."** It runs in 3.7 minutes. Both long runs were
+   piped (`... 2>&1 | tail -3`, `... | sed | tail -6`); the unpiped run finished
+   well inside the normal band.
+2. **"Exit 0 was meaningless and the captured output is a stack trace — it's
+   likely failing."** Half right for the wrong reason. The exit code WAS
+   meaningless — a pipeline reports the LAST command's status, so `| tail` was
+   reporting success regardless of mocha — but the trailing `at Generator.next`
+   frames were benign `--full-trace` output, not a failure. The test was
+   passing the whole time.
+
+**The rule this earns: never run a gate through a pipe.** `cmd > file 2>&1;
+echo $?` preserves both the exit code and the full result; `cmd | tail` destroys
+both and then invites a diagnosis of the diff. The existing "grid verdicts are
+markers, never exit codes" trap is the same failure in a different costume —
+this is its mocha twin, and it cost two ~10-minute runs plus two wrong calls
+reported to the owner before the third run settled it.
+
+### Effective capacity and effective body bill (owner correction, same cycle)
+
+Owner: *"Creeps cycle on effective ttl not 1500... Effective spawn capacity (max
+minus extension refill lags) and effective body budget."* Both land, and
+together they close most of the headroom previously reported:
+
+```
+  physical capacity    1000 parts/month     2 spawns x 1500 / 3
+  EFFECTIVE capacity    792                 minus extension-refill lag
+  actually built        769                 = 97% of EFFECTIVE
+  effective body bill   689                 effectiveLife, not flat 1500
+  headroom              104                 (previously reported as 342)
+```
+
+The body bill was wrong in BOTH directions on a flat-1500 basis and landed near
+the right total by luck: far remotes cost MORE (cd98 at d=105 is 68.8 against 64
+standing) and reservers cost LESS (39.2, not 70 - `RESERVER_DUTY = 0.5`, the
+corp coasts on the reservation bank).
+
+The capacity correction is the sharper one. **The spawns run at 97% of what the
+refill actually permits** - so "the plan asks and the spawn does not deliver"
+was reading a physical ceiling as if it were reachable. 208 parts/month are
+burned by an empty extension network. Extensions are room-wide, so the 7% vs 35%
+`idle.empty` asymmetry between Spawn1 and Spawn2 is not two supplies but two
+sampling windows on one - which puts it on the TENDER, standing 34 parts against
+the plan's own `TENDER_FLEET_PARTS = 48`. That is the one infra line that is
+UNDER-fielded, and its failure is the 208.
