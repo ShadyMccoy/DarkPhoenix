@@ -18,10 +18,14 @@
 import * as fs from "fs";
 import * as path from "path";
 import {
+  ATTACK_MOVE_PER_PART,
   BODY_COSTS,
   CARRY_MOVE_PAIR_COST,
+  CARRY_MOVE_PER_PART,
   CLAIM_LIFETIME,
+  CLAIM_MOVE_PER_PART,
   CREEP_LIFETIME,
+  UPGRADER_PARTS_PER_WORK,
   INVADER_TAX_PER_ENERGY,
   LINK_TRANSFER_LOSS,
   MINER_COST,
@@ -231,7 +235,39 @@ import { BASE_RESERVE, MAX_SURPLUS_DRAW, SURPLUS_DRAIN_TICKS, bankFedControllerR
  * REMAINING infra gap after this is behaviour, which is the point. Same defect
  * class as #8 (reserver duty) and #7 (hauler spawnParts).
  */
-export const METHODOLOGY = 17;
+/**
+ * #18 (spec 51, 2026-08-08): the parts -> ENERGY conversion is now ONE
+ * declaration. `CARRY_MOVE_PER_PART` / `CLAIM_MOVE_PER_PART` /
+ * `ATTACK_MOVE_PER_PART` are exported from primitives and imported here; they
+ * used to be locals inside `infraSpawnEnergy` AND hand-written copies in this
+ * script's `ENERGY_PER_PART`, so the colony's own charge and the statement's
+ * budget could price identical parts differently.
+ *
+ * On guards they did. `defense (guards)` fell through to `mixedRate("raidGuard",
+ * 80)` - the standing bodies' measured rate, defaulting to a hand-written 80
+ * e/part when none stood - against the 65 the colony charges. A guard body is
+ * exactly N ATTACK + N MOVE (`buildGuardBody`), so 65 is not an approximation
+ * and 80 was simply wrong. The 23% over-statement landed precisely where #16
+ * had just made this line meaningful: the plan budgets a guard for an armed
+ * room, no body is standing yet, and the F1 signal arrives pre-corrupted by an
+ * accounting constant. Measured on the staged three-armed-room case: 1.6 e/t
+ * against a true 1.3.
+ *
+ * Guards therefore LEAVE `mixedRate`, which now serves only the two genuinely
+ * mixed-shape classes (upgraders, builders - their WORK:CARRY:MOVE varies with
+ * what the spawn could afford). Two shadowing literals go with it: `1500` for
+ * CREEP_LIFETIME on the legacy guard path, and a hand-copied `4/3` for
+ * UPGRADER_PARTS_PER_WORK.
+ *
+ * Also in this stamp, from the PLAN side (spec 51 GAP 1): the construction
+ * budget line echoes `consumerSpawnLoad`, which now shares ONE derivation with
+ * the planner's own fill - so a #17 construction budget and a #18 one differ by
+ * the supply vector's repricing (the 1:1 model -> the 3C:1M gait the runtime
+ * fields, ~1.95x on the vector term). A #17 defense or construction line is NOT
+ * comparable to a #18 one; every other account line is unchanged. Same defect
+ * class as #17 (depot movers), #8 (reserver duty) and #7 (hauler spawnParts).
+ */
+export const METHODOLOGY = 18;
 
 export interface LedgerRow {
   id: string;
@@ -260,12 +296,13 @@ function loadCapture(spec: string, fallbackIndex: number): any {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
-/** Measured parts-per-WORK from an actual upgrader body; 4/3 fallback (15W1C4M). */
+/** Measured parts-per-WORK from an actual upgrader body; the plan's own
+ *  UPGRADER_PARTS_PER_WORK as the fallback (was a hand-copied 4/3). */
 function upgraderPartsPerWork(corps: any[]): number {
   for (const c of corps) {
     if (c.kind === "upgrade" && c.bodyParts > 0 && (c.body.work ?? 0) > 0) return c.bodyParts / c.body.work;
   }
-  return 4 / 3;
+  return UPGRADER_PARTS_PER_WORK;
 }
 
 function fleetParts(corps: any[], kind: string, fallback: number): number {
@@ -293,17 +330,27 @@ function fleetParts(corps: any[], kind: string, fallback: number): number {
  * CARRY, so cost mis-ranks classes by build pressure. It is NOT an argument
  * against converting per BODY: each class's shape is known, so its energy per
  * part is exact. Only a FLAT rate across classes would be biased.
+ *
+ * The per-class rates are IMPORTED from primitives (methodology #18,
+ * 2026-08-08), not restated here. They used to be locals inside
+ * `infraSpawnEnergy` and hand-written copies here, so the colony's charge and
+ * this budget could price identical parts differently - and on guards they did.
  */
 const ENERGY_PER_PART: Record<string, number> = {
   // 5 WORK + 3 MOVE = 650e over 8 parts
   miners: MINER_COST / MINER_PARTS,
   // every hauler-shaped body is CARRY+MOVE pairs: 100e per 2 parts
-  "source-route haulers": CARRY_MOVE_PAIR_COST / 2,
-  "transient-route haulers (unbudgeted)": CARRY_MOVE_PAIR_COST / 2,
-  tenders: CARRY_MOVE_PAIR_COST / 2,
-  feeder: CARRY_MOVE_PAIR_COST / 2,
-  // CLAIM+MOVE pairs: (600 + 50) / 2
-  "reservers (claim life)": (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2
+  "source-route haulers": CARRY_MOVE_PER_PART,
+  "transient-route haulers (unbudgeted)": CARRY_MOVE_PER_PART,
+  tenders: CARRY_MOVE_PER_PART,
+  feeder: CARRY_MOVE_PER_PART,
+  "reservers (claim life)": CLAIM_MOVE_PER_PART,
+  // `buildGuardBody` emits exactly N ATTACK + N MOVE, so this is exact and the
+  // class does NOT belong in `mixedRate` below. It was there, defaulting to a
+  // hand-written 80 e/part whenever no guard was standing - 23% above the 65
+  // the colony's own charge uses, landing precisely in the window spec 51
+  // phase 2 created to make guard variance readable.
+  "defense (guards)": ATTACK_MOVE_PER_PART
 };
 
 export function planSpawnLoad(cap: any): {
@@ -464,7 +511,7 @@ export function planSpawnLoad(cap: any): {
     const planned = guardedRooms * roomGuardSpawnLoad();
     if (planned > 0) lines.push(["defense (guards)", guardedRooms * GUARD_PARTS_PER_ROOM, planned]);
   } else if (guardParts > 0) {
-    lines.push(["defense (guards)", guardParts, guardParts / 1500]);
+    lines.push(["defense (guards)", guardParts, guardParts / CREEP_LIFETIME]);
   }
 
   const total = lines.reduce((s, [, , x]) => s + x, 0);
@@ -488,14 +535,14 @@ export function planSpawnLoad(cap: any): {
   };
   const energy: Record<string, number> = {};
   for (const [name, , load] of lines) {
-    const flat = ENERGY_PER_PART[name] ?? (name.startsWith("feeder") ? CARRY_MOVE_PAIR_COST / 2 : undefined);
-    const rate =
-      flat ??
-      (name.startsWith("upgraders")
-        ? mixedRate("upgrade", 85)
-        : name.startsWith("defense")
-          ? mixedRate("raidGuard", 80)
-          : mixedRate("construction", 65));
+    // The feeder line carries its relay in the name ("feeder @ relay 100"), so
+    // it matches by prefix; every other fixed-shape class matches exactly.
+    const flat = ENERGY_PER_PART[name] ?? (name.startsWith("feeder") ? CARRY_MOVE_PER_PART : undefined);
+    // Only the two genuinely MIXED-shape classes fall through: upgraders and
+    // builders vary their WORK:CARRY:MOVE with the body the spawn could afford,
+    // so there is no exact pair rate to import. Guards left this branch in
+    // methodology #18 - their shape is fixed, so they belong in the table.
+    const rate = flat ?? (name.startsWith("upgraders") ? mixedRate("upgrade", 85) : mixedRate("construction", 65));
     energy[name] = load * rate;
   }
   return { total, lines, energy };

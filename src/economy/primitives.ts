@@ -654,6 +654,36 @@ export const RESERVER_PARTS_PER_ROOM = 4;
 export const TENDER_FLEET_PARTS = 48;
 
 // ---------------------------------------------------------------------------
+// ENERGY PER BODY PART, BY FLEET CLASS - the parts <-> energy conversion.
+//
+// Every standing fleet is built from ONE repeating pair, so its energy per part
+// is EXACT, not an average: a hauler/feeder/tender is CARRY+MOVE (100e per 2),
+// a reserver CLAIM+MOVE (650e per 2), a guard ATTACK+MOVE (130e per 2 - see
+// buildGuardBody, which emits exactly N ATTACK + N MOVE).
+//
+// This is the conversion F1's warning is NOT about. F1 warns against using COST
+// as a proxy for spawn TIME across classes (a CLAIM part is 600e against 50e for
+// CARRY, so cost mis-ranks classes by build pressure). Per BODY the shape is
+// known and the conversion is exact; only a FLAT rate across classes is biased.
+//
+// Hoisted to module scope and EXPORTED 2026-08-08 (spec 51): these were locals
+// inside `infraSpawnEnergy` while `waste-ledger` kept its own copies, so the
+// colony's charge and the statement's budget for the same class could disagree
+// - and on guards they did (the audit's fallback priced ATTACK+MOVE at 80 e/part
+// against this 65, a 23% over-statement landing exactly when the plan budgets a
+// guard that is not currently standing, which is the F1-signal case spec 51
+// phase 2 had just created). Same treatment TENDER_FLEET_PARTS got in phase 4:
+// one declaration, every reader.
+// ---------------------------------------------------------------------------
+
+/** CARRY+MOVE pairs - haulers, feeders, tenders, tankers. */
+export const CARRY_MOVE_PER_PART = CARRY_MOVE_PAIR_COST / 2;
+/** CLAIM+MOVE pairs - reservers and claimers. */
+export const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
+/** ATTACK+MOVE pairs - the standing raid guard (buildGuardBody's exact shape). */
+export const ATTACK_MOVE_PER_PART = (BODY_COSTS.ATTACK + BODY_COSTS.MOVE) / 2;
+
+// ---------------------------------------------------------------------------
 // PER-CORP STANDING INFRA (spec 39 phase 4 / spec 51).
 //
 // `infraSpawnLoad` below prices the standing infrastructure as ONE aggregate
@@ -821,9 +851,6 @@ export function infraSpawnEnergy(
   /** Armed rooms - one standing guard each. See the parts twin. */
   guardedRoomCount = 0
 ): number {
-  const CARRY_MOVE_PER_PART = CARRY_MOVE_PAIR_COST / 2;
-  const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
-  const ATTACK_MOVE_PER_PART = (BODY_COSTS.ATTACK + BODY_COSTS.MOVE) / 2;
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
   // Spec 45 volley-service floor - the SAME line as the parts twin above.
   const feederCarry =
@@ -867,7 +894,6 @@ export function reserverSpawnLoad(parts: number): number {
  * cannot disagree about what a room's reservation costs (~1.20 e/t).
  */
 export function reserverRoomEnergy(): number {
-  const CLAIM_MOVE_PER_PART = (BODY_COSTS.CLAIM + BODY_COSTS.MOVE) / 2;
   return roomReserverSpawnLoad() * CLAIM_MOVE_PER_PART;
 }
 

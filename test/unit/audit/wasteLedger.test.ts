@@ -5,6 +5,7 @@ import {
   ACCOUNT_CLASS_OF_ROLE,
   F1_CLASS_OF_KIND,
   F1_PLAN_PREFIX,
+  METHODOLOGY,
   computeChurn,
   computeLedger,
   formatAccounts,
@@ -12,7 +13,17 @@ import {
   planSpawnLoad
 } from "../../../scripts/waste-ledger";
 import { ALL_CORP_KINDS, ALL_SPAWN_ROLES } from "../../../src/execution/CommissionHost";
-import { feederSpawnLoad, haulerOverhead, reserverSpawnLoad, tenderSpawnLoad } from "../../../src/economy/primitives";
+import {
+  ATTACK_MOVE_PER_PART,
+  CARRY_MOVE_PER_PART,
+  CLAIM_MOVE_PER_PART,
+  feederSpawnLoad,
+  haulerOverhead,
+  reserverSpawnLoad,
+  roomGuardSpawnLoad,
+  roomReserverSpawnLoad,
+  tenderSpawnLoad
+} from "../../../src/economy/primitives";
 import { BASE_RESERVE, bankFedControllerRate } from "../../../src/economy/bank";
 
 const fixture = (name: string): any =>
@@ -1310,6 +1321,64 @@ describe("F1 plan fidelity (waste ledger)", () => {
     // still runs, so old captures keep producing a defense line.
     const legacy = planSpawnLoad(mk([], [0], corps)).lines.find(([n]) => String(n).startsWith("defense"))!;
     expect(legacy[2]).to.be.closeTo(10 / 1500, 1e-12);
+  });
+
+  /**
+   * THE SECOND-BOOK CLASS, fifth instance - and the first on the ENERGY side.
+   *
+   * #16 (above) converged the defense line's PARTS onto the plan's armed-room
+   * count. Its ENERGY RATE was left behind: the account priced those parts from
+   * whatever guard bodies happened to be standing, defaulting to a hand-written
+   * 80 e/part when none were, while `infraSpawnEnergy` - the charge the colony's
+   * own solve deducts - prices the identical parts at ATTACK_MOVE_PER_PART = 65.
+   *
+   * The 23% gap landed in exactly the window #16 exists to make readable: the
+   * plan budgets a guard for an armed room and no body is standing yet. That is
+   * the F1 signal, and it was arriving pre-corrupted by an accounting constant.
+   *
+   * The classes below are the ones BOTH books price, so the invariant is simply
+   * that they agree. Guards are the case that was broken; feeder/tender/reserver
+   * are pinned beside them so the next divergence fails here rather than
+   * printing.
+   */
+  it("methodology #18: the infra ENERGY budget IS infraSpawnEnergy's own per-class rates", () => {
+    // The F1-signal case: three armed rooms priced by the plan, NO guard body
+    // standing to reconstruct a rate from.
+    const cap = mk([], [0], []);
+    cap.data.flow.fleetCharge = { infraInputs: { guardedRooms: 3 } };
+    const { energy } = planSpawnLoad(cap);
+    expect(
+      energy["defense (guards)"],
+      "guards are ATTACK+MOVE pairs - 65 e/part, the same rate the colony's charge uses"
+    ).to.be.closeTo(3 * roomGuardSpawnLoad() * ATTACK_MOVE_PER_PART, 1e-12);
+
+    // And it must not move when a body IS standing: the budget is the plan's,
+    // never the fielded fleet's (spec 14 - no actuals-fed budgets).
+    const standing = mk([], [0], [
+      { id: "raidGuard-A-raidGuard", kind: "raidGuard", creepCount: 1, bodyParts: 10, body: { attack: 5, move: 5 } }
+    ]);
+    standing.data.flow.fleetCharge = { infraInputs: { guardedRooms: 3 } };
+    expect(planSpawnLoad(standing).energy["defense (guards)"]).to.be.closeTo(energy["defense (guards)"], 1e-12);
+
+    // The other two classes both books price, pinned against the same constants.
+    const depot = mk([], [0], [
+      {
+        id: "moving-W1N1-controllerFeeder",
+        kind: "controllerFeeder",
+        creepCount: 1,
+        bodyParts: 100,
+        body: { carry: 50, move: 50 },
+        sizing: { linkFed: true, relayRate: 100 }
+      },
+      { id: "moving-W1N1-tender", kind: "tender", creepCount: 2, bodyParts: 86, sizing: { target: 2 } },
+      { id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 2 } }
+    ]);
+    const de = planSpawnLoad(depot).energy;
+    const relay = bankFedControllerRate(0, BASE_RESERVE);
+    const feederKey = Object.keys(de).find(k => k.startsWith("feeder"))!;
+    expect(de[feederKey]).to.be.closeTo(feederSpawnLoad(relay, true) * CARRY_MOVE_PER_PART, 1e-12);
+    expect(de.tenders).to.be.closeTo(tenderSpawnLoad() * CARRY_MOVE_PER_PART, 1e-12);
+    expect(de["reservers (claim life)"]).to.be.closeTo(2 * roomReserverSpawnLoad() * CLAIM_MOVE_PER_PART, 1e-12);
   });
 
   it("still surfaces a kind with NO plan line as UNPRICED (the detector outlives the hole)", () => {
@@ -2660,10 +2729,15 @@ describe("methodology #10: the recovery P&L (cure vs illness, published)", () =>
     expect(detail).to.include("5.0");
   });
 
-  it("the header stamps methodology #17 (depot-mover budgets read the primitives)", () => {
+  it("the header stamps the CURRENT methodology, whatever it is", () => {
+    // Reads METHODOLOGY rather than restating it: the contract is that a report
+    // carries its own stamp (spec 41 - two reports compare only at the same
+    // one), not that the number is any particular value. Hardcoding it here
+    // made the constant a second book, so every bump broke a test that was
+    // never about the bump.
     const { cap, base } = rig(zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    expect(text).to.include("[methodology #17]");
+    expect(text).to.include(`[methodology #${METHODOLOGY}]`);
   });
 });
 
