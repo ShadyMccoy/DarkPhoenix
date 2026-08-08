@@ -166,12 +166,52 @@ export const CARRY_CAPACITY = 50;
  */
 export const CARRY_MOVE_PAIR_COST = BODY_COSTS.CARRY + BODY_COSTS.MOVE; // 100
 
-/** The tanker's CARRY:MOVE ratios - one constant, every reader (the body
- * builder, the fleet sizing, and since phase 1 the commission's all-in
- * price). A tanker is mostly PARKED, so it runs CARRY-heavy: 1 MOVE per 3
- * CARRY on plain, 1 per 5 where roads halve fatigue. */
+/**
+ * The tanker's CARRY:MOVE ratios - one constant, every reader (the body
+ * builder, the fleet sizing, and since phase 1 the commission's all-in price).
+ *
+ * 3:1 IS MEASURED OPTIMAL, not assumed (2026-08-08). Owner asked the good
+ * question - *"wouldn't 2:1 maybe make the most sense?"* - and the arithmetic
+ * agrees with them while the colony does not. Swept on
+ * `fid-t5-real-maze-steady-state`, which is DETERMINISTIC (a re-run reproduces
+ * every figure bit-identically, so these are signal, not draws):
+ *
+ *     ratio    1:1     2:1    [3:1]    4:1     5:1
+ *     gross     25%     43%     53%     47%     45%
+ *     carry     -       44%     45%     43%     40%
+ *  spawnIdle    -       16%     33%     21%     16%
+ *
+ * (1:1 from spec 34 item 3, which recorded the collapse twice.) Single-peaked
+ * at 3:1, so this is an interior optimum between two opposing effects - more
+ * CARRY per MOVE buys carry-per-body but costs loaded speed - and NOT the
+ * carry-per-part monotone that 1:1 < 2:1 < 3:1 alone would suggest (5:1 and 4:1
+ * carry more per part and do worse).
+ *
+ * WHY THE PARTS ARGUMENT MISLEADS HERE, because it is the trap to avoid
+ * re-deriving. By this module's own `tankerCarryNeededFor`, total parts to
+ * sustain 10 e/t scale as `(r+1)^2/r` on plain (minimized at r=1) and
+ * `(r+2)(r+1)/r` on road (2:1 best), which says 3:1 costs +32% over 1:1 unpaved
+ * and +32% over 2:1 paved. That is correct, and it optimizes the wrong thing:
+ * it prices SPAWN PARTS as the only scarce good, while a poor economy is also
+ * bound by energy per BODY. The sweep is what settles it - the cheapest fleet
+ * per unit of flow is not the fleet that delivers most when the spawn is poor.
+ *
+ * The old rationale ("a tanker is mostly PARKED, so it runs CARRY-heavy") is
+ * retired: `tankerCarryNeededFor` is a round-trip SHUTTLE model that prices the
+ * travel, so that justification never matched the formula it justified. The
+ * number was right; the reason was not.
+ *
+ * This also partly diagnoses spec 34 item 3's "demand-shape interaction that is
+ * NOT yet diagnosed": it is not a cliff at 1:1, it is a smooth curve and 1:1 is
+ * simply its far end.
+ */
 export const TANKER_CARRY_PER_MOVE_PLAIN = 3;
-export const TANKER_CARRY_PER_MOVE_ROAD = 5;
+/** Road gait. Every live caller builds with `useRoads=false`, so this is
+ *  reachable only through `buildTankerBody`'s default parameter and was never
+ *  swept above; left at the plain value rather than the retired 5 (which the
+ *  plain sweep ranks worst) so the dead default cannot ship a bad body if a
+ *  caller ever flips useRoads on. */
+export const TANKER_CARRY_PER_MOVE_ROAD = 3;
 
 /** Source energy capacity in claimed rooms (Screeps constant) */
 export const SOURCE_ENERGY_CAPACITY = 3000;
