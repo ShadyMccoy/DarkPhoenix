@@ -11500,3 +11500,89 @@ the first opportunity) · CLASS CLOSED (the cost seam, and it caught nothing els
 - confirming this was the only such demand) · ONE OF MY OWN PREDICTIONS
 FALSIFIED (the idle mechanism) · one headline number DEFERRED for want of a
 window · two new instrumentation gaps named.**
+
+---
+
+## Audit cycle t72866607 — the top line's cost was in no decision that could fix it
+
+Same shape as this session's earlier incident, one layer out. The port tender's
+cost was missing from the funding comparison; here **pile DECAY is missing from
+the scavenge admission**, and the L1 top line is the result.
+
+### The read (629t window, statement in full)
+
+```
+delivered into the economy   114.81 of 120.00 capacity
+losses                        25.11 e/t  (21% of capacity)   <- pile decay 18.68
+controller (score)            39.00 vs plan 63.41  (-24.41 U)
+RESIDUAL                      -5.50   (was -25.74 last cycle)
+```
+
+The controller's whole 24.41 shortfall is three terms: losses -12.61,
+construction -7.19, bank -6.07. Losses is the biggest, and pile decay is 74% of
+losses.
+
+### Why nothing was fixing it
+
+`CarryCorp.haulCarryNeeded` returns `ceil(sustained)` for any storage-backed room
+— **the drain term exists only in bootstrap** (deliberate, 2026-08-03: *"a mature
+room doing the same buys F1's breach"*). So a mature colony's route haulers are
+sized to sustained INFLOW and, by construction, never clear an accumulated pile.
+The scavenger is nominally that mechanism, and the source-pileup instrument's own
+discriminator (deployed 2026-07-26, never read until now) settles which of its
+two candidate mechanisms is live:
+
+```
+hauling-W42N22-hauling--8-8   carryNeeded 1  staged 3452  srcLink null
+hauling-W43N22-hauling-0-30   carryNeeded 1  staged 3992  srcLink null
+hauling-W42N21-hauling-37-2   carryNeeded 2  staged 3303  srcLink null
+hauling-W43N21-hauling-4-37   carryNeeded 3  staged 1896  srcLink null
+```
+
+`staged` high, `srcLink` null — the instrument's stated verdict is *"the fleet is
+under-sized (the missing drain term is the fix)"*, not a link backlog. One CARRY
+part of planned drain against a 3,452-energy pile.
+
+### Shipped: the decay term, as an instrument (telemetry class — script only)
+
+`scavengeOutflowSplit` (pure, 5 unit cases) and a new SCAV line. The row read
+`ok`; it now reads:
+
+```
+[WARN] SCAV  OUTFLOW SPLIT (the pile is a wasting asset): planned drain 3.05 e/t
+       vs decay 15.00 e/t => we collect 17%, the engine takes 83%;
+       LOSING on 5 of 5 stocks
+```
+
+15.00 of the account's 18.68 e/t pile decay is these five stocks — **80% of the
+top line, attributed**. The row also WARNs on a losing split now, not only on
+parts-dry displacement: the energy leaves either way. Full analysis, the
+circular premise in `scavengeRate`, the two accounting conventions that flip the
+burst answer's sign, and the convention-free standing-fleet sizing (+15 e/t for
+0.070 p/t, against 0.072 measured slack) are in
+[spec 44, measurement leg 4](44-standing-scavenger.md).
+
+### NOT shipped, and why: a latent corp-id collision found on the way in
+
+Joining the split to its pile exposed the handle convention
+`${room}-hauling-${sourceId.slice(-4)}`. On a 24-char object id the last four
+chars are a fine unique suffix — the convention's premise. A scavenge stock id is
+POSITIONAL (`scavenge-ROOM-X-Y`), so the slice takes a coordinate fragment: a
+stock at (36,27) becomes handle `6-27`, x's tens digit gone. Losing a digit is
+harmless; losing UNIQUENESS is not — **(5,30) and (15,30) in one room produce the
+same corp**, so one of the two piles silently gets no hauler. That is
+indistinguishable from the symptom above.
+
+Left in place on purpose: changing the handle renames every live hauling corp and
+orphans its creeps — CLAUDE.md's corp-id-prefix trap verbatim. It needs a
+migration or a positional-id branch that keeps existing handles stable, which is
+an owner-visible call, not a drive-by rename. Pinned by
+`test/unit/corps/scavengeCorpIdCollision.test.ts`, which asserts the collision
+and says in its header to invert it when the bug is fixed.
+
+**Verdict: INSTRUMENTED (the top line's cost is now in the report that ranks it,
+80% attributed) + a standing in-tree hypothesis SETTLED by reading an instrument
+that had been deployed for two weeks (under-sizing, not link backlog) + one
+latent defect found and pinned rather than half-fixed.** No deploy: nothing in
+this cycle changes bot behaviour, and a global reset for a script change would
+cost the instrument for nothing.
