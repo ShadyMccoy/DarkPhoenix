@@ -36,6 +36,7 @@ import { DemandWorld, getCorpKind, listCorpKinds } from "../economy/CorpKind";
 import { Position } from "../types/Position";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { pathDistance } from "../nodes/NodeNavigator";
+import { declaredStandingParts } from "../economy/replacementSchedule";
 
 /**
  * Below this RCL the flow economy stands aside and lets the bootstrap corp
@@ -425,7 +426,7 @@ export function collectDemandsMatching(
 ): SpawnDemand[] {
   const demands: SpawnDemand[] = [];
   const world = buildDemandWorld();
-  const byKind = new Map<string, { corpId: string; corp: Corp }[]>();
+  const byKind = new Map<string, { corpId: string; corp: Corp; consumes?: { spawnPartsPerTick?: number } }[]>();
   for (const entry of allCommissionedCorps()) {
     const list = byKind.get(entry.kind) ?? [];
     list.push(entry);
@@ -433,11 +434,16 @@ export function collectDemandsMatching(
   }
 
   for (const kind of listCorpKinds()) {
-    for (const { corpId, corp } of byKind.get(kind.kind) ?? []) {
+    for (const { corpId, corp, consumes } of byKind.get(kind.kind) ?? []) {
       if (!isDemandingCorp(corp)) continue;
       if (!spawnMatches(corp.getSpawnId()) || corp.retiring) continue;
       const group = kind.demandGroup ? (kind.demandGroup as (c: Corp, id: string, w: DemandWorld) => { groupId: string; started: boolean } | null)(corp, corpId, world) : null;
-      for (const d of corp.getSpawnDemand(ctx)) {
+      // SPEC 39 PHASE 3: hand each corp the body its own commission priced, so a
+      // supply post can tell "alive" from "staffed". Per-corp, so the shared ctx
+      // is never mutated across the loop.
+      const declaredParts = declaredStandingParts(consumes?.spawnPartsPerTick);
+      const corpCtx: SpawnDemandContext = declaredParts > 0 ? { ...ctx, declaredParts } : ctx;
+      for (const d of corp.getSpawnDemand(corpCtx)) {
         if (group) {
           d.groupId = group.groupId;
           d.groupStarted = group.started;

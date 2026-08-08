@@ -55,7 +55,10 @@ const PURE: string[] = [
   // persisted by telemetry/fiscalArchive and mirrored in here, precisely so
   // primitives.ts can resolve the planner's margin through it without the
   // planning core gaining a Memory read.
-  "spawnSweep.ts"
+  "spawnSweep.ts",
+  // spec 39 phase 3: declared-vs-fielded arithmetic only; the actuals enter
+  // through the SpawnDirector seam, never through this module.
+  "replacementSchedule.ts"
 ];
 
 /** Sanctioned world adapters: Game reads allowed, but only typeof-guarded.

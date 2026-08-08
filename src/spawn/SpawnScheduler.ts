@@ -381,6 +381,15 @@ export interface SpawnDemandContext {
    * and the cee0 runt ladder (3->6->9->12->15->30 parts) never starts.
    */
   storageBacked?: boolean;
+  /**
+   * Standing body parts this corp's COMMISSION declares (spec 39 phase 3),
+   * injected by the SpawnDirector from the census entry's own
+   * `consumes.spawnPartsPerTick`. The plan-side half of a replacement decision:
+   * a supply post compares its FIELDED parts against this to know whether it is
+   * merely alive or actually staffed. Absent for un-commissioned corps and
+   * every harness path - absence reads as "unknown", never as a deficit.
+   */
+  declaredParts?: number;
 }
 
 /** Live spawn/economy state the scheduler needs to make a decision. */
