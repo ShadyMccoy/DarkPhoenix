@@ -11705,3 +11705,60 @@ reset-free ticks) + ONE ACCOUNTING BLIND SPOT CLOSED (the silent revenue clamp)
 ruling, with the contract and the ruling's measured cost pinned by test so the
 next session does not repeat it. No deploy: the only src change is a corrected
 comment.**
+
+### RESOLVED by the owner, same day: the mix is the ruling
+
+> Owner 2026-08-08: *"We can have a mix of upgrading and building. We just want
+> building to take priority and not be slowed down by the upgrading."*
+
+This SUPERSEDES the 2026-08-05 reading. "Banking excess it can't consume is fine"
+permitted banking; it did not require it, and the binding requirement is the
+ORDERING. So the value-relegation patch reverted above is RESTORED, and the
+question E4 was flagging is answered in the plan rather than by relaxing the row.
+
+**What shipped.** Wartime no longer zeroes the controller sink's demand. The
+controller keeps its bank-fed demand (bounded by the physical burn cap, floored by
+the armed anti-downgrade sip) and prices at the ladder's `controllerMin` = 40 rung
+- strictly below construction (70), strictly above storage (1). The rung existed
+and was dead code for this purpose; now it carries the mix.
+
+**Why building cannot be slowed by it, structurally.** This is the owner's actual
+constraint, and it does not rest on the values at all: `CorpPlanner.routeToSinks`
+fills in passes - reserve, spawn, **construction**, storage, then the general value
+pass. Construction takes its energy AND its spawn parts in a dedicated pass that
+runs before the controller is ever considered (the production-first ledger order,
+t72445337). Upgrading can only claim the remainder; the ladder ordering only
+decides whether that remainder upgrades or banks.
+
+**Priority means NEVER SHORT, not LARGEST SHARE** - the correction that cost two
+wrong assertions before it was stated properly. Construction's cap is its own
+completion rate, so a bigger residual legitimately upgrades: in the 15k-backlog
+world construction takes its full 1/3-life burst (30.08 e/t, `unmet` 0) and the
+controller takes 39.92. Three pre-existing tests encoded the off-switch contract
+(`ctrl.allocated === 0`, "construction WINS the surplus", "the residual BANKS") and
+were rewritten to assert `unmet == 0` on every construction sink instead - the
+assertion that actually enforces the directive.
+
+**Gate.** Unit 2371 passing; `flow-handoff`, `runt-economy`, `storage-depot` green
+on the rebuilt bundle; grid `cons-t4-link-completes` **[P]** at T4.
+
+**One red cell, ACQUITTED by attribution.** `fid-t4-synthetic-steady-state` fails
+`atWindow:"controller fidelity: >= 15% of upgrade budget"`. It is baseline `pass`,
+so it was checked against the pre-change source per the attribution rule (stash
+src, rebuild, rerun): **identical failure, same assertion, same tick.** It is red
+on the DEPLOYED build, so it is its own incident against that build and does not
+hold this fix hostage. Not investigated this cycle; named here as the next
+cycle's first item, and note the irony - it is a CONTROLLER-FIDELITY cell, so the
+change just made is the most likely thing to move it.
+
+**Predictions for the post-deploy capture:**
+1. `flow.sinks[controller].demand` > 0 and `workParts` > 0 while the W43N23
+   backlog stands (was 0/0). P12 leaves 0x.
+2. The upgrader corp's `sizing.planAllocated` and the controller sink's
+   `allocated` AGREE - the four disagreeing numbers (0 / 44.317 / 88.634 / 29.81)
+   collapse to two related by `effectiveAllocated`'s dedicated-source halving.
+3. Bank slope FALLS from +25.68 e/t; E4's 154,472 stops climbing. Controller
+   delivery rises from 29.81 e/t.
+4. **The constraint, and the thing to check first:** construction's `unmet` stays
+   0 and its built rate does NOT fall below 5.11 e/t. If building slowed, that is
+   a revert.
