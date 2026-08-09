@@ -231,3 +231,36 @@ its link by the LINK CORP, which now owns core, controller and ports together.
 The rho reading above is what redirected the fix - at 0.78-0.85 the ports are
 MARGINAL, not rate-deficient, so a buffer is the right instrument and it only
 ever needed something to empty it.
+
+## Blocker 1 realised live, in the direction this spec did not anticipate (t72871684)
+
+Leg B was backed out because *"the plan would price a route nobody drives"* — a
+pooled port→hub overflow route with no id shape to commission it. That reasoning
+was right, and the same defect is **already shipped elsewhere in the plan**, not
+as an overflow leg but as a CONSTRUCTION SUPPLY line:
+
+```
+  cd98 -> construction-6a77baf91   flow 10.00 e/t   carry  9.07   d=20
+  cee0 -> construction-6a77bf172   flow  9.88 e/t   carry 17.65   d=36
+  TOTAL                                  19.88 e/t   carry 26.72   <- the APPROPRIATIONS
+                                                                      construction BUDGET,
+                                                                      to the decimal
+```
+
+Delivered: **6.54 e/t**. The mining corps decline the energy correctly —
+`haulCarryNeeded` filters `construction-` routes out with *"the tankers own this
+energy, pile or no pile"* — so cee0 stamps `carryNeeded: 1`, `exit: "staffed"`
+beside **4,275e staged** and a miner pile-gated 84% of the window. The tankers
+that are supposed to own it are sized for a **10-tile** haul (`tankerDist: 10`)
+against supply routes at d=36 and d=20, and the construction corp in cee0's own
+room is a single 4-part runt consuming 0.
+
+So 26.72 CARRY of supply line is charged to the parts ledger and no corp drives
+it — F1 measures it as unbudgeted-in-reverse, exactly as this spec predicted the
+overflow leg would be. **The blocker is not hypothetical and it is not confined
+to Leg B**: it is the same missing ownership, already live, already costing 23%
+of the colony's standing piles. Whatever closes it (spec 39's spawn-authority
+ratchet, a relay corp, or giving the construction tankers the plan's routes
+instead of a self-chosen dedicated source) closes Leg B with it.
+
+Write-up: spec 14, cycle t72871684, Mechanism B.

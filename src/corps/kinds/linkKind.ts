@@ -19,7 +19,7 @@ import { buildTankerBody } from "../../spawn/BodyBuilder";
 import { PORT_TENDER_CARRY, feederSpawnLoad, portTenderSpawnLoad } from "../../economy/primitives";
 import { SerializedCorp } from "../Corp";
 import { LinkCorp, SerializedLinkCorp } from "../LinkCorp";
-import { coreLink } from "../nodeEnergy";
+import { PORT_TENDER_WORK_TYPE, coreLink } from "../nodeEnergy";
 import { buildRatioHaulerBody } from "../../spawn/BodyBuilder";
 
 /** The feeder commission's binding: which home room, which spawn. */
@@ -40,7 +40,10 @@ export const linkKind: CorpKind<LinkCorp> = {
   // TWO roles, one owner: the feeder walks storage -> controller, the port
   // tender parks between a deposit port's buffer and its link. Distinct
   // workTypes so orphan rescue can tell them apart.
-  roles: { feeder: { workType: "feed" }, porttender: { workType: "porttend" } },
+  // `PORT_TENDER_WORK_TYPE` is the string this DECLARATION stamps on the creep,
+  // and it is the same one both counting lenses match on (spec 57) - the
+  // declaration, the demand side and the delivery side, one spelling.
+  roles: { feeder: { workType: "feed" }, porttender: { workType: PORT_TENDER_WORK_TYPE } },
   runOrder: 41, // local mover, right after the extension tender (40)
 
   propose(problem: ColonyProblem, draft: readonly Commission[]): Commission[] {

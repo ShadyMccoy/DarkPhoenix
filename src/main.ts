@@ -80,7 +80,8 @@ import { GovernorPlan, runGovernor } from "./execution/CpuGovernor";
 import { isPlanBudgetBoundary } from "./economy/primitives";
 import { isMonthBoundary } from "./economy/spawnSweep";
 import { onTick as fiscalArchiveTick } from "./telemetry/fiscalArchive";
-import { runWatchdogs } from "./telemetry/watchdogs";
+import { PortBufferSample, runWatchdogs } from "./telemetry/watchdogs";
+import { livePortTenders, portPosts } from "./corps/nodeEnergy";
 
 // =============================================================================
 // GLOBALS
@@ -656,6 +657,34 @@ function runFiscalMonth(): void {
   });
 }
 
+/**
+ * Every deposit-port buffer in every owned room, with the tender count behind
+ * it (spec 57 - the tender check).
+ *
+ * Read through `portPosts`/`livePortTenders`, the SAME lenses the corp staffs
+ * and the haulers deliver by, so the alarm cannot fire on a port the runtime
+ * does not believe in - or, worse, stay quiet about one it does.
+ */
+function samplePortBuffers(): PortBufferSample[] {
+  const out: PortBufferSample[] = [];
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room.controller?.my) continue;
+    const posts = portPosts(room);
+    if (posts.length === 0) continue;
+    const tenders = livePortTenders(room);
+    for (const post of posts) {
+      out.push({
+        where: `${roomName} ${post.buffer.pos.x},${post.buffer.pos.y}`,
+        energy: post.buffer.store[RESOURCE_ENERGY] ?? 0,
+        capacity: post.buffer.store.getCapacity(RESOURCE_ENERGY) ?? 0,
+        tenders
+      });
+    }
+  }
+  return out;
+}
+
 function runFlightRecorder(): void {
   let alerts: ReturnType<typeof runWatchdogs> = [];
   if (Game.time % 10 === 0) {
@@ -679,7 +708,8 @@ function runFlightRecorder(): void {
       lastSpawnTick: lastSpawnTick(),
       minDowngradeTicks: minDowngrade,
       bucket: Game.cpu.bucket,
-      errRowsInWindow: errRowCount()
+      errRowsInWindow: errRowCount(),
+      portBuffers: samplePortBuffers()
     });
     for (const a of alerts) console.log(`[WATCHDOG] ${a.kind}: ${a.message}`);
   }

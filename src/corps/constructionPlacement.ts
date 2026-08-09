@@ -19,7 +19,7 @@
 import { UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
 import { ContainerCensus } from "../telemetry/containerCensus";
 import { Position } from "../types/Position";
-import { controllerInputSpot, coreDepot } from "./nodeEnergy";
+import { controllerInputSpot, coreDepot, PORT_BUFFER_RANGE } from "./nodeEnergy";
 
 /**
  * Extension limits by controller level (RCL 1-8)
@@ -598,9 +598,11 @@ export function bestPortContainerTile(
  * clears costs a whole deposit port its buffer for every tick it stands.
  * `energyLost` is still reported so the trade is visible, never silent.
  */
-/** The range `resolvePortBuffer` searches for a port's buffer, and therefore
- *  the range at which a foreign container BLOCKS one. */
-export const PORT_BUFFER_RANGE = 2;
+/** The range a port's buffer may sit at, and therefore the range at which a
+ *  foreign container BLOCKS one. Re-exported from the buffer lens rather than
+ *  re-declared: spec 56's whole point is that this number, and the predicate
+ *  built on it, have exactly one home. */
+export { PORT_BUFFER_RANGE };
 
 export function reclaimableContainer(
   census: ContainerCensus | null

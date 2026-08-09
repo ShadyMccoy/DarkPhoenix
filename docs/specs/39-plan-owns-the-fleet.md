@@ -217,3 +217,46 @@ only go down.
   seam only.
 - **A big-bang migration would be unreviewable.** Hence the per-kind phase 4
   with the cop ratcheting; no phase should require a flag day.
+
+## The auxiliary-spawn seam has a measured price now: it is the colony's largest leak (t72872936)
+
+This spec's open seam is usually stated architecturally — *the SpawnDirector
+does not read `commission.fleet`, so a commission can declare a fleet nobody
+buys*. Two audit cycles put a number on it.
+
+`mining-W42N22-harvest-cee0`, measured t72872936:
+
+```
+  commission declares      35 parts          (F2 row)
+  fielded                  11 parts
+  corp's own demand lens   carryNeeded 1     exit "staffed"
+  standing at its mouth    8,151 e           miner pile-gated 98% of the window
+```
+
+The commission is right. The corp's demand lens is right *under its own rule* —
+`haulCarryNeeded` filters `construction-` routes with *"the tankers own this
+energy, pile or no pile"*, and cee0's flow is routed to a construction sink. The
+tankers that are supposed to own it are sized for a 10-tile haul
+(`tankerDist: 10`) against a d=36 supply route, so they never come.
+
+Nothing reconciles the two, because **nothing reads the commission when
+buying**. That is this spec's seam, and its cost is no longer hypothetical:
+
+- cee0 + cd98 (the two construction-routed sources) grew **5,431 → 13,766e in
+  1,252 ticks — 82% of the colony's entire pile growth**;
+- colony pile decay **19.26 e/t against a budget of 0.00**, the ledger's TOP
+  LINE and 16% of gross mining;
+- and the spawn was **idle 13% of that window, 63% of it for "no demand"** — so
+  this is not a funding shortfall. The capacity to fix it was sitting unused
+  because the ask never arrived.
+
+**If the director bought what the commission declares, cee0 would be staffed.**
+That is the one-line argument for closing this seam, and it now has a price tag
+rather than an appeal to tidiness. It also retires the five debt entries already
+on file here, and closes spec 49's Leg B blocker (*"the plan would price a route
+nobody drives"*) as a side effect — same defect, different route class.
+
+Not attempted in the audit cycle that found it: this is a framework change, and
+patching `haulCarryNeeded` to grab construction routes instead would put the
+mining haulers and the construction tankers on the same sinks with nothing
+arbitrating — the double-order class the trap list names. The seam is the fix.

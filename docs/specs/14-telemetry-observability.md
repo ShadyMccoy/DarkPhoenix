@@ -11906,3 +11906,418 @@ churn pinned by test, not a threshold nudge.
 
 Recorded as the next work item with the mechanism fully localised. Not patched in
 this pass: a one-sided loosening re-opens a measured incident.
+
+## Audit cycle t72871684 — the perennial piles are TWO mechanisms, and the second one is a route nobody drives
+
+Window t72869702 → t72871684 (1,982t), methodology #18, sweep at **11% handicap,
+cycle 1** (spec 50 walking normally). Ledger: 3 FAIL (S5, L1, X3), TOP LINE
+printed as S5.
+
+**The account says the top line is not S5.** L1 breaches by **69.28×** on one
+row — ground pile decay **17.32 e/t against a budget of 0.00** — and the
+TARGETS block prices it colony-wide: losses are **21% of mining capacity**,
+against controller 61% and build 5%. S5's finding (0.647 of 0.667 p/t, a 3%
+surge margin) is real and is *why the piles cannot simply be hauled away*, but
+it is a headroom advisory, not the leak. Read the account first, as the method
+says; the picker's ranking is worth revisiting.
+
+### The aggregate hid the defect (a read I got wrong first, and the fix for it)
+
+Fielded CARRY is 381 against a plan asking 252.8 — which looks like a fleet
+**51% OVER** the ask, and would falsify spec 55 outright. It is wrong. 381 is
+colony-wide carry; 101 of it is on BUILDING corps and 45 on the feeder/tender.
+Decomposed by corp type, **source-route haulage is 230 fielded against 236.7
+planned — 97%, essentially AT plan.**
+
+P11 states this trap in the ledger itself (*"source-route carry alone is 236.7 -
+compare fielded CARRY against THAT"*) and it still caught me. Any future
+plan-vs-actual carry claim must name which carry it is comparing.
+
+### Mechanism A — the dead-band, CONFIRMED live on 8 of 10 piled sources
+
+The corps' own hauling stamps, this capture:
+
+```
+  source  pile  carryNeeded  creeps  exit         duty
+  cedc    3665      22          1    deadband     0.886
+  cd94    2413      21          1    deadband     0.833
+  cd8d    2506      20          1    deadband     0.884
+  cee2    2644      34          2    deadband     0.923
+  d01f    2069      38          2    deadband     0.963
+  cbd5    1274      24          1    deadband     0.952
+  cbd8     332      33          2    deadband     0.965
+```
+
+Spec 55's mechanism (2) is not a historical note — `exit: "deadband"` is being
+stamped right now on 8 of the 10 piled sources, and the 97% aggregate above is
+what conceals it: the over-fielded sources (cd8d 161% of declared, cd98 353%)
+net out the starved ones (cedc 74%, cd94 78%). **The colony fields the right
+TOTAL carry and puts it on the wrong routes.**
+
+The correlation runs backwards: the most-piled source has the least carry, the
+least-piled ones are over-fielded. Not patched here — spec 55 §5 forbids a
+one-sided loosening (the ask gate and the recycle POUNCE share `worthABody`, and
+d01f, one of these very sources, is the t72773737 treadmill's own incident).
+Acceptance is still the F2==0 cell that does not exist.
+
+### Mechanism B — 19.88 e/t routed to a sink whose supply line nobody drives (NEW)
+
+Two sources are routed to CONSTRUCTION sinks rather than storage:
+
+```
+  cd98 -> construction-6a77baf91   flow 10.00 e/t   carry  9.07   d=20
+  cee0 -> construction-6a77bf172   flow  9.88 e/t   carry 17.65   d=36
+  TOTAL                                  19.88 e/t   carry 26.72
+```
+
+`19.88` is the APPROPRIATIONS **construction BUDGET line, to the decimal**.
+Delivered: **6.54**. Variance **-13.34 U**, the largest single unfavourable line
+in the account.
+
+The mining corps decline that energy *by design* — `haulCarryNeeded` opens with
+
+```ts
+const routes = this.haulerAssignments.filter(a => !(a.toId ?? "").startsWith("construction-"));
+if (routes.length === 0) return 0; // construction-only: the tankers own this energy, pile or no pile
+```
+
+— so cee0 stamps `carryNeeded: 1` and `exit: "staffed"` while **4,275e stands
+staged** and its miner is pile-gated **84% of the window**; cd98 stamps
+`carryNeeded: 0`. Both stamps are *correct* under that rule. The rule hands the
+energy to the construction corp's tankers.
+
+**The tankers are not collecting it.** `building-W43N23-construction` stamps
+`dedicatedSource: 1`, `tankers: 2`, `tankerCarryNeeded: 37`, **`tankerDist: 10`**
+— sized for a 10-tile haul, while the plan's two construction supply routes are
+d=36 and d=20. `building-W42N22-construction`, in cee0's own room, is one 4-part
+runt with `consumes.energyRate: 0`.
+
+So the plan prices 26.72 CARRY of supply line, charges it to the parts ledger,
+and no corp drives it. **This is spec 49's Blocker 1 — *"the plan would price a
+route nobody drives"* — realised live, and in the direction that spec did not
+anticipate**: not an overflow route it declined to build, but a construction
+supply line it already prices. The two sources carry **5,431e of the colony's
+23,456e of piles (23%)** and are the only two whose miners are starved by a rule
+that believes someone else is coming.
+
+Neither corp is wrong locally. Nobody owns the middle — the same sentence spec
+54 §2 used about the port link, one subsystem over.
+
+### Cycle verdict: **INSTRUMENTED + BLOCKER NAMED WITH DATA** (no code change)
+
+No fix shipped, deliberately. Mechanism A is fenced by spec 55 §5 pending its
+F2==0 cell; Mechanism B is an OWNERSHIP seam (which corp buys a construction
+supply line), and spec 39's spawn-authority ratchet is the same blocker spec 49
+already recorded — the second patch on a mechanism is the trap, so the mechanism
+gets written down rather than nudged.
+
+What a future session should NOT re-derive:
+- the 97% aggregate is not health, it is two errors cancelling;
+- `carryNeeded: 1` beside `staged: 4275` is not a sizing bug, it is a deliberate
+  hand-off to a tanker that never arrives;
+- the construction BUDGET line equals the construction-routed source flow
+  exactly, so that variance is a *delivery* failure, never a pricing one.
+
+## Methodology note #8 — an UNPLUGGED meter reads exactly like an empty one
+
+Found 2026-08-09, by being asked a question the instruments could not answer.
+
+`sourceDropped` (core v19) exists to split a source mouth's buffer into the part
+held in a CONTAINER (which keeps) and the part on the GROUND (which rots at
+`ceil(amount/1000)` per tick). Its docblock states the case correctly. The
+computation is correct. It was never added to the returned object — five
+references in `coreSegment.ts` (import, interface field, declaration, read,
+write) and no emission.
+
+So the field produced **zero data points**: absent from every capture in
+`test/fixtures/telemetry/`, and `fiscalArchive` archived `sd: undefined` for
+every fiscal month it has ever closed. Nothing failed. Nothing warned.
+
+**The trap is at the READING end, not the writing end.** Spec 54 open item 8
+concluded *"BLOCKED on the absent `sourceDropped` meter"* and stopped — a
+reasonable inference from a capture that does not contain the field, and wrong.
+There is no observable difference between:
+
+- a field that is legitimately empty (no dropped energy anywhere), and
+- a field that is computed and thrown away,
+
+because both are absent from the wire, and this codebase deliberately omits
+empty optionals so that *absent* and *zero* stay different facts. That
+convention is right, and it is exactly what hid this: the convention makes
+"nothing to report" indistinguishable from "nothing was wired".
+
+Rules this yields, in order of how much they would have saved:
+
+1. **A telemetry field is not shipped until a capture contains it.** Declaring
+   the interface, computing the value and reviewing the docblock all passed
+   here. Only "grep a real capture for the key" would have failed.
+2. **When a spec blocks on a missing meter, check the meter is emitted before
+   recording the block.** Item 8 sat blocked for a session on a field that had
+   been in the tree since v19.
+3. **`git log -S <field>` on the segment file is the cheap check** — it shows
+   the field arriving and never being wired, in one command.
+
+**Not yet built: a cop for the class.** Every optional in `CoreTelemetry` could
+be asserted reachable — a test that stages a room exercising each field and
+requires the key to appear at least once. That is a real test-writing cost per
+field and it would have caught this one; it is proposed, not shipped, and it
+belongs with spec 09's schema-versioning phase rather than here. Whoever picks
+it up should check the OTHER segments too: nothing about this defect is specific
+to segment 0, and no one has looked.
+
+## Audit cycle t72872936 — the constraint INVERTED, and the same two sources took 82% of the growth
+
+Window t72871684 → t72872936 (1,252t), methodology #18, sweep 11% cycle 1.
+Ledger: 3 FAIL (L1, X3, G1). TOP LINE **L1** — correctly this time, because S5
+dropped out of FAIL, which is itself the story.
+
+### The finding: last cycle's excuse is gone
+
+Last cycle S5 read **0.97× the physical ceiling** and that was the reason not to
+chase the piles — you cannot buy carry a saturated spawn has no room for. In
+1,252 ticks:
+
+```
+                       t72871684      t72872936
+  spawn0 utilization      0.966          0.865
+  spawn1 utilization      0.974          0.802
+  spawn0 queueDepth           8              2
+  spawn1 queueDepth           8              1
+  spawn0 idle.empty           2             92     <- "empty" = NO DEMAND
+  spawn1 idle.empty           0            118
+  S4                         3% idle       13% idle, 63% of it "empty"
+```
+
+**The spawn is now idle for lack of anyone asking**, and the piles went
+**23,456 → 33,657e (+44%)** over the same window. The agenda's queue is 2 deep
+and 1 deep, and contains an upgrader and two builders. Across the last **16
+executed receipts on both spawns there is not one hauler**.
+
+So the constraint moved from SUPPLY (spawn saturated) to DEMAND (nothing asks),
+and the leak did not care. That falsifies the reading — mine — that S5 was the
+binding constraint on L1. It was a co-symptom.
+
+### Mechanism B is now the dominant term, and it is accelerating
+
+```
+  source   pile t72871684 -> t72872936     delta   carryNeeded  exit
+  cee0            4275 ->  8148          +3873         1        staffed
+  cd98            1156 ->  5618          +4462         0        deadband
+  ---------------------------------------------------------------
+  those two       5431 -> 13766          +8335   = 82% of the colony's +10,201
+```
+
+Both are the CONSTRUCTION-routed sources (spec 14 cycle t72871684, Mechanism B).
+The plan's routing is byte-identical to last capture — cd98 10.00 e/t / 9.07
+carry / d=20, cee0 9.88 / 17.65 / d=36, totalling the 19.88 that IS the
+APPROPRIATIONS construction budget line. Delivered 10.42 (up from 6.54, still
+-9.46 U).
+
+`haulCarryNeeded` filters `construction-` routes out — *"the tankers own this
+energy, pile or no pile"* — so cee0 stamps `carryNeeded: 1`, `exit: "staffed"`
+beside **8,151e**, and cd98 stamps `carryNeeded: 0` beside 5,624e. Both correct
+under that rule. Nothing else asks.
+
+**F2 states the same defect from the commission side and is the sharper
+framing**: `mining-W42N22-harvest-cee0` fields **11p against 35p declared**. The
+COMMISSION declares the fleet. The corp's own demand lens asks for one CARRY.
+**That is spec 39's open seam exactly** — *"the SpawnDirector does not read
+`commission.fleet`"* — and it is now the colony's largest single leak, not an
+architectural nicety. Recorded against spec 39 as its first measured cost.
+
+### Also true, and not the same story
+
+- **E6 8 of 12 deferred**, five of them held **96-100%** of the window. Forgone
+  mining 2.23 e/t on top of the rot.
+- **Reservation 6.56 → 16.61 e/t** (creeps 2→9, five reserver spawns/6,500e in
+  the window). Unexplained; a candidate for the next cycle and NOT diagnosed
+  here — naming it without a stamp read would be a hypothesis dressed as a
+  finding.
+- **Bank -38.29 e/t** (191,730 → 143,793), projected equilibrium 86,360 against
+  an 84,000 reserve. That is the spend path working, not a leak; G1's 42%
+  income-funded is the same fact from the other side.
+- **(41,22) is confirmed STUCK**, not transient: 2000/2000 in BOTH captures,
+  1,252t apart, zero change. Spec 54 item 10.
+- **The (44,12) port container is cycling** 0 → 503 → healthy, and the coreDepot
+  887 → 572. Two of three home containers are working correctly.
+
+### Cycle verdict: **DEPLOYED + PREDICTIONS ON FILE** (the top line is untouched)
+
+Shipped the branch that had been sitting gated: spec 56 (one port-buffer lens,
+the placement gate, the fight-loop guard), spec 57 (the tender check + the
+`port-untended` watchdog), and core **v36** (`sourceDropped` finally emitted).
+
+Gate: 2406 unit, tsc clean, build green, storage-depot + flow-handoff +
+runt-economy all green against the deployed bundle. **One flake recorded rather
+than hidden**: runt-economy failed once inside a 13-minute run (its normal is
+4m) and passed on immediate re-run; three of four runs on this exact source are
+green and the failure coincided with a 3× wall-clock, which is the documented
+host-load sensitivity of the mockup.
+
+Predictions, written before the deploy:
+
+1. `sourceDropped` appears in the next capture — the 33,657e splits
+   container-vs-ground for the first time. This is the one that matters: it
+   decides whether the pile story is rot or merely idle stock.
+2. Port (43,38) gets a container site, then `hasContainer: true`, then a second
+   `portPosts` post.
+3. No `port-untended` alert for (44,12); possibly one transient for (43,38)
+   between its container completing and its tender arriving.
+4. **The top line does NOT move.** Nothing in this deploy touches Mechanism A or
+   B. If pile decay improves, that is unattributed to this change and must be
+   read as such.
+
+## Post-deploy verification t72873814 — 3 of 4 predictions confirmed, and the deploy CORRECTED a diagnosis rather than only fixing a bug
+
+~814 ticks after deploying specs 56 + 57 + core v36. Window 878t. **Read the
+spawn-measured lines with care: the deploy's global reset wiped the blackbox
+ring, so F1/S5/X5 are over 423t of POST-RESET RECOVERY, not steady state** (the
+method's own warning; X5 reads 0 of 18,400e, which is the recovery being clean,
+not a churn measurement).
+
+### Prediction 1 — CONFIRMED, and it settles the top line
+
+`sourceDropped` reached the wire. The first container-vs-ground split this
+project has ever had:
+
+```
+  source   buffer  DROPPED  container       source   buffer  DROPPED  container
+  cd98       6561     4561     2000  (cap)  d01f       2628      628     2000  (cap)
+  cee0       4348     2938     1410         cd8e       2122      122     2000  (cap)
+  cd8d       4316     2316     2000  (cap)  cee2       1450        0     1450
+  cedc       3614     1614     2000  (cap)  cbd8       1288        0     1288
+  cd94       3128     1918     1210         cbd5        205        0      205
+  ---------------------------------------------------------------------------
+  TOTAL     29668    14105    15563    ->   48% of the mouth stock is ON THE GROUND
+```
+
+**The mechanism is now visible and it is not what "pile" suggested.** Five of
+the seven rotting sources have their container at **exactly 2000 — the container
+cap** — and the entire overflow is on the ground. The containers are built, they
+are working, and they are FULL. Ground decay is not a container-placement
+failure; it is what happens to everything mined after the buffer tops out.
+
+Summing `ceil(amount/1000)` over those piles gives ~18 e/t against the ledger's
+measured 23.62 — consistent (the ledger averages over a window in which the
+piles were larger).
+
+Two sources break the pattern and are their own question: **cee0 (container
+1,410, ground 2,938) and cd94 (1,210 / 1,918) hold ground piles while their
+container is BELOW cap.** Either the miner is dropping beside the container
+rather than into it, or haulers drain the container (one withdraw) and leave the
+pile (needs a pickup). Not diagnosed here — it needs the pickup stamps, and
+naming a cause without them would be a hypothesis dressed as a finding.
+
+### Prediction 2 — CONFIRMED, and it corrects spec 54
+
+Port (43,38) now has a buffer. Containers 3 → 4, sites 1 → 0, both ports
+`hasContainer: true`. The gate opened and the rung fired, first time ever.
+
+**But the tile is the finding.** The buffer landed at **(41,36)** — the exact
+tile spec 54 called *"the dead controller container ... BLOCKING the second
+port"* and shipped a reclaim path to destroy. Same tile, same room, same
+container, and only the code changed:
+
+```
+  t72869702  core v35 (old)   (41,36) role "controller"   supersededControllerContainer: FLAGGED
+  t72873814  core v36 (mine)  (41,36) role "port"         supersededControllerContainer: None
+```
+
+The only edit between them is spec 56 narrowing the census's controller role
+from a local **4** to `CONTROLLER_CONTAINER_RANGE` (**3**). So the controller
+sits at chebyshev exactly **4** from (41,36) — inside the one-tile band where
+the census (4) and the tender (3) disagreed.
+
+**(41,36) was never the controller's feed store. It was port (43,38)'s own
+buffer, misclassified.** Which means spec 54's fight loop had its causality
+backwards: construction was correctly placing the port's buffer, and the reclaim
+rung was correctly-by-its-own-lights demolishing it, at 5,000e and a builder per
+round. Neither rung was wrong; the census was, by one tile.
+
+Spec 56 stated this as a latent *hazard* (*"could therefore mark a live, tended
+port buffer for demolition"*). It was not latent. It was the live incident, and
+it was the whole of spec 54 open item 4. Both specs corrected.
+
+### Prediction 3 — CONFIRMED for steady state. **My first reading of it was wrong.**
+
+I first wrote that this was unverifiable: *"`port-untended` alerts print to the
+live console; nothing exports them to a segment."* **That is false.** The black
+box segment's shape is `{v, tick, alerts, rows}` — `docs/LIVE_DATA.md` says so
+in its segment table, `main.ts` passes the watchdog's alerts straight into
+`blackBoxFlush(Game.time, alerts)`, and the live capture carries the field. I
+asserted a missing instrument without opening the segment.
+
+The actual reading, t72873814: **`alerts: []`**, with `rows: 72`
+(watch 49, spawn 20, churn 3). No `port-untended` alert. That is correct on both
+ports — (44,12) is tended and cycling at 0e, and (41,36) is brand new and empty,
+which is exactly the case spec 57 deliberately keeps quiet.
+
+**The real limitation is narrower and worth keeping.** `flush()` writes
+`alerts` verbatim but only on `tick % 10 === 0`, and `runFlightRecorder`
+evaluates the watchdogs on the same `% 10` cadence — so they align and every
+evaluation is flushed. But each flush **overwrites**: the field is an
+INSTANTANEOUS reading at one tick, not a window like `rows`. An alert that fired
+and cleared between two captures is unobservable.
+
+So the steady-state half of the prediction is confirmed and the *transient* half
+(a possible alert for (43,38) between its container completing and its tender
+arriving) is unobservable — because of the overwrite, not because of a missing
+export. **Work item, correctly stated: give `alerts` the same ring treatment
+`rows` already has,** so the watchdog can report what fired during a window and
+not only what is wrong at one instant.
+
+### Prediction 4 — CONFIRMED (the top line did not improve)
+
+Pile decay **19.26 → 23.62 e/t**, L1 now **94.49×** budget. As predicted,
+nothing deployed touches Mechanism A (dead-band) or B (construction-routed
+sources), and the top line moved the wrong way. It is NOT attributed to the
+deploy — the trend predates it (17.32 → 19.26 → 23.62 across three cycles).
+
+Genuine improvements in the same window, none of them claimed for this deploy:
+piles 33,657 → 29,668 (drawdown +4.54 e/t), E6 8 → 6 deferred, scavengers 1 → 5
+(spec 44's recovery fleet ramping), reservation 16.61 → 4.44 e/t, bank slope
+-38.29 → -7.84. The demand-side idling is gone (S4 2%, 100% "buy" latency), but
+that is post-reset recovery and cannot be read as steady state either.
+
+### Cycle verdict: **VERIFIED + TWO DIAGNOSES CORRECTED**
+
+3 of 4 predictions confirmed, 1 unverifiable-by-construction and recorded as an
+observability gap. The deployed change did exactly what it claimed on the port
+buffer and nothing at all for the top line — which is what was predicted.
+
+**The top line is now localised as it never was before:** 48% of 29,668e stands
+on the ground because seven containers are AT CAP. The next cycle's question is
+no longer "why do piles form" but "why does nothing drain a full container" —
+and Mechanism B (cee0 `carryNeeded 1`, cd98 `carryNeeded 0`) plus Mechanism A
+(the dead-band) are the two answers already on file, with spec 39's seam as the
+structural fix.
+
+
+## Methodology note #9 — check the instrument before declaring it missing
+
+Twice in one session, a claim of the form *"we cannot see X because the meter
+does not exist"* was made and was wrong, in opposite directions:
+
+1. **Spec 54 open item 8** (a prior session): *"BLOCKED on the absent
+   `sourceDropped` meter."* The field was not absent — it was declared at core
+   v19, computed every tick, and never returned. Unplugged, not missing.
+2. **This session, mine**: *"`port-untended` alerts print to the live console;
+   nothing exports them to a segment."* They are exported. The black box's shape
+   is `{v, tick, alerts, rows}`, `docs/LIVE_DATA.md` documents it in its segment
+   table, and the live capture carries the field. I did not open the segment
+   before writing the sentence.
+
+Both cost the same thing — an item recorded as blocked on work that was already
+done — and both were one command away from being right:
+
+```
+  python3 -c "import json;print(list(json.load(open('<capture>'))['data']['<seg>']))"
+  grep -n "<field>" src/telemetry/<segment>.ts     # declared? emitted?
+  git log -S "<field>" -- src/telemetry/           # arrived when, wired when?
+```
+
+**Rule: "the instrument does not exist" is a claim about the code and the
+capture, so it requires reading the code and the capture.** It is the one class
+of statement in an audit that feels like an observation and is actually an
+inference. Note #8 covers the writing end (a field never emitted); this one
+covers the reading end (a reader who never looked).

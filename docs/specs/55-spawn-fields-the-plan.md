@@ -147,3 +147,31 @@ A task under this spec is DONE when these pass, not when a number looks better.
   question and belong here.
 - **Spec 14** — the incident log; every catalogue entry above has its full
   write-up there under its cycle heading.
+
+## Live confirmation t72871684 (audit cycle) — and the aggregate that hides it
+
+Mechanism (2), the mature dead-band, is **stamped live on 8 of the 10 piled
+sources** this capture: `exit: "deadband"` on cedc (pile 3665, carryNeeded 22,
+1 creep), cd94 (2413/21/1), cd8d (2506/20/1), cee2 (2644/34/2), d01f
+(2069/38/2), cbd5 (1274/24/1), cbd8 (332/33/2). Pile decay **17.32 e/t against a
+budget of 0.00** — L1's worst row at 69.28× — plus **4.59 e/t forgone** where the
+pile-gate throttled the miner (cd94 held **100%** of the window).
+
+**The aggregate no longer shows it, and that is the trap to carry forward.**
+Source-route haulage is fielded at **230 CARRY against a 236.7 ask — 97%**, where
+this spec's original measurement was 89% (241 of 271.5). The shortfall did not
+close; it MOVED. The over-fielded sources (cd8d 161% of declared, cd98 353%) net
+out the starved ones (cedc 74%, cd94 78%), and the correlation runs backwards —
+the most-piled source has the least carry. A future check of this spec must be
+**per-route**, because the colony-wide number now reads healthy while the defect
+is unchanged.
+
+(Colony-wide CARRY is 381, but 101 of that is on BUILDING corps and 45 on the
+feeder/tender — comparing 381 against the plan's 252.8 makes the fleet look 51%
+OVER-fielded and would falsify this spec for the wrong reason. P11 warns about
+exactly this; it still caught a session.)
+
+Still not patched, for the reason in §5: the ask gate and the recycle POUNCE
+share `worthABody`, so a one-sided loosening re-opens the t72773737 treadmill on
+d01f — one of the seven sources above. Acceptance remains the F2==0 cell plus
+the anti-treadmill X5 pin. Full write-up: spec 14, cycle t72871684.

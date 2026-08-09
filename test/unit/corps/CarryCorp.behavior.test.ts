@@ -1129,9 +1129,15 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
     });
 
     it("drops into the BUFFER when the link is full - instead of waiting", () => {
-      expect(pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 2000, storageFree: 1000 })).to.equal(
-        "portBuffer"
-      );
+      expect(
+        pickStorageDeposit({
+          depositPos: port,
+          portFree: 0,
+          portBufferFree: 2000,
+          portTended: true,
+          storageFree: 1000
+        })
+      ).to.equal("portBuffer");
     });
 
     it("falls back to WAIT when the link is full and the buffer is too", () => {
@@ -1158,9 +1164,59 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
 
     it("still spills when the hub is full but the BUFFER has room (income first)", () => {
       // A full hub must not strand a load the buffer could take.
-      expect(pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 500, storageFree: 0 })).to.equal(
-        "portBuffer"
-      );
+      expect(
+        pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 500, portTended: true, storageFree: 0 })
+      ).to.equal("portBuffer");
+    });
+
+    /**
+     * THE TENDER CHECK (spec 57). The buffer's whole claim to second place on
+     * the ladder is that "energy in the container still needs the tender to
+     * move it across" - which is an argument that PRESUPPOSES a tender. With
+     * none, the drop is not a deposit, it is an abandonment: measured
+     * t72862894 the (44,12) container stood at 2000/2000 while `portFallbacks`
+     * read 0 on all 8 port-routed routes and `portWaits` ran to 602.
+     */
+    it("REFUSES the buffer when no tender drains it - a hole is not a sink", () => {
+      expect(
+        pickStorageDeposit({
+          depositPos: port,
+          portFree: 0,
+          portBufferFree: 2000,
+          portTended: false,
+          storageFree: 1000,
+          portWaitedTicks: 0
+        }),
+        "an untended buffer must not outrank the wait"
+      ).to.equal("wait");
+    });
+
+    it("...and hauls the load HOME rather than stranding it once the wait is spent", () => {
+      expect(
+        pickStorageDeposit({
+          depositPos: port,
+          portFree: 0,
+          portBufferFree: 2000,
+          portTended: false,
+          storageFree: 1000,
+          portWaitedTicks: 999
+        })
+      ).to.equal("storage");
+    });
+
+    it("treats UNKNOWN as untended - the one asymmetric failure on the ladder", () => {
+      // Guessing "tended" strands the load where nothing reads it; guessing
+      // "untended" costs the hub leg the hauler would have walked anyway. The
+      // buffer must be positively claimed.
+      expect(
+        pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 2000, storageFree: 1000, portWaitedTicks: 0 })
+      ).to.equal("wait");
+    });
+
+    it("still spills to the escape valve when the buffer is untended AND the hub is full", () => {
+      expect(
+        pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 2000, portTended: false, storageFree: 0 })
+      ).to.equal("none");
     });
   });
 

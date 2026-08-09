@@ -24,6 +24,7 @@ import { FEEDER, FEEDER_DRAINED, FEEDER_LINCHPIN } from "../spawn/demandLadder";
 import { Position } from "../types/Position";
 import {
   CoreDepot,
+  PORT_TENDER_WORK_TYPE,
   PortPost,
   portPosts,
   controllerLink,
@@ -657,7 +658,11 @@ export class LinkCorp extends SpawnAnchoredCorp {
   // =========================================================================
 
   private getPortTenders(): Creep[] {
-    return this.creepsOfWorkType("porttend", { includeSpawning: false });
+    // PORT_TENDER_WORK_TYPE, not a literal: the delivery side counts the same
+    // creeps through `livePortTenders` (spec 57), and two spellings of one
+    // workType is how "is there a drain here" and "do we need a drain here"
+    // become different answers.
+    return this.creepsOfWorkType(PORT_TENDER_WORK_TYPE, { includeSpawning: false });
   }
 
   /** A tile adjacent to BOTH the buffer and the link, so the creep withdraws and

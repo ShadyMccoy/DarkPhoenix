@@ -92,6 +92,29 @@ inconsistency and it is open item 3.**
 
 ## 4. The dead controller container (owner: *"the controller link should not have a container"*)
 
+> **CORRECTED 2026-08-09 (t72873814). Read this before the section below: the
+> container at (41,36) was NOT dead controller plumbing. It was port (43,38)'s
+> own buffer, misclassified by one tile.**
+>
+> The census assigned role `"controller"` at range **4**; the tender's guard is
+> `CONTROLLER_CONTAINER_RANGE` = **3**; the controller sits at chebyshev exactly
+> 4 from (41,36). Spec 56 narrowed the census to the shared constant, and the
+> same tile now reads role `"port"` with `supersededControllerContainer: None`
+> and both ports `hasContainer: true`. Only the code changed between those two
+> captures.
+>
+> So the fight loop this spec describes had its causality backwards.
+> Construction was correctly placing the port's buffer; `reclaimableContainer`
+> was correctly-by-its-own-lights demolishing a container the census told it was
+> dead. **Neither rung was wrong — the census was, by one tile** — and the
+> reclaim path this section ships was aimed at a live, wanted structure. The
+> 5,000e-per-round cost was real and the attribution was not.
+>
+> What survives: the `full`-gate lift is still right for a genuinely superseded
+> container, and the owner's *"the controller link should not have a container"*
+> still stands. What does not: the specific (41,36) diagnosis, and open item 4's
+> reading of it. Full write-up: spec 14, post-deploy t72873814.
+
 Not merely redundant — it was BLOCKING the second port. The superseded
 controller container sits at (41,36), the deposit port link at (43,38):
 chebyshev **2**, which is exactly the range `resolvePortBuffer` searches and
@@ -178,6 +201,18 @@ it stands. `energyLost` still reports it, so the trade is visible, never silent.
    `supersededControllerContainer` / `controllerLink` lens the census does, so a
    room with a controller LINK never sites a controller container. Until then the
    reclaim and the rung will fight, and each round costs a builder purchase.
+
+   **ADDRESSED by [spec 56](56-port-buffer-one-lens.md) (2026-08-08).** The
+   diagnosis above was right about the class and understated the count: there
+   were FOUR readers of "which container is this port's buffer" and three of
+   them ran a bare range-2 scan, so placement did not merely disagree about
+   (41,36) — it read the port as ALREADY SERVED and skipped it permanently,
+   while the census reported `hasContainer: true` and so never let
+   `reclaimableContainer` free a slot for it. Spec 56 puts the predicate in one
+   place (`isPortBuffer`), refuses a controller-container tile inside a port's
+   buffer range, and fixes a second, independent reason the rung never fired:
+   it was missing from the placement gate's `wantsMore` term entirely. Still
+   LIVE-UNVERIFIED — the second post has not been observed to exist yet.
 5. **The controller-range guard in `portPosts` becomes moot** once (4) resolves —
    it exists to stop the tender draining the controller's feed store into a
    link. Keep it (defence in depth, and other rooms will have other geometry),
@@ -193,6 +228,14 @@ it stands. `energyLost` still reports it, so the trade is visible, never silent.
    actually working or parked beside a full link" is not a read. The standalone
    corp had this and it was dropped in the absorb. Cheap to restore and it is
    the gauge item (1) will want.
+
+   **PARTIALLY ANSWERED by [spec 57](57-the-tender-check.md) (2026-08-08)** —
+   but only the stuck half. The `port-untended` watchdog answers *"is this
+   buffer being drained at all"* from a STOCK against its own capacity (the one
+   reading a rate meter structurally cannot give: a jammed port and a quiet port
+   are the same small number). It does NOT answer *"how hard is the tender
+   working"*, so tender SIZING still has no measured basis. The duty meter
+   remains open.
 
 8. **NEITHER HOME SOURCE HAS A CONTAINER** (measured t72869702, and possibly the
    more interesting finding). The census classifies a container as `"source"`
@@ -219,6 +262,20 @@ it stands. `energyLost` still reports it, so the trade is visible, never silent.
    dropped energy is exactly the `sourceDropped` field that is ABSENT from every
    capture (see spec 14 t72869702), so this is blocked on that meter.
 
+   **UNBLOCKED 2026-08-09 — and "absent" was the wrong word.** `sourceDropped`
+   was never missing: it was DECLARED at core v19, computed correctly every
+   tick, and then never added to the returned object. Five references in
+   `coreSegment.ts` and no emission, so it produced zero data points and
+   `fiscalArchive` archived `sd: undefined` for every month it has closed. An
+   unplugged meter and a legitimately empty one read identically, which is why
+   this item sat blocked on a field that was already there. Emitted at **core
+   v36**; the next capture answers item 8 either way. The live buffers at
+   t72871684 are `dbcd90: 0`, `dbcd92: 0` — still the two lowest in the colony,
+   still consistent with both readings.
+
+   Generalised as a defect class in spec 14 (methodology note, 2026-08-09):
+   nothing in the tree fails when a declared telemetry field is never emitted.
+
 9. **The census and the lens disagree about `hasContainer`.** `classifyContainers`
    sets `hasContainer: room.containers.some(c => cheb(c.pos, l) <= 2)` with no
    controller-range exclusion, while `portPosts` applies the
@@ -229,12 +286,35 @@ it stands. `energyLost` still reports it, so the trade is visible, never silent.
    applies everywhere else (one lens, both sides). Cheap fix: the census calls
    `portPosts`, or shares its filter.
 
+   **CLOSED by [spec 56](56-port-buffer-one-lens.md) (2026-08-08).** It was not
+   two lenses but FOUR — placement and delivery ran the same unguarded scan —
+   and the disagreement was not cosmetic, it deadlocked the port rung. All four
+   now resolve through `isPortBuffer`. Confirmed live t72871684: the census
+   reports `(43,38) hasContainer: false`, which is the honest answer.
+
 10. **An orphan container holds 1,363e** at (41,22), classified `"other"` — not
     within 1 of a source, not within 2 of storage, not within 4 of the
     controller, not within 2 of any port link. Real energy in a container nothing
     claims. Either it serves something the ladder does not model, or it is a
     leftover the reclaim rung should collect. Unidentified; listed so it is not
     lost.
+
+    **WORSE at t72871684: it is now at the container cap, 2000/2000.** It gained
+    ~640e over ~2,000 ticks and has stopped, because it is full — so it is not
+    a transient, it is a one-way store. Two costs, and the second is the larger:
+    2,000e of frozen capital, and one of five capped container slots held by a
+    structure no role reads, in the same room where port (43,38) has no buffer
+    and the source rung is queueing.
+
+    `reclaimableContainer` will not collect it — that rung only ever targets
+    `supersededControllerContainer`, and this one is role `"other"`. So nothing
+    in the tree can retire it today. **Still unidentified**, and identifying it
+    is the first step: a container that fills to the cap and stays there has
+    SOMETHING delivering into it, so the question is which role drops there and
+    why nothing withdraws. Worth one read of the haul assignments against
+    (41,22) before any reclaim rung is widened - widening a demolition rule to
+    cover "roles we do not recognise" is the wrong instinct on a structure we
+    have not explained.
 
 ## 6. Related
 
