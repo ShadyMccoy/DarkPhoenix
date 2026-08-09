@@ -17,7 +17,12 @@
  */
 
 import { Colony } from "../colony/Colony";
-import { controllerSideStock, sourceBufferStock, sourceDroppedStock } from "../corps/nodeEnergy";
+import {
+  controllerSideStock,
+  sourceBufferStock,
+  sourceDroppedStock,
+  sourceMouthContainers
+} from "../corps/nodeEnergy";
 import { lossReport } from "./LossMeter";
 import { spawnSpendView } from "./spawnLedger";
 import { linkLedger } from "./LinkMeter";
@@ -181,6 +186,25 @@ export interface CoreTelemetry {
    * returned reads exactly like a field that is legitimately empty.
    */
   sourceDropped?: { [idTail: string]: number };
+  /**
+   * The CONTAINER census at each visible source mouth (v37), same keys as
+   * `sourceBuffers`: how many stand there (`n`), their summed free capacity
+   * (`free`) and the weakest one's hits fraction (`hp`).
+   *
+   * v36's split localised the ledger's top line to "the container is at cap and
+   * everything after that rots" - and then, one window later, produced a
+   * reading the split cannot explain: cd8d's container went 2000 -> 0 while its
+   * ground pile GREW. Container energy of 0 reads identically whether the
+   * container is empty, has just died and dumped its load on the ground, or was
+   * never there. Those are three different bugs with three different fixes, so
+   * the stock alone can only support a hypothesis (spec 59 section 4).
+   *
+   * `n: 0` is emitted rather than omitted: "this source has no container" is the
+   * positive claim spec 54 open item 8 wanted about the home sources, and an
+   * absent key cannot make it. `free`/`hp` are omitted where `n` is 0 - there is
+   * nothing to be full or damaged.
+   */
+  sourceMouth?: { [idTail: string]: { n: number; free?: number; hp?: number } };
   /**
    * Our construction sites in visible UNOWNED rooms (v9): the owned-room
    * ledger's siteCount misses cross-room trunk paving entirely - the P8
@@ -497,6 +521,7 @@ export function updateCoreTelemetry(
   // source's mouth - the over/under-haul read.
   const sourceBuffers: NonNullable<CoreTelemetry["sourceBuffers"]> = {};
   const sourceDropped: NonNullable<CoreTelemetry["sourceDropped"]> = {};
+  const sourceMouth: NonNullable<CoreTelemetry["sourceMouth"]> = {};
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     let sources: Source[] = [];
@@ -513,6 +538,10 @@ export function updateCoreTelemetry(
       sourceBuffers[source.id.slice(-6)] = stock;
       const dropped = sourceDroppedStock(source);
       if (dropped !== null && dropped > 0) sourceDropped[source.id.slice(-6)] = dropped;
+      // v37: container energy of 0 is three different worlds (empty / died and
+      // dumped its load / never existed) and the stock cannot say which.
+      const mouth = sourceMouthContainers(source);
+      if (mouth !== null) sourceMouth[source.id.slice(-6)] = mouth;
     }
   }
 
@@ -605,7 +634,8 @@ export function updateCoreTelemetry(
     // shipped, so the merge advances to v16 to name the combined schema.
     // v34 siteLedger; v35 rooms[].containers - the container table by ROLE, the first structure inventory (owner 2026-08-06);
     // v36 sourceDropped ACTUALLY EMITTED (declared v19, never returned - zero data points until now)
-    version: 36,
+    // v37 sourceMouth - the container census at each mouth (there? at cap? dying?), because container energy 0 is three different worlds
+    version: 37,
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
@@ -631,6 +661,7 @@ export function updateCoreTelemetry(
     agenda,
     ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
     ...(Object.keys(sourceDropped).length > 0 ? { sourceDropped } : {}),
+    ...(Object.keys(sourceMouth).length > 0 ? { sourceMouth } : {}),
     ...(Object.keys(remoteSites).length > 0 ? { remoteSites } : {}),
     ...(Object.keys(siteLedger).length > 0 ? { siteLedger } : {}),
     ...(() => {

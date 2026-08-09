@@ -94,6 +94,58 @@ the ledger's own E6 verdict (*"read the carry pickup stamps"*) says where to
 look. Naming a cause from the stock alone would be a hypothesis dressed as a
 finding.
 
+## 4b. The next window falsified the reading I would have made — and named a THIRD mechanism (t72874433)
+
+619 ticks later, the same table. The piles are draining hard (buffer 29,668 →
+23,183, ground 14,105 → 9,564, +10.48 e/t of drawdown in the account) — and one
+row cannot be read at all:
+
+```
+  source          buffer   DROPPED  container            source     buffer  DROPPED  container
+  cd8d  t72873814   4316      2316     2000 (CAP)        cee0  t72873814  4348   2938   1410
+  cd8d  t72874433   2588      2588        0              cee0  t72874433    20      0     20
+```
+
+**cd8d's container went from the cap to ZERO while its ground pile GREW** (2,316
+→ 2,588). Section 4 offered two mechanisms for a below-cap container; this is a
+third reading and none of the three is implied by the stock:
+
+1. **haulers withdrew the container and left the pile.** `sourcePickupSpot` is
+   pile-first EXCEPT while the container is full — so a container-first run
+   should stop after ONE withdraw re-opens capacity. It cannot drain 2,000
+   without the pile-first branch taking over. This mechanism predicts the
+   opposite of what was measured, which is what makes the reading interesting.
+2. **the container DIED and dumped its load on the ground.** A container in an
+   unowned room decays five times as fast as an owned one; 2,000 (container) +
+   2,316 (ground) = 4,316, and the mouth then stood at 2,588 after drain and
+   decay. Arithmetically consistent — and *nothing in any capture carries a
+   remote container's hits*, which is also the inventory the account's
+   depreciation memo prices its 5.64 e/t accrual without.
+3. **there was never a container there** and `sourceBuffers - sourceDropped` was
+   reading a neighbouring structure at range 1.
+
+**Container energy of zero reads identically under all three.** Three different
+bugs, three different fixes, one number. So this cycle shipped the stamp rather
+than a story (spec 14: *"if the cause is invisible, the fix is FIRST a stamp"*).
+
+**Core v37 — `sourceMouth`**, keyed like `sourceBuffers`, publishing the three
+facts the stock cannot imply:
+
+| field | says |
+|---|---|
+| `n` | containers standing within range 1 — **emitted as 0**, because *"this source has no container"* is a positive claim and an absent key cannot make it |
+| `free` | summed free capacity — 0 IS the cap, stated instead of asking the reader to recognise 2000 |
+| `hp` | the WEAKEST container's hits fraction — a mouth is only as sound as the container that fails first |
+
+One pure lens (`sourceMouthContainers` in `corps/nodeEnergy`, beside
+`sourceBufferStock`), so the census reports what the mouth actually is.
+
+It also settles two open items elsewhere, both currently held as inferences from
+a zero: spec 54's *"neither home source has a container"* (cd90/cd92 should
+report `n: 0`), and the same spec's per-source half of the depreciation memo.
+
+**What it does NOT do: move the top line.** Nothing here drains anything.
+
 ## 5. Acceptance
 
 No fix is proposed here; this spec exists so the mechanism is not re-derived.

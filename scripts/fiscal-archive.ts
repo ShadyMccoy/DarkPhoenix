@@ -260,7 +260,7 @@ export function closeFromArchive(seg: any, dry: boolean): string[] {
       "",
       "```",
       formatAccounts(cap, base, rows),
-      formatSourcePnL(cap),
+      formatSourcePnL(cap, base),
       "",
       formatLedger(rows, cap.tick, base.tick),
       "```",

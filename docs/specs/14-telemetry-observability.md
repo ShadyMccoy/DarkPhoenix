@@ -12321,3 +12321,142 @@ capture, so it requires reading the code and the capture.** It is the one class
 of statement in an audit that feels like an observation and is actually an
 inference. Note #8 covers the writing end (a field never emitted); this one
 covers the reading end (a reader who never looked).
+
+## Audit cycle t72874433 — the top line fell 23.62 → 19.66 and I cannot claim it; a mouth reading that no mechanism explains; and a reconciliation that was never computed
+
+Capture `t72874433`, 619 ticks after the spec 56/57 deploy verification at
+t72873814. Segments `0,3,4,5,6,8,9`. Methodology #18.
+
+**Instrument health first**: CPU bucket 10,000; both spawns healthy (util 0.82 /
+0.93, S5 12% surge margin); bank 141,204 against an 84,000 reserve and
+CONVERGING; P1 zero plan flaps; every infra gate reads `staffed` (tender,
+feeder, upgrader). No threat to the measurement instrument.
+
+**Sweep state (spec 50)**: the window ran at handicap **12%**, cycle **1** — the
+bot's own archive is current through FY4858-M02 (t72873000) and the next month
+boundary lands 67 ticks after this capture, so `fiscal:close` and
+`fiscal:archive` both correctly closed nothing.
+
+### The account
+
+```
+  delivered into the economy    129.93   (gross 119.45 + pile drawdown 10.48)
+  TOTAL SPAWN                   -47.42   vs -39.03 priced        (-8.39 U)
+  measured losses               -27.59   vs  -6.39 budget       (-21.20 U)
+  controller (score)             36.00   vs  33.51              (+2.49 F)
+  RESIDUAL                        4.97   = 4% of gross mining
+```
+
+L1 (pile decay) **19.66 e/t against a budget of 0.00** is again the TOP LINE.
+Against the three prior cycles — 17.32 → 19.26 → 23.62 → **19.66** — the trend
+broke. **I am not claiming it.** Nothing deployed since t72873814 touches any
+drain mechanism; the recovery fleet ramp (spec 44's cure, 1 → 5 scavengers) and
+ordinary variance both predate the window. Piles fell 29,668 → 23,183 and ground
+stock 14,105 → 9,564 in the same 619 ticks, which is the drawdown the account
+books as revenue — energy that was mined in an earlier window, not new income.
+
+### Finding 1 — a mouth reading that no mechanism on file explains
+
+**cd8d: container 2000 (at cap) → 0, while its ground pile GREW 2,316 → 2,588.**
+
+Section 4 of [spec 59](59-the-container-caps-and-the-overflow-rots.md) had two
+candidate mechanisms for a below-cap container. This is a third reading, and the
+one mechanism that would drain a container — `sourcePickupSpot`'s
+container-first branch while the container is FULL — predicts the opposite:
+one withdraw re-opens capacity, pile-first takes over, and the container should
+sit near 2,000 while the pile falls. Two others fit (the container decayed to
+death and dropped its load; there was never a container at that mouth), and
+**container energy of zero reads identically under all three.**
+
+Three bugs, three fixes, one number. Per this spec's own rule — *instrument,
+don't re-theorize* — the cycle shipped the stamp:
+
+**Core v37, `sourceMouth`**: per-source `{n, free?, hp?}` — containers standing
+(`n: 0` EMITTED, because "no container here" is a positive claim an absent key
+cannot make), summed free capacity (`free: 0` IS the cap, stated rather than
+inferred from the number 2000), and the WEAKEST container's hits fraction
+(`hp`). One pure lens, `sourceMouthContainers`, beside `sourceBufferStock` in
+`corps/nodeEnergy`. `hp` is also the first remote-container decay reading this
+project has ever carried — the inventory the account's depreciation memo has
+been pricing a 5.64 e/t accrual against nothing.
+
+### Finding 2 — the SOURCE P&L asserted a reconciliation it never computed
+
+The P&L closed every report with *"RECONCILES to the colony account: miner X =
+extraction line; reserve Y = reservation line."* This capture printed
+`reserve 11.80 = reservation line` beside a colony account reading **18.90** —
+a 60% mis-statement, presented to the reader as a reconciliation.
+
+Neither number is wrong; they measure the same purchases over **different
+windows**, and nothing compared them:
+
+| | basis | window | miner | reserver |
+|---|---|---|---|---|
+| SOURCE P&L | blackbox ring (needs per-CORP attribution) | 1,102t | 4.22 | **11.80** |
+| ENERGY ACCOUNT | cumulative spawn ledger, by ROLE (methodology #7) | 619t | 4.28 | **18.90** |
+
+Reserver purchases are lumpy — one 1,300e body per room per ~600 ticks, nine
+rooms — so the same spend differs by 60% across the two spans. The claim was
+TRUE when both sides read the ring and has been false since #7, silently,
+because it was a sentence rather than an arithmetic.
+
+It is not cosmetic. The P&L's `net` column is what the planner's own
+`candidates[].net` is compared against, and the row's own text says that
+comparison *"ADMITS OR REJECTS a source"*. At the ring rate every remote is
+charged 1.18 e/t of reservation; at the capture window's rate, 1.89 — cbd8 reads
+`-1.66` against plan where the account's window says `~-2.85`.
+
+**Fixed** by replacing the assertion with the arithmetic: both windows named,
+both rates printed, the delta computed, and the comparison WITHHELD (not faked)
+when there is no usable account window. Neither number moved, so no METHODOLOGY
+bump. The real fix is one book — a per-CORP cumulative counter (spec 51 gap a).
+
+**And it changes this cycle's reading of the account**: reservation's `-8.07 U`
+variance is *lumpiness across two windows*, not a pricing failure. Over the ring
+the same spend is 11.80 against a 10.83 budget — **+9%**.
+
+### The rest of the checklist
+
+- **X3 FAIL, 4 untracked creeps** (62 of 66) — and it reads exactly 4 at
+  t72871684, t72873814 and t72874433. **Chronic, not a fresh leak**, and *not
+  diagnosable from a capture*: the census publishes the COUNT and no names, so
+  nothing says which creeps or which kind. Work item recorded, not acted on —
+  naming them is a one-field change to `census`, and this cycle already spends
+  its schema bump.
+- **Creep total 54 → 66 (+22%)**, above the triage's 20% oscillation line, but
+  attributable: reservation creeps 3 → 9, one per remote room, the same wave the
+  18.90 e/t reservation line prices. Not a die-off/rebuild oscillation.
+- **F2 `ok` at 0.19 with a 110p gap on 583 declared**, and the worst line has
+  INVERTED since spec 55: `upgrading-W43N23` now fields 91p against 45p declared
+  (**+46**, was −35). The plan declares WORK; the body is WORK+MOVE+CARRY — a
+  P11-class representation gap on the consumer side, not an over-purchase.
+- **E6 6 of 12 miner ops deferred**, four CHRONIC at 100% of the window
+  (cedc, cd94, cd8d, cd98) — unchanged in character, the demand-side story
+  spec 59 sections 3A/3B already owns.
+- **SCAV: 4 of 5 stocks LOSING, we collect 27% and the engine takes 73%**
+  (planned drain 5.85 vs decay 16.00). Consistent with the ratio spec 44 §4
+  already derives from `scavengeRate`'s own horizon; nothing new, and the design
+  is owner-gated.
+
+### Cycle verdict: **INSTRUMENTED** (2 gauges), one FAIL attributed away, top line NOT claimed
+
+Shipped: core **v37** `sourceMouth`; the P&L basis bridge. Both
+telemetry-only — unit suite (2,417 passing) + build. No live behaviour touched.
+
+**Predictions registered before deploy** (check at the next capture, ≥200t):
+
+1. `sourceMouth` on the wire at v37, one entry per visible source (13 keys,
+   matching `sourceBuffers`).
+2. **cd8d is decided**: `n: 0` ⇒ the container DIED (a new mechanism — remote
+   container decay dumping stock onto the ground, and a maintenance question,
+   not a hauling one); `n: 1, free > 0` ⇒ it was DRAINED, i.e. the
+   pickup-priority defect, and `sourcePickupSpot`'s full-container branch is
+   wrong; low `hp` ⇒ dying and about to repeat.
+3. **cd90/cd92 report `n: 0`**, turning spec 54's *"neither home source has a
+   container"* from an inference off a zero into a stated fact.
+4. No `RECONCILES to the colony account` line in any future report or fiscal
+   close; the two-window bridge in its place.
+5. **The top line does NOT move on account of this deploy.** Nothing here drains
+   anything. If L1 improves it is unattributed and must be read as such — the
+   same discipline the t72873814 cycle applied to the piles falling 33,657 →
+   29,668.

@@ -3576,8 +3576,65 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
  * plan-gross less measured cost. It is directly comparable to the planner's
  * own `candidates[].net`, which is built the same way, and that comparison is
  * the point - it shows where the planner's per-source pricing is optimistic.
+ *
+ * TWO WINDOWS, STATED (t72874433). This table's costs come from the blackbox
+ * RING, because per-CORP attribution is the whole point and the cumulative
+ * spawn ledger is by ROLE only. The colony account's spawn lines moved OFF the
+ * ring at methodology #7 (a deploy resets heap state, so every ring-measured
+ * line sampled a post-deploy window). The two therefore normalise the same
+ * purchases over different spans, and the footer used to assert they reconciled
+ * without ever comparing them - printing `reserve 11.80 = reservation line`
+ * against an account reading 18.90. `base` is optional and used only to state
+ * and CHECK that comparison; nothing in the table depends on it.
  */
-export function formatSourcePnL(cap: any): string {
+/**
+ * The P&L footer that used to say "RECONCILES to the colony account".
+ *
+ * It never computed the comparison it asserted. Both sides measure the same
+ * purchases; they normalise them over different spans (the ring vs the capture
+ * window), and reserver purchases are lumpy enough - one 1,300e body per room
+ * per ~600 ticks - that the same spend read 11.80 e/t over 1,102 ticks and
+ * 18.90 e/t over 619. So: name each window, difference the account's own
+ * cumulative ledger over ITS window, and print both numbers side by side. A gap
+ * is lumpy purchasing across two spans, not a leak - but the `var` column above
+ * is priced at the RING rate, and the reader has to know which.
+ *
+ * Withheld rather than faked when the account window is unusable (no base
+ * capture, no cumulative ledger on either side, or dt <= 0).
+ */
+function sourcePnLBasis(cap: any, base: any, ring: number, ringMiner: number, ringReserve: number): string[] {
+  const dt = base ? (cap.tick ?? 0) - (base.tick ?? 0) : 0;
+  const capRoles = cap.data?.core?.spawnSpend?.energyByRole as Record<string, number> | undefined;
+  const baseRoles = base?.data?.core?.spawnSpend?.energyByRole as Record<string, number> | undefined;
+  const head =
+    `  BASIS: these costs are measured over the blackbox RING (${ring}t) - per-CORP attribution, which the` +
+    " by-role cumulative ledger cannot give.";
+  if (dt <= 0 || !capRoles || !baseRoles) {
+    return [
+      head,
+      "  The colony account's spawn lines span the CAPTURE WINDOW instead (methodology #7). No account" +
+        " window here, so the two are NOT COMPARABLE and no reconciliation is claimed."
+    ];
+  }
+  const acct = (role: string): number => Math.max(0, (capRoles[role] ?? 0) - (baseRoles[role] ?? 0)) / dt;
+  const line = (label: string, ringRate: number, acctRate: number): string =>
+    `    ${label.padEnd(9)} ring ${ringRate.toFixed(2)}  vs  account window ${acctRate.toFixed(2)}` +
+    `  (${acctRate - ringRate >= 0 ? "+" : ""}${(acctRate - ringRate).toFixed(2)})`;
+  return [
+    head,
+    `  The colony account's spawn lines span the CAPTURE WINDOW (${dt}t) via the cumulative spawn ledger` +
+      " (methodology #7:",
+    "  the ring is heap state a deploy resets). Same purchases, two spans - so they are stated, not",
+    "  asserted equal:",
+    line("miner", ringMiner, acct("miner")),
+    line("reserver", ringReserve, acct("reserver")),
+    "  A gap is lumpy purchasing across two windows, not a leak. The `var` column above is priced at the",
+    "  RING rate: read it against that, and against the account only through this bridge. ONE book needs a",
+    "  per-CORP cumulative counter (spec 51)."
+  ];
+}
+
+export function formatSourcePnL(cap: any, base?: any): string {
   const rows0 = (cap.data.blackbox?.rows ?? []) as any[];
   const ring = rows0.length > 1 ? rows0[rows0.length - 1].t - rows0[0].t : 0;
   const sources = (cap.data.flow?.sources ?? []) as any[];
@@ -3660,9 +3717,9 @@ export function formatSourcePnL(cap: any): string {
   out.push(
     "  a NEGATIVE var means the source costs MORE than the planner priced it - the planner's",
     "  per-source net is what ADMITS OR REJECTS a source, so a chronic negative is a funding bug.",
-    `  RECONCILES to the colony account: miner ${tM.toFixed(2)} = extraction line; reserve ${tR.toFixed(2)} =` +
-      " reservation line. Hauler is LOWER than the evacuation line by the standalone scavenge",
-    "  corps, which serve no source and so appear in no row here.",
+    ...sourcePnLBasis(cap, base, ring, tM, tR),
+    "  Hauler is LOWER than the evacuation line by the standalone scavenge corps, which serve no",
+    "  source and so appear in no row here.",
     `  The planner's INVADER TAX is ${meanTax.toFixed(3)} e/t per remote - against a mean remote variance of` +
       ` ${(remoteVars.length ? remoteVars.reduce((n, c) => {
         const suffix = String(c.sourceId).slice(-4);
@@ -3710,6 +3767,6 @@ if (require.main === module) {
   // The chart of accounts frames the leak ledger: what the colony earned and
   // where it went, before the list of what leaked.
   console.log(formatAccounts(cap, base, rows));
-  console.log(formatSourcePnL(cap));
+  console.log(formatSourcePnL(cap, base));
   console.log(formatLedger(rows, cap.tick, base.tick));
 }
