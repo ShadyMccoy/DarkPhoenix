@@ -12919,3 +12919,52 @@ prefer an archive pair when one covers the period.
 5. **cd98 stays over-budget at the next boundary.** If it re-funds with no
    world change, the tranche edge is flapping and spec 46 phase D (the shadow
    variance row) is the named instrument to build.
+
+### Addendum, same session: spec 58(b) DISCRIMINATED — the three construction reds are PR #149's, and the environment is exonerated
+
+The environment recovery made the check possible in-session (fresh sandbox:
+`npm install` rolled back on the documented isolated-vm race; `setup:test-env`
+had a path bug for the nested npm layout — fixed and verified,
+`probe:mockup` → "OK - bot script executed").
+
+On a freshly built master-tip bundle (src untouched this session), the three
+cells reproduce **byte-identically to the original observation**:
+
+```
+  [T] cons-link-core-first                 (T4, timeout @60/60t)
+  [T] cons-link-farthest-source            (T4, timeout @60/60t)
+  [T] cons-t3-build-and-repair-concurrent  (T3, timeout @400/400t)
+```
+
+while two sibling controls PASS in the same sandbox, same build:
+`cons-one-site-at-a-time` (satisfied @ tick 10) and — the same T4 link world
+class as the two red cells — `cons-t4-link-completes` (satisfied @ tick 20).
+**"Broken environment" may no longer be asserted.**
+
+`git bisect` over #146 (f894be1, the last baseline ratchet) → #155 (the 56/57
+session's attribution run had already proved master red BEFORE #156 merged),
+predicate = the `cons-link-core-first` verdict marker:
+
+```
+  #148 f6e9487   PASS @ tick 20      good
+  #149 48fbe19   [T] @60/60t         BAD  <- first bad commit
+  #150 1bde4dd   [T] @60/60t         bad
+```
+
+**First bad: 48fbe19 (#149, merged 2026-08-03), "Methodology #7"** — titled as
+a methodology change but actually a 146-file session squash (531k insertions;
+src side: CarryCorp 254 lines, ConstructionCorp 142, ControllerFeederCorp 132,
+UpgradingCorp 107, bank 106, commissionPlan 100). The MECHANISM inside the PR
+is not yet identified — the two link cells die waiting for the core-link SITE
+to be placed, so the ConstructionCorp placement/gate and bank/warchest hunks
+are the first suspects for the follow-up session.
+
+**Corroboration:** spec 08's row already carried `cons-t3` in the
+"pre-existing reds" window dated by the 2026-08-03/04 bisects — the same
+commit window #149 merged in. What the baseline has been carrying as ratchet
+debt is, for these three cells, PR #149's regression with a name.
+
+Next step (own session, full regression gate): read #149's ConstructionCorp/
+bank diffs against the two 60t link cells (fast probes), fix or — if the
+behavior change was intended — re-ratchet the baseline deliberately in the
+same commit as the explanation.
