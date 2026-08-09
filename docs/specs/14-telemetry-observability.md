@@ -12064,3 +12064,105 @@ field and it would have caught this one; it is proposed, not shipped, and it
 belongs with spec 09's schema-versioning phase rather than here. Whoever picks
 it up should check the OTHER segments too: nothing about this defect is specific
 to segment 0, and no one has looked.
+
+## Audit cycle t72872936 — the constraint INVERTED, and the same two sources took 82% of the growth
+
+Window t72871684 → t72872936 (1,252t), methodology #18, sweep 11% cycle 1.
+Ledger: 3 FAIL (L1, X3, G1). TOP LINE **L1** — correctly this time, because S5
+dropped out of FAIL, which is itself the story.
+
+### The finding: last cycle's excuse is gone
+
+Last cycle S5 read **0.97× the physical ceiling** and that was the reason not to
+chase the piles — you cannot buy carry a saturated spawn has no room for. In
+1,252 ticks:
+
+```
+                       t72871684      t72872936
+  spawn0 utilization      0.966          0.865
+  spawn1 utilization      0.974          0.802
+  spawn0 queueDepth           8              2
+  spawn1 queueDepth           8              1
+  spawn0 idle.empty           2             92     <- "empty" = NO DEMAND
+  spawn1 idle.empty           0            118
+  S4                         3% idle       13% idle, 63% of it "empty"
+```
+
+**The spawn is now idle for lack of anyone asking**, and the piles went
+**23,456 → 33,657e (+44%)** over the same window. The agenda's queue is 2 deep
+and 1 deep, and contains an upgrader and two builders. Across the last **16
+executed receipts on both spawns there is not one hauler**.
+
+So the constraint moved from SUPPLY (spawn saturated) to DEMAND (nothing asks),
+and the leak did not care. That falsifies the reading — mine — that S5 was the
+binding constraint on L1. It was a co-symptom.
+
+### Mechanism B is now the dominant term, and it is accelerating
+
+```
+  source   pile t72871684 -> t72872936     delta   carryNeeded  exit
+  cee0            4275 ->  8148          +3873         1        staffed
+  cd98            1156 ->  5618          +4462         0        deadband
+  ---------------------------------------------------------------
+  those two       5431 -> 13766          +8335   = 82% of the colony's +10,201
+```
+
+Both are the CONSTRUCTION-routed sources (spec 14 cycle t72871684, Mechanism B).
+The plan's routing is byte-identical to last capture — cd98 10.00 e/t / 9.07
+carry / d=20, cee0 9.88 / 17.65 / d=36, totalling the 19.88 that IS the
+APPROPRIATIONS construction budget line. Delivered 10.42 (up from 6.54, still
+-9.46 U).
+
+`haulCarryNeeded` filters `construction-` routes out — *"the tankers own this
+energy, pile or no pile"* — so cee0 stamps `carryNeeded: 1`, `exit: "staffed"`
+beside **8,151e**, and cd98 stamps `carryNeeded: 0` beside 5,624e. Both correct
+under that rule. Nothing else asks.
+
+**F2 states the same defect from the commission side and is the sharper
+framing**: `mining-W42N22-harvest-cee0` fields **11p against 35p declared**. The
+COMMISSION declares the fleet. The corp's own demand lens asks for one CARRY.
+**That is spec 39's open seam exactly** — *"the SpawnDirector does not read
+`commission.fleet`"* — and it is now the colony's largest single leak, not an
+architectural nicety. Recorded against spec 39 as its first measured cost.
+
+### Also true, and not the same story
+
+- **E6 8 of 12 deferred**, five of them held **96-100%** of the window. Forgone
+  mining 2.23 e/t on top of the rot.
+- **Reservation 6.56 → 16.61 e/t** (creeps 2→9, five reserver spawns/6,500e in
+  the window). Unexplained; a candidate for the next cycle and NOT diagnosed
+  here — naming it without a stamp read would be a hypothesis dressed as a
+  finding.
+- **Bank -38.29 e/t** (191,730 → 143,793), projected equilibrium 86,360 against
+  an 84,000 reserve. That is the spend path working, not a leak; G1's 42%
+  income-funded is the same fact from the other side.
+- **(41,22) is confirmed STUCK**, not transient: 2000/2000 in BOTH captures,
+  1,252t apart, zero change. Spec 54 item 10.
+- **The (44,12) port container is cycling** 0 → 503 → healthy, and the coreDepot
+  887 → 572. Two of three home containers are working correctly.
+
+### Cycle verdict: **DEPLOYED + PREDICTIONS ON FILE** (the top line is untouched)
+
+Shipped the branch that had been sitting gated: spec 56 (one port-buffer lens,
+the placement gate, the fight-loop guard), spec 57 (the tender check + the
+`port-untended` watchdog), and core **v36** (`sourceDropped` finally emitted).
+
+Gate: 2406 unit, tsc clean, build green, storage-depot + flow-handoff +
+runt-economy all green against the deployed bundle. **One flake recorded rather
+than hidden**: runt-economy failed once inside a 13-minute run (its normal is
+4m) and passed on immediate re-run; three of four runs on this exact source are
+green and the failure coincided with a 3× wall-clock, which is the documented
+host-load sensitivity of the mockup.
+
+Predictions, written before the deploy:
+
+1. `sourceDropped` appears in the next capture — the 33,657e splits
+   container-vs-ground for the first time. This is the one that matters: it
+   decides whether the pile story is rot or merely idle stock.
+2. Port (43,38) gets a container site, then `hasContainer: true`, then a second
+   `portPosts` post.
+3. No `port-untended` alert for (44,12); possibly one transient for (43,38)
+   between its container completing and its tender arriving.
+4. **The top line does NOT move.** Nothing in this deploy touches Mechanism A or
+   B. If pile decay improves, that is unattributed to this change and must be
+   read as such.
