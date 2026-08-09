@@ -3074,3 +3074,173 @@ describe("P12 valve coherence (published allocation vs the phase-D law)", () => 
   });
 });
 
+
+/**
+ * THE SOURCE P&L'S RECONCILIATION CLAIM WAS AN ASSERTION, NOT A CHECK
+ * (audit cycle t72874433).
+ *
+ * The P&L closes with a printed sentence: *"RECONCILES to the colony account:
+ * miner X = extraction line; reserve Y = reservation line."* At t72874433 it
+ * printed `reserve 11.80 = reservation line` while the colony account's
+ * reservation line read **18.90** - a 60% mis-statement, presented to the
+ * reader as a reconciliation.
+ *
+ * Neither number is wrong. They are measured over DIFFERENT WINDOWS:
+ *
+ *  - the account's spawn lines moved to the cumulative spawn ledger at
+ *    methodology #7 (`core.spawnSpend.energyByRole`, differenced between the
+ *    two captures) precisely because the blackbox ring is heap state that a
+ *    deploy resets - here, 619 ticks;
+ *  - the P&L needs per-CORP attribution, which the by-role cumulative ledger
+ *    cannot give, so it still reads the ring - here, 1,102 ticks.
+ *
+ * Reserver purchases are lumpy (one 1,300e body per room per ~600t), so the
+ * same spend normalised over two windows differs by more than half. The claim
+ * was true when both sides read the ring and has been false since #7, silently,
+ * because nothing computed it.
+ *
+ * It is not cosmetic: the P&L's `net` column is what the planner's own
+ * `candidates[].net` is compared against, and that comparison "ADMITS OR
+ * REJECTS a source" by the row's own words. Charging reservation at 1.18 e/t
+ * per source instead of the window's 1.89 flatters every remote's net by
+ * ~0.7 e/t - cbd8 reads -1.66 against plan where the capture window says
+ * ~-2.85.
+ *
+ * The fix keeps both numbers (neither basis is available to the other) and
+ * replaces the assertion with the arithmetic: state each side's window, and
+ * print the DELTA where they can be compared at all.
+ */
+describe("SOURCE P&L: the reconciliation is computed, not asserted (t72874433)", () => {
+  const cap = fixture("shard1-t72874433.json");
+  const base = fixture("shard1-t72873814.json");
+
+  it("states the window its costs are measured over", () => {
+    const pnl = formatSourcePnL(cap, base);
+    expect(pnl, "the ring window must be on the page - a rate without its window is not a reading").to.match(
+      /RING \(1102t\)/
+    );
+    expect(pnl, "and the account's window beside it").to.match(/CAPTURE WINDOW \(619t\)/);
+  });
+
+  it("never claims a reconciliation it has not computed", () => {
+    const pnl = formatSourcePnL(cap, base);
+    // The old text asserted equality between two numbers it never compared.
+    expect(pnl, "no bare RECONCILES claim").to.not.match(/RECONCILES to the colony account/);
+  });
+
+  it("prints the measured gap when the two windows disagree", () => {
+    const pnl = formatSourcePnL(cap, base);
+    // reservation: ring 11.80 e/t vs capture-window 18.90 e/t.
+    expect(pnl).to.include("11.80");
+    expect(pnl, "the account's own window must appear beside it").to.include("18.90");
+  });
+
+  it("says they AGREE when the two windows coincide", () => {
+    // Same capture on both sides of the difference: the account's window is 0
+    // ticks and unusable, so the comparison must be withheld, not faked.
+    const pnl = formatSourcePnL(cap, cap);
+    expect(pnl, "a degenerate window is stated, never differenced").to.match(/not comparable|no account window/i);
+  });
+
+  it("still renders without a base capture (the report is callable on one)", () => {
+    const pnl = formatSourcePnL(cap);
+    expect(pnl).to.not.equal("");
+    expect(pnl, "no fabricated comparison").to.not.match(/RECONCILES to the colony account/);
+  });
+});
+
+/**
+ * X3 FAILED ON A LEAK THE CAPTURE ALREADY DISPROVES (audit cycle t72875067).
+ *
+ * X3 has read exactly **4 untracked creeps** at t72871684, t72873814,
+ * t72874433 and t72875067 - four captures, four different fleet sizes (53, 54,
+ * 66, 59), the same 4 - and FAILED every time on the `> 2 ⇒ orphan leak`
+ * threshold. It is not an orphan leak, and the core segment has carried the
+ * proof the whole time in TWO fields the row never read:
+ *
+ *  - **`creeps.unattributed`** - every creep whose `memory.corpId` matches no
+ *    census corp, named. **Absent in all four captures**, and absent means
+ *    EMPTY (this codebase omits empty optionals so absent and zero stay
+ *    different facts). Zero orphans, every capture.
+ *  - **`creeps.countMismatch`** - corps whose id-attributed creep count differs
+ *    from their own `getCreepCount`. Its excess is **exactly 4** in all four
+ *    captures, and it names the corps.
+ *
+ * `untracked` is a difference of two lenses (`total` minus the sum of
+ * `getCreepCount`); `unattributed` is an id-match lens. The code that emits
+ * them says why they are separate, and names this exact case in its own
+ * comment - *"untracked 3, unattributed EMPTY - so corps exist that don't COUNT
+ * creeps they own, the newborn/recycling counting-lens class, not orphans"*.
+ * The ledger row then re-derived the leak from the count alone.
+ *
+ * `moving-W43N23-controllerFeeder` claims 3 and counts 1 in ALL FOUR captures -
+ * the LinkCorp absorbed two roles (walking feeder + parked port tender, spec
+ * 54) and its count lens follows one of them. That is the standing +2. The
+ * other +2 rotates across whichever corp has a newborn or a recycler in flight.
+ *
+ * So: FAIL only where the capture cannot ACQUIT it. Orphans (a non-empty
+ * `unattributed`) still fail on the original threshold; a difference the
+ * reconciliation accounts for warns and names the corps, because a corp
+ * mis-counting its own creeps is a real defect - just not a leaking one, and it
+ * must not outrank the energy lines (spec 58a's ranking argument).
+ */
+describe("X3: an untracked count the capture reconciles is not an orphan leak (t72875067)", () => {
+  const base = fixture("shard1-t72874433.json");
+  const x3 = (cap: any) => computeLedger(cap, base).find(r => r.id === "X3")!;
+
+  /** A capture clone whose creep census is replaced wholesale. */
+  const withCensus = (creeps: any): any => {
+    const c = JSON.parse(JSON.stringify(fixture("shard1-t72875067.json")));
+    c.data.core.creeps = creeps;
+    return c;
+  };
+
+  it("does not FAIL the live capture: unattributed empty, countMismatch accounts for all 4", () => {
+    const live = fixture("shard1-t72875067.json");
+    expect(live.data.core.creeps.unattributed, "no orphans in the capture").to.equal(undefined);
+    const excess = (live.data.core.creeps.countMismatch as any[]).reduce(
+      (n, m) => n + Math.max(0, m.claimed - m.counted),
+      0
+    );
+    expect(excess, "the mismatch accounts for the untracked count exactly").to.equal(
+      live.data.core.creeps.untracked
+    );
+    expect(x3(live).verdict, "reconciled ⇒ not a leak").to.not.equal("FAIL");
+    expect(x3(live).detail, "and it must name the corps that mis-count").to.include("controllerFeeder");
+  });
+
+  it("STILL FAILS on real orphans - a creep whose corpId matches no corp", () => {
+    const cap = withCensus({
+      total: 59,
+      tracked: 55,
+      untracked: 4,
+      byKind: {},
+      unattributed: [
+        { name: "a", corpId: "mining-GONE-harvest-dead" },
+        { name: "b", corpId: null },
+        { name: "c", corpId: "mining-GONE-harvest-dead" },
+        { name: "d", corpId: null }
+      ]
+    });
+    expect(x3(cap).verdict, "named orphans are the leak X3 exists for").to.equal("FAIL");
+  });
+
+  it("FAILS when the reconciliation does NOT add up - the residual is unexplained", () => {
+    // countMismatch explains 1 of 4. The other 3 have no account at all, which
+    // is the state that should have alarmed all along.
+    const cap = withCensus({
+      total: 59,
+      tracked: 55,
+      untracked: 4,
+      byKind: {},
+      countMismatch: [{ corpId: "moving-W43N23-controllerFeeder", claimed: 2, counted: 1 }]
+    });
+    expect(x3(cap).verdict).to.equal("FAIL");
+    expect(x3(cap).detail).to.include("unexplained");
+  });
+
+  it("stays ok at or below the original threshold regardless", () => {
+    const cap = withCensus({ total: 59, tracked: 57, untracked: 2, byKind: {} });
+    expect(x3(cap).verdict).to.equal("ok");
+  });
+});

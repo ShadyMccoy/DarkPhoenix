@@ -175,3 +175,41 @@ Still not patched, for the reason in §5: the ask gate and the recycle POUNCE
 share `worthABody`, so a one-sided loosening re-opens the t72773737 treadmill on
 d01f — one of the seven sources above. Acceptance remains the F2==0 cell plus
 the anti-treadmill X5 pin. Full write-up: spec 14, cycle t72871684.
+
+## Live confirmation t72874433 — the dead-band is a RANK ORDERING, not a correlation
+
+Read off `corps[].innerSizing` (the miner operation's internal CarryCorp stamps
+— spec 34 D5 moved the haulers inside the harvest kind, and their `exit` /
+`carryNeeded` / `staged` stamps ride there, not on the standalone `hauling-*`
+corps):
+
+```
+  source  staged   carryNeeded  idleSink   exit
+  cedc      3719        21        0.120     deadband
+  cd94      3504        23        0.082     deadband
+  cd98      3319        50        0.065     deadband
+  d01f      2795        38        0.084     deadband
+  cd8d      2590        22        0.182     deadband
+  ------------------------------------------------  <- the line
+  cbd5      2569        22        0.048     staffed
+  cee2      1474        29        0.067     staffed
+  cd8e      1650        12        0.126     staffed
+  cbd8      1394        32        0.037     staffed
+  cee0        30        26        0.085     staffed
+```
+
+**The five sources that stamp `deadband` are exactly the five most-piled
+sources, in order.** Previous confirmations of this mechanism were stated as a
+count ("8 of 10", "7 of 7") which invites the reading that piles and the
+dead-band merely co-occur. They do not co-occur: the ranking is monotone and the
+cut falls between 2,590 and 2,569.
+
+Their haulers are NOT idle — duty 0.81–0.93, idleSink 0.05–0.18 — so this is
+not a delivery-side stall wearing a dead-band mask. The fleet is working; there
+is simply less of it than the ask, and the ask gate declines to close the gap.
+
+Unchanged: §5's fence still holds (the ask gate and the recycle POUNCE share
+`worthABody`), so this remains un-patched pending the two-sided fix, and
+acceptance is still the F2==0 cell plus the anti-treadmill X5 pin. Recorded
+because the ordering is the sharpest evidence this spec has, and it cost one
+capture read.

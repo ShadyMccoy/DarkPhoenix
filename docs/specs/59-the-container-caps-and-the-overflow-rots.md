@@ -94,6 +94,175 @@ the ledger's own E6 verdict (*"read the carry pickup stamps"*) says where to
 look. Naming a cause from the stock alone would be a hypothesis dressed as a
 finding.
 
+## 4b. The next window falsified the reading I would have made — and named a THIRD mechanism (t72874433)
+
+619 ticks later, the same table. The piles are draining hard (buffer 29,668 →
+23,183, ground 14,105 → 9,564, +10.48 e/t of drawdown in the account) — and one
+row cannot be read at all:
+
+```
+  source          buffer   DROPPED  container            source     buffer  DROPPED  container
+  cd8d  t72873814   4316      2316     2000 (CAP)        cee0  t72873814  4348   2938   1410
+  cd8d  t72874433   2588      2588        0              cee0  t72874433    20      0     20
+```
+
+**cd8d's container went from the cap to ZERO while its ground pile GREW** (2,316
+→ 2,588). Section 4 offered two mechanisms for a below-cap container; this is a
+third reading and none of the three is implied by the stock:
+
+1. **haulers withdrew the container and left the pile.** `sourcePickupSpot` is
+   pile-first EXCEPT while the container is full — so a container-first run
+   should stop after ONE withdraw re-opens capacity. It cannot drain 2,000
+   without the pile-first branch taking over. This mechanism predicts the
+   opposite of what was measured, which is what makes the reading interesting.
+2. **the container DIED and dumped its load on the ground.** A container in an
+   unowned room decays five times as fast as an owned one; 2,000 (container) +
+   2,316 (ground) = 4,316, and the mouth then stood at 2,588 after drain and
+   decay. Arithmetically consistent — and *nothing in any capture carries a
+   remote container's hits*, which is also the inventory the account's
+   depreciation memo prices its 5.64 e/t accrual without.
+3. **there was never a container there** and `sourceBuffers - sourceDropped` was
+   reading a neighbouring structure at range 1.
+
+**Container energy of zero reads identically under all three.** Three different
+bugs, three different fixes, one number. So this cycle shipped the stamp rather
+than a story (spec 14: *"if the cause is invisible, the fix is FIRST a stamp"*).
+
+**Core v37 — `sourceMouth`**, keyed like `sourceBuffers`, publishing the three
+facts the stock cannot imply:
+
+| field | says |
+|---|---|
+| `n` | containers standing within range 1 — **emitted as 0**, because *"this source has no container"* is a positive claim and an absent key cannot make it |
+| `free` | summed free capacity — 0 IS the cap, stated instead of asking the reader to recognise 2000 |
+| `hp` | the WEAKEST container's hits fraction — a mouth is only as sound as the container that fails first |
+
+One pure lens (`sourceMouthContainers` in `corps/nodeEnergy`, beside
+`sourceBufferStock`), so the census reports what the mouth actually is.
+
+It also settles two open items elsewhere, both currently held as inferences from
+a zero: spec 54's *"neither home source has a container"* (cd90/cd92 should
+report `n: 0`), and the same spec's per-source half of the depreciation memo.
+
+**What it does NOT do: move the top line.** Nothing here drains anything.
+
+## 4c. SETTLED t72875067 — the container DIED. This is a decay loop, not a hauling defect.
+
+The census reported and cd8d is decided. Three independent facts agree, and the
+stock is none of them:
+
+```
+  tick        core v   buffer  dropped  container   sourceMouth               W43N24 site
+  72873814      36       4316     2316       2000   (not emitted)             none
+  72874433      36       2588     2588          0   (not emitted)             {n:1, rem:2427, done:2573}
+  72875067      37       3581     1581       2000   {n:1, free:0, hp:0.92}    none
+```
+
+1. **A construction site appears in W43N24 in exactly the window the container
+   reads 0** — 2,573 of **5,000 done**, the container build cost — and is gone
+   by the next capture. None before, none after.
+2. The rebuilt container reads **`hp: 0.92`, the healthiest of all ten remote
+   mouths** (the rest run 0.44–0.84). At 50 hits/tick in an unowned room that is
+   a container ~400 ticks old: built inside that window.
+3. `free: 0` — it refilled to the cap in ~600 ticks and is already back where it
+   started.
+
+**The mechanism is a loop:**
+
+> fills to cap → nothing drains it → decays unrepaired → **dies and dumps its
+> whole load on the ground, where it rots** → construction spends **5,000e**
+> rebuilding it → refills to cap in ~600 ticks → repeat.
+
+This RETIRES §4's candidate 2 (haulers drain the container and leave the pile) —
+the more interesting hypothesis, and the wrong one. The energy did not move; the
+container stopped existing. §4's candidate 1 (miner drops beside the container)
+is untouched by this and still open for cee0/cd94.
+
+**RETRACTED t72875335 — see §4d.** The paragraph below extrapolated a one-way
+slide from a single-capture LEVEL reading with no slope. The first slope reading
+falsified it: hp RISES on 7 of 10 mouths. The levels are kept because they are
+measured and they are the baseline the slope is read against; the *inference*
+from them was wrong.
+
+~~**The whole colony is on the same slide**~~, and `hp` prices the levels for the
+first time — ticks to death at 50 hits/tick *if unrepaired*, which 7 of 10 are
+not:
+
+```
+  cd8e 0.44 (~2,200)   cee2 0.60 (~3,000)   cd98 0.62 (~3,100)   cbd8 0.66 (~3,300)
+  cbd5 0.72 (~3,600)   d01f 0.73   cee0 0.73   cd94 0.73 (~3,650)
+  cedc 0.84 (~4,200)   cd8d 0.92 (~4,600, the rebuild)
+```
+
+Meanwhile the account's DEPRECIATION MEMO reads **"KEEPING UP — hits are being
+held"** (repair 7.54 e/t against a 5.73 e/t accrual). That aggregate was true
+colony-wide while one of the structures it covers decayed to death. **The memo is
+not wrong and the repair IS reaching the remote mouths** (§4d) — what the
+aggregate cannot show is that one structure inside it went to zero anyway. The
+memo's own next sentence already names the stake: *"it is paid at full rebuild
+price when a structure expires (a container is 5000 energy)."*
+
+**What this changes about the spec.** §2 asked *"why does nothing drain a full
+container"* and listed three DEMAND-side answers. Those remain the reason the
+container sits at cap. But the ROT is now shown to have a second, independent
+producer that no amount of hauling fixes: a container that dies puts its entire
+2,000e on the ground in one tick. Any fix that only addresses demand leaves this
+loop running, and the loop's cost is not just the rot — it is **5,000e of
+construction per lap**, which the account books as `construction (built)` and
+therefore reads as investment rather than as replacement of a wasted asset.
+
+Two things this does NOT establish, stated so they are not assumed: whether the
+same loop has already run at the other mouths (no `hp` history exists before
+v37 — the first slope reading lands next cycle), and why remote-mouth repair is
+not happening when colony repair is above its accrual. The second is the
+actionable question and it belongs to whoever picks this up — likely spec 16
+(construction as projects) rather than this spec.
+
+## 4d. The first hp SLOPE falsifies "one-way slide" — repair is there, and the question sharpens (t72875335)
+
+268 ticks after §4c was written, the first slope reading:
+
+```
+  RISING (7)   cd98 +0.07   cee2 +0.05   cbd5 +0.05   cd94 +0.05
+               cd8e +0.04   cbd8 +0.04   cedc +0.04
+  FALLING (3)  cee0 -0.06   cd8d -0.06   d01f -0.04
+  ------------------------------------------------------------
+  NET          +0.18 hp-units — colony container hits are GAINING
+```
+
+§4c's *"every remote mouth container is on a one-way slide"* is **retracted**. It
+was an extrapolation from a LEVEL with no slope, and a level alone cannot tell
+"decaying unrepaired" from "repaired and holding at a working equilibrium".
+
+The arithmetic, so nobody re-derives it: +0.05 hp over 268t is +12,500 hits net
+against −13,400 hits of unrepaired decay (50 hits/tick, unowned room), so gross
+repair ≈ 25,900 hits ≈ **97 hits/tick ≈ one WORK part** (REPAIR_POWER 100, 1
+energy per WORK-tick). Holding all ten mouths costs ~500 hits/tick ≈ **5 e/t**
+against 7.14 e/t of measured colony repair that also covers roads and ramparts.
+**The budget is roughly right; the ALLOCATION rotates.**
+
+Two fallers explain themselves, one does not:
+
+- **d01f** — W41N23 is HOSTILE this window (`hostileUntil: 72876621`); no
+  repairer can reach it.
+- **cd8d** — the fresh rebuild at 0.92, healthiest of the ten. A lowest-hits-first
+  repairer correctly skips it.
+- **cee0** — 0.73 → 0.67, mid-pack, reachable, not prioritised. **Unexplained.**
+
+**This makes cd8d's death harder to explain, not easier.** Under lowest-first
+rotation it should have been top priority as it approached zero. Something let it
+through.
+
+So the question this spec now carries is not *"why is nothing repaired"* — things
+are — but:
+
+> **How does a mouth container reach zero while a repairer with spare budget is
+> working its neighbours?**
+
+Everything in §4c about the loop ITSELF stands: cd8d died, and construction spent
+5,000e rebuilding it, on the site ledger's own evidence. The cause is a coverage
+gap, not an absence — a different fix, and a smaller one.
+
 ## 5. Acceptance
 
 No fix is proposed here; this spec exists so the mechanism is not re-derived.

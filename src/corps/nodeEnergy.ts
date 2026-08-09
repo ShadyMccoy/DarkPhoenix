@@ -858,6 +858,56 @@ export function sourceDroppedStock(source: Source): number | null {
   }
 }
 
+/** The container census at one source mouth - see {@link sourceMouthContainers}. */
+export interface SourceMouthContainers {
+  /** Containers standing within range 1 of the source. */
+  n: number;
+  /** Free capacity summed across them - 0 is the CAP, where overflow starts rotting. */
+  free?: number;
+  /** Weakest container's hits fraction (2dp) - the one that drops its load first. */
+  hp?: number;
+}
+
+/**
+ * The CONTAINER at a source's mouth as a fact, not an inference.
+ *
+ * `sourceBufferStock` minus `sourceDroppedStock` gives the energy a mouth holds
+ * in containers, and that number is zero under three different worlds: an empty
+ * container, a container that just died and dumped its load on the ground, and a
+ * mouth that never had one. Live cd8d went from container 2000 (at cap) to
+ * container 0 in 619 ticks WHILE its ground pile grew - a reading all three
+ * explain and none is implied (spec 59 section 4).
+ *
+ * So this reports the three facts the stock cannot: whether a container is there
+ * (`n`, emitted as 0 rather than omitted - "this source has no container" is a
+ * positive claim), whether it is at cap (`free`), and whether it is dying (`hp`,
+ * the WORST of them: a mouth is only as sound as the container that fails
+ * first). Remote containers decay five times as fast as owned ones and no
+ * capture has ever carried their hits, which is also the inventory the account's
+ * depreciation memo prices its accrual without.
+ *
+ * Null when unmeasurable (a partial mock without wired finds) - a different fact
+ * from "no containers", exactly as `sourceBufferStock` treats it.
+ */
+export function sourceMouthContainers(source: Source): SourceMouthContainers | null {
+  try {
+    const containers = source.pos
+      .findInRange(FIND_STRUCTURES, 1)
+      .filter(s => s.structureType === STRUCTURE_CONTAINER) as StructureContainer[];
+    if (containers.length === 0) return { n: 0 };
+    let free = 0;
+    let hp = 1;
+    for (const c of containers) {
+      free += c.store?.getFreeCapacity?.(RESOURCE_ENERGY) ?? 0;
+      const max = c.hitsMax ?? 0;
+      if (max > 0) hp = Math.min(hp, (c.hits ?? 0) / max);
+    }
+    return { n: containers.length, free, hp: Math.round(hp * 100) / 100 };
+  } catch {
+    return null;
+  }
+}
+
 export function sourceBufferStock(source: Source): number | null {
   try {
     let stock = 0;

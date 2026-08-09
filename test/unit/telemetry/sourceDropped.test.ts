@@ -94,7 +94,9 @@ describe("core segment: sourceDropped reaches the wire (v36)", () => {
     // 2,000 banked in a container (keeps) + 500 on the ground (rots at 1 e/t).
     Game.rooms = roomWith([mkSource("aaaaaa111111", 2000, 500)]) as any;
     const c = core();
-    expect(c.version, "the emission is a schema change").to.equal(36);
+    // The emission was the v36 schema change; the pin tracks the segment's
+    // current version so a bump cannot slip past this file unread.
+    expect(c.version, "core segment version").to.equal(38);
     expect(c.sourceBuffers["111111"], "buffer = container + ground").to.equal(2500);
     expect(c.sourceDropped, "the rotting share must REACH THE WIRE").to.not.equal(undefined);
     expect(c.sourceDropped["111111"]).to.equal(500);
