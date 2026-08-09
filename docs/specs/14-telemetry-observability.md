@@ -12166,3 +12166,109 @@ Predictions, written before the deploy:
 4. **The top line does NOT move.** Nothing in this deploy touches Mechanism A or
    B. If pile decay improves, that is unattributed to this change and must be
    read as such.
+
+## Post-deploy verification t72873814 — 3 of 4 predictions confirmed, and the deploy CORRECTED a diagnosis rather than only fixing a bug
+
+~814 ticks after deploying specs 56 + 57 + core v36. Window 878t. **Read the
+spawn-measured lines with care: the deploy's global reset wiped the blackbox
+ring, so F1/S5/X5 are over 423t of POST-RESET RECOVERY, not steady state** (the
+method's own warning; X5 reads 0 of 18,400e, which is the recovery being clean,
+not a churn measurement).
+
+### Prediction 1 — CONFIRMED, and it settles the top line
+
+`sourceDropped` reached the wire. The first container-vs-ground split this
+project has ever had:
+
+```
+  source   buffer  DROPPED  container       source   buffer  DROPPED  container
+  cd98       6561     4561     2000  (cap)  d01f       2628      628     2000  (cap)
+  cee0       4348     2938     1410         cd8e       2122      122     2000  (cap)
+  cd8d       4316     2316     2000  (cap)  cee2       1450        0     1450
+  cedc       3614     1614     2000  (cap)  cbd8       1288        0     1288
+  cd94       3128     1918     1210         cbd5        205        0      205
+  ---------------------------------------------------------------------------
+  TOTAL     29668    14105    15563    ->   48% of the mouth stock is ON THE GROUND
+```
+
+**The mechanism is now visible and it is not what "pile" suggested.** Five of
+the seven rotting sources have their container at **exactly 2000 — the container
+cap** — and the entire overflow is on the ground. The containers are built, they
+are working, and they are FULL. Ground decay is not a container-placement
+failure; it is what happens to everything mined after the buffer tops out.
+
+Summing `ceil(amount/1000)` over those piles gives ~18 e/t against the ledger's
+measured 23.62 — consistent (the ledger averages over a window in which the
+piles were larger).
+
+Two sources break the pattern and are their own question: **cee0 (container
+1,410, ground 2,938) and cd94 (1,210 / 1,918) hold ground piles while their
+container is BELOW cap.** Either the miner is dropping beside the container
+rather than into it, or haulers drain the container (one withdraw) and leave the
+pile (needs a pickup). Not diagnosed here — it needs the pickup stamps, and
+naming a cause without them would be a hypothesis dressed as a finding.
+
+### Prediction 2 — CONFIRMED, and it corrects spec 54
+
+Port (43,38) now has a buffer. Containers 3 → 4, sites 1 → 0, both ports
+`hasContainer: true`. The gate opened and the rung fired, first time ever.
+
+**But the tile is the finding.** The buffer landed at **(41,36)** — the exact
+tile spec 54 called *"the dead controller container ... BLOCKING the second
+port"* and shipped a reclaim path to destroy. Same tile, same room, same
+container, and only the code changed:
+
+```
+  t72869702  core v35 (old)   (41,36) role "controller"   supersededControllerContainer: FLAGGED
+  t72873814  core v36 (mine)  (41,36) role "port"         supersededControllerContainer: None
+```
+
+The only edit between them is spec 56 narrowing the census's controller role
+from a local **4** to `CONTROLLER_CONTAINER_RANGE` (**3**). So the controller
+sits at chebyshev exactly **4** from (41,36) — inside the one-tile band where
+the census (4) and the tender (3) disagreed.
+
+**(41,36) was never the controller's feed store. It was port (43,38)'s own
+buffer, misclassified.** Which means spec 54's fight loop had its causality
+backwards: construction was correctly placing the port's buffer, and the reclaim
+rung was correctly-by-its-own-lights demolishing it, at 5,000e and a builder per
+round. Neither rung was wrong; the census was, by one tile.
+
+Spec 56 stated this as a latent *hazard* (*"could therefore mark a live, tended
+port buffer for demolition"*). It was not latent. It was the live incident, and
+it was the whole of spec 54 open item 4. Both specs corrected.
+
+### Prediction 3 — UNVERIFIED, and it will stay that way from captures
+
+`port-untended` alerts print to the live console; nothing exports them to a
+segment. A capture cannot confirm or deny this prediction. That is a gap in the
+watchdog's own observability — the alarm spec 57 added to make a silent failure
+loud is itself only visible to someone watching the console. **Work item: route
+watchdog alerts into the black box** (`blackBoxRecord` already takes them at the
+flush; the alert KINDS are not queryable from a capture).
+
+### Prediction 4 — CONFIRMED (the top line did not improve)
+
+Pile decay **19.26 → 23.62 e/t**, L1 now **94.49×** budget. As predicted,
+nothing deployed touches Mechanism A (dead-band) or B (construction-routed
+sources), and the top line moved the wrong way. It is NOT attributed to the
+deploy — the trend predates it (17.32 → 19.26 → 23.62 across three cycles).
+
+Genuine improvements in the same window, none of them claimed for this deploy:
+piles 33,657 → 29,668 (drawdown +4.54 e/t), E6 8 → 6 deferred, scavengers 1 → 5
+(spec 44's recovery fleet ramping), reservation 16.61 → 4.44 e/t, bank slope
+-38.29 → -7.84. The demand-side idling is gone (S4 2%, 100% "buy" latency), but
+that is post-reset recovery and cannot be read as steady state either.
+
+### Cycle verdict: **VERIFIED + TWO DIAGNOSES CORRECTED**
+
+3 of 4 predictions confirmed, 1 unverifiable-by-construction and recorded as an
+observability gap. The deployed change did exactly what it claimed on the port
+buffer and nothing at all for the top line — which is what was predicted.
+
+**The top line is now localised as it never was before:** 48% of 29,668e stands
+on the ground because seven containers are AT CAP. The next cycle's question is
+no longer "why do piles form" but "why does nothing drain a full container" —
+and Mechanism B (cee0 `carryNeeded 1`, cd98 `carryNeeded 0`) plus Mechanism A
+(the dead-band) are the two answers already on file, with spec 39's seam as the
+structural fix.

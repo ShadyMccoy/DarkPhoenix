@@ -88,12 +88,26 @@ this port's"*.
 
 It stopped mirroring the moment the controller guard was added to one side.
 
-There was a **fifth** number too. The census classified a container as role
-`"controller"` at range **4**, while the tender's guard is 3. A container 4
-tiles from the controller is a genuine port buffer to every other reader — and
-`supersededControllerContainer` (role `"controller"` + a controller link) is
-what `reclaimableContainer` **destroys**. The census could therefore mark a
-live, tended port buffer for demolition.
+There was a **fifth** number too, and it turned out to be the biggest of them.
+The census classified a container as role `"controller"` at range **4**, while
+the tender's guard is 3. A container 4 tiles from the controller is a genuine
+port buffer to every other reader — and `supersededControllerContainer` (role
+`"controller"` + a controller link) is what `reclaimableContainer` **destroys**.
+The census could therefore mark a live, tended port buffer for demolition.
+
+**CORRECTION 2026-08-09 (t72873814): "could" is too weak — it WAS, and it is the
+whole of D3.** Post-deploy, the same tile (41,36) that spec 54 called *"the dead
+controller container"* reads role `"port"` with `supersededControllerContainer:
+None`, and port (43,38) reads `hasContainer: true`. The only edit between the
+two captures is this range change, so the controller sits at chebyshev exactly 4
+from (41,36) — the one-tile band. **(41,36) was never the controller's feed
+store; it was the port's buffer.** So D3's fight loop was not "the controller
+rung sites carelessly and the reclaim cleans up" — it was construction correctly
+building the port's buffer and the reclaim correctly destroying what the census
+called dead. The `findMissingControllerContainer` guard shipped here is still
+right (it prevents a *different* collision), but the loop that was actually
+burning 5,000e a round was this off-by-one-tile classification, and narrowing
+the census is what stopped it.
 
 ### D3 — the fight loop (spec 54 open item 4, which went backwards)
 

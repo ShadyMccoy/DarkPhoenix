@@ -92,6 +92,29 @@ inconsistency and it is open item 3.**
 
 ## 4. The dead controller container (owner: *"the controller link should not have a container"*)
 
+> **CORRECTED 2026-08-09 (t72873814). Read this before the section below: the
+> container at (41,36) was NOT dead controller plumbing. It was port (43,38)'s
+> own buffer, misclassified by one tile.**
+>
+> The census assigned role `"controller"` at range **4**; the tender's guard is
+> `CONTROLLER_CONTAINER_RANGE` = **3**; the controller sits at chebyshev exactly
+> 4 from (41,36). Spec 56 narrowed the census to the shared constant, and the
+> same tile now reads role `"port"` with `supersededControllerContainer: None`
+> and both ports `hasContainer: true`. Only the code changed between those two
+> captures.
+>
+> So the fight loop this spec describes had its causality backwards.
+> Construction was correctly placing the port's buffer; `reclaimableContainer`
+> was correctly-by-its-own-lights demolishing a container the census told it was
+> dead. **Neither rung was wrong — the census was, by one tile** — and the
+> reclaim path this section ships was aimed at a live, wanted structure. The
+> 5,000e-per-round cost was real and the attribution was not.
+>
+> What survives: the `full`-gate lift is still right for a genuinely superseded
+> container, and the owner's *"the controller link should not have a container"*
+> still stands. What does not: the specific (41,36) diagnosis, and open item 4's
+> reading of it. Full write-up: spec 14, post-deploy t72873814.
+
 Not merely redundant — it was BLOCKING the second port. The superseded
 controller container sits at (41,36), the deposit port link at (43,38):
 chebyshev **2**, which is exactly the range `resolvePortBuffer` searches and
