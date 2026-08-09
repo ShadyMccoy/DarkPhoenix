@@ -11906,3 +11906,114 @@ churn pinned by test, not a threshold nudge.
 
 Recorded as the next work item with the mechanism fully localised. Not patched in
 this pass: a one-sided loosening re-opens a measured incident.
+
+## Audit cycle t72871684 — the perennial piles are TWO mechanisms, and the second one is a route nobody drives
+
+Window t72869702 → t72871684 (1,982t), methodology #18, sweep at **11% handicap,
+cycle 1** (spec 50 walking normally). Ledger: 3 FAIL (S5, L1, X3), TOP LINE
+printed as S5.
+
+**The account says the top line is not S5.** L1 breaches by **69.28×** on one
+row — ground pile decay **17.32 e/t against a budget of 0.00** — and the
+TARGETS block prices it colony-wide: losses are **21% of mining capacity**,
+against controller 61% and build 5%. S5's finding (0.647 of 0.667 p/t, a 3%
+surge margin) is real and is *why the piles cannot simply be hauled away*, but
+it is a headroom advisory, not the leak. Read the account first, as the method
+says; the picker's ranking is worth revisiting.
+
+### The aggregate hid the defect (a read I got wrong first, and the fix for it)
+
+Fielded CARRY is 381 against a plan asking 252.8 — which looks like a fleet
+**51% OVER** the ask, and would falsify spec 55 outright. It is wrong. 381 is
+colony-wide carry; 101 of it is on BUILDING corps and 45 on the feeder/tender.
+Decomposed by corp type, **source-route haulage is 230 fielded against 236.7
+planned — 97%, essentially AT plan.**
+
+P11 states this trap in the ledger itself (*"source-route carry alone is 236.7 -
+compare fielded CARRY against THAT"*) and it still caught me. Any future
+plan-vs-actual carry claim must name which carry it is comparing.
+
+### Mechanism A — the dead-band, CONFIRMED live on 8 of 10 piled sources
+
+The corps' own hauling stamps, this capture:
+
+```
+  source  pile  carryNeeded  creeps  exit         duty
+  cedc    3665      22          1    deadband     0.886
+  cd94    2413      21          1    deadband     0.833
+  cd8d    2506      20          1    deadband     0.884
+  cee2    2644      34          2    deadband     0.923
+  d01f    2069      38          2    deadband     0.963
+  cbd5    1274      24          1    deadband     0.952
+  cbd8     332      33          2    deadband     0.965
+```
+
+Spec 55's mechanism (2) is not a historical note — `exit: "deadband"` is being
+stamped right now on 8 of the 10 piled sources, and the 97% aggregate above is
+what conceals it: the over-fielded sources (cd8d 161% of declared, cd98 353%)
+net out the starved ones (cedc 74%, cd94 78%). **The colony fields the right
+TOTAL carry and puts it on the wrong routes.**
+
+The correlation runs backwards: the most-piled source has the least carry, the
+least-piled ones are over-fielded. Not patched here — spec 55 §5 forbids a
+one-sided loosening (the ask gate and the recycle POUNCE share `worthABody`, and
+d01f, one of these very sources, is the t72773737 treadmill's own incident).
+Acceptance is still the F2==0 cell that does not exist.
+
+### Mechanism B — 19.88 e/t routed to a sink whose supply line nobody drives (NEW)
+
+Two sources are routed to CONSTRUCTION sinks rather than storage:
+
+```
+  cd98 -> construction-6a77baf91   flow 10.00 e/t   carry  9.07   d=20
+  cee0 -> construction-6a77bf172   flow  9.88 e/t   carry 17.65   d=36
+  TOTAL                                  19.88 e/t   carry 26.72
+```
+
+`19.88` is the APPROPRIATIONS **construction BUDGET line, to the decimal**.
+Delivered: **6.54**. Variance **-13.34 U**, the largest single unfavourable line
+in the account.
+
+The mining corps decline that energy *by design* — `haulCarryNeeded` opens with
+
+```ts
+const routes = this.haulerAssignments.filter(a => !(a.toId ?? "").startsWith("construction-"));
+if (routes.length === 0) return 0; // construction-only: the tankers own this energy, pile or no pile
+```
+
+— so cee0 stamps `carryNeeded: 1` and `exit: "staffed"` while **4,275e stands
+staged** and its miner is pile-gated **84% of the window**; cd98 stamps
+`carryNeeded: 0`. Both stamps are *correct* under that rule. The rule hands the
+energy to the construction corp's tankers.
+
+**The tankers are not collecting it.** `building-W43N23-construction` stamps
+`dedicatedSource: 1`, `tankers: 2`, `tankerCarryNeeded: 37`, **`tankerDist: 10`**
+— sized for a 10-tile haul, while the plan's two construction supply routes are
+d=36 and d=20. `building-W42N22-construction`, in cee0's own room, is one 4-part
+runt with `consumes.energyRate: 0`.
+
+So the plan prices 26.72 CARRY of supply line, charges it to the parts ledger,
+and no corp drives it. **This is spec 49's Blocker 1 — *"the plan would price a
+route nobody drives"* — realised live, and in the direction that spec did not
+anticipate**: not an overflow route it declined to build, but a construction
+supply line it already prices. The two sources carry **5,431e of the colony's
+23,456e of piles (23%)** and are the only two whose miners are starved by a rule
+that believes someone else is coming.
+
+Neither corp is wrong locally. Nobody owns the middle — the same sentence spec
+54 §2 used about the port link, one subsystem over.
+
+### Cycle verdict: **INSTRUMENTED + BLOCKER NAMED WITH DATA** (no code change)
+
+No fix shipped, deliberately. Mechanism A is fenced by spec 55 §5 pending its
+F2==0 cell; Mechanism B is an OWNERSHIP seam (which corp buys a construction
+supply line), and spec 39's spawn-authority ratchet is the same blocker spec 49
+already recorded — the second patch on a mechanism is the trap, so the mechanism
+gets written down rather than nudged.
+
+What a future session should NOT re-derive:
+- the 97% aggregate is not health, it is two errors cancelling;
+- `carryNeeded: 1` beside `staged: 4275` is not a sizing bug, it is a deliberate
+  hand-off to a tanker that never arrives;
+- the construction BUDGET line equals the construction-routed source flow
+  exactly, so that variance is a *delivery* failure, never a pricing one.
