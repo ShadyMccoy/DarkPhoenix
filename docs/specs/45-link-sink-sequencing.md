@@ -595,3 +595,37 @@ a lower routed load than `DEPOSIT_PORT_HEADROOM` assumes, or a second link, or
 the container buffer genuinely earns its keep there (this is the `rho >= 1.0`
 saturated band from the sizing law, where a buffer fills once and stays full —
 so it is the ROUTED LOAD that must come down, not the buffer that must go up).
+
+## Re-measured t72874433 (audit cycle) — the sink wait has roughly HALVED, and the one source it has not is the one nobody can explain
+
+The stake above was priced on per-corp `idleSinkFrac` at t72787778. The same
+stamps, read off `corps[].innerSizing` in the t72874433 capture (a fresh window,
+no deploy in it, sequencing legs still UNSHIPPED):
+
+| source | idleSinkFrac (spec 45 stake) | t72874433 | |
+|---|---|---|---|
+| cedc | 0.266 | **0.120** | −55% |
+| cd94 | 0.200 | **0.082** | −59% |
+| cee2 | 0.124 | **0.067** | −46% |
+| cd8d | 0.170 | **0.182** | +7% |
+
+Colony-wide H1 reads duty **0.92**, idleSink **0.07** (atSink 0.03, enRoute
+0.04) — against the 12–27% band this spec was written on. **Not claimed for
+anything**: the only sequencing-side change deployed since is the feeder
+volley-service floor (fix #2c, the SIZING leg), and the 08-03/04 allocation
+continuity work sits in the same interval. What the numbers do establish is that
+the stake needs re-pricing before the sequencing legs are scoped: three of the
+four named sources are now at half the idle this spec budgeted its fix against.
+
+**cd8d is the exception and it is the same source spec 59 §4b cannot explain** —
+its container went from the 2000 cap to ZERO in that window while its ground pile
+grew, and it is the only one of the four whose sink wait did not fall. Whether
+those are one fact or two is exactly what core v37's `sourceMouth` census
+settles; do not scope the sequencing legs against cd8d until it reports.
+
+The other L1 half is unchanged: `exit: "deadband"` (spec 55 mechanism 2) is
+stamped on **the five most-piled sources and no others** — cedc 3,719 / cd94
+3,504 / cd98 3,319 / d01f 2,795 / cd8d 2,590 all decline the marginal hauler,
+and the sixth-largest (cbd5, 2,569) is the first that reads `staffed`. That is a
+cleaner statement of the same defect than the "8 of 10" this spec's companion
+recorded, and it is a rank ordering, not a correlation.
