@@ -203,6 +203,32 @@ change moves; a FULL grid run has not been made.
    `portWaits` falls and `portFallbacks` stops being structurally 0; the
    controller rung stops re-placing (41,36) and the container count stops
    oscillating 3↔4.
+
+   **PRE-DEPLOY OBSERVATION t72871684 (this change is NOT live yet), and it
+   supports the diagnosis on the one point that was still inferential.** The
+   deployed build has since reclaimed the dead controller container — (41,36)
+   is gone from the live table — so every blocker this spec identified as
+   *external* to the rung has cleared on its own:
+
+   ```
+   containers  3 built + 1 site of 5   free 1   full false
+   ports       (46,11) hasContainer true
+               (43,38) hasContainer FALSE
+   ```
+
+   The table is **not full**, a slot is **free**, the census now reports the
+   port honestly as bare — and the rung has still placed nothing. That is the
+   cleanest available evidence that the cap was never the binding constraint,
+   which is this spec's central claim and was argued from code rather than
+   measured.
+
+   **Honest limit on that read:** it does not isolate D1 from D2. The census's
+   `hasContainer: false` is the DEPLOYED (unguarded) scan agreeing by accident
+   now that (41,36) is gone, so D2's lens defect is currently dormant in this
+   room; and a source-container site legitimately stands ahead of rung 1.6 in
+   the ladder this tick, so the gate is open for another rung's reason. The
+   capture is consistent with the diagnosis and does not prove D1 alone. Only a
+   post-deploy capture with the source rung satisfied does that.
 2. **`findMissingRecyclePad` has the identical D1 defect** and is NOT fixed
    here — it is also absent from `wantsAnyContainer`, so the recycle pad rung is
    a passenger in exactly the same way. Named rather than silently fixed

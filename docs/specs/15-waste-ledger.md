@@ -652,3 +652,43 @@ amount. Two changes:
 volley, with `coreCongestedShare 0.099`. The plan assumes the link carries the
 routed flow. More than half the time it cannot. That is a throughput ceiling the
 plan does not model at all, and it is the next link question.
+
+## The TOP LINE picker ranks a margin advisory above the largest loss (t72871684)
+
+The ledger closes with `TOP LINE: <row> - this is the cycle's work item`, and
+the audit method treats that as the cycle's instruction. At t72871684 it printed
+**S5** (spawn-throughput headroom, *0.97× physical ceiling — a 3% surge margin*)
+while the account's own numbers said otherwise:
+
+```
+  L1  loss-budget adherence   69.28 x budget   BREACH pile decay 17.32 vs 0.00
+  S5  spawn headroom          0.97 x ceiling   3% surge margin
+```
+
+17.32 e/t is **14% of gross mining** and the single largest measured loss in the
+account; the TARGETS block prices losses at **21% of capacity** against
+controller 61%. S5 is a real finding — it is *why* the piles cannot simply be
+hauled away — but it is a **capacity advisory**, not a leak, and it names no
+energy at all.
+
+The two are not comparable on any shared axis today: S5's number is a
+dimensionless ratio against a ceiling, L1's is a multiple of a budget, and
+neither is e/t. So "highest number wins" ranks a 0.97 against a 69.28 without
+either meaning what the ordering implies.
+
+**Proposed, not built:** rank the FAIL rows by the e/t they name, and let rows
+that name no energy (S5, X3, P4) rank below every row that does, however extreme
+their own ratio. A row with no energy term is a *precondition* on fixing the
+ones that have one. The method already tells the reader to *"READ THE ENERGY
+ACCOUNT FIRST, then the ledger"* — the picker should not then contradict the
+account.
+
+**This bumps `METHODOLOGY`** (currently #18): the TOP LINE is what a cycle acts
+on, so two reports whose pickers rank differently are not comparable cycles.
+Change the stamp in the same commit.
+
+Counter-argument to weigh first, because it is not obviously wrong: S5 being
+binding is exactly what makes L1 unfixable-by-buying, and a picker that always
+surfaces the biggest number would have sent three straight cycles at a leak
+whose fix the spawn cannot afford. The honest fix may be to print BOTH — the
+largest loss and the binding constraint on fixing it — rather than to re-rank.

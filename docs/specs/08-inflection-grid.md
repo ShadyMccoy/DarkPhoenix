@@ -1692,3 +1692,44 @@ or bot source by the reviewer.
 5. spawn-93-fresh-miner-beats-scaling-hauler at T2 is the scheduler avenue's highest-leverage regression cell (the tiering comment it guards, SpawnScheduler.ts:144-157, is the load-bearing design decision) — correctly tiered, just fix the #93 label (see wrong_behavior).
 
 6. The reserver pair (T5) is correctly the deepest tier: it requires two rooms, remote staging, AND the collectDemands forced-grouping (SpawnDirector.ts:197-222 verified: groupId=c.id, groupStarted=true, so 1,001,092 vs blocking miner 1,010,100 — the yields-to-blocking-miner ordering the cell asserts is exactly what the code computes).
+
+## The baseline and this environment disagree on three construction cells (2026-08-09)
+
+Running `--avenue construction` (23 cells) during spec 56's gate: 20 green, 3
+red.
+
+```
+  [T] cons-link-core-first             (T4, timeout @60/60t)
+  [T] cons-link-farthest-source        (T4, timeout @60/60t)
+  [T] cons-t3-build-and-repair-concurrent (T3, timeout @400/400t)
+```
+
+`test/grid/baseline.json` lists all three as **`pass`**.
+
+**Attribution was run the only way it means anything** (fix protocol: *"a red
+cell gates a deploy only if it is red BECAUSE of the pending change"*): stash the
+change, rebuild master, re-run those three cells. They fail **byte-identically**
+on unmodified master, with the same assertion strings and the same
+timeout-at-window signature. The pending change is acquitted.
+
+That leaves the real finding, which is not about spec 56 at all: **a fresh
+sandbox in this container reproduces three baseline-`pass` cells as red.** The
+ratchet's whole value is that a red cell means a regression; three cells that go
+red on the deployed source with no change in front of them devalue it until
+someone attributes them. Candidates, unexamined:
+
+- an ENVIRONMENT difference (this container built `isolated-vm` and the driver
+  runtime bundle from source via `npm run setup:test-env`; CLAUDE.md already
+  documents that a broken bundle fails cells invisibly — but here the other 20
+  cells in the same worlds passed, which argues against it);
+- **batch/world partitioning**: `partition()` groups cells into worlds, and a
+  `--avenue`/`--cell` filter changes that grouping. The 3 cells were re-run
+  alone (2 worlds → 1) and failed the same way, so the grouping is not obviously
+  the cause, but a FULL run has not been made this session and would settle it;
+- a genuine regression on master that landed after the last baseline update, in
+  which case the baseline is stale and the cells are telling the truth.
+
+**Next step is one full `npm run grid` on unmodified master.** Until that runs,
+neither "the environment is broken" nor "the baseline is stale" may be asserted
+— and this note exists so the next session does not re-derive the acquittal from
+scratch, nor mistake these three for its own damage.

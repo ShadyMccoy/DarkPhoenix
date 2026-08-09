@@ -12017,3 +12017,50 @@ What a future session should NOT re-derive:
   hand-off to a tanker that never arrives;
 - the construction BUDGET line equals the construction-routed source flow
   exactly, so that variance is a *delivery* failure, never a pricing one.
+
+## Methodology note #8 — an UNPLUGGED meter reads exactly like an empty one
+
+Found 2026-08-09, by being asked a question the instruments could not answer.
+
+`sourceDropped` (core v19) exists to split a source mouth's buffer into the part
+held in a CONTAINER (which keeps) and the part on the GROUND (which rots at
+`ceil(amount/1000)` per tick). Its docblock states the case correctly. The
+computation is correct. It was never added to the returned object — five
+references in `coreSegment.ts` (import, interface field, declaration, read,
+write) and no emission.
+
+So the field produced **zero data points**: absent from every capture in
+`test/fixtures/telemetry/`, and `fiscalArchive` archived `sd: undefined` for
+every fiscal month it has ever closed. Nothing failed. Nothing warned.
+
+**The trap is at the READING end, not the writing end.** Spec 54 open item 8
+concluded *"BLOCKED on the absent `sourceDropped` meter"* and stopped — a
+reasonable inference from a capture that does not contain the field, and wrong.
+There is no observable difference between:
+
+- a field that is legitimately empty (no dropped energy anywhere), and
+- a field that is computed and thrown away,
+
+because both are absent from the wire, and this codebase deliberately omits
+empty optionals so that *absent* and *zero* stay different facts. That
+convention is right, and it is exactly what hid this: the convention makes
+"nothing to report" indistinguishable from "nothing was wired".
+
+Rules this yields, in order of how much they would have saved:
+
+1. **A telemetry field is not shipped until a capture contains it.** Declaring
+   the interface, computing the value and reviewing the docblock all passed
+   here. Only "grep a real capture for the key" would have failed.
+2. **When a spec blocks on a missing meter, check the meter is emitted before
+   recording the block.** Item 8 sat blocked for a session on a field that had
+   been in the tree since v19.
+3. **`git log -S <field>` on the segment file is the cheap check** — it shows
+   the field arriving and never being wired, in one command.
+
+**Not yet built: a cop for the class.** Every optional in `CoreTelemetry` could
+be asserted reachable — a test that stages a room exercising each field and
+requires the key to appear at least once. That is a real test-writing cost per
+field and it would have caught this one; it is proposed, not shipped, and it
+belongs with spec 09's schema-versioning phase rather than here. Whoever picks
+it up should check the OTHER segments too: nothing about this defect is specific
+to segment 0, and no one has looked.

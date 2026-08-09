@@ -239,6 +239,20 @@ it stands. `energyLost` still reports it, so the trade is visible, never silent.
    dropped energy is exactly the `sourceDropped` field that is ABSENT from every
    capture (see spec 14 t72869702), so this is blocked on that meter.
 
+   **UNBLOCKED 2026-08-09 — and "absent" was the wrong word.** `sourceDropped`
+   was never missing: it was DECLARED at core v19, computed correctly every
+   tick, and then never added to the returned object. Five references in
+   `coreSegment.ts` and no emission, so it produced zero data points and
+   `fiscalArchive` archived `sd: undefined` for every month it has closed. An
+   unplugged meter and a legitimately empty one read identically, which is why
+   this item sat blocked on a field that was already there. Emitted at **core
+   v36**; the next capture answers item 8 either way. The live buffers at
+   t72871684 are `dbcd90: 0`, `dbcd92: 0` — still the two lowest in the colony,
+   still consistent with both readings.
+
+   Generalised as a defect class in spec 14 (methodology note, 2026-08-09):
+   nothing in the tree fails when a declared telemetry field is never emitted.
+
 9. **The census and the lens disagree about `hasContainer`.** `classifyContainers`
    sets `hasContainer: room.containers.some(c => cheb(c.pos, l) <= 2)` with no
    controller-range exclusion, while `portPosts` applies the
@@ -249,12 +263,35 @@ it stands. `energyLost` still reports it, so the trade is visible, never silent.
    applies everywhere else (one lens, both sides). Cheap fix: the census calls
    `portPosts`, or shares its filter.
 
+   **CLOSED by [spec 56](56-port-buffer-one-lens.md) (2026-08-08).** It was not
+   two lenses but FOUR — placement and delivery ran the same unguarded scan —
+   and the disagreement was not cosmetic, it deadlocked the port rung. All four
+   now resolve through `isPortBuffer`. Confirmed live t72871684: the census
+   reports `(43,38) hasContainer: false`, which is the honest answer.
+
 10. **An orphan container holds 1,363e** at (41,22), classified `"other"` — not
     within 1 of a source, not within 2 of storage, not within 4 of the
     controller, not within 2 of any port link. Real energy in a container nothing
     claims. Either it serves something the ladder does not model, or it is a
     leftover the reclaim rung should collect. Unidentified; listed so it is not
     lost.
+
+    **WORSE at t72871684: it is now at the container cap, 2000/2000.** It gained
+    ~640e over ~2,000 ticks and has stopped, because it is full — so it is not
+    a transient, it is a one-way store. Two costs, and the second is the larger:
+    2,000e of frozen capital, and one of five capped container slots held by a
+    structure no role reads, in the same room where port (43,38) has no buffer
+    and the source rung is queueing.
+
+    `reclaimableContainer` will not collect it — that rung only ever targets
+    `supersededControllerContainer`, and this one is role `"other"`. So nothing
+    in the tree can retire it today. **Still unidentified**, and identifying it
+    is the first step: a container that fills to the cap and stays there has
+    SOMETHING delivering into it, so the question is which role drops there and
+    why nothing withdraws. Worth one read of the haul assignments against
+    (41,22) before any reclaim rung is widened - widening a demolition rule to
+    cover "roles we do not recognise" is the wrong instinct on a structure we
+    have not explained.
 
 ## 6. Related
 
