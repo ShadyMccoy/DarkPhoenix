@@ -178,8 +178,15 @@ the more interesting hypothesis, and the wrong one. The energy did not move; the
 container stopped existing. §4's candidate 1 (miner drops beside the container)
 is untouched by this and still open for cee0/cd94.
 
-**The whole colony is on the same slide**, and `hp` prices it for the first
-time — ticks to death at 50 hits/tick, unrepaired:
+**RETRACTED t72875335 — see §4d.** The paragraph below extrapolated a one-way
+slide from a single-capture LEVEL reading with no slope. The first slope reading
+falsified it: hp RISES on 7 of 10 mouths. The levels are kept because they are
+measured and they are the baseline the slope is read against; the *inference*
+from them was wrong.
+
+~~**The whole colony is on the same slide**~~, and `hp` prices the levels for the
+first time — ticks to death at 50 hits/tick *if unrepaired*, which 7 of 10 are
+not:
 
 ```
   cd8e 0.44 (~2,200)   cee2 0.60 (~3,000)   cd98 0.62 (~3,100)   cbd8 0.66 (~3,300)
@@ -189,10 +196,11 @@ time — ticks to death at 50 hits/tick, unrepaired:
 
 Meanwhile the account's DEPRECIATION MEMO reads **"KEEPING UP — hits are being
 held"** (repair 7.54 e/t against a 5.73 e/t accrual). That aggregate was true
-colony-wide while one of the structures it covers decayed to death — the repair
-is going somewhere, and it is not the remote source mouths. The memo's own next
-sentence already names the stake: *"it is paid at full rebuild price when a
-structure expires (a container is 5000 energy)."*
+colony-wide while one of the structures it covers decayed to death. **The memo is
+not wrong and the repair IS reaching the remote mouths** (§4d) — what the
+aggregate cannot show is that one structure inside it went to zero anyway. The
+memo's own next sentence already names the stake: *"it is paid at full rebuild
+price when a structure expires (a container is 5000 energy)."*
 
 **What this changes about the spec.** §2 asked *"why does nothing drain a full
 container"* and listed three DEMAND-side answers. Those remain the reason the
@@ -209,6 +217,51 @@ v37 — the first slope reading lands next cycle), and why remote-mouth repair i
 not happening when colony repair is above its accrual. The second is the
 actionable question and it belongs to whoever picks this up — likely spec 16
 (construction as projects) rather than this spec.
+
+## 4d. The first hp SLOPE falsifies "one-way slide" — repair is there, and the question sharpens (t72875335)
+
+268 ticks after §4c was written, the first slope reading:
+
+```
+  RISING (7)   cd98 +0.07   cee2 +0.05   cbd5 +0.05   cd94 +0.05
+               cd8e +0.04   cbd8 +0.04   cedc +0.04
+  FALLING (3)  cee0 -0.06   cd8d -0.06   d01f -0.04
+  ------------------------------------------------------------
+  NET          +0.18 hp-units — colony container hits are GAINING
+```
+
+§4c's *"every remote mouth container is on a one-way slide"* is **retracted**. It
+was an extrapolation from a LEVEL with no slope, and a level alone cannot tell
+"decaying unrepaired" from "repaired and holding at a working equilibrium".
+
+The arithmetic, so nobody re-derives it: +0.05 hp over 268t is +12,500 hits net
+against −13,400 hits of unrepaired decay (50 hits/tick, unowned room), so gross
+repair ≈ 25,900 hits ≈ **97 hits/tick ≈ one WORK part** (REPAIR_POWER 100, 1
+energy per WORK-tick). Holding all ten mouths costs ~500 hits/tick ≈ **5 e/t**
+against 7.14 e/t of measured colony repair that also covers roads and ramparts.
+**The budget is roughly right; the ALLOCATION rotates.**
+
+Two fallers explain themselves, one does not:
+
+- **d01f** — W41N23 is HOSTILE this window (`hostileUntil: 72876621`); no
+  repairer can reach it.
+- **cd8d** — the fresh rebuild at 0.92, healthiest of the ten. A lowest-hits-first
+  repairer correctly skips it.
+- **cee0** — 0.73 → 0.67, mid-pack, reachable, not prioritised. **Unexplained.**
+
+**This makes cd8d's death harder to explain, not easier.** Under lowest-first
+rotation it should have been top priority as it approached zero. Something let it
+through.
+
+So the question this spec now carries is not *"why is nothing repaired"* — things
+are — but:
+
+> **How does a mouth container reach zero while a repairer with spare budget is
+> working its neighbours?**
+
+Everything in §4c about the loop ITSELF stands: cd8d died, and construction spent
+5,000e rebuilding it, on the site ledger's own evidence. The cause is a coverage
+gap, not an absence — a different fix, and a smaller one.
 
 ## 5. Acceptance
 

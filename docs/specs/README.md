@@ -44,8 +44,14 @@ cd8d's mouth container **DIED of decay and dumped its whole 2,000e load on the
 ground**, and construction spent **5,000e** rebuilding it — a site appearing and
 clearing in exactly that window, the rebuilt container reading `hp: 0.92` against
 0.44–0.84 everywhere else. The pickup-priority hypothesis is retired for cd8d.
-**Every remote mouth container is on the same one-way slide**, cd8e nearest at
-~2,200 ticks, while the account's depreciation memo reads "KEEPING UP".
+
+**One cycle later the follow-on claim was RETRACTED** ([§4d](59-the-container-caps-and-the-overflow-rots.md)):
+"every remote container is on the same one-way slide" was an extrapolation from a
+level with no slope, and the first slope reading falsified it — **hp RISES on 7 of
+10 mouths, net +0.18**. Repair reaches the remote mouths at ~1 WORK part; the
+budget is roughly right and the ALLOCATION rotates. The loop is a **coverage
+gap**, not an absence, and the question sharpens to *"how does a container reach
+zero while a repairer with spare budget works its neighbours?"*
 
 **Second open item, new: the account's RESIDUAL flipped sign**, +4.97 e/t (4%
 under-attributed) → **−21.50 e/t (19% OVER-attributed)** in one window. No

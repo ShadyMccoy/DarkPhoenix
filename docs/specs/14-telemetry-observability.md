@@ -12680,3 +12680,128 @@ behaviour touched.
    and the loop has a brake nobody has found yet.
 5. The top line does not move on account of this deploy. Nothing here drains
    anything.
+
+## Post-deploy verification t72875335 — prediction 4 FALSIFIED, and that is the finding: remote containers ARE repaired
+
+268 ticks after deploying core v38. Short window by design (the check-in fired
+at the ~200-tick floor); the blackbox ring is 15t of post-reset recovery, so
+**F1, S5 and every "measured at the spawn" line are noise here** — `tenders
+2.267 vs 0.032` is a 15-tick ring, not a fleet. Reservation and consumers both
+read 0.00 for the same reason. The account's cumulative lines (spawn ledger,
+`losses.cumulative`, storage, `gcl.progress`) do span the full 268t.
+
+### Prediction 1 — CONFIRMED
+
+`creepCargo` on the wire at core v38: **5,642e**, inside the predicted
+1,000–15,000e band, against 368 CARRY parts standing.
+
+### Prediction 2 — NOT YET ANSWERABLE, and the prediction was mis-specified
+
+I registered *"the residual moves toward zero once cargo is differenced"*. A
+difference needs TWO v38 captures and this is the first, so the account still
+cannot use the field. My own prediction could not have been checked at the
+check-in I scheduled it for.
+
+For the record, and as neither confirmation nor refutation: the residual came
+back to **−3.81 e/t** on this window without any cargo term
+(+4.97 → −21.50 → −3.81). Consistent with the t72875067 swing being a one-window
+event rather than a standing bias, which is what a cargo effect would look like
+— and equally consistent with three other things. The differenced read lands
+next cycle.
+
+### Prediction 3 — CONFIRMED
+
+X3 reads **WARN, not FAIL**: *"49/53 tracked; NOT a leak - zero orphans and
+countMismatch accounts for all 4: tender 2/1, controllerFeeder 3/1, raidGuard
+2/1"*. `controllerFeeder 3/1` persists as predicted (five captures now), and the
+other two rotated — tender and raidGuard this time, which is the newborn/recycler
+churn the class predicts.
+
+### Prediction 4 — **FALSIFIED. hp is RISING on 7 of 10 mouths.**
+
+The first `hp` slope reading. Over 268 ticks:
+
+```
+  src    hp t72875067   hp t72875335    delta        src    ...
+  cd8e       0.44          0.48         +0.04        cd98      0.62 -> 0.69   +0.07
+  cee2       0.60          0.65         +0.05        cbd8      0.66 -> 0.70   +0.04
+  cbd5       0.72          0.77         +0.05        cd94      0.73 -> 0.78   +0.05
+  cedc       0.84          0.88         +0.04
+  ------------------------------------------------- FALLING:
+  cee0       0.73          0.67         -0.06        d01f      0.73 -> 0.69   -0.04
+  cd8d       0.92          0.86         -0.06
+```
+
+Net across the ten mouths: **+0.18 hp-units. Colony container hits are GAINING,
+not sliding.**
+
+**So the claim I wrote into spec 59 §4c one cycle ago — "every remote mouth
+container is on a one-way slide" — is false, and I am retracting it.** It was an
+extrapolation from a single-capture LEVEL reading (0.44–0.92) with no slope, and
+the level alone cannot distinguish "decaying unrepaired" from "repaired and
+holding at a working equilibrium". The prediction I registered named this exact
+alternative (*"if instead hp RISES, something repairs remote containers and the
+loop has a brake nobody has found yet"*) — the brake is there.
+
+The arithmetic, so the next session does not re-derive it: +0.05 hp over 268t is
++12,500 hits net against −13,400 hits of unrepaired decay (50 hits/tick in an
+unowned room), so gross repair ≈ 25,900 hits ≈ **97 hits/tick ≈ one WORK part**
+(REPAIR_POWER 100, 1 energy per WORK-tick). Holding all ten mouths costs ~500
+hits/tick = **~5 e/t**, against 7.14 e/t of measured colony repair covering roads
+and ramparts too. **The budget is roughly the right size; the ALLOCATION
+rotates.**
+
+Two of the three fallers explain themselves and the third does not:
+
+- **d01f** — its room W41N23 is HOSTILE this window (`hostileUntil: 72876621`).
+  No repairer can reach it. Explained.
+- **cd8d** — the freshly rebuilt one at 0.92, the healthiest of the ten. A
+  lowest-hits-first repairer correctly ignores it. Explained.
+- **cee0** — 0.73 → 0.67, mid-pack, reachable, not prioritised. **Unexplained.**
+
+**And this makes cd8d's death HARDER to explain, not easier.** If repair is
+lowest-first and rotating, cd8d should have been top priority as it approached
+zero. Something let it fall through. That is the open question, and it is a
+better one than the one this cycle started with: not *"why is nothing
+repaired"* (things are) but **"how does a container reach zero while a repairer
+with spare budget is working its neighbours"**.
+
+What survives unchanged: cd8d DID die and WAS rebuilt at 5,000e. The site ledger
+evidence (a 5,000e site appearing and clearing in exactly that window, the
+rebuild reading hp 0.92) is untouched by this. The loop is real; its cause is a
+coverage gap, not an absence.
+
+### Prediction 5 — CONFIRMED
+
+L1 pile decay 12.03 → **10.52 e/t**, still the TOP LINE at 42.09× budget.
+Not attributed to this deploy, which drains nothing.
+
+### Live incident, recorded not fixed: a raid in W41N23
+
+`P1 plan flap: 4adbd01f funded->defunded`, and the machinery behaved:
+`hostileUntil: 72876621`, source defunded, guards spawned (defense 7.28 e/t on
+the account), tombstones **100% in intel-hostile rooms** — the only window where
+the raid story can legitimately claim the losses. Spec 13's hostile-defund is the
+CORRECT-class rule from CLAUDE.md's trap list (defund at the spawn, strand
+nobody) and it did what it says. The P1 flap and the 110.00 e/t capacity line
+(one source excluded) are the raid, not a planner defect.
+
+### Cycle verdict: **VERIFIED (3 confirmed, 1 falsified productively, 1 not yet answerable) + one retraction**
+
+The falsified prediction is the valuable one and it cost one capture. No code
+change this cycle — the finding is a retraction and a sharper question, and
+inventing a fix for a mechanism that just changed shape would be the wrong move.
+
+**Predictions for the next capture:**
+
+1. `creepCargo` differences for the first time; the residual either closes
+   toward zero or cargo is exonerated. **Both v38 captures now exist**, so this
+   is finally checkable.
+2. **cee0's hp keeps falling** (0.67 and dropping at ~50 hits/tick unrepaired ⇒
+   ~3,350 ticks to death) unless a repairer reaches it. If it turns up, the
+   rotation is just slower than one 268-tick window can see and there is no
+   coverage gap to chase.
+3. **d01f's hp resumes rising once W41N23 clears** (`hostileUntil: 72876621`) —
+   the falsifiable half of the "hostile ⇒ unreachable" explanation.
+4. X3 stays WARN with `controllerFeeder 3/1` present.
+5. The top line does not move on account of anything deployed.
