@@ -12805,3 +12805,117 @@ inventing a fix for a mechanism that just changed shape would be the wrong move.
    the falsifiable half of the "hostile ⇒ unreachable" explanation.
 4. X3 stays WARN with `controllerFeeder 3/1` present.
 5. The top line does not move on account of anything deployed.
+
+## Audit cycle t72884395 (2026-08-09, review session) — the 9,060-tick unattended window: cargo EXONERATED, the sweep's first fully-archived stretch, and the picker mis-ranks again
+
+Capture t72884395 vs baseline t72875335: **dt 9,060 ≈ six fiscal months,
+unattended** (no deploy recorded in the window; master unchanged at core v38).
+`fiscal:archive` closed **seven months at 100% coverage each from the bot's own
+boundary snapshots** (FY4858-M03..M09, handicap 12%→18% stamped per month) —
+spec 50 doing exactly what it was built for; a capture-bracketed close could
+never have covered this stretch. Sweep now at **19%, cycle 1, stepReason
+`nominal`** (cycle 0's full 0→20% pass already archived; the wrap in ~2 months
+gives two full passes = the designed aliasing protection).
+
+### Prediction 1 — SETTLED: creep cargo is EXONERATED as the standing bias
+
+`creepCargo` 5,642 → 11,174 over 9,060t = **+0.61 e/t**, against a window
+residual of **−7.77 e/t**. A cargo slope explaining that residual would need
+~70k of accumulation; cargo is fleet-size-bound. So the standing −3..−8 e/t
+residual band is NOT cargo. The t72875067 one-window −21.50 flip remains
+consistent with a cargo TRANSIENT (±5.5k in 268t ≈ ±20.6 e/t — this window
+demonstrates swings of exactly that size are real), and nothing else on file
+competes for it.
+
+**Instrument gap, recorded not fixed:** the account still prints *"creep cargo
+not measured"* in the balance sheet's committed line — the v38 field is on the
+wire and the LEDGER does not consume it. One-line report change; it moves the
+NET WORTH floor (+11k), so it lands with a methodology bump at the sweep-wrap
+boundary per spec 51's timing rule, not mid-sweep.
+
+### Prediction 2 — the cee0 coverage-gap worry DISSOLVES
+
+cee0 hp 0.67 → **0.71**. The registered alternative fired: the repair rotation
+is slower than a 268t window can see, but it reached cee0. No coverage gap to
+chase there.
+
+### Prediction 3 — NOT CONFIRMED: d01f fell despite the room clearing
+
+d01f hp 0.69 → **0.61** net, over a window in which W41N23 cleared
+(~t72876621) and the source re-funded. Not decisive alone — the window mixes
+the hostile stretch with resumed mining — but d01f joins the falling side, and
+the faller that matters is:
+
+### The watch item: cd8d is falling FASTEST again
+
+**cd8d hp 0.86 → 0.59 (−0.27), ground 1,835 → 2,257, pile-gate held 100% of
+the window** — the freshly rebuilt container (5,000e, spec 59 §4c) is back on
+the path that killed its predecessor, at ~2,950t to zero at the unrepaired
+rate. Spec 59's sharpened question ("how does a container reach zero while a
+repairer with spare budget works its neighbours") now has a live rerun
+candidate. Colony-wide the rotation still nets positive (Σdhp +0.20 across ten
+mouths; depreciation memo: repair 5.82 vs accrual 5.91, first small SHORTFALL
+on record), and cee0/cd8e containers sit back AT the 2000 cap.
+
+### Prediction 4 — CONFIRMED (sixth capture)
+
+X3 WARN, 47/50, `tender 2/1, controllerFeeder 3/1`. The countMismatch class is
+now the longest-standing WARN on the books.
+
+### Prediction 5 — HELD, and the TOP LINE picker mis-ranked a second time
+
+L1 10.52 → **13.33 e/t at 53.3× a 0.00 budget** (monthly closes ran 10.24–21.51
+across the stretch — the series' normal band; nothing deployed claims any of
+it). But the printed TOP LINE is **P1 (2 funded flips)** — a count naming no
+energy ranked above the account's largest loss. **Spec 58(a)'s picker defect,
+second live instance, different row pair** (first: S5 over L1 at t72871684).
+The flips themselves: `4adbd01f defunded→funded` is the hostile machinery
+recovering (legitimate, stamped); `4adbcd98 funded→over-budget` dropped the
+farthest source (d=105) — needs attribution at the next boundary (tranche-edge
+flap vs honest re-solve; spec 46's D-row is the instrument that would name it).
+
+### The window itself (methodology #18 highlights)
+
+- **G1: 99% income-funded, 52.03 pts/t sustainable — the most income-funded
+  long window on record** (M02 close: 42%). Bank slope −0.39 e/t over six
+  months, under handicaps 13→19%. Delivery held 106–112 e/t in every month.
+- **E4 names an EQUILIBRIUM, not convergence: storage ~161k = reserve 77k +
+  84k standing surplus, projected equilibrium 160,680 ≈ measured.** The bank
+  has settled ABOVE its target with the feeder active — spec 48's gross-vs-net
+  gap in stock form (the plan appropriates on gross; storage absorbs the
+  difference; the "spend path" being checked is priced on the wrong basis).
+- **S4 34% idle, 94% of it `empty` (no demand), while F2 under-fields 79p
+  (547 declared / 468 fielded) and E6 holds 6 of 12 miner ops CHRONIC** —
+  spec 55's signature, unchanged: capacity idle + ask declined + piles
+  decaying. Mouth stocks fell 29,668 → 18,319 across the stretch, but part of
+  that is cd98's defund-then-rot (a loss REALIZED, not cured).
+- Instrument health: CPU bucket 10,000 (used 31/300), GCL 32 at 96%, spawns
+  util 0.66/0.63 vs 0.667 ceiling parts 0.43, R1 at 2.60× accumulating toward
+  the ≥10-window swap, X5 0.06 (worst: W43N23-construction 2,350e@103t, raid
+  churn). No threat to the instrument.
+
+### Workflow note (cost one close, fixed same session)
+
+Running `fiscal:close` BEFORE `fiscal:archive` stole M04 into a 60%-coverage
+capture-bracketed close with NO handicap stamp while the archive held a 100%
+pair; deleted (seconds old) and re-closed from the archive: 100%, handicap 13%.
+**Archive-first is the correct order** — the audit loop's §0 lists close first
+and should be read archive-first from now on; better, `fiscal:close` could
+prefer an archive pair when one covers the period.
+
+### Cycle verdict: **VERIFIED (2 confirmed, 1 dissolved productively, 1 not confirmed→watch, 1 held) + one instrument gap named** (no code change — review session; findings feed the 2026-08-09 backlog/refactor/statement discussion)
+
+**Predictions for the next capture:**
+
+1. **cd8d's hp keeps falling** and reaches ≤0.35 within ~1,500t unless the
+   rotation reaches it; a second death books another 5,000e rebuild + a 2,000e
+   ground dump. If it TURNS UP instead, the rotation covers even the
+   worst-piled mouth and spec 59's repair question loses its live case.
+2. **The sweep wraps**: M10 runs at 20%, then 0% — cycle 1 completes with
+   every month archived at ≥95% coverage.
+3. X3 stays WARN with `controllerFeeder 3/1` (seventh capture).
+4. `creepCargo`'s third point lands in the 5–15k band (fleet-size-bound, not
+   trending); the residual stays in the −3..−10 band absent a raid window.
+5. **cd98 stays over-budget at the next boundary.** If it re-funds with no
+   world change, the tranche edge is flapping and spec 46 phase D (the shadow
+   variance row) is the named instrument to build.

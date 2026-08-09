@@ -21,9 +21,18 @@ VERIFIED at t72875067, 5 of 5 predictions confirmed.** It settled the question i
 was built for on the first capture — see [spec 59
 §4c](59-the-container-caps-and-the-overflow-rots.md).
 
-**Pending verification: core telemetry v38 (`creepCargo`) + the X3
-reconciliation**, deployed from the t72875067 cycle. Telemetry/report-only.
-Predictions at the tail of [spec 14](14-telemetry-observability.md).
+**Core telemetry v38 (`creepCargo`) + the X3 reconciliation: VERIFIED.**
+First capture t72875335 (on the wire, in-band), differenced at t72884395:
+**+0.61 e/t over 9,060t — cargo is EXONERATED as the standing residual bias**
+(the t72875067 one-window −21.50 flip stays consistent with a cargo transient).
+The ledger does not CONSUME the field yet ("creep cargo not measured" still
+prints) — wired at the sweep-wrap boundary per the methodology rule. Cycle
+records at the tail of [spec 14](14-telemetry-observability.md).
+
+**t72884395 (2026-08-09 review session): the first fully-archived unattended
+stretch** — six months closed at 100% coverage from segments 8/9 (handicap
+12→18% stamped per month), G1 **99% income-funded** over 9,060t (bank slope
+−0.39 e/t), delivery 106–112 e/t every month. Sweep at 19%, cycle 1.
 
 | what | verified | how |
 |---|---|---|
@@ -33,10 +42,13 @@ Predictions at the tail of [spec 14](14-telemetry-observability.md).
 | 57 `port-untended` watchdog | **partly** | `alerts: []` = no false alarm; the transient case is unobservable (open item 5) |
 | core v36 `sourceDropped` | **YES** | first container-vs-ground split ever — see spec 59 |
 
-**Top line, and it is not fixed:** L1 pile decay, **12.03 e/t against a budget of
-0.00 (48.14×)** at t72875067. Five-cycle series: 17.32 → 19.26 → 23.62 → 19.66 →
-**12.03**. The fall is **not claimed** — nothing deployed drains anything, and the
-last window straddles a global reset that shrank the fleet 66 → 59 creeps.
+**Top line, and it is not fixed:** L1 pile decay, **13.33 e/t against a budget
+of 0.00 (53.3×)** over the t72884395 window (monthly closes 10.24–21.51 across
+the unattended stretch). Series: 17.32 → 19.26 → 23.62 → 19.66 → 12.03 → 10.52
+→ **13.33**. None of the moves are claimed — nothing deployed drains anything.
+Mouth stocks fell 29,668 → 18,319, but part of that is cd98's
+defund-then-rot (a loss realized, not cured), and **the t72884395 TOP LINE
+printed P1 over L1 — spec 58(a)'s picker defect, second live instance**.
 
 **Its mechanism is now SETTLED for one source, and it is not what four cycles of
 "the piles" assumed** ([spec 59 §4c](59-the-container-caps-and-the-overflow-rots.md)):
