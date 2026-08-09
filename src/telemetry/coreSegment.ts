@@ -170,6 +170,15 @@ export interface CoreTelemetry {
    * ceil(amount/1000) per tick, so this is the only part that rots. Exported
    * so the audit's energy account can price ground rot as its own line instead
    * of leaving it inside the unattributed residual.
+   *
+   * DECLARED v19, FIRST EMITTED v36. Between those it was computed into a
+   * local and then dropped on the floor - never added to the returned object,
+   * so it produced ZERO data points across every capture in
+   * `test/fixtures/telemetry/` and `fiscalArchive` archived `sd: undefined`
+   * for every fiscal month. Spec 54 open item 8 recorded the consequence
+   * without the cause: "BLOCKED on the absent `sourceDropped` meter". It was
+   * not absent, it was unplugged. A field that is declared, filled and never
+   * returned reads exactly like a field that is legitimately empty.
    */
   sourceDropped?: { [idTail: string]: number };
   /**
@@ -594,7 +603,9 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 35, // v34 siteLedger; v35 rooms[].containers - the container table by ROLE, the first structure inventory (owner 2026-08-06)
+    // v34 siteLedger; v35 rooms[].containers - the container table by ROLE, the first structure inventory (owner 2026-08-06);
+    // v36 sourceDropped ACTUALLY EMITTED (declared v19, never returned - zero data points until now)
+    version: 36,
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
@@ -619,6 +630,7 @@ export function updateCoreTelemetry(
     spawns,
     agenda,
     ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
+    ...(Object.keys(sourceDropped).length > 0 ? { sourceDropped } : {}),
     ...(Object.keys(remoteSites).length > 0 ? { remoteSites } : {}),
     ...(Object.keys(siteLedger).length > 0 ? { siteLedger } : {}),
     ...(() => {
