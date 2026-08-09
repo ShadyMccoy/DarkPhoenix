@@ -12460,3 +12460,39 @@ telemetry-only — unit suite (2,417 passing) + build. No live behaviour touched
    anything. If L1 improves it is unattributed and must be read as such — the
    same discipline the t72873814 cycle applied to the piles falling 33,657 →
    29,668.
+
+### Parallel work during the t72874433 post-deploy wait — spec 58(b)'s three cells, and the shape of their failure
+
+Spec 58(b) records three baseline-`pass` construction cells going red in a fresh
+sandbox, and says the next step is one full `npm run grid` on unmodified master
+before either "broken environment" or "stale baseline" may be asserted. That
+still stands — a full grid does not fit a post-deploy window. What DOES fit is
+re-running the three, and their failure has a shape the earlier note flattened
+into "all timing out at their window":
+
+```
+  [T] cons-t3-build-and-repair-concurrent  (T3, timeout @400/400t)
+        satisfied: "a site stands" @10, "the decayed container is repaired
+                    past the start gate WHILE sites still exist" @243
+        TIMED OUT:  "the build crew keeps building (site progress advances materially)"
+  [T] cons-link-core-first                 (T4, timeout @60/60t)   NOTHING satisfied
+  [T] cons-link-farthest-source            (T4, timeout @60/60t)   NOTHING satisfied
+```
+
+**The two link cells run a 60-TICK window and satisfy nothing at all** — no core
+link site is placed, no farthest-source link site is placed. That is not the
+signature of a timing-sensitive cell losing a race under host load; it is a
+decision that never fires. The 400-tick repair cell is the opposite: two of its
+three assertions land early (@10 and @243) and only the throughput one times
+out, which IS the shape host load produces.
+
+So the three should not be carried as one class. Two of them are a placement
+decision that does not happen in a staged world; one is a throughput assertion
+that does not complete. Environment flakiness is a much weaker explanation for
+the first pair than for the second.
+
+**Caveat, stated so it is not over-read**: this run was on the audit branch
+(master + a telemetry-only delta), not on unmodified master. The attribution
+run — stash, rebuild master, re-run, byte-identical failure — was done properly
+by the previous session and is what acquits spec 56. This adds the failure's
+SHAPE, not a new attribution, and it does not discharge 58(b)'s full-grid step.
