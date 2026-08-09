@@ -96,7 +96,7 @@ describe("core segment: sourceDropped reaches the wire (v36)", () => {
     const c = core();
     // The emission was the v36 schema change; the pin tracks the segment's
     // current version so a bump cannot slip past this file unread.
-    expect(c.version, "core segment version").to.equal(37);
+    expect(c.version, "core segment version").to.equal(38);
     expect(c.sourceBuffers["111111"], "buffer = container + ground").to.equal(2500);
     expect(c.sourceDropped, "the rotting share must REACH THE WIRE").to.not.equal(undefined);
     expect(c.sourceDropped["111111"]).to.equal(500);

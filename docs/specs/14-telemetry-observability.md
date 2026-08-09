@@ -12496,3 +12496,187 @@ the first pair than for the second.
 run — stash, rebuild master, re-run, byte-identical failure — was done properly
 by the previous session and is what acquits spec 56. This adds the failure's
 SHAPE, not a new attribution, and it does not discharge 58(b)'s full-grid step.
+
+## Post-deploy verification t72875067 — 5 of 5 predictions confirmed, the container question SETTLED, and a residual that flipped sign
+
+634 ticks after deploying core v37 + the P&L basis bridge. Window 634t. **The
+deploy's global reset wiped the blackbox ring (357–418t), so F1 / S5 / X5 / E5 /
+SCAV / R1 are over post-reset recovery, not steady state** — methodology #7's
+own warning. The account's spawn and loss lines are NOT affected: both read
+cumulative Memory-backed counters and were verified monotonic across the reset
+(`spawnSpend` role totals rose; `losses.cumulative` likewise), so those span the
+full 634t.
+
+### Prediction 1 — CONFIRMED
+
+`sourceMouth` on the wire at core v37, **13 keys**, one per visible source,
+matching `sourceBuffers` exactly.
+
+### Prediction 2 — CONFIRMED, and cd8d is DECIDED: **the container DIED**
+
+```
+  tick        core v   buffer  dropped  container   sourceMouth                       W43N24 site
+  72873814      36       4316     2316       2000   (not emitted)                     none
+  72874433      36       2588     2588          0   (not emitted)                     {n:1, rem:2427, done:2573}
+  72875067      37       3581     1581       2000   {n:1, free:0, hp:0.92}            none
+```
+
+Three independent facts agree, and none of them is the stock:
+
+1. **A construction site APPEARS in W43N24 in exactly the window the container
+   reads 0**, at 2,573 of **5,000 done** — the container build cost — and is
+   GONE by the next capture. No site there before; none after.
+2. The container is back at 2,000 with **`hp: 0.92`, the HEALTHIEST of all ten
+   remote mouths** (the rest run 0.44–0.84). At the unowned-room decay rate of
+   50 hits/tick, 0.92 is a container roughly 400 ticks old — i.e. built during
+   that window.
+3. `free: 0`. It refilled to the cap in ~600 ticks and is already back where it
+   started.
+
+**So the mechanism is a LOOP, and it is not a hauling defect:**
+
+> the container fills to cap → nothing drains it → it decays unrepaired → it
+> DIES and dumps its whole load onto the ground, where it rots → construction
+> spends **5,000e** rebuilding it → it refills to cap in ~600 ticks → repeat.
+
+This RETIRES the pickup-priority hypothesis for cd8d (spec 59 §4, candidate 2 —
+"haulers drain the container and leave the pile"), which was the more
+interesting one. It was wrong. The energy did not move; the container stopped
+existing.
+
+**And `hp` prices the colony's exposure to the same loop for the first time:**
+
+```
+  cd8e 0.44  cee2 0.60  cd98 0.62  cbd8 0.66  cbd5 0.72
+  d01f 0.73  cee0 0.73  cd94 0.73  cedc 0.84  cd8d 0.92     (~2,200 to ~4,600 ticks to death)
+```
+
+**Every remote mouth container is on a one-way slide**, cd8e nearest at ~2,200
+ticks. Meanwhile the account's DEPRECIATION MEMO prints *"KEEPING UP — hits are
+being held"* (repair 7.54 vs decay accrual 5.73) — a colony-wide aggregate that
+was true while one of the structures it covers decayed to death. The memo's own
+next sentence already states the stake: *"it is paid at full rebuild price when
+a structure expires (a container is 5000 energy)."* It was.
+
+### Prediction 3 — CONFIRMED
+
+`cd90`, `cd92` and `cd99` report **`n: 0`**. Spec 54's *"neither home source has
+a container"* is now a stated fact rather than an inference off a zero.
+
+### Prediction 4 — CONFIRMED
+
+No `RECONCILES to the colony account` line. The bridge prints in its place, and
+on this capture the two windows are 410t (ring) and 634t (account): miner 4.76
+vs 7.18, reserver 28.54 vs 18.45. The gap changed SIGN between cycles, which is
+exactly the lumpiness the old sentence asserted away.
+
+### Prediction 5 — CONFIRMED (the top line did not move on account of this deploy)
+
+L1 pile decay **19.66 → 12.03 e/t** and ground stock 9,564 → 5,508. **Not
+claimed.** Nothing deployed drains anything, and the window straddles a global
+reset that shrank the fleet from 66 creeps / 882 parts to 59 / 779. L1 remains
+the TOP LINE at 48.14× budget, and it now breaches on three lines rather than
+one (pile decay 12.03, tombstones 3.26 vs 0.86, repair 7.54 vs 5.56).
+
+### The new top-of-report item: **the RESIDUAL flipped sign**
+
+```
+  t72874433   RESIDUAL   +4.97 e/t    (  4% of gross mining, UNDER-attributed)
+  t72875067   RESIDUAL  -21.50 e/t    ( 19% of gross mining,  OVER-attributed)
+```
+
+A 26.5 e/t swing, and the wrong sign: **more energy left the books than entered
+them**, which no leak can produce and only a mis-measurement can. The method
+says a residual that grows between cycles is a work item even when every leak
+row is green. This one grew and inverted.
+
+Every stock the capture DOES measure was checked, and together they move ~4.7
+e/t against a 21.50 e/t gap:
+
+| stock | Δ over 634t |
+|---|---|
+| source-mouth buffers | −1,156 |
+| owned-room containers | −889 |
+| controller stock | −205 |
+| spawn/extension fill | −738 |
+
+And every measured flow reconciles to its own cumulative counter to the decimal:
+spawn 30,050e/634 = 47.40; pile decay 7,630/634 = 12.03; repair 4,779/634 =
+7.54; tombstones (2,594−529)/634 = 3.26; controller = `gcl.progress` delta
+21,436 = 33.81 (one owned room, so GCL progress IS the room's — no double
+count). The single biggest mover is the BANK: +6.93 → **+27.59 e/t** (storage
+141,204 → 158,697), and it is a direct measurement.
+
+**The leading candidate is the gap the balance sheet has always named in its own
+text: `creep cargo not measured`.** The fleet held **408 CARRY parts** at the
+base capture and 386 at the close — up to ~20,400e that can be in flight at
+either end, against an 11,800e discrepancy. A window that catches the fleet
+loaded at one capture and empty at the other moves exactly that much across the
+books with no line to carry it, and a global reset is precisely the event that
+would empty them.
+
+**That is a hypothesis, and it ships as a test rather than an argument: core
+v38 `creepCargo`** — total energy held by the fleet, always emitted including
+zero. Next cycle the residual either closes or it does not, and the answer is a
+read.
+
+### Correction — I claimed X3 was undiagnosable, and the capture had already diagnosed it
+
+Last cycle I wrote that X3's chronic 4 untracked creeps was *"not diagnosable
+from a capture: the census publishes the COUNT and no names"*. **That is
+false**, and it is methodology note #9 again, one cycle after writing it up. I
+checked the CAPTURE for names, found no `unattributed` key, and read that as "no
+instrument" — when in this codebase an absent optional means EMPTY, and the
+emptiness IS the answer. I did not read the code, which computes both
+reconciling lenses and names this exact case in its own comment.
+
+The reconciliation, across four captures and four different fleet sizes:
+
+```
+  tick        total  tracked  untracked   unattributed      countMismatch excess
+  72871684      53       49        4      absent (empty)          4
+  72873814      54       50        4      absent (empty)          4
+  72874433      66       62        4      absent (empty)          4
+  72875067      59       55        4      absent (empty)          4
+```
+
+**Zero orphans, every time, and `countMismatch` accounts for the difference
+exactly, every time.** `untracked` is a difference of two lenses (`total` minus
+Σ`getCreepCount`); `unattributed` is the id-match lens that would name a real
+orphan. The emitting code says so: *"corps exist that don't COUNT creeps they
+own, the newborn/recycling counting-lens class, not orphans."*
+
+`moving-W43N23-controllerFeeder` claims 3 and counts 1 in **all four** captures
+— the standing +2. That is spec 54's LinkCorp, which absorbed two roles (walking
+feeder + parked port tender) behind one count lens. The rotating +2 is whichever
+corp has a newborn or a recycler in flight. Recorded, not fixed: it is the
+staffsPost-symmetry family and belongs with spec 54's open items.
+
+**Fixed in the ledger**: X3 now judges against the reconciliation the capture
+already carries. Named orphans still FAIL on the original threshold; a
+difference `countMismatch` does not account for FAILs and says how many are
+unexplained; a fully reconciled difference WARNs and names the mis-counting
+corps. No account line moves and the chart of accounts is untouched, so
+METHODOLOGY is deliberately NOT bumped — but the X3 row's VERDICT is not
+comparable across this commit, and that is stated here rather than left to be
+discovered.
+
+### Cycle verdict: **VERIFIED (5/5) + one mechanism SETTLED + two instruments + one self-correction**
+
+Shipped: core **v38** `creepCargo`; the X3 reconciliation. Both
+telemetry/report-only — unit suite **2,426 passing**, build clean, no live
+behaviour touched.
+
+**Predictions for the next capture:**
+
+1. `creepCargo` on the wire at v38, non-zero, order 1,000–15,000e.
+2. **The residual moves toward zero once cargo is differenced** — if it does
+   not, cargo is exonerated and the gap is an over-stated appropriation, which
+   is a different and larger finding. Either answer is worth the field.
+3. **X3 reads WARN, not FAIL**, and names `controllerFeeder 3/1`.
+4. **cd8e is the next container to die** (`hp` 0.44, ~2,200 ticks at 50
+   hits/tick). Watch for `hp` falling further, then a W43N24 site appearing, and
+   a 5,000e rebuild. If instead `hp` RISES, something repairs remote containers
+   and the loop has a brake nobody has found yet.
+5. The top line does not move on account of this deploy. Nothing here drains
+   anything.

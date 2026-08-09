@@ -3148,3 +3148,99 @@ describe("SOURCE P&L: the reconciliation is computed, not asserted (t72874433)",
     expect(pnl, "no fabricated comparison").to.not.match(/RECONCILES to the colony account/);
   });
 });
+
+/**
+ * X3 FAILED ON A LEAK THE CAPTURE ALREADY DISPROVES (audit cycle t72875067).
+ *
+ * X3 has read exactly **4 untracked creeps** at t72871684, t72873814,
+ * t72874433 and t72875067 - four captures, four different fleet sizes (53, 54,
+ * 66, 59), the same 4 - and FAILED every time on the `> 2 ⇒ orphan leak`
+ * threshold. It is not an orphan leak, and the core segment has carried the
+ * proof the whole time in TWO fields the row never read:
+ *
+ *  - **`creeps.unattributed`** - every creep whose `memory.corpId` matches no
+ *    census corp, named. **Absent in all four captures**, and absent means
+ *    EMPTY (this codebase omits empty optionals so absent and zero stay
+ *    different facts). Zero orphans, every capture.
+ *  - **`creeps.countMismatch`** - corps whose id-attributed creep count differs
+ *    from their own `getCreepCount`. Its excess is **exactly 4** in all four
+ *    captures, and it names the corps.
+ *
+ * `untracked` is a difference of two lenses (`total` minus the sum of
+ * `getCreepCount`); `unattributed` is an id-match lens. The code that emits
+ * them says why they are separate, and names this exact case in its own
+ * comment - *"untracked 3, unattributed EMPTY - so corps exist that don't COUNT
+ * creeps they own, the newborn/recycling counting-lens class, not orphans"*.
+ * The ledger row then re-derived the leak from the count alone.
+ *
+ * `moving-W43N23-controllerFeeder` claims 3 and counts 1 in ALL FOUR captures -
+ * the LinkCorp absorbed two roles (walking feeder + parked port tender, spec
+ * 54) and its count lens follows one of them. That is the standing +2. The
+ * other +2 rotates across whichever corp has a newborn or a recycler in flight.
+ *
+ * So: FAIL only where the capture cannot ACQUIT it. Orphans (a non-empty
+ * `unattributed`) still fail on the original threshold; a difference the
+ * reconciliation accounts for warns and names the corps, because a corp
+ * mis-counting its own creeps is a real defect - just not a leaking one, and it
+ * must not outrank the energy lines (spec 58a's ranking argument).
+ */
+describe("X3: an untracked count the capture reconciles is not an orphan leak (t72875067)", () => {
+  const base = fixture("shard1-t72874433.json");
+  const x3 = (cap: any) => computeLedger(cap, base).find(r => r.id === "X3")!;
+
+  /** A capture clone whose creep census is replaced wholesale. */
+  const withCensus = (creeps: any): any => {
+    const c = JSON.parse(JSON.stringify(fixture("shard1-t72875067.json")));
+    c.data.core.creeps = creeps;
+    return c;
+  };
+
+  it("does not FAIL the live capture: unattributed empty, countMismatch accounts for all 4", () => {
+    const live = fixture("shard1-t72875067.json");
+    expect(live.data.core.creeps.unattributed, "no orphans in the capture").to.equal(undefined);
+    const excess = (live.data.core.creeps.countMismatch as any[]).reduce(
+      (n, m) => n + Math.max(0, m.claimed - m.counted),
+      0
+    );
+    expect(excess, "the mismatch accounts for the untracked count exactly").to.equal(
+      live.data.core.creeps.untracked
+    );
+    expect(x3(live).verdict, "reconciled ⇒ not a leak").to.not.equal("FAIL");
+    expect(x3(live).detail, "and it must name the corps that mis-count").to.include("controllerFeeder");
+  });
+
+  it("STILL FAILS on real orphans - a creep whose corpId matches no corp", () => {
+    const cap = withCensus({
+      total: 59,
+      tracked: 55,
+      untracked: 4,
+      byKind: {},
+      unattributed: [
+        { name: "a", corpId: "mining-GONE-harvest-dead" },
+        { name: "b", corpId: null },
+        { name: "c", corpId: "mining-GONE-harvest-dead" },
+        { name: "d", corpId: null }
+      ]
+    });
+    expect(x3(cap).verdict, "named orphans are the leak X3 exists for").to.equal("FAIL");
+  });
+
+  it("FAILS when the reconciliation does NOT add up - the residual is unexplained", () => {
+    // countMismatch explains 1 of 4. The other 3 have no account at all, which
+    // is the state that should have alarmed all along.
+    const cap = withCensus({
+      total: 59,
+      tracked: 55,
+      untracked: 4,
+      byKind: {},
+      countMismatch: [{ corpId: "moving-W43N23-controllerFeeder", claimed: 2, counted: 1 }]
+    });
+    expect(x3(cap).verdict).to.equal("FAIL");
+    expect(x3(cap).detail).to.include("unexplained");
+  });
+
+  it("stays ok at or below the original threshold regardless", () => {
+    const cap = withCensus({ total: 59, tracked: 57, untracked: 2, byKind: {} });
+    expect(x3(cap).verdict).to.equal("ok");
+  });
+});

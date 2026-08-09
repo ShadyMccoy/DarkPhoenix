@@ -121,7 +121,7 @@ describe("core segment: sourceMouth - the container as a fact, not an inference 
       mkSource("aaaaaa222222", [], 2588) // no container at all, same pile
     ]) as any;
     const c = core();
-    expect(c.version, "a new field is a schema change").to.equal(37);
+    expect(c.version, "core segment version").to.equal(38);
     expect(c.sourceBuffers["111111"] - (c.sourceDropped["111111"] ?? 0), "container energy").to.equal(0);
     expect(c.sourceBuffers["222222"] - (c.sourceDropped["222222"] ?? 0), "container energy").to.equal(0);
     expect(c.sourceMouth["111111"].n, "a container IS standing here").to.equal(1);

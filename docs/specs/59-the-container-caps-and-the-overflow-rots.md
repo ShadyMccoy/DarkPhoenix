@@ -146,6 +146,70 @@ report `n: 0`), and the same spec's per-source half of the depreciation memo.
 
 **What it does NOT do: move the top line.** Nothing here drains anything.
 
+## 4c. SETTLED t72875067 — the container DIED. This is a decay loop, not a hauling defect.
+
+The census reported and cd8d is decided. Three independent facts agree, and the
+stock is none of them:
+
+```
+  tick        core v   buffer  dropped  container   sourceMouth               W43N24 site
+  72873814      36       4316     2316       2000   (not emitted)             none
+  72874433      36       2588     2588          0   (not emitted)             {n:1, rem:2427, done:2573}
+  72875067      37       3581     1581       2000   {n:1, free:0, hp:0.92}    none
+```
+
+1. **A construction site appears in W43N24 in exactly the window the container
+   reads 0** — 2,573 of **5,000 done**, the container build cost — and is gone
+   by the next capture. None before, none after.
+2. The rebuilt container reads **`hp: 0.92`, the healthiest of all ten remote
+   mouths** (the rest run 0.44–0.84). At 50 hits/tick in an unowned room that is
+   a container ~400 ticks old: built inside that window.
+3. `free: 0` — it refilled to the cap in ~600 ticks and is already back where it
+   started.
+
+**The mechanism is a loop:**
+
+> fills to cap → nothing drains it → decays unrepaired → **dies and dumps its
+> whole load on the ground, where it rots** → construction spends **5,000e**
+> rebuilding it → refills to cap in ~600 ticks → repeat.
+
+This RETIRES §4's candidate 2 (haulers drain the container and leave the pile) —
+the more interesting hypothesis, and the wrong one. The energy did not move; the
+container stopped existing. §4's candidate 1 (miner drops beside the container)
+is untouched by this and still open for cee0/cd94.
+
+**The whole colony is on the same slide**, and `hp` prices it for the first
+time — ticks to death at 50 hits/tick, unrepaired:
+
+```
+  cd8e 0.44 (~2,200)   cee2 0.60 (~3,000)   cd98 0.62 (~3,100)   cbd8 0.66 (~3,300)
+  cbd5 0.72 (~3,600)   d01f 0.73   cee0 0.73   cd94 0.73 (~3,650)
+  cedc 0.84 (~4,200)   cd8d 0.92 (~4,600, the rebuild)
+```
+
+Meanwhile the account's DEPRECIATION MEMO reads **"KEEPING UP — hits are being
+held"** (repair 7.54 e/t against a 5.73 e/t accrual). That aggregate was true
+colony-wide while one of the structures it covers decayed to death — the repair
+is going somewhere, and it is not the remote source mouths. The memo's own next
+sentence already names the stake: *"it is paid at full rebuild price when a
+structure expires (a container is 5000 energy)."*
+
+**What this changes about the spec.** §2 asked *"why does nothing drain a full
+container"* and listed three DEMAND-side answers. Those remain the reason the
+container sits at cap. But the ROT is now shown to have a second, independent
+producer that no amount of hauling fixes: a container that dies puts its entire
+2,000e on the ground in one tick. Any fix that only addresses demand leaves this
+loop running, and the loop's cost is not just the rot — it is **5,000e of
+construction per lap**, which the account books as `construction (built)` and
+therefore reads as investment rather than as replacement of a wasted asset.
+
+Two things this does NOT establish, stated so they are not assumed: whether the
+same loop has already run at the other mouths (no `hp` history exists before
+v37 — the first slope reading lands next cycle), and why remote-mouth repair is
+not happening when colony repair is above its accrual. The second is the
+actionable question and it belongs to whoever picks this up — likely spec 16
+(construction as projects) rather than this spec.
+
 ## 5. Acceptance
 
 No fix is proposed here; this spec exists so the mechanism is not re-derived.

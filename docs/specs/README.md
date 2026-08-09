@@ -16,14 +16,14 @@ through that framework; they double as proof that it works.
 **Live on shard1 `master`:** specs 56 + 57 + core telemetry **v36**, deployed
 from session at ~t72873000 and verified at t72873814.
 
-**Pending verification: core telemetry v37 (`sourceMouth`) + the SOURCE P&L
-basis bridge**, deployed from the t72874433 audit cycle. Telemetry-only; no live
-behaviour touched. The predictions it must be checked against are at the tail of
-[spec 14](14-telemetry-observability.md); the reading that forced it is
-[spec 59 §4b](59-the-container-caps-and-the-overflow-rots.md) — **cd8d's
-container went from the 2000 cap to ZERO while its ground pile GREW**, which
-three different mechanisms explain and container-energy-of-zero cannot
-distinguish between.
+**Core telemetry v37 (`sourceMouth`) + the SOURCE P&L basis bridge: deployed and
+VERIFIED at t72875067, 5 of 5 predictions confirmed.** It settled the question it
+was built for on the first capture — see [spec 59
+§4c](59-the-container-caps-and-the-overflow-rots.md).
+
+**Pending verification: core telemetry v38 (`creepCargo`) + the X3
+reconciliation**, deployed from the t72875067 cycle. Telemetry/report-only.
+Predictions at the tail of [spec 14](14-telemetry-observability.md).
 
 | what | verified | how |
 |---|---|---|
@@ -33,15 +33,28 @@ distinguish between.
 | 57 `port-untended` watchdog | **partly** | `alerts: []` = no false alarm; the transient case is unobservable (open item 5) |
 | core v36 `sourceDropped` | **YES** | first container-vs-ground split ever — see spec 59 |
 
-**Top line, and it is not fixed:** L1 pile decay, **19.66 e/t against a budget of
-0.00 (78.64×)** at t72874433. The four-cycle series is 17.32 → 19.26 → 23.62 →
-**19.66**: the rise broke, and **the fall is not claimed** — nothing deployed
-touches a drain mechanism, and the same window's piles 29,668 → 23,183 are an
-older window's energy being drawn down, not new income. Localised to a mechanism
-in [spec 59](59-the-container-caps-and-the-overflow-rots.md), whose §4b now
-carries a mouth reading no mechanism on file explains.
+**Top line, and it is not fixed:** L1 pile decay, **12.03 e/t against a budget of
+0.00 (48.14×)** at t72875067. Five-cycle series: 17.32 → 19.26 → 23.62 → 19.66 →
+**12.03**. The fall is **not claimed** — nothing deployed drains anything, and the
+last window straddles a global reset that shrank the fleet 66 → 59 creeps.
 
-**Instrument health:** CPU bucket 10,000; colony RCL7 progressing; bank 136,912
+**Its mechanism is now SETTLED for one source, and it is not what four cycles of
+"the piles" assumed** ([spec 59 §4c](59-the-container-caps-and-the-overflow-rots.md)):
+cd8d's mouth container **DIED of decay and dumped its whole 2,000e load on the
+ground**, and construction spent **5,000e** rebuilding it — a site appearing and
+clearing in exactly that window, the rebuilt container reading `hp: 0.92` against
+0.44–0.84 everywhere else. The pickup-priority hypothesis is retired for cd8d.
+**Every remote mouth container is on the same one-way slide**, cd8e nearest at
+~2,200 ticks, while the account's depreciation memo reads "KEEPING UP".
+
+**Second open item, new: the account's RESIDUAL flipped sign**, +4.97 e/t (4%
+under-attributed) → **−21.50 e/t (19% OVER-attributed)** in one window. No
+measured stock explains it (all of them together move ~4.7 e/t against a 21.50
+e/t gap) and every measured flow reconciles to its own cumulative counter. The
+leading candidate is the balance sheet's own named gap, creep cargo — which core
+v38 now measures, so the next capture decides it.
+
+**Instrument health:** CPU bucket 10,000; colony RCL7 progressing; bank 158,697
 against an 84,000 reserve. No threat to the measurement instrument, so ordinary
 regressions ride (see the audit loop's "The goal").
 

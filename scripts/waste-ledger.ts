@@ -2333,11 +2333,7 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
 
   rows.push({
     id: "X3",
-    name: "untracked creeps",
-    value: core.creeps.untracked,
-    unit: "creeps",
-    verdict: core.creeps.untracked > 2 ? "FAIL" : "ok",
-    detail: `${core.creeps.tracked}/${core.creeps.total} tracked`
+    ...untrackedCreepRow(core)
   });
 
   // ---- P11 link/haul representation mismatch (owner 2026-08-01) ----
@@ -3734,6 +3730,81 @@ export function formatSourcePnL(cap: any, base?: any): string {
     "  remote cost the plan is missing."
   );
   return out.join("\n");
+}
+
+/**
+ * X3 - untracked creeps, judged against the reconciliation the capture already
+ * carries instead of against the raw count.
+ *
+ * `untracked` is a DIFFERENCE OF TWO LENSES: `total` (Game.creeps) minus the
+ * sum of every corp's own `getCreepCount`. It is not a roster of orphans, and
+ * the core segment publishes the two fields that tell the cases apart:
+ *
+ *  - `unattributed` - creeps whose `memory.corpId` matches no census corp,
+ *    NAMED. Absent means empty (empty optionals are omitted so absent and zero
+ *    stay different facts). A non-empty list IS the orphan leak X3 exists for.
+ *  - `countMismatch` - corps whose id-attributed count differs from their own
+ *    `getCreepCount`, with the corp named.
+ *
+ * Measured t72871684 / t72873814 / t72874433 / t72875067: `unattributed` empty
+ * every time, `countMismatch` excess exactly 4 every time, across fleets of 53,
+ * 54, 66 and 59 - and X3 FAILED all four on `untracked > 2`. The emitting code
+ * names this case in its own comment (*"corps exist that don't COUNT creeps
+ * they own, the newborn/recycling counting-lens class, not orphans"*); the row
+ * re-derived a leak from the count alone and outranked the energy lines with
+ * it.
+ *
+ * So FAIL only where the capture cannot ACQUIT: named orphans, or a difference
+ * the reconciliation does not account for. A fully-reconciled difference WARNs
+ * and names the corps - a corp mis-counting its own creeps is a real defect
+ * (the staffsPost-symmetry family), just not a leaking one.
+ */
+export function untrackedCreepRow(core: any): Omit<LedgerRow, "id"> {
+  const c = core.creeps;
+  const orphans = (c.unattributed ?? []) as { name: string; corpId: string | null }[];
+  const mismatch = (c.countMismatch ?? []) as { corpId: string; claimed: number; counted: number }[];
+  const excess = mismatch.reduce((n, m) => n + Math.max(0, m.claimed - m.counted), 0);
+  const unexplained = Math.max(0, c.untracked - excess);
+  const named = mismatch
+    .filter(m => m.claimed > m.counted)
+    .map(m => `${m.corpId.split("-").slice(-1)[0]} ${m.claimed}/${m.counted}`)
+    .join(", ");
+  const base = `${c.tracked}/${c.total} tracked`;
+  if (orphans.length > 0) {
+    return {
+      name: "untracked creeps",
+      value: c.untracked,
+      unit: "creeps",
+      verdict: "FAIL",
+      detail:
+        `${base}; ORPHANS (corpId matches no corp): ` +
+        orphans.map(o => `${o.name}->${o.corpId ?? "none"}`).join(", ")
+    };
+  }
+  if (c.untracked > 2 && unexplained > 0) {
+    return {
+      name: "untracked creeps",
+      value: c.untracked,
+      unit: "creeps",
+      verdict: "FAIL",
+      detail:
+        `${base}; no orphans, but ${unexplained} of ${c.untracked} are unexplained - ` +
+        `countMismatch accounts for only ${excess}${named ? ` (${named})` : ""}`
+    };
+  }
+  return {
+    name: "untracked creeps",
+    value: c.untracked,
+    unit: "creeps",
+    // Fully reconciled and non-trivial: a counting-lens defect, named, not a
+    // leak. Silent at or below the original threshold.
+    verdict: c.untracked > 2 ? "WARN" : "ok",
+    detail:
+      c.untracked > 2
+        ? `${base}; NOT a leak - zero orphans and countMismatch accounts for all ${excess}: ` +
+          `${named}. A corp under-counting creeps it owns (staffsPost-symmetry family), not creeps adrift`
+        : base
+  };
 }
 
 export function formatLedger(rows: LedgerRow[], capTick: number, baseTick: number): string {
