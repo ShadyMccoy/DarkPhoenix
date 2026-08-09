@@ -79,8 +79,12 @@ Later families (same rule — one home):
   alternative was the cluster flap (t72489078: the sink set oscillated
   with whichever room was sighted at solve time) and the stranded-trunk
   deadlock (t72488324).
-- **Consumer sizing:** `sustainableConsumptionRate` — consumers are sized from
-  ACTUAL stock at their site, never from the goal plan (macro doctrine).
+- **Consumer sizing:** ONE VALVE — the upgrader fleet is sized from the plan's
+  controller allocation and nothing else (owner 2026-08-02, SUPERSEDES the
+  former stock-grounded rule; the bank's role there is FINANCING, not sizing —
+  see CLAUDE.md "ONE VALVE"). `sustainableConsumptionRate` remains the drain
+  law for OTHER consumers (construction fuel, haul policy); it is no longer an
+  upgrader valve.
 - **Operation corps (spec 34):** a consumer is PARKED at its work site; energy
   comes TO it — a supply vector (`vectorSupplyParts`) beyond withdraw
   adjacency, direct draw at a length-0 route. Its onboard buffer bridges the
@@ -130,7 +134,7 @@ The live roster (KINDS, `execution/CommissionHost.ts`):
 | **scout** | auxiliary | intel | scout (scout) |
 | **reservation** | auxiliary | double remote sources | reserver (reserve) |
 | **tender** | auxiliary | refill extensions | tanker (tank) |
-| **controllerFeeder** | auxiliary | bank→controller relay | feeder (feed) |
+| **controllerFeeder** | auxiliary | link network: bank→controller relay + deposit-port drain (class `LinkCorp` since spec 54; kind string frozen — trap list) | feeder (feed), porttender (porttend) |
 | **raidGuard** | auxiliary (military) | protect remote producers | guard (guard) |
 | **coreBuster** | auxiliary (military) | reclaim occupied remotes | buster (buster), striker (strike) |
 | **claim** | auxiliary (CAPEX) | expansion claimer | claimer (claim) |
