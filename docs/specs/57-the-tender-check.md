@@ -1,6 +1,14 @@
 # 57 — The tender check: a buffer with no drain is a hole, not a sink
 
-**Status: SHIPPED 2026-08-08, LIVE-UNVERIFIED.**
+**Status: SHIPPED 2026-08-08, DEPLOYED + PARTIALLY VERIFIED t72873814.**
+The black box reads `alerts: []` across two live ports — no false alarm on the
+tended (44,12), and none on the newly built (41,36), which is empty and is
+exactly the case §2 deliberately keeps quiet. The *transient* half (an alert
+between a container completing and its tender arriving) is **unobservable**, and
+not for the reason first recorded: `alerts` IS exported, but `flush()`
+overwrites it every 10 ticks, so the field is an instantaneous reading rather
+than a window like `rows`. Giving `alerts` the same ring treatment is open item
+5.
 
 Companion to spec 56. That spec makes the port buffer get BUILT; this one makes
 sure the colony never again drops energy into one that nothing empties, and
@@ -136,3 +144,16 @@ the `flow-handoff` / `runt-economy` / `storage-depot` trio.
    detector threshold rather than an economic constant, so the cost of being
    slightly wrong is a noisy or late alert; worth re-reading once live data
    shows the buffer's normal cycling band (t72869702 saw 0→516e against 2000).
+
+
+5. **`alerts` is a snapshot, not a window.** `flush()` writes the watchdog's
+   alerts verbatim and `runFlightRecorder` evaluates them on the same 10-tick
+   cadence, so every evaluation reaches the segment — but each flush
+   **overwrites** the field. `rows` is a ring; `alerts` is one instant. An alert
+   that fires and clears between two captures cannot be seen, which is precisely
+   the transient case this spec's second condition exists to catch. Give
+   `alerts` the ring treatment `rows` already has.
+
+   Recorded with its own correction attached: the first write-up of this said
+   *"nothing exports them to a segment"*, which was false and was asserted
+   without opening the segment (spec 14, methodology note #9).

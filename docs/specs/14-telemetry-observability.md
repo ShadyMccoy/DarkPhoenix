@@ -12238,14 +12238,33 @@ Spec 56 stated this as a latent *hazard* (*"could therefore mark a live, tended
 port buffer for demolition"*). It was not latent. It was the live incident, and
 it was the whole of spec 54 open item 4. Both specs corrected.
 
-### Prediction 3 — UNVERIFIED, and it will stay that way from captures
+### Prediction 3 — CONFIRMED for steady state. **My first reading of it was wrong.**
 
-`port-untended` alerts print to the live console; nothing exports them to a
-segment. A capture cannot confirm or deny this prediction. That is a gap in the
-watchdog's own observability — the alarm spec 57 added to make a silent failure
-loud is itself only visible to someone watching the console. **Work item: route
-watchdog alerts into the black box** (`blackBoxRecord` already takes them at the
-flush; the alert KINDS are not queryable from a capture).
+I first wrote that this was unverifiable: *"`port-untended` alerts print to the
+live console; nothing exports them to a segment."* **That is false.** The black
+box segment's shape is `{v, tick, alerts, rows}` — `docs/LIVE_DATA.md` says so
+in its segment table, `main.ts` passes the watchdog's alerts straight into
+`blackBoxFlush(Game.time, alerts)`, and the live capture carries the field. I
+asserted a missing instrument without opening the segment.
+
+The actual reading, t72873814: **`alerts: []`**, with `rows: 72`
+(watch 49, spawn 20, churn 3). No `port-untended` alert. That is correct on both
+ports — (44,12) is tended and cycling at 0e, and (41,36) is brand new and empty,
+which is exactly the case spec 57 deliberately keeps quiet.
+
+**The real limitation is narrower and worth keeping.** `flush()` writes
+`alerts` verbatim but only on `tick % 10 === 0`, and `runFlightRecorder`
+evaluates the watchdogs on the same `% 10` cadence — so they align and every
+evaluation is flushed. But each flush **overwrites**: the field is an
+INSTANTANEOUS reading at one tick, not a window like `rows`. An alert that fired
+and cleared between two captures is unobservable.
+
+So the steady-state half of the prediction is confirmed and the *transient* half
+(a possible alert for (43,38) between its container completing and its tender
+arriving) is unobservable — because of the overwrite, not because of a missing
+export. **Work item, correctly stated: give `alerts` the same ring treatment
+`rows` already has,** so the watchdog can report what fired during a window and
+not only what is wrong at one instant.
 
 ### Prediction 4 — CONFIRMED (the top line did not improve)
 
@@ -12272,3 +12291,33 @@ no longer "why do piles form" but "why does nothing drain a full container" —
 and Mechanism B (cee0 `carryNeeded 1`, cd98 `carryNeeded 0`) plus Mechanism A
 (the dead-band) are the two answers already on file, with spec 39's seam as the
 structural fix.
+
+
+## Methodology note #9 — check the instrument before declaring it missing
+
+Twice in one session, a claim of the form *"we cannot see X because the meter
+does not exist"* was made and was wrong, in opposite directions:
+
+1. **Spec 54 open item 8** (a prior session): *"BLOCKED on the absent
+   `sourceDropped` meter."* The field was not absent — it was declared at core
+   v19, computed every tick, and never returned. Unplugged, not missing.
+2. **This session, mine**: *"`port-untended` alerts print to the live console;
+   nothing exports them to a segment."* They are exported. The black box's shape
+   is `{v, tick, alerts, rows}`, `docs/LIVE_DATA.md` documents it in its segment
+   table, and the live capture carries the field. I did not open the segment
+   before writing the sentence.
+
+Both cost the same thing — an item recorded as blocked on work that was already
+done — and both were one command away from being right:
+
+```
+  python3 -c "import json;print(list(json.load(open('<capture>'))['data']['<seg>']))"
+  grep -n "<field>" src/telemetry/<segment>.ts     # declared? emitted?
+  git log -S "<field>" -- src/telemetry/           # arrived when, wired when?
+```
+
+**Rule: "the instrument does not exist" is a claim about the code and the
+capture, so it requires reading the code and the capture.** It is the one class
+of statement in an audit that feels like an observation and is actually an
+inference. Note #8 covers the writing end (a field never emitted); this one
+covers the reading end (a reader who never looked).

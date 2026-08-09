@@ -1,6 +1,12 @@
 # 56 — The link container for remote sources: one lens, and a rung that can fire
 
-**Status: SHIPPED 2026-08-08, LIVE-UNVERIFIED.** Owner direction: *"it's
+**Status: SHIPPED 2026-08-08, DEPLOYED + VERIFIED LIVE t72873814.** The rung
+fired for the first time in the project's history: containers 3 -> 4, sites
+1 -> 0, and **both** deposit ports now read `hasContainer: true`. The buffer
+landed at (41,36) — the tile spec 54 called *"the dead controller container"* —
+and the census now classifies it `role: "port"` with
+`supersededControllerContainer: None`, which corrected two diagnoses (see D2's
+correction and §5 item 1). Owner direction: *"it's
 important to build the container where it's best accessible to incoming hauling
 routes as well as adjacent to the link of course"* (2026-08-06), and *"start
 building the deposit container buffer in anticipation"*.
