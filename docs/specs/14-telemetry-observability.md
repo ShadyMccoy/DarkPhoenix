@@ -13360,3 +13360,21 @@ core v39: `links[].perLink` — per-SENDER fires / sentRate / volleyAvg /
 clampShare (LinkMeter split, sender id threaded through every
 recordLinkFire). Deposit VOLUME per port (events are counted, energy is not)
 remains open.
+
+### Deploy 2 (same cycle, t~72918100): the unified election + core v39, predictions registered
+
+Owner-directed unification shipped (*"Yes clear up these 3 vestiges and
+generalize it"* — spec 47 §UNIFIED): one election for every non-structural
+link, mouths as approaches, ownSourceRate pricing, tender debit. Gates: unit
+2,469; trio green (4m/3m/7s); cons-link-core-first + cons-link-farthest-source
+1/1 (the deleted source rung's placements reproduce). Predictions:
+
+1. **No churn from the model swap**: both standing sites persist; table at
+   6/6 keeps the election silent — no third site, no swap fires.
+2. **Core v39 next capture**: `links[].perLink` rows for 4a83/8f08/0ebf;
+   8f08's own clampShare lands near the room's 0.586 (it is the heavy
+   sender), 4a83's below it.
+3. **Heartbeat unchanged**; X5 read with the global-reset caveat.
+4. **Zero live placement delta from unification itself** (both mouths
+   linked): the unified and old models elect identically in W43N23 today —
+   its live value begins with the NEXT room, and the model being one lens.
