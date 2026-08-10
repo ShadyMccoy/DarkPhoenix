@@ -280,7 +280,32 @@ import { AccountCategory } from "../src/economy/accountCategory";
  * comparable to a #18 one; every other account line is unchanged. Same defect
  * class as #17 (depot movers), #8 (reserver duty) and #7 (hauler spawnParts).
  */
-export const METHODOLOGY = 18;
+/**
+ * #19 (spec 58a + core v38, 2026-08-09): two INSTRUMENT changes; no account
+ * figure is re-derived, so every #18 budget/actual line is directly
+ * comparable to its #19 twin. Bumped anyway because both change what a
+ * reader ACTS on.
+ *
+ * (a) THE TOP LINE RANKS BY NAMED ENERGY. Three measured mis-ranks in three
+ * consecutive cycles (S5 0.97x-of-ceiling over L1 at 69.28x budget,
+ * t72871684; P1 2 flips over L1 at 53.3x, t72884395; again at 60.0x,
+ * t72898387): a dimensionless margin, a count and an e/t loss share no axis,
+ * and "first FAIL wins" ranked them anyway. Rows gain an optional
+ * `energyRate` (the e/t the finding NAMES - L1 sets its breach sum); the
+ * picker promotes the largest named energy, lists unnamed FAILs beside the
+ * top line, and prints the binding constraint (S5 >= 0.95x) as its OWN line -
+ * 58a's counter-argument honoured: a binding spawn is exactly what makes a
+ * loss unfixable-by-buying, so both facts print and neither hides the other.
+ *
+ * (b) CREEP CARGO JOINS THE BALANCE SHEET (core v38's meter, verified
+ * t72884395: +0.61 e/t over 9,060t - cargo EXONERATED as the standing
+ * residual bias). The committed line adds it where the capture reports it;
+ * pre-v38 captures keep printing the named gap (absent stays absent). NET
+ * WORTH floors therefore rise by standing cargo (~5-11k measured) against
+ * any #18 close - the only figure this stamp moves, and it moves by
+ * MEASUREMENT, not re-derivation.
+ */
+export const METHODOLOGY = 19;
 
 export interface LedgerRow {
   id: string;
@@ -289,6 +314,16 @@ export interface LedgerRow {
   unit: string;
   verdict: "FAIL" | "WARN" | "ok";
   detail: string;
+  /**
+   * The energy rate this row NAMES, in e/t — set only when the finding is
+   * genuinely denominated in energy per tick (L1's breach sum, not a ratio,
+   * not a count). The TOP LINE picker (methodology #19) ranks FAILs by this:
+   * a row naming energy outranks any row naming none, because a flip COUNT
+   * and a 60x-budget loss share no axis and "first FAIL wins" ranked them
+   * anyway (measured: S5 over L1 at t72871684, P1 over L1 at t72884395 and
+   * t72898387).
+   */
+  energyRate?: number;
 }
 
 const FIXTURE_DIR = path.join(__dirname, "..", "test", "fixtures", "telemetry");
@@ -2296,6 +2331,13 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         name: "loss-budget adherence (every loss priced, spec 42-A)",
         value: +worst.ratio.toFixed(2),
         unit: "x budget |gap| (worst line)",
+        // The e/t this row names: the summed magnitude of its breaches. The
+        // VALUE stays the worst ratio (comparable across cycles); the picker
+        // ranks by the energy, not the ratio (a zero budget makes any loss an
+        // arbitrarily large ratio, which is spec 48's complaint, not a rank).
+        ...(breached.length > 0
+          ? { energyRate: +breached.reduce((n, l) => n + Math.abs(l.gap), 0).toFixed(2) }
+          : {}),
         verdict: breached.length > 0 ? "FAIL" : "ok",
         detail:
           lines
@@ -3533,20 +3575,27 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
         0
       );
       const tombStock = meter?.tombstoneStock ?? 0;
-      const committed = tombStock + piles;
+      // Core v38's creepCargo: energy in creep holds. Absent stays absent
+      // (pre-v38 captures) - absent and zero are different facts here, so the
+      // line only joins when the meter reports (methodology #19).
+      const cargo = cap.data.core.creepCargo as number | undefined;
+      const committed = tombStock + piles + (cargo ?? 0);
       const fmt = (n: number): string => Math.round(n).toLocaleString("en-US");
       const free = Math.max(0, storage - reserve);
       const floor = free + reserve + committed + standing;
+      const unmeasured = [...(meter ? [] : ["tombstones"]), ...(cargo === undefined ? ["creep cargo"] : [])];
       return [
         "",
         "  BALANCE SHEET (energy stocks at close - measured lines only, gaps NAMED)",
         `    free        storage above the reserve            ${fmt(free)}`,
         `    reserved    warchest/reserve target              ${fmt(reserve)}`,
-        `    committed   in-flight: ${meter ? `tombstones ${fmt(tombStock)} + ` : ""}ground piles ${fmt(piles)} = ${fmt(committed)}   (${meter ? "" : "tombstones and "}creep cargo not measured)`,
+        `    committed   in-flight: ${meter ? `tombstones ${fmt(tombStock)} + ` : ""}ground piles ${fmt(piles)}${
+          cargo !== undefined ? ` + creep cargo ${fmt(cargo)}` : ""
+        } = ${fmt(committed)}${unmeasured.length ? `   (${unmeasured.join(" and ")} not measured)` : ""}`,
         `    standing    fleet at replacement body cost       ${fmt(standing)}`,
         `    fixed       structures at rebuild cost           not measured (no structure inventory in captures)`,
         `    = NET WORTH (measured floor)                     ${fmt(floor)}`,
-        "    The floor omits the NAMED gaps (creep cargo, fixed assets, accrued decay) - it can only",
+        `    The floor omits the NAMED gaps (${cargo === undefined ? "creep cargo, " : ""}fixed assets, accrued decay) - it can only`,
         "    understate. A line joins when its meter lands; nothing here is ever inferred."
       ];
     })(),
@@ -3818,11 +3867,36 @@ export function formatLedger(rows: LedgerRow[], capTick: number, baseTick: numbe
     out.push(`         ${r.detail}`);
   }
   const fails = rows.filter(r => r.verdict === "FAIL");
+  // METHODOLOGY #19 (spec 58a, after three measured mis-ranks): rank FAILs
+  // by the e/t they NAME. A dimensionless ratio, a flip count and an energy
+  // loss share no axis, so "first FAIL wins" printed S5 (0.97x of a ceiling)
+  // over L1 at 69.28x budget (t72871684), then P1 (2 flips) over L1 at 53.3x
+  // (t72884395), then again at 60.0x (t72898387). The method already says
+  // READ THE ENERGY ACCOUNT FIRST; the picker now agrees: largest named
+  // energy wins, rows naming none are LISTED beside it (visible, never
+  // promoted), and when no row names energy the original first-FAIL pick
+  // stands. The 58a counter-argument is real - a binding spawn is exactly
+  // what makes an energy loss unfixable-by-buying - so the binding
+  // constraint prints as its own line rather than competing for the rank.
+  const named = fails.filter(r => r.energyRate !== undefined).sort((a, b) => b.energyRate! - a.energyRate!);
+  const top = named[0] ?? fails[0];
+  const unnamed = fails.filter(r => r !== top && r.energyRate === undefined);
   out.push(
-    fails.length
-      ? `TOP LINE: ${fails[0].id} ${fails[0].name} - this is the cycle's work item`
+    top
+      ? `TOP LINE: ${top.id} ${top.name}${
+          top.energyRate !== undefined ? ` (${top.energyRate.toFixed(2)} e/t named)` : ""
+        } - this is the cycle's work item`
       : "no FAIL lines - attack the largest WARN or ship the backlog"
   );
+  if (top && unnamed.length) {
+    out.push(`  also FAIL (no e/t named, ranked below named losses): ${unnamed.map(r => r.id).join(", ")}`);
+  }
+  // The binding-constraint line: S5 is x-of-physical-ceiling; >= 0.95 is the
+  // triage checklist's saturation threshold. Both facts print, neither hides.
+  const s5 = rows.find(r => r.id === "S5");
+  if (s5 && s5.value >= 0.95) {
+    out.push(`  BINDING: S5 spawn at ${s5.value.toFixed(2)}x ceiling - energy losses may be unfixable-by-buying`);
+  }
   return out.join("\n");
 }
 

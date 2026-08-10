@@ -9,6 +9,7 @@ import {
   computeChurn,
   computeLedger,
   formatAccounts,
+  formatLedger,
   formatSourcePnL,
   planSpawnLoad
 } from "../../../scripts/waste-ledger";
@@ -3242,5 +3243,58 @@ describe("X3: an untracked count the capture reconciles is not an orphan leak (t
   it("stays ok at or below the original threshold regardless", () => {
     const cap = withCensus({ total: 59, tracked: 57, untracked: 2, byKind: {} });
     expect(x3(cap).verdict).to.equal("ok");
+  });
+});
+
+describe("TOP LINE picker ranks FAILs by the e/t they NAME (spec 58a, methodology #19)", () => {
+  // Measured mis-ranks: t72871684 printed S5 (a dimensionless margin) over L1
+  // at 69.28x budget; t72884395 and t72898387 printed P1 (a flip COUNT naming
+  // no energy) over L1 at 53.3x / 60.0x. The two numbers share no axis, so
+  // "first FAIL wins" ranked counts against energy. The law: a FAIL that
+  // names an energy rate outranks any FAIL that does not; among named rows,
+  // largest rate first; rows naming none are listed, not promoted. The
+  // binding-constraint half of 58a's counter-argument prints S5 alongside
+  // when the spawn is actually tight - both facts, neither hidden.
+  const row = (id: string, verdict: "FAIL" | "WARN" | "ok", energyRate?: number, value = 1): any => ({
+    id,
+    name: `${id} name`,
+    value,
+    unit: "u",
+    verdict,
+    detail: "detail",
+    ...(energyRate !== undefined ? { energyRate } : {})
+  });
+
+  it("a FAIL naming e/t outranks an earlier FAIL naming none (the P1-over-L1 mis-rank)", () => {
+    const out = formatLedger([row("P1", "FAIL"), row("L1", "FAIL", 15.54)], 2, 1);
+    expect(out).to.include("TOP LINE: L1");
+    expect(out).to.include("15.54 e/t named");
+  });
+
+  it("FAILs naming no e/t are still listed beside the top line, not hidden", () => {
+    const out = formatLedger([row("P1", "FAIL"), row("H3", "FAIL"), row("L1", "FAIL", 15.54)], 2, 1);
+    expect(out).to.include("also FAIL");
+    expect(out).to.include("P1");
+    expect(out).to.include("H3");
+  });
+
+  it("among named FAILs the largest rate wins", () => {
+    const out = formatLedger([row("L2", "FAIL", 3.1), row("L1", "FAIL", 15.54)], 2, 1);
+    expect(out).to.include("TOP LINE: L1");
+  });
+
+  it("all-unnamed FAILs keep the first-row pick (no named row to promote)", () => {
+    const out = formatLedger([row("P1", "FAIL"), row("H3", "FAIL")], 2, 1);
+    expect(out).to.include("TOP LINE: P1");
+  });
+
+  it("prints the BINDING line when S5 reads tight (>= 0.95 of the ceiling)", () => {
+    const out = formatLedger([row("L1", "FAIL", 15.54), row("S5", "ok", undefined, 0.97)], 2, 1);
+    expect(out).to.include("BINDING: S5");
+  });
+
+  it("no binding line when the spawn has headroom", () => {
+    const out = formatLedger([row("L1", "FAIL", 15.54), row("S5", "ok", undefined, 0.72)], 2, 1);
+    expect(out).to.not.include("BINDING");
   });
 });

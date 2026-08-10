@@ -125,6 +125,12 @@ export function tenderMinCarry(desiredCarry: number, bootstrap: boolean): number
 
 export const TENDER_FLEET_CAP = 3;
 
+/** Absolute crew ceiling for the demand gate — the pathological-crowd
+ *  backstop (2x the maximum target, preserving the retired count-cap's
+ *  worst-case bound). The gate itself stops on COUNT+CARRY coverage; this
+ *  only bounds a starved room that keeps fielding runts. */
+export const TENDER_CREW_CEILING = TENDER_FLEET_CAP * 2;
+
 /** Core->grid walk assumed when the cluster geometry is not resolvable (a
  *  compact grid sits a few tiles from the depot; only used as a fallback). */
 export const TENDER_DEFAULT_WALK = 5;
@@ -767,11 +773,20 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
       neededCarry: target * carryPerSlot,
       ...(duty !== null ? { duty: Math.round(duty * 1000) / 1000, meterTicks: ctx.tick - this.dutySince } : {})
     };
-    // Stop only when BOTH the count and the CARRY are covered. The swarm cap
-    // mirrors CarryCorp's: never more than twice the planned count, so a
-    // pathologically starved room cannot spawn an unbounded fleet.
+    // Stop only when BOTH the count and the CARRY are covered. THE SWARM CAP
+    // IS DENOMINATED IN CARRY-COVERAGE, like the staffed gate above it —
+    // spec 55 catalogue #3, fixed in CarryCorp 2026-08-02 and found still
+    // count-denominated HERE 2026-08-09: capping the COUNT at 2x target
+    // stopped the ask while the fielded CARRY was permanently short (a runt
+    // fleet reaches 2x the count without ever covering the carry — the
+    // t72851251 shape: tender standing 34 of 48 declared parts with the
+    // spawn idling "empty"). A count-heavy carry-short fleet is undersized,
+    // not a swarm; it must keep asking. What remains of the old cap is the
+    // absolute crew ceiling: 2x the MAXIMUM target (3), so the historical
+    // worst-case bound is preserved as the pathological-crowd backstop
+    // (CarryCorp keeps HAULER_BODY_CEILING for exactly this case).
     if (staffing >= target && fieldedCarry >= target * carryPerSlot) return [];
-    if (staffing >= target * 2) return [];
+    if (staffing >= TENDER_CREW_CEILING) return [];
 
     // Per-SLOT body (P4 tip t72459426: sizing every tender to the biggest
     // cluster fielded 3x46p = 138p for a 2300 bank - 0.092 parts/t, the plan's
