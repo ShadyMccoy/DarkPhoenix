@@ -3,11 +3,12 @@ import { expect } from "chai";
 import { setupGlobals, Game, Memory } from "../mock";
 import {
   bestEdgeLinkTile,
+  EDGE_APPROACH_FALLBACK_FLOW,
   EDGE_LINK_MIN_SAVING,
   EdgeLinkSiting,
   PortApproach
 } from "../../../src/corps/constructionPlacement";
-import { LINK_CAPACITY, DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK } from "../../../src/economy/primitives";
+import { LINK_CAPACITY } from "../../../src/economy/primitives";
 import { resetGovernor } from "../../../src/execution/CpuGovernor";
 
 /**
@@ -19,12 +20,16 @@ import { resetGovernor } from "../../../src/execution/CpuGovernor";
  * treatment against the same approach lens, minus the range-2 constraint. Not
  * built."* This file is that siting, red-first.
  *
- * The election is spec 26 stage 5's metric made a rung: maximize the
- * flow-weighted MARGINAL haul saving against the approaches' current best
- * deposit (storage or an existing port), subject to the reach rule - a link's
- * fire rate is LINK_CAPACITY/range, so the tile must keep
- * `depositPortHeadroom(range, 0) >= routedFlow` ("push the link as far toward
- * the flow as its 800/F ring allows, then it is optimal").
+ * The objective is the FLEET (owner 2026-08-10: *"we want the link to be
+ * placed to reduce or offset the whole fleet as much as possible"*): maximize
+ * flow x marginal saving against each approach's current best deposit
+ * (storage or an existing port - which is what keeps successive elections
+ * marginal). The constraint is ENDOGENOUS (owner, same session: the sources
+ * that *"will drop off at the link"* set the total throughput, and the link
+ * must sit close enough to the core that its own throughput *"exceeds the
+ * throughput of incoming hauling"*): the tile's CATCHMENT - the flow of every
+ * approach that would divert to it - sets F, and LINK_CAPACITY/range must
+ * strictly exceed F.
  */
 describe("bestEdgeLinkTile (spec 47 edge links, spec 26 stage 5 reach rule)", () => {
   const cheb = (a: { x: number; y: number }, b: { x: number; y: number }): number =>
@@ -39,9 +44,8 @@ describe("bestEdgeLinkTile (spec 47 edge links, spec 26 stage 5 reach rule)", ()
   const base = (over: Partial<EdgeLinkSiting> = {}): EdgeLinkSiting => ({
     corePos: { x: 30, y: 25 },
     storagePos: { x: 31, y: 26 },
-    approaches: [from(1, 25)],
+    approaches: [from(1, 25, 30)],
     existingPorts: [],
-    routedFlow: DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK,
     ...over
   });
 
@@ -55,16 +59,48 @@ describe("bestEdgeLinkTile (spec 47 edge links, spec 26 stage 5 reach rule)", ()
     expect(baseline - cheb({ x: 1, y: 25 }, t!)).to.be.at.least(EDGE_LINK_MIN_SAVING);
   });
 
-  it("obeys the reach rule: never beyond the 800/F ring of the core", () => {
-    // routedFlow 30 -> ring 800/30 = 26.67: the elected tile must fire at
-    // least as fast as the flow routed to it.
+  it("obeys the reach rule: the link's fire rate strictly EXCEEDS its catchment's flow", () => {
+    // One 30 e/t approach: every candidate that serves it carries the full 30,
+    // so the elected tile must fire faster than 30 - range < 800/30 = 26.67.
     const t30 = bestEdgeLinkTile(base(), open(), free())!;
-    expect(LINK_CAPACITY / cheb(t30, { x: 30, y: 25 })).to.be.at.least(30);
-    // A heavier assumed flow pulls the ring IN (range* <= 800/F): at 60 e/t
-    // the same approach gets a tile at range <= 13, not the far-west tile.
-    const t60 = bestEdgeLinkTile(base({ routedFlow: 60 }), open(), free())!;
+    expect(LINK_CAPACITY / cheb(t30, { x: 30, y: 25 })).to.be.greaterThan(30);
+    // A heavier route pulls the ring IN (range* <= 800/F): the same approach
+    // at 60 e/t gets a tile at range <= 13, not the far-west tile.
+    const t60 = bestEdgeLinkTile(base({ approaches: [from(1, 25, 60)] }), open(), free())!;
     expect(cheb(t60, { x: 30, y: 25 }), "60 e/t must be caught close to the core").to.be.at.most(13);
     expect(cheb(t30, { x: 30, y: 25 }), "30 e/t reaches farther out").to.be.greaterThan(cheb(t60, { x: 30, y: 25 }));
+  });
+
+  it("the catchment SUMS every approach that would divert - two west routes tighten the ring together", () => {
+    // 30 + 25 e/t both entering the west edge: any tile that beats their
+    // baselines catches BOTH, so F = 55 and the ring is 800/55 ~ 14.5 - far
+    // tighter than either route alone would demand.
+    const t = bestEdgeLinkTile(
+      base({ approaches: [from(1, 20, 30), from(1, 30, 25)] }),
+      open(),
+      free()
+    )!;
+    expect(t, "two heavy routes still get a port").to.not.equal(null);
+    expect(cheb(t, { x: 30, y: 25 }), "the ring binds on the SUM").to.be.at.most(14);
+    expect(LINK_CAPACITY / cheb(t, { x: 30, y: 25 })).to.be.greaterThan(55);
+  });
+
+  it("...but flow that would NOT divert here does not tighten it", () => {
+    // The east approach is fat (60 e/t) and already served by a port at its
+    // own exit - a west tile offers it no saving, so it is OUTSIDE the west
+    // tile's catchment and must not drag the west link toward the core.
+    const t = bestEdgeLinkTile(
+      base({
+        approaches: [from(1, 25, 30), from(48, 25, 60)],
+        existingPorts: [{ x: 46, y: 25 }]
+      }),
+      open(),
+      free()
+    )!;
+    expect(t.x, "the west approach is the one being served").to.be.lessThan(20);
+    // Ring from the WEST catchment only (30 e/t -> range up to 26), not 90.
+    expect(cheb(t, { x: 30, y: 25 })).to.be.greaterThan(Math.floor(LINK_CAPACITY / 90));
+    expect(LINK_CAPACITY / cheb(t, { x: 30, y: 25 })).to.be.greaterThan(30);
   });
 
   it("scores MARGINAL saving: an approach already served by an existing port elects nothing", () => {
@@ -192,6 +228,7 @@ describe("findMissingLink rung 3: edge links at RCL 8 slots", () => {
     Game.creeps = {};
     (Memory as any).creeps = {};
     (Memory as any).fundedRemoteRooms = ["W44N23"];
+    (Memory as any).fundedRemoteFlows = { W44N23: 30 };
   });
 
   const posOf = (x: number, y: number): any => ({
@@ -209,10 +246,16 @@ describe("findMissingLink rung 3: edge links at RCL 8 slots", () => {
   /**
    * The live-room shape at RCL 8: storage+core, controller+link, two far home
    * sources each already link-served - the ladder's first four links stand and
-   * two table slots are free. One funded remote to the WEST.
+   * two table slots are free. One funded remote to the WEST, its mined rate
+   * published (Memory.fundedRemoteFlows) as the plan does live; `flowsAbsent`
+   * stages the one-deploy-boundary window before the first publishing solve.
    */
-  const world = (opts: { rcl?: number; linkSites?: { x: number; y: number }[]; remotes?: string[] } = {}): any => {
+  const world = (
+    opts: { rcl?: number; linkSites?: { x: number; y: number }[]; remotes?: string[]; flowsAbsent?: boolean } = {}
+  ): any => {
     (Memory as any).fundedRemoteRooms = opts.remotes ?? ["W44N23"];
+    if (opts.flowsAbsent) delete (Memory as any).fundedRemoteFlows;
+    else (Memory as any).fundedRemoteFlows = { W44N23: 30 };
     const linkTiles = [
       { x: 35, y: 25 }, // core (storage at 36,26)
       { x: 41, y: 30 }, // controller link (controller at 40,32)
@@ -290,13 +333,26 @@ describe("findMissingLink rung 3: edge links at RCL 8 slots", () => {
     const tile = corp().findMissingLink(room, 8);
     expect(tile, "two slots are free and a long approach is unserved").to.not.equal(null);
     expect(tile.x, `expected a west tile, got ${JSON.stringify(tile)}`).to.be.lessThan(20);
-    // Reach rule against the core at (35,25), at the conservative routed flow.
-    expect(cheb(tile, { x: 35, y: 25 })).to.be.at.most(Math.floor(800 / DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK));
+    // Reach rule against the core at (35,25): the link's fire rate must
+    // strictly exceed the published 30 e/t the west remote routes.
+    expect(800 / cheb(tile, { x: 35, y: 25 })).to.be.greaterThan(30);
     // Classification guards: the new link must stay itself.
     expect(cheb(tile, { x: 36, y: 26 }), "not the core's tile-space").to.be.greaterThan(2);
     expect(cheb(tile, { x: 40, y: 32 }), "not the controller link").to.be.greaterThan(3);
     expect(cheb(tile, { x: 44, y: 12 }), "not s1's link").to.be.greaterThan(2);
     expect(cheb(tile, { x: 43, y: 39 }), "not s2's link").to.be.greaterThan(2);
+  });
+
+  it("unpublished flows (one deploy-boundary solve): the fallback errs HIGH and still places", () => {
+    // Memory.fundedRemoteFlows absent - the rung assumes
+    // EDGE_APPROACH_FALLBACK_FLOW per funded room (two standing sources,
+    // deliberately conservative in the TIGHT direction) rather than refusing
+    // to elect or guessing the ring loose from zero.
+    const room = world({ flowsAbsent: true });
+    const tile = corp().findMissingLink(room, 8);
+    expect(tile, "the pre-publication window must not stall the rung").to.not.equal(null);
+    expect(tile.x, "still a west tile").to.be.lessThan(20);
+    expect(800 / cheb(tile, { x: 35, y: 25 })).to.be.greaterThan(EDGE_APPROACH_FALLBACK_FLOW);
   });
 
   it("RCL 7: the table is full at four - the wall holds, no edge link", () => {
@@ -311,9 +367,9 @@ describe("findMissingLink rung 3: edge links at RCL 8 slots", () => {
 
   it("a pending edge-link SITE serves its approach: no double placement", () => {
     // The site sits where the previous election landed; the approach's
-    // baseline is now 9-10 tiles and the ring blocks anything meaningfully
-    // closer to the exit, so the second slot stays free rather than buying a
-    // twin. (Sites count against the table AND in the baseline.)
+    // baseline is now 9-10 tiles and the 800/30 ring blocks anything
+    // meaningfully closer to the exit, so the second slot stays free rather
+    // than buying a twin. (Sites count against the table AND in the baseline.)
     const room = world({ linkSites: [{ x: 9, y: 24 }] });
     expect(corp().findMissingLink(room, 8)).to.equal(null);
   });

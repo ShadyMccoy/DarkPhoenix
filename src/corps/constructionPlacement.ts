@@ -17,7 +17,7 @@
  */
 
 import { UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
-import { depositPortHeadroom } from "../economy/primitives";
+import { SOURCE_RATE, depositPortHeadroom } from "../economy/primitives";
 import { ContainerCensus } from "../telemetry/containerCensus";
 import { Position } from "../types/Position";
 import { controllerInputSpot, coreDepot, PORT_BUFFER_RANGE } from "./nodeEnergy";
@@ -606,6 +606,17 @@ export const EDGE_LINK_MIN_SAVING = 8;
  */
 export const EDGE_LINK_SCAN_INTERVAL = 25;
 
+/**
+ * Flow assumed for a funded remote whose per-room rate is not yet published
+ * (Memory.fundedRemoteFlows absent: legacy memory, i.e. at most one solve
+ * after deploy): two standing sources. Deliberately errs HIGH - overstating a
+ * room's flow TIGHTENS the 800/F reach ring, which places the link closer to
+ * the core than optimal (a saving left on the table) rather than beyond the
+ * fire rate its catchment needs (a backlog by construction, spec 47's
+ * rho >= 1 band where no buffer helps).
+ */
+export const EDGE_APPROACH_FALLBACK_FLOW = 2 * SOURCE_RATE;
+
 /** The world an edge-link election scores over - positions and lenses only,
  *  no Game/Memory (this module's purity ratchet). */
 export interface EdgeLinkSiting {
@@ -620,11 +631,6 @@ export interface EdgeLinkSiting {
    *  controller link): the marginal-value baseline, so a served approach is
    *  never served twice. */
   existingPorts: readonly { x: number; y: number }[];
-  /** e/t the plan would route to a new port - the reach-rule constraint
-   *  (`range* <= LINK_CAPACITY / F`). Callers with no measured flow pass
-   *  `DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK`, the same conservative constant the
-   *  port detector assumes when it cannot compute one. */
-  routedFlow: number;
   /** Classification guard: a link within 3 of the controller IS the controller
    *  link (`controllerLink` lens) - an edge link must never land there. */
   controllerPos?: { x: number; y: number };
@@ -639,14 +645,26 @@ export interface EdgeLinkSiting {
  * lot of cases"*, then *"Let's build the edge links then"* - blocked that day
  * on RCL 7's four-link table; RCL 8's six slots are why this exists).
  *
- * Spec 26 stage 5's metric as a placement rule: maximize the flow-weighted
- * MARGINAL haul saving `SIGMA flow_a x max(0, baseline_a - dist(a, P))`, where
- * an approach's baseline is its walk to the CURRENT best deposit (storage or
- * an existing port) - so a second link never duplicates a served approach -
- * subject to the reach rule: the tile must keep `depositPortHeadroom(range,
- * 0) >= routedFlow` ("push the link as far toward the flow as its 800/F ring
- * allows, then it is optimal"). Distances are chebyshev, the same road-agnostic
- * proxy the container siting and the stage-5 survey use.
+ * The objective is the FLEET (owner 2026-08-10: *"we want the link to be
+ * placed to reduce or offset the whole fleet as much as possible"*): maximize
+ * `SIGMA flow_a x max(0, baseline_a - dist(a, P))` in tile-e/t - spec 26
+ * stage 5's `L`, proportional to the CARRY parts freed since `carryPartsFor`
+ * is linear in rate x distance - where an approach's baseline is its walk to
+ * the CURRENT best deposit (storage or an existing port), so a second link
+ * never duplicates a served approach.
+ *
+ * The constraint is ENDOGENOUS (owner, same session: *"subject to ... the
+ * number of sources that will drop off at the link for the total throughput,
+ * and based on that has to be within a certain range of the core link that it
+ * will fire to so the throughput of the link exceeds the throughput of
+ * incoming hauling"*): the tile's CATCHMENT is the flow of every approach
+ * that would actually divert to it (saving > 0 against its baseline), and the
+ * link's fire rate must strictly EXCEED that catchment -
+ * `depositPortHeadroom(range, 0) > SIGMA flow(catchment)`, spec 26 stage 5's
+ * `range* <= 800/F` with F measured per tile rather than assumed. Moving the
+ * tile changes who diverts, which changes F, which changes the allowed range;
+ * per-tile evaluation resolves the loop exactly. Distances are chebyshev, the
+ * same road-agnostic proxy the container siting and the stage-5 survey use.
  *
  * Classification is identity, not preference: tiles inside the core lens
  * (range 2 of storage), the controller lens (range 3) or a source lens (range
@@ -688,18 +706,27 @@ export function bestEdgeLinkTile(
       if (cheb(tile, input.storagePos) <= 2) continue;
       if (input.controllerPos && cheb(tile, input.controllerPos) <= 3) continue;
       if (input.sourcePositions?.some(s => cheb(tile, s) <= 2)) continue;
-      // Reach rule through the ONE headroom law the router prices with.
       const range = cheb(tile, input.corePos);
       if (range < 1) continue;
-      if (depositPortHeadroom(range, 0) < input.routedFlow) continue;
+      // Score and CATCHMENT together: an approach with positive saving is one
+      // that would divert here, so its flow both earns value and loads the link.
       let score = 0;
       let bestSaving = -Infinity;
+      let catchment = 0;
       for (let i = 0; i < input.approaches.length; i++) {
         const saving = baselines[i] - cheb(input.approaches[i].from, tile);
         if (saving > bestSaving) bestSaving = saving;
-        if (saving > 0) score += input.approaches[i].flowRate * saving;
+        if (saving > 0) {
+          score += input.approaches[i].flowRate * saving;
+          catchment += input.approaches[i].flowRate;
+        }
       }
       if (bestSaving < EDGE_LINK_MIN_SAVING) continue;
+      // Reach rule through the ONE headroom law the router prices with, F from
+      // this tile's own catchment - the fire rate must strictly EXCEED the
+      // incoming hauling (owner 2026-08-10), or the port backs up by
+      // construction (spec 47's rho >= 1 band, where no buffer helps).
+      if (depositPortHeadroom(range, 0) <= catchment) continue;
       candidates.push({ x, y, score, range });
     }
   }

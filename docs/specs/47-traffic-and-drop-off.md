@@ -861,21 +861,41 @@ today.
 > - **Siting** — this ships it: `bestEdgeLinkTile`
 >   (`corps/constructionPlacement`, pure, red-first-pinned) elects the tile
 >   against the SAME approach lens the port container uses
->   (`portApproaches` — funded remotes' entry exits), scored by flow-weighted
->   MARGINAL saving over each approach's current best deposit (storage or an
->   existing port, so a served approach is never served twice), subject to
->   the reach rule through the one headroom law
->   (`depositPortHeadroom(range, 0) >= routedFlow`, spec 26 stage 5's
->   `range* <= 800/F`). `EDGE_LINK_MIN_SAVING = 8` one-way tiles on the best
->   approach — `LINK_MIN_SOURCE_RANGE`'s "worth a link" bar — or the slot
->   stays free. `findMissingLink` rung 3 places it; classification guards
->   keep the tile out of the core (range 2 of storage), controller (range 3)
->   and source (range 2) lens bands so the link stays an edge port the moment
->   it stands. With no measured per-port flow before the port exists, the
->   election assumes `DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK` (30 e/t) — the
->   ring is conservative by construction; flow-weighted rings await the plan
->   publishing per-room flow (the same known limit `portApproaches` states).
->   Acceptance: `test/unit/corps/edgeLinkPlacement.test.ts`.
+>   (`portApproaches` — funded remotes' entry exits). **Corrected same-day by
+>   the owner** (2026-08-10: *"we want the link to be placed to reduce or
+>   offset the whole fleet as much as possible... subject to... the number of
+>   sources that will drop off at the link for the total throughput, and
+>   based on that has to be within a certain range of the core link that it
+>   will fire to so the throughput of the link exceeds the throughput of
+>   incoming hauling"*), which replaced two approximations in the first cut:
+>   1. **The weights are REAL flows, published by the plan.** The solve now
+>      writes `Memory.fundedRemoteFlows` (funded miners' rates summed per
+>      remote room — ONE walk with `fundedRemoteRooms`, whose keys it is, so
+>      the two cannot disagree) and `portApproaches` weights every entry exit
+>      by it. The objective is fleet offset in tile·e/t — spec 26 stage 5's
+>      `L`, proportional to CARRY parts freed — over each approach's current
+>      best deposit (storage or an existing port, so a served approach is
+>      never served twice). The first cut's equal weights and its "awaits the
+>      plan publishing per-room flow" known limit are retired; the fallback
+>      (`EDGE_APPROACH_FALLBACK_FLOW` = two standing sources) covers only
+>      pre-publication memory and errs HIGH, the direction that tightens.
+>   2. **The reach ring is ENDOGENOUS, not an assumed constant.** A tile's
+>      CATCHMENT is the flow of every approach that would actually divert to
+>      it (positive marginal saving), and the election requires the link's
+>      fire rate to strictly EXCEED that catchment —
+>      `depositPortHeadroom(range, 0) > Σ flow(catchment)`, spec 26 stage 5's
+>      `range* <= 800/F` with F measured per tile instead of the first cut's
+>      flat `DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK`. Moving the tile changes
+>      who diverts, which changes F, which changes the allowed range;
+>      per-tile evaluation resolves that loop exactly.
+>
+>   `EDGE_LINK_MIN_SAVING = 8` one-way tiles on the best approach —
+>   `LINK_MIN_SOURCE_RANGE`'s "worth a link" bar — or the slot stays free.
+>   `findMissingLink` rung 3 places it; classification guards keep the tile
+>   out of the core (range 2 of storage), controller (range 3) and source
+>   (range 2) lens bands so the link stays an edge port the moment it stands.
+>   Acceptance: `test/unit/corps/edgeLinkPlacement.test.ts` +
+>   `test/unit/economy/fundedRemoteFlows.test.ts`.
 
 The original blocker list, kept for the record:
 

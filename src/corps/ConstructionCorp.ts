@@ -41,7 +41,6 @@ import {
   BUILDER_WORK_HEADROOM,
   bufferCarryParts,
   carryPartsFor,
-  DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK,
   DIRECT_DRAW_REACH,
   projectAbsorbRate,
   refuelIntervalTicks,
@@ -70,6 +69,7 @@ import {
   containersUnlocked,
   CONTAINER_LIMIT,
   reclaimableContainer,
+  EDGE_APPROACH_FALLBACK_FLOW,
   EDGE_LINK_SCAN_INTERVAL,
   EXTENSION_LIMITS,
   findGridPosition,
@@ -2410,21 +2410,26 @@ export class ConstructionCorp extends Corp {
    * to where our creeps happen to be flaps on every death and goes blind with
    * the vision the dead creep provided).
    *
-   * KNOWN LIMIT, stated rather than hidden: every funded remote is weighted
-   * EQUALLY, because neither `Memory.economyPlan.corps` nor the flow segment
-   * carries per-route flow together with a source ROOM. Direction is what the
-   * siting turns on and equal weights get that right; per-room flow weighting
-   * is the refinement, and it needs the plan to publish a source room first.
+   * Each entry is weighted by the room's FUNDED MINED RATE
+   * (`Memory.fundedRemoteFlows`, published by the same solve that publishes
+   * the room list - one walk, two views), so both readers of this lens price
+   * the fleet they actually offset: the container siting's tie-breaks and the
+   * edge-link election's objective AND its 800/F catchment constraint (owner
+   * 2026-08-10). The former equal-weight KNOWN LIMIT is retired; the fallback
+   * below only covers pre-publication memory (at most one solve after
+   * deploy), and errs HIGH - see EDGE_APPROACH_FALLBACK_FLOW.
    */
   private portApproaches(room: Room): PortApproach[] {
-    const remotes = (Memory as unknown as { fundedRemoteRooms?: string[] }).fundedRemoteRooms ?? [];
+    const mem = Memory as unknown as { fundedRemoteRooms?: string[]; fundedRemoteFlows?: Record<string, number> };
+    const remotes = mem.fundedRemoteRooms ?? [];
+    const flows = mem.fundedRemoteFlows;
     const out: PortApproach[] = [];
     const seen = new Set<string>();
     for (const remote of remotes) {
       if (remote === room.name || seen.has(remote)) continue;
       seen.add(remote);
       const tile = this.exitTileToward(room, remote);
-      if (tile) out.push({ from: tile, flowRate: 1 });
+      if (tile) out.push({ from: tile, flowRate: flows?.[remote] ?? EDGE_APPROACH_FALLBACK_FLOW });
     }
     return out;
   }
@@ -2643,9 +2648,6 @@ export class ConstructionCorp extends Corp {
         storagePos: { x: storage.pos.x, y: storage.pos.y },
         approaches,
         existingPorts,
-        // No measured per-port flow exists before the port does - the same
-        // conservative constant the detector assumes for unknown geometry.
-        routedFlow: DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK,
         ...(ctrl ? { controllerPos: { x: ctrl.pos.x, y: ctrl.pos.y } } : {}),
         sourcePositions: room.find(FIND_SOURCES).map(s => ({ x: s.pos.x, y: s.pos.y }))
       },
