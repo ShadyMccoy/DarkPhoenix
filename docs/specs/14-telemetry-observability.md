@@ -13196,3 +13196,62 @@ The next capture owns the verification: the five predictions above, with X5's
 <=0.09 bound as the falsifier of the SS5 fence analysis. If the deadband
 stamps do NOT clear, the next suspect is already named in the tree (the
 construction-route filter, spec 59 B) - instrument, don't re-theorize.
+
+## Cycle addendum t72906414+ (2026-08-09, the RCL8 build-out): the #149 mechanism FOUND AND FIXED, the tower rung uncapped, and two of the owner's four asks turn out already built
+
+Owner directive: *"RCL8 we can build a few buildings like a 3rd spawn.
+Another tower. More links. And maybe more extensions. We will skip labs for
+now."* The placement audit against the RCL8 allowances:
+
+| ask | state found | action |
+|---|---|---|
+| 3rd spawn | **ALREADY BUILT** - Spawn3 stands at util 0.65; the spawn rung has been cap-aware since owner 2026-07-29 and fired on the RCL8 transition unprompted | none needed |
+| more extensions | **ALREADY BUILT** - energyCapacity reads 12,900 = 3x300 + 60x200 exactly; the checkerboard rung read `EXTENSION_LIMITS[8] = 60` and filled the allowance | none needed |
+| another tower | **IMPOSSIBLE by code** - `findMissingTower` was hard-coded to ONE tower (`hasTower` silenced it forever once the RCL3 tower stood) | **FIXED**: `TOWER_LIMITS` table + `wantsAnotherTower` (spawn-rung shape, counts sites) + `TOWER_TARGET_PER_ROOM = 2` - deliberately below the engine's 6 (a tower is idle capital + a tender refill lane + unmetered burn; growing past "another" is a numbers decision, one constant away) |
+| more links | **NO RUNG WANTS THEM** - `LINK_LIMITS[8] = 6` with 4 standing, but the rung's ladder (core, controller, source links) is satisfied: both home sources already carry the port links | named as the open design task: the two free slots want EDGE deposit-port links (spec 26 stage 5 / spec 49 leg B / spec 45's edge geometry - the DEP gauge already ranks the candidates at ~870 tile*e/t). A placement optimizer, not a constant - deliberately NOT bolted on |
+| labs | skipped per owner | none |
+
+### The #149 regression: mechanism found, and it was the recycle pad's ladder slot
+
+The bisect (t72884395 addendum) named PR #149; the hunt this cycle named the
+LINE. #149 added the recycle-pad rung at position 1.8 - ABOVE the tower,
+spawn, storage and link rungs. In a mature room the pad places a 5,000e
+container site first; in the three staged cell worlds (`creeps: quiet()` - no
+builders - and a bank below reserve) that site can never complete, and
+`placementGateOpen` (activeSites > 0, no surplus) never reopens - so every
+infrastructure rung behind it starved forever, and all three cells timed out
+byte-identically. Live rooms have builders, so the pad built in minutes and
+the ladder proceeded - which is why the regression was invisible outside the
+grid for six days.
+
+Fix, two halves, both principled rather than cell-shaped:
+- **The pad moves BELOW the capacity structures** (new rung 2.8, after
+  links): a convenience container yields to defense, spawn throughput and
+  the link network by priority, not just by the incident.
+- **The pad joins `wantsAnyContainer`** (spec 56 open item 2 - the same D1
+  defect the port rung had): a mature room wanting ONLY the pad now opens
+  the gate at all.
+
+### Gate: ALL GREEN, deployed
+
+The three #149 cells, on the fixed ladder: `cons-link-core-first` **1/1 @
+tick 30**, `cons-link-farthest-source` **1/1 @ tick 30** (both were timeout
+@60/60), and `cons-t3-build-and-repair-concurrent` **1/1** (site @10, repair
+past the gate @243 - the pad site was breaking the build-and-repair world
+too). Controls unharmed (`cons-one-site-at-a-time` @10, `cons-t4-link-completes`
+@20). Trio GREEN (flow-handoff 4m, runt-economy 3m, storage-depot 7s). Unit
+2,443. **Spec 58(b) is CLOSED end to end: observed -> environment exonerated ->
+bisected to #149 -> mechanism named -> fixed -> all three cells green.**
+DEPLOYED to shard1 master.
+
+### Predictions for the next capture
+
+1. **A second tower site appears in W43N23** within ~2 placement cooldowns of
+   the deploy (the rung's want is immediate; tower #2 lands near the spawns)
+   and completes at builder pace. Tender refill covers it (spec 07 wiring).
+2. The pad rung stays QUIET in W43N23 (container table 5/5 FULL - the
+   (41,22) orphan holds one of the five slots; spec 54 item 10 unchanged).
+3. No new links place (correct per the table above - the edge-port design
+   task is the named follow-up).
+4. Grid: the three #149 cells stay green from here; the ratchet's
+   construction avenue is trustworthy again.
