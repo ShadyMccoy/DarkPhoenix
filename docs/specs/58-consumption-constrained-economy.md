@@ -238,11 +238,16 @@ TRANSPORT_NETWORK §11.1 specifies the operator almost exactly:
 > An RCL8 room can export its entire surplus for ~0.03 CPU/tick."
 
 That is a **parked bidirectional operator** — and the colony already has one
-of those to copy: `ControllerFeederCorp`, "the sole bidirectional core-link
-operator", parked, spawn-direction-biased onto its post, sized from a
-published plan rate. A `hubManager` kind is the same shape one structure over:
-parked between storage and terminal, moving energy OUT on a planned outbound
-transfer and IN on arrival, sole operator of that pair so nothing races it.
+of those to copy: the corp behind `linkKind` (`corps/LinkCorp.ts`, spec 54 —
+which absorbed the old `ControllerFeederCorp`, the original "sole
+bidirectional core-link operator"): parked, spawn-direction-biased onto its
+post, sized from a published plan rate. A `hubManager` kind is the same shape
+one structure over: parked between storage and terminal, moving energy OUT on
+a planned outbound transfer and IN on arrival, sole operator of that pair so
+nothing races it. (Worth checking when building: spec 54's LinkCorp may
+already be the right HOME for this duty rather than a new kind — the terminal
+is one more port on the same hub, and one operator per hub beats two parked
+creeps sharing a tile radius. Decide at the seam, not here.)
 
 Why this is cheap rather than daunting: spec 17 makes kinds
 **registration-only** — one kind file plus one `KINDS` entry, with demand

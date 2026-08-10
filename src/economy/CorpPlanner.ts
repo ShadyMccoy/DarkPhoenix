@@ -270,11 +270,19 @@ export interface ColonyProblem {
   terminalRooms?: readonly string[];
   /**
    * Linear ROOM distance between two room names - the input to the terminal
-   * fee (the adapter passes RoomDiscovery.roomLinearDistance, which matches
-   * Game.map.getRoomLinearDistance). Kept as an injected function for the
-   * same reason `dist` is: the planner stays pure and never parses a room
-   * name itself. Absent = a transfer cannot be PRICED, and an unpriceable
-   * edge is never emitted (canTransfer refuses) - so the gate is doubled.
+   * fee. CONTRACT: this must be the CONTINUOUS (wrap-around) form,
+   * `Game.map.getRoomLinearDistance(a, b, true)` - the exact distance the
+   * engine's calcTransactionCost charges. The non-continuous form
+   * (RoomDiscovery.roomLinearDistance today) overstates the fee across the
+   * world seam: two hubs at W59N0/E59N0 read ~119 rooms apart when the
+   * engine charges the wrap distance ~1, so the plan's fee would disagree
+   * with the actual debit - the exact plan-vs-engine drift keeping the exact
+   * exponential was meant to prevent (review 2026-08-06). Phase 3's adapter
+   * wiring must pass the continuous form (wrap the lens or read the engine).
+   * Kept as an injected function for the same reason `dist` is: the planner
+   * stays pure and never parses a room name itself. Absent = a transfer
+   * cannot be PRICED, and an unpriceable edge is never emitted (canTransfer
+   * refuses) - so the gate is doubled.
    */
   roomDist?: (a: string, b: string) => number;
   /**
@@ -814,11 +822,29 @@ function routeToSinks(
   //     qualifies only if its OWN bank is not itself lending - which the
   //     pressure pair states directly: source > 0 means lending.
   const terminalRooms = new Set(problem.terminalRooms ?? []);
+  // Lending = the bank's OWN surplus draw, read from the PROBLEM's bank
+  // sources - never from `supply`, whose bank rates planColony has already
+  // augmented with the funded mined income banking at each hub (the
+  // hub-and-spoke credit). On the augmented rates every hub with a single
+  // funded mine reads as "lending" and no real colony could ever receive
+  // (review 2026-08-06, probe-confirmed: a hub 5k UNDER its reserve with one
+  // 10 e/t mine was refused). The problem's rates are the adapter's
+  // bankPressure source half: surplus only, 0 while filling.
   const lendingRooms = new Set(
-    supply.filter(s => isBankSourceId(s.sourceId) && s.rate > 1e-9).map(s => bankRoomFromId(s.sourceId))
+    problem.sources
+      .filter(s => s.transient && isBankSourceId(s.id) && s.rate > 1e-9)
+      .map(s => bankRoomFromId(s.id))
   );
   /** May this bank source transfer into this (foreign) hub's store? */
   const canTransfer = (sourceId: string, sink: PlannerSink): boolean => {
+    // STORAGE SINKS ONLY. The fill's order filter admits bank sources to
+    // CONSUMER sinks unconditionally (a bank is a non-deposit - that is the
+    // ordinary bank->consumer draw the depot movers execute), so without this
+    // guard a foreign terminal room's spawn/controller would price as a
+    // terminal transfer: zero spawn parts for bodies the envelope still
+    // charges, a negative charge stamp, and energy landing in a terminal no
+    // executor can put into a spawn (review 2026-08-06, probe-confirmed).
+    if (sink.kind !== "storage") return false;
     if (!isBankSourceId(sourceId)) return false;
     if (!problem.roomDist) return false; // unpriceable edge - never emit one
     const from = bankRoomFromId(sourceId);
@@ -916,7 +942,19 @@ function routeToSinks(
               // construction sink nearer than the source's hub may draw it.
               (sink.kind === "construction" && d < (hubDist.get(id) ?? Infinity));
       })
-      .sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
+      .sort((a, b) => {
+        // Terminal transfers fill LAST at a storage sink, whatever their tile
+        // distance: mined deposits' only home is a hub, while a transfer
+        // moves SAVINGS between hubs at the engine's fee - and tile distance
+        // is meaningless for a route that doesn't walk. Racing them let a
+        // near foreign bank crowd fresh income out of its only home,
+        // demoting profitable miners while the warchest shipped uphill
+        // (review 2026-08-06, probe-confirmed). Production over consumption:
+        // income banks first, transfers take the residual room.
+        const ta = canTransfer(a.id, sink) ? 1 : 0;
+        const tb = canTransfer(b.id, sink) ? 1 : 0;
+        return ta - tb || a.d - b.d || (a.id < b.id ? -1 : 1);
+      });
 
     // Consumer bodies for THIS sink walk from the nearest spawn: upgraders at
     // a controller, builders at construction (5x cheaper per e/t - BUILD is
@@ -950,11 +988,19 @@ function routeToSinks(
       // headroom is DEBITED below on the confirmed `take`, not this candidate
       // rate, so a parts-ledger-limited take can't over-consume the shared port.
       // Non-storage sinks keep physD = d (untouched).
+      // Hoisted above the port leg: a TERMINAL TRANSFER never touches the
+      // link-port network - it neither walks nor lands in a link, so blending
+      // its "distance" through a port stamped depositPos on a route no hauler
+      // runs, burned the port's shared headroom that real walking deposits
+      // needed, and the stage-4 drain then synthesized a phantom core->storage
+      // hauler charged real spawn parts for flow that moves by terminal
+      // (review 2026-08-06, probe-confirmed).
+      const transfer = canTransfer(id, sink);
       let physD = d;
       let depositPos: Position | undefined;
       let chosenPort: DepositPort | undefined;
       let portShare = 0;
-      if (sink.kind === "storage" && avail > 1e-9) {
+      if (sink.kind === "storage" && avail > 1e-9 && !transfer) {
         const from = src?.haulPos ?? src?.pos;
         if (from) {
           let best: { port: DepositPort; dPort: number } | undefined;
@@ -993,7 +1039,7 @@ function routeToSinks(
       // storage->terminal stocking leg is NOT priced here (phase 3 owns it);
       // it is local and small, and under-pricing it is visible rather than
       // silent because the transfer route carries spawnParts 0 in the ledger.
-      const transfer = canTransfer(id, sink);
+      // (`transfer` itself is hoisted above the port leg.)
       const frac = transfer ? transferFraction(id, sink) : 1;
       const chargePerUnit = transfer
         ? 0

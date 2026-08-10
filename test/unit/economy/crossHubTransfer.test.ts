@@ -66,7 +66,18 @@ const sinkAt = (
  * B is a young hub with an empty storage and real headroom.
  * `terminalRooms` decides whether the transfer edge exists at all.
  */
-function twoHubWorld(opts: { terminalRooms?: string[]; bStock?: number } = {}): ColonyProblem {
+function twoHubWorld(
+  opts: {
+    terminalRooms?: string[];
+    bStock?: number;
+    /** A funded mine in the DESTINATION room (its income banks at hub B). */
+    bMine?: boolean;
+    /** A controller sink in B - a foreign CONSUMER a transfer must never target. */
+    bController?: boolean;
+    /** A deposit port in B, nearer to A's bank than B's storage. */
+    bPort?: ColonyProblem["depositPorts"];
+  } = {}
+): ColonyProblem {
   const aStock = CAPACITY; // A's bank is topped out
   const bStock = opts.bStock ?? 0;
   const pA = bankPressure(aStock, CAPACITY - aStock, TARGET);
@@ -81,19 +92,26 @@ function twoHubWorld(opts: { terminalRooms?: string[]; bStock?: number } = {}): 
   });
   return {
     dist,
-    // Linear ROOM distance (the engine's getRoomLinearDistance shape) - the
+    // Continuous linear ROOM distance (the calcTransactionCost form) - the
     // fee's input, injected exactly like `dist` so the planner stays pure.
     roomDist: (a: string, b: string) =>
       Math.max(Math.abs(GRID[a].gx - GRID[b].gx), Math.abs(GRID[a].gy - GRID[b].gy)),
     spawns: [spawnAt("spawnA", "A", 10), spawnAt("spawnB", "B", 10)],
-    sources: [mine("mA", "A", 20), bank("A", pA.source, 25), bank("B", pB.source, 25)],
+    sources: [
+      mine("mA", "A", 20),
+      ...(opts.bMine ? [mine("mB", "B", 20)] : []),
+      bank("A", pA.source, 25),
+      bank("B", pB.source, 25)
+    ],
     sinks: [
       sinkAt("spawn-A", "spawn", "A", 10, 100, 5),
       sinkAt("ctrl-A", "controller", "A", 15, 50, 15), // A at the RCL8 cap
       sinkAt("store-A", "storage", "A", 25, 1, Math.min(40, pA.sink)), // full: 0
       sinkAt("spawn-B", "spawn", "B", 10, 100, 5),
+      ...(opts.bController ? [sinkAt("ctrl-B", "controller", "B", 15, 50, 30)] : []),
       sinkAt("store-B", "storage", "B", 25, 1, Math.min(40, pB.sink)) // empty: plenty
     ],
+    ...(opts.bPort ? { depositPorts: opts.bPort } : {}),
     ...(opts.terminalRooms ? { terminalRooms: opts.terminalRooms } : {})
   };
 }
@@ -141,12 +159,30 @@ describe("economy/CorpPlanner - cross-hub transfer (spec 58 phase 2)", () => {
     it("A's full bank transfers to B's empty store - the consumption-constrained EXIT", () => {
       const p = plan();
       const toB = p.sinks.find(s => s.sinkId === "store-B")!;
-      expect(toB.allocated, "B's hub absorbs A's surplus").to.be.greaterThan(0);
-      expect(
-        toB.sources.every(s => s.sourceId === "bank-A"),
-        "and it comes from A's bank (the only hub with surplus)"
-      ).to.equal(true);
+      const fromBank = toB.sources.find(s => s.sourceId === "bank-A")?.amount ?? 0;
+      expect(fromBank, "B's hub absorbs A's banked surplus").to.be.greaterThan(0);
       expect(p.haulers.some(h => h.sourceId === "bank-A" && h.sinkId === "store-B")).to.equal(true);
+    });
+
+    it("mined deposits OUTRANK the transfer at the hub - income banks first, savings fill the residual", () => {
+      // Review finding (probe-confirmed): ranked by tile distance, the nearer
+      // foreign bank beat mA into store-B's capacity, mA demoted to unrouted,
+      // and the colony shipped savings uphill at the engine fee while fresh
+      // income rotted - the exact inversion of production-over-consumption.
+      // Transfers now fill LAST at a storage sink whatever their distance.
+      const p = plan();
+      const toB = p.sinks.find(s => s.sinkId === "store-B")!;
+      expect(toB.sources.find(s => s.sourceId === "mA")?.amount ?? 0, "mA's full rate banks first").to.be.closeTo(
+        10,
+        1e-6
+      );
+      expect(
+        p.miners.some(m => m.sourceId === "mA"),
+        "the miner stays funded - the transfer never displaced income"
+      ).to.equal(true);
+      // the transfer takes exactly the residual room (cap 40 - 10 mined = 30 landed)
+      const fromBank = toB.sources.find(s => s.sourceId === "bank-A")?.amount ?? 0;
+      expect(fromBank).to.be.closeTo(30, 1e-6);
     });
 
     it("THE ANTI-PUMP IS NOW EXACTLY PHYSICAL: never its OWN store, either direction", () => {
@@ -176,10 +212,12 @@ describe("economy/CorpPlanner - cross-hub transfer (spec 58 phase 2)", () => {
       const p = planColony(twoHubWorld({ terminalRooms: ["A", "B"] }));
       const route = p.haulers.find(h => h.sourceId === "bank-A" && h.sinkId === "store-B")!;
       const store = p.sinks.find(s => s.sinkId === "store-B")!;
-      // What LANDS is the delivered flow; what the source spends is more, by
-      // exactly the engine's fee. The plan's totals must reflect the loss -
-      // a transfer that pretends to be lossless would over-state the colony.
-      const delivered = store.allocated;
+      // What LANDS is the transfer route's accounted amount (mA's walking
+      // deposits share the same sink now that deposits fill first, so read
+      // the bank-A line, not the sink total); what the source spends is more,
+      // by exactly the engine's fee. The plan's totals must reflect the loss
+      // - a transfer that pretends to be lossless would over-state the colony.
+      const delivered = store.sources.find(s => s.sourceId === "bank-A")!.amount;
       const spent = route.flowRate;
       expect(spent, "the source spends more than lands").to.be.greaterThan(delivered - 1e-9);
       expect(delivered / spent, "the ratio IS the engine's delivered fraction").to.be.closeTo(
@@ -221,6 +259,72 @@ describe("economy/CorpPlanner - cross-hub transfer (spec 58 phase 2)", () => {
         p.haulers.some(h => h.sourceId === "bank-A" && h.sinkId === "store-B"),
         "a hub under its reserve should receive"
       ).to.equal(true);
+    });
+
+    it("a hungry hub WITH funded local income still receives - lending is the bank's OWN surplus, not the credit", () => {
+      // Review finding (probe-confirmed): lendingRooms read the supply array,
+      // whose bank rates planColony augments with funded mined income, so a
+      // hub 5k UNDER its reserve with one local mine classified as "lending"
+      // and was refused. Live, every hub has income banking to it - the guard
+      // would have killed the edge for every real colony. Lending now reads
+      // the PROBLEM's bank rates (the adapter's surplus-only source half).
+      const p = planColony(twoHubWorld({ terminalRooms: ["A", "B"], bStock: TARGET - 5_000, bMine: true }));
+      expect(
+        p.haulers.some(h => h.sourceId === "bank-A" && h.sinkId === "store-B"),
+        "funded local income must not disqualify a hungry destination"
+      ).to.equal(true);
+    });
+  });
+
+  describe("the transfer stays in its lane (review 2026-08-06, all probe-confirmed)", () => {
+    it("NEVER prices a foreign CONSUMER as a transfer - no executor can put terminal energy in a spawn", () => {
+      // canTransfer without a storage-sink guard let bank-A -> ctrl-B/spawn-B
+      // route as transfers: zero spawn parts for upgrader bodies the envelope
+      // still charges, a NEGATIVE charge stamp (breaking the t72846447 spent
+      // decomposition), and energy stranded in B's terminal.
+      const p = planColony(twoHubWorld({ terminalRooms: ["A", "B"], bController: true }));
+      for (const h of p.haulers) {
+        if (h.sinkId === "store-B") continue;
+        expect(h.transfer ?? false, `${h.sourceId} -> ${h.sinkId} must not be a transfer`).to.equal(false);
+      }
+      // and the charge stamp never goes negative anywhere
+      for (const h of p.haulers) {
+        expect(h.charged ?? 0, `${h.sourceId} -> ${h.sinkId} charged >= 0`).to.be.at.least(-1e-9);
+      }
+      // bank->consumer draws still happen - as ordinary walking routes with bodies
+      const toConsumerB = p.haulers.filter(h => h.sourceId === "bank-A" && (h.sinkId === "ctrl-B" || h.sinkId === "spawn-B"));
+      for (const h of toConsumerB) {
+        expect(h.spawnParts, "a walking bank draw buys real bodies").to.be.greaterThan(0);
+      }
+    });
+
+    it("NEVER rides a deposit port - the engine moves it, so no depositPos, no headroom debit, no phantom drain", () => {
+      // The port-blend leg engaged for transfers: depositPos stamped on a
+      // route no hauler runs, the shared port headroom burned so real walking
+      // deposits lost their shortcut, and the stage-4 drain synthesized a
+      // phantom core->storage hauler charged real spawn parts.
+      const port = {
+        pos: at("B", 20),
+        headroom: 30,
+        drainFrom: at("B", 26),
+        drainSourceId: "mB"
+      };
+      const p = planColony(twoHubWorld({ terminalRooms: ["A", "B"], bMine: true, bPort: [port] }));
+      const transferRoutes = p.haulers.filter(h => h.transfer === true);
+      expect(transferRoutes.length, "the transfer itself still happens").to.be.greaterThan(0);
+      for (const h of transferRoutes) {
+        expect(h.depositPos, "a transfer never carries a port position").to.equal(undefined);
+      }
+      // no drain hauler exists for flow the port never absorbed from a WALKING
+      // deposit: every drain-leg hauler must trace to real ported deposit flow
+      const drained = p.haulers.filter(h => h.sourceId === "mB" && h.sinkId === "store-B" && h.carryParts > 0);
+      const portedWalking = p.haulers.filter(h => h.depositPos !== undefined);
+      if (portedWalking.length === 0) {
+        expect(
+          drained.reduce((s, h) => s + h.flowRate, 0),
+          "no ported walking flow -> no synthesized drain beyond mB's own route"
+        ).to.be.at.most(20 + 1e-6);
+      }
     });
   });
 });

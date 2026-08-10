@@ -540,7 +540,7 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
   });
 });
 
-// SPEC 46 - the CONSUMPTION-CONSTRAINED sinks. Two game facts the plan was
+// SPEC 58 - the CONSUMPTION-CONSTRAINED sinks. Two game facts the plan was
 // blind to: the storage sink used to absorb at FULL rate until the last joule
 // of room then cliff to zero (min(totalSupply, physical-room) mixed e/t with
 // absolute energy), and at RCL8 the game hard-caps upgrading at 15 e/t no
