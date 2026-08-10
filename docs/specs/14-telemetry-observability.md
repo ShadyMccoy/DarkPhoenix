@@ -12968,3 +12968,129 @@ Next step (own session, full regression gate): read #149's ConstructionCorp/
 bank diffs against the two 60t link cells (fast probes), fix or — if the
 behavior change was intended — re-ratchet the baseline deliberately in the
 same commit as the explanation.
+
+## Audit cycle t72898387 (2026-08-09, second cycle of the day) — the raid window: H3 fires first time, the residual busts on a transition smear, and two proven fixes ship
+
+Capture t72898387 vs t72884395: **dt 13,992 (~9.3 fiscal months), unattended,
+no deploys**. `fiscal:archive` (run FIRST this time, per the last cycle's
+lesson) closed **nine more months at 100% coverage** (FY4858-M10 → FY4859-M08).
+**The sweep wrapped: cycle 1 complete (peaked 20%), and cycle 2 is walking at
+~2%/month — the self-escalation clause fired for the first time** (the bot's
+own controller-rate projection). Cumulative loss counters reset mid-window
+(`losses.windowTicks` 6,267), so loss lines span 6,267t of the 13,992.
+
+### The window's event: a raid defunded W43N24, and the correct-class rule has a gap
+
+Two sources (cd8e, cd8d — 20 e/t of capacity) **defunded for occupied/hostile**
+mid-window. The hostile-defund rule did what it says (no new bodies, strand
+nobody) — and that exposed a seam nobody had priced: **standing miners keep
+mining while the dropped plan routes stop all evacuation.** The mouths grew
+2,257 → 6,135 and 3,614 → 6,815 (**~13k standing, growing**), the fielded cure
+is one scavenger draining 0.51 e/t against ~7 e/t of decay (LOSING 14:1), and
+the new-to-fire **H3 gauge named it exactly**: "2 mouths over cap with zero
+drain creeps at both captures."
+
+This is NOT a call to touch the defund rule casually — it took two incidents
+to get right and it is the trap list's correct-class exemplar. It IS a named,
+measured gap for the owner discussion: **production outlives evacuation by up
+to a miner lifetime (~1500t) after every hostile defund**, cost this window
+~7-12 e/t of rot plus the container deaths below.
+
+### Prediction verdicts (registered t72884395)
+
+1. **cd8d falls — CONFIRMED, past the threshold**: hp 0.59 → **0.19** (cd8e
+   0.73 → 0.39 alongside), both containers AT CAP (`free: 0`) with the room
+   hostile so no repairer can reach them. ~950t from death at the unrepaired
+   rate; the second lap of the container-death loop is imminent, **with a
+   named driver this time (raid), unlike the first lap**. Spec 59's repair
+   question stays open for the ORIGINAL mechanism; this lap answers itself.
+2. **Sweep wraps — CONFIRMED**: cycle 1 archived complete at 100% coverage
+   every month; cycle 2 running (self-escalated step).
+3. **X3 `controllerFeeder 3/1` — CONFIRMED (seventh capture)**; joined this
+   window by `reservation 1/0` and `cbd5 3/2` (4 untracked total, all
+   countMismatch, zero orphans).
+4. **creepCargo in the 5–15k band — CONFIRMED**: 11,174 → 8,799
+   (fleet-size-bound, not trending). **Residual −28.05 e/t, OUTSIDE the
+   −3..−10 band — but the prediction's "absent a raid window" qualifier
+   fired** (this was emphatically a raid window: R1 at 6.10×, 70% of deaths
+   killed, guards up, 2 sources defunded). Leading hypothesis, labeled as
+   such: most of the −28 is **capacity-basis transition smear** (revenue
+   prices funded capacity across a window in which the funded set changed
+   mid-stream) plus unmetered tower burn. Falsifiable next capture: with a
+   stable funded set, the residual returns to band; if it does not, tower
+   burn gets a meter before any re-theorizing.
+5. **cd98 stays over-budget — DID NOT HOLD, but with a world change**: cd98
+   re-funded because the W43N24 defunds freed 20 e/t of tranche. The naked
+   tranche-edge-flap conditional did not fire; P1's 3 flips all trace to the
+   raid. **The picker printed P1 over L1 (15.54 e/t named at 60× budget)
+   anyway — the THIRD mis-rank in three cycles — which converted spec 58(a)
+   from proposal to shipped fix this cycle (below).**
+
+### The window itself (methodology #18 highlights)
+
+- Income-funded **52% (MET)**; G1 51.82 pts/t sustainable; bank ~flat
+  (−0.97 e/t) at reserve 70k (the target tracks funded income down:
+  84k → 77k → 70k as capacity fell 120 → 110 → 100).
+- **L1 14.99 e/t** (∞× a zero budget); forgone 6.61 (MISS — the pile gate
+  holding miners at 5 of 12 ops, 42.70 heldFrac).
+- F1 1.02×, F2 0.26 (worst rows now the DEFUNDED-room corps), H1 duty 0.94,
+  X1 0.10 — the funded economy itself ran tight.
+- Spawn util 0.66/0.63 vs ceiling; S5 0.72× (35%+ headroom); CPU bucket
+  10,000. Instrument healthy.
+
+### Shipped fix 1 (live behavior): the tender swarm cap re-denominated
+
+Spec 55 catalogue #3 was "FIXED 2026-08-02" **in CarryCorp only** — the
+2026-08-09 code sweep found `ExtensionTenderCorp` still count-capped behind a
+stale "mirrors CarryCorp's" comment (the t72851251 mechanism: tender standing
+34 of 48 declared parts, spawn idling `empty`, fleet stuck at 2× count with
+CARRY short). Red-first: staged four 1-CARRY runts against a target-2 world,
+watched the old gate decline, then replaced the count-2× line with the
+absolute `TENDER_CREW_CEILING = TENDER_FLEET_CAP * 2` backstop (the staffed
+exit already stops on COUNT+CARRY coverage — CarryCorp's carry-2× line is
+unreachable here, so the honest port is the ceiling, not a copied line).
+Latent-class fix: **no immediate live delta predicted** (current tender fleet
+is 1 healthy body); the pin is the acceptance, and the t72851251 deadlock is
+now unrepresentable. Unit suite 2,434 green; full trio gate GREEN (flow-handoff 4m, runt-economy 3m, storage-depot 7s) against the exact deployed bundle.
+
+### Shipped fix 2 (instrument, METHODOLOGY #18 → #19): the picker and the cargo line
+
+(a) **TOP LINE ranks by named energy.** Rows gain optional `energyRate` (L1
+sets its breach sum); the picker promotes the largest named e/t, lists
+unnamed FAILs beside the top line, and prints `BINDING: S5 ...` as its own
+line at ≥0.95× ceiling (58a's counter-argument honoured — both facts print).
+Re-run on this capture: `TOP LINE: L1 ... (15.54 e/t named)` with
+`also FAIL: P1, H3` beside. Red-first pinned in `wasteLedger.test.ts` (6
+tests, including the all-unnamed fallback and the no-binding case).
+
+(b) **creepCargo joins the balance sheet** where the capture reports it
+(absent stays absent for pre-v38 captures): committed = tombstones 11 +
+ground piles 16,039 + creep cargo 8,799 = 24,849 this capture; the named-gaps
+footer drops cargo. No account figure re-derived — #18 lines compare directly
+to #19; NET WORTH moves by measurement only.
+
+Timing note: the sweep-wrap boundary the review brief proposed for the
+methodology batch has PASSED (cycle 1 closed complete at #18); these two
+instrument changes are the batch's no-figure-changes half. The spec-51
+budget-column re-graining (which DOES re-derive figures) still waits for its
+own boundary + the owner's Decision 2.
+
+### Predictions for the next capture
+
+1. **cd8d's container dies** (hp 0.19, hostile room, no repair possible) and
+   cd8e follows within ~2,500t; NO rebuild while the room stays hostile —
+   expect `sourceMouth` to lose the container (or hp to reset high on a
+   later rebuild after the room clears). The mouth stock rots in place.
+2. **The residual returns to the −3..−10 band** with a stable funded set; if
+   it does not, tower burn gets a meter before any re-theorizing (the
+   transition-smear hypothesis is then dead).
+3. **H3 stays FAIL** while W43N24 is hostile (the defund-evacuation gap is
+   structural); the TOP LINE stays L1 by the new picker unless a larger named
+   loss appears.
+4. X3 stays WARN with `controllerFeeder 3/1` (eighth capture).
+5. **No tender-fix live delta** in steady state (latent class); if a runt
+   wave occurs, the fleet recovers to carry coverage instead of deadlocking
+   at 2× count — the observable is `staffing > 2×target` with the ask still
+   firing, impossible under the old gate.
+
+### Cycle verdict: **FIXED (2 shipped: one live-behavior latent-class, one instrument) + BLOCKER NAMED WITH DATA (the defund-evacuation gap, H3's first fire) + 4/5 predictions confirmed or qualifier-fired**
