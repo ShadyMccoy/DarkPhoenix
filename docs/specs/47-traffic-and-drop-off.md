@@ -845,6 +845,40 @@ today.
 
 ### What remains before an edge link can be turned on
 
+> **ALL THREE CLEARED — the placement rung SHIPPED 2026-08-10 (LIVE-UNVERIFIED).**
+> Status of each blocker as written below:
+>
+> - **RCL 8** — arrived. The six-link table stands while rungs 1-2 of
+>   `findMissingLink` (core, controller, one per far home source) top out at
+>   four in the live room: the two remaining slots were unreachable by
+>   construction until a rung existed for them.
+> - **The relay** — solved by [spec 54](54-link-corp.md), not by
+>   `PortRelayCorp`: the LinkCorp owns every port and fields a parked
+>   `porttender` per buffered post (`portDemands`/`runPortPosts`), chain
+>   confirmed working on the (44,12) post at t72869702. An edge link that
+>   stands gets its buffer from the container rung (spec 56's one lens) and
+>   its tender from the LinkCorp with zero new code.
+> - **Siting** — this ships it: `bestEdgeLinkTile`
+>   (`corps/constructionPlacement`, pure, red-first-pinned) elects the tile
+>   against the SAME approach lens the port container uses
+>   (`portApproaches` — funded remotes' entry exits), scored by flow-weighted
+>   MARGINAL saving over each approach's current best deposit (storage or an
+>   existing port, so a served approach is never served twice), subject to
+>   the reach rule through the one headroom law
+>   (`depositPortHeadroom(range, 0) >= routedFlow`, spec 26 stage 5's
+>   `range* <= 800/F`). `EDGE_LINK_MIN_SAVING = 8` one-way tiles on the best
+>   approach — `LINK_MIN_SOURCE_RANGE`'s "worth a link" bar — or the slot
+>   stays free. `findMissingLink` rung 3 places it; classification guards
+>   keep the tile out of the core (range 2 of storage), controller (range 3)
+>   and source (range 2) lens bands so the link stays an edge port the moment
+>   it stands. With no measured per-port flow before the port exists, the
+>   election assumes `DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK` (30 e/t) — the
+>   ring is conservative by construction; flow-weighted rings await the plan
+>   publishing per-room flow (the same known limit `portApproaches` states).
+>   Acceptance: `test/unit/corps/edgeLinkPlacement.test.ts`.
+
+The original blocker list, kept for the record:
+
 - **RCL 8** (the hard wall above).
 - **The relay.** An edge link has no miner beside it, so the parked tender is
   mandatory there rather than optional — and it is still blocked on spec 39's
@@ -854,6 +888,15 @@ today.
 - **Siting.** `bestPortContainerTile` already sites a container against
   weighted approaches; an edge LINK wants the same treatment against the same
   approach lens, minus the range-2 constraint. Not built.
+
+**Known residual (stated, not hidden):** the planner's stage-4 drain pricing
+(`CorpPlanner` deposit-drain loop) attributes the core→storage drain leg to a
+port's OWNING source and therefore skips a source-less edge port
+(`!port.drainSourceId → continue`). The physical drain is the LinkCorp
+feeder's normal core duty either way; the unpriced leg is ~1 tile
+(`carryPartsFor(30, 1)` over a creep life ≈ 0.002 spawn-parts/t), below F1's
+resolution. If edge-port flow ever grows the drain leg past noise, price it
+against the feeder's charge rather than inventing a phantom source.
 
 ## Owner questions answered from live structures (2026-08-06)
 

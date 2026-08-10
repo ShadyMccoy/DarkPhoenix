@@ -41,6 +41,7 @@ import {
   BUILDER_WORK_HEADROOM,
   bufferCarryParts,
   carryPartsFor,
+  DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK,
   DIRECT_DRAW_REACH,
   projectAbsorbRate,
   refuelIntervalTicks,
@@ -63,11 +64,13 @@ import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { buildPool, buildPoolAbsorbRate, buildPoolBacklog, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
 import {
   bestControllerLinkTile,
+  bestEdgeLinkTile,
   bestPortContainerTile,
   PortApproach,
   containersUnlocked,
   CONTAINER_LIMIT,
   reclaimableContainer,
+  EDGE_LINK_SCAN_INTERVAL,
   EXTENSION_LIMITS,
   findGridPosition,
   LINK_LIMITS,
@@ -189,6 +192,12 @@ export class ConstructionCorp extends Corp {
   /** Per-tick memo for `roomDepositPorts` (heap only - a reset just re-scans). */
   private portScan: ReturnType<typeof detectLinkDepositPorts> = [];
   private portScanTick = -1;
+  /** Edge-link election memo (heap only - a reset just re-scans). A NULL
+   * verdict holds for EDGE_LINK_SCAN_INTERVAL ticks because the election is a
+   * full-room scan on `wantsLink`'s every-tick path; an elected TILE is
+   * re-verified each tick so it sees its own site land. */
+  private edgeLinkScanTick = -Infinity;
+  private edgeLinkScanTile: { x: number; y: number } | null = null;
 
   /**
    * Builder count the demand lens wanted at its last walk - stashed by
@@ -2554,7 +2563,95 @@ export class ConstructionCorp extends Corp {
       const tile = bestAdjacentTile(room, spot, 1, spawn?.pos, room.find(FIND_MY_SPAWNS).map(s => s.pos), STRUCTURE_LINK);
       if (tile) return { x: tile.x, y: tile.y };
     }
-    return null;
+
+    // 3) EDGE LINKS (owner 2026-08-06: "Building links inside our rooms near
+    //    the edge for remote mining is probably a great way to go in a lot of
+    //    cases", then "Let's build the edge links then" - blocked that day on
+    //    RCL 7's four-link table). Rungs 1-2 top out at core + controller +
+    //    one per far home source; RCL 8's six slots were unreachable by
+    //    construction. A free slot now meets the remote flow AT THE DOOR: the
+    //    tile comes from the SAME approach lens the port container sites
+    //    against (portApproaches - funded remotes' entry exits, the plan's
+    //    durable signal), scored by marginal saving under the reach rule
+    //    (bestEdgeLinkTile). Everything downstream of a standing link already
+    //    ships: detectLinkDepositPorts registers it source-less (spec 47),
+    //    the container rung buffers it, the LinkCorp tenders it (spec 54),
+    //    and the LinkRunner's sender queue fires it.
+    return this.findEdgeLinkTile(room);
+  }
+
+  /**
+   * The edge-link election, memoised (see EDGE_LINK_SCAN_INTERVAL): the
+   * full-room scan sits on `wantsLink`'s every-tick path, so a NULL verdict
+   * holds for the interval while a live tile is re-verified cheaply each tick
+   * - it must notice its own site landing (or a rival structure claiming the
+   * tile) rather than re-electing it for 25 ticks of ERR_INVALID_TARGET.
+   */
+  private findEdgeLinkTile(room: Room): { x: number; y: number } | null {
+    if (this.edgeLinkScanTick === Game.time) return this.edgeLinkScanTile;
+    if (Game.time - this.edgeLinkScanTick < EDGE_LINK_SCAN_INTERVAL) {
+      const held = this.edgeLinkScanTile;
+      if (held === null) return null;
+      if (!this.tileTaken(room, held.x, held.y)) return held;
+      // The held tile is gone - fall through to a fresh election.
+    }
+    const verdict = this.electEdgeLinkTile(room);
+    this.edgeLinkScanTick = Game.time;
+    this.edgeLinkScanTile = verdict;
+    return verdict;
+  }
+
+  /** A structure or pending site stands on (x,y) - the lazy occupancy lens the
+   *  election and its memo re-verification share. */
+  private tileTaken(room: Room, x: number, y: number): boolean {
+    return room.lookForAt(LOOK_STRUCTURES, x, y).length > 0 || room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0;
+  }
+
+  /**
+   * Assemble the pure election's world from the live room: the core to range
+   * against (a port fires to it - no standing core, no port), the approaches
+   * (funded remotes' entry exits), and the existing deposit ports BUILT or
+   * pending (marginal value: a served approach is never served twice). A
+   * pending site inside the core's or controller's lens band is that rung's
+   * link mid-build, not a port.
+   */
+  private electEdgeLinkTile(room: Room): { x: number; y: number } | null {
+    const storage = room.storage;
+    if (!storage?.my) return null;
+    const core = coreLink(room);
+    if (!core) return null;
+    const approaches = this.portApproaches(room);
+    if (approaches.length === 0) return null;
+    const ctrl = room.controller;
+    const ctrlLink = controllerLink(room);
+    const links = room.find(FIND_MY_STRUCTURES, {
+      filter: s => s.structureType === STRUCTURE_LINK
+    }) as StructureLink[];
+    const sites = room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_LINK });
+    const existingPorts = [
+      ...links
+        .filter(l => l.id !== core.id && (!ctrlLink || l.id !== ctrlLink.id))
+        .map(l => ({ x: l.pos.x, y: l.pos.y })),
+      ...sites
+        .filter(s => !s.pos.inRangeTo(storage.pos, 2) && !(ctrl && s.pos.inRangeTo(ctrl.pos, 3)))
+        .map(s => ({ x: s.pos.x, y: s.pos.y }))
+    ];
+    const terrain = room.getTerrain();
+    return bestEdgeLinkTile(
+      {
+        corePos: { x: core.pos.x, y: core.pos.y },
+        storagePos: { x: storage.pos.x, y: storage.pos.y },
+        approaches,
+        existingPorts,
+        // No measured per-port flow exists before the port does - the same
+        // conservative constant the detector assumes for unknown geometry.
+        routedFlow: DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK,
+        ...(ctrl ? { controllerPos: { x: ctrl.pos.x, y: ctrl.pos.y } } : {}),
+        sourcePositions: room.find(FIND_SOURCES).map(s => ({ x: s.pos.x, y: s.pos.y }))
+      },
+      (x, y) => terrain.get(x, y) === TERRAIN_MASK_WALL,
+      (x, y) => this.tileTaken(room, x, y)
+    );
   }
 
   /**

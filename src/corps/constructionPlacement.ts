@@ -17,6 +17,7 @@
  */
 
 import { UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
+import { depositPortHeadroom } from "../economy/primitives";
 import { ContainerCensus } from "../telemetry/containerCensus";
 import { Position } from "../types/Position";
 import { controllerInputSpot, coreDepot, PORT_BUFFER_RANGE } from "./nodeEnergy";
@@ -583,6 +584,130 @@ export function bestPortContainerTile(
     }
   }
   return best ? { x: best.x, y: best.y } : null;
+}
+
+/**
+ * Minimum ONE-WAY tiles an edge link must save its best approach to be worth a
+ * link-table slot plus its 5000e build - the same "worth a link" bar
+ * `LINK_MIN_SOURCE_RANGE` sets for a source link (a source inside 8 of storage
+ * saves less walk than the link costs). Below it the slot stays free for
+ * geometry that earns it.
+ */
+export const EDGE_LINK_MIN_SAVING = 8;
+
+/**
+ * Ticks a NULL edge-link election holds before re-scanning. The election runs
+ * on `findMissingLink`'s path, which the placement gate's `wantsLink` term
+ * evaluates EVERY tick - and a mature room with a free slot but no viable tile
+ * would otherwise pay the full-room scan forever. Room geometry moves on the
+ * placement cadence, not per tick, so a bounded-stale "nothing viable" is
+ * honest; an elected TILE is re-verified cheaply every tick (it must see its
+ * own site land, or a container claim its tile).
+ */
+export const EDGE_LINK_SCAN_INTERVAL = 25;
+
+/** The world an edge-link election scores over - positions and lenses only,
+ *  no Game/Memory (this module's purity ratchet). */
+export interface EdgeLinkSiting {
+  /** The core link the new port would FIRE to - range to it sets the fire rate. */
+  corePos: { x: number; y: number };
+  /** The storage hub - every approach's default deposit walk, the baseline. */
+  storagePos: { x: number; y: number };
+  /** Where deposit traffic enters the room (funded remotes' entry exits),
+   *  flow-weighted - the SAME lens `bestPortContainerTile` sites against. */
+  approaches: readonly PortApproach[];
+  /** Existing deposit ports, BUILT or pending as sites (never the core or the
+   *  controller link): the marginal-value baseline, so a served approach is
+   *  never served twice. */
+  existingPorts: readonly { x: number; y: number }[];
+  /** e/t the plan would route to a new port - the reach-rule constraint
+   *  (`range* <= LINK_CAPACITY / F`). Callers with no measured flow pass
+   *  `DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK`, the same conservative constant the
+   *  port detector assumes when it cannot compute one. */
+  routedFlow: number;
+  /** Classification guard: a link within 3 of the controller IS the controller
+   *  link (`controllerLink` lens) - an edge link must never land there. */
+  controllerPos?: { x: number; y: number };
+  /** Classification guard: a link within 2 of a source IS that source's link
+   *  (`sourceLink` lens) - rung 2's business, not this rung's. */
+  sourcePositions?: readonly { x: number; y: number }[];
+}
+
+/**
+ * Elect the tile for an EDGE LINK (owner 2026-08-06: *"Building links inside
+ * our rooms near the edge for remote mining is probably a great way to go in a
+ * lot of cases"*, then *"Let's build the edge links then"* - blocked that day
+ * on RCL 7's four-link table; RCL 8's six slots are why this exists).
+ *
+ * Spec 26 stage 5's metric as a placement rule: maximize the flow-weighted
+ * MARGINAL haul saving `SIGMA flow_a x max(0, baseline_a - dist(a, P))`, where
+ * an approach's baseline is its walk to the CURRENT best deposit (storage or
+ * an existing port) - so a second link never duplicates a served approach -
+ * subject to the reach rule: the tile must keep `depositPortHeadroom(range,
+ * 0) >= routedFlow` ("push the link as far toward the flow as its 800/F ring
+ * allows, then it is optimal"). Distances are chebyshev, the same road-agnostic
+ * proxy the container siting and the stage-5 survey use.
+ *
+ * Classification is identity, not preference: tiles inside the core lens
+ * (range 2 of storage), the controller lens (range 3) or a source lens (range
+ * 2) are excluded outright - a link there would belong to another rung the
+ * moment it stood.
+ *
+ * The election must clear `EDGE_LINK_MIN_SAVING` on its best approach or
+ * return null: a link-table slot is scarce (six, ever) and a marginal tile
+ * spends one for walk the fleet barely notices.
+ *
+ * Occupancy is checked LAZILY on the ranked winners (usually one call): the
+ * caller's `isOccupied` costs a lookForAt pair per tile, and the arithmetic
+ * pass alone decides almost every candidate. Deterministic tie-break: score,
+ * then range to core (a closer tile fires faster - free headroom), then y,
+ * then x.
+ *
+ * Pure: positions and lenses in, tile out - unit-pinned red-first.
+ */
+export function bestEdgeLinkTile(
+  input: EdgeLinkSiting,
+  isBlocked: (x: number, y: number) => boolean,
+  isOccupied: (x: number, y: number) => boolean
+): { x: number; y: number } | null {
+  if (input.approaches.length === 0) return null;
+  const cheb = (a: { x: number; y: number }, b: { x: number; y: number }): number =>
+    Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+  // Each approach's CURRENT best deposit walk - what a candidate must beat.
+  const baselines = input.approaches.map(a => {
+    let d = cheb(a.from, input.storagePos);
+    for (const p of input.existingPorts) d = Math.min(d, cheb(a.from, p));
+    return d;
+  });
+  const candidates: { x: number; y: number; score: number; range: number }[] = [];
+  for (let y = 1; y <= 48; y++) {
+    for (let x = 1; x <= 48; x++) {
+      if (isBlocked(x, y)) continue;
+      const tile = { x, y };
+      // Identity guards - the lens ranges are the lenses', not ours.
+      if (cheb(tile, input.storagePos) <= 2) continue;
+      if (input.controllerPos && cheb(tile, input.controllerPos) <= 3) continue;
+      if (input.sourcePositions?.some(s => cheb(tile, s) <= 2)) continue;
+      // Reach rule through the ONE headroom law the router prices with.
+      const range = cheb(tile, input.corePos);
+      if (range < 1) continue;
+      if (depositPortHeadroom(range, 0) < input.routedFlow) continue;
+      let score = 0;
+      let bestSaving = -Infinity;
+      for (let i = 0; i < input.approaches.length; i++) {
+        const saving = baselines[i] - cheb(input.approaches[i].from, tile);
+        if (saving > bestSaving) bestSaving = saving;
+        if (saving > 0) score += input.approaches[i].flowRate * saving;
+      }
+      if (bestSaving < EDGE_LINK_MIN_SAVING) continue;
+      candidates.push({ x, y, score, range });
+    }
+  }
+  candidates.sort((a, b) => b.score - a.score || a.range - b.range || a.y - b.y || a.x - b.x);
+  for (const c of candidates) {
+    if (!isOccupied(c.x, c.y)) return { x: c.x, y: c.y };
+  }
+  return null;
 }
 
 /**
