@@ -13255,3 +13255,72 @@ DEPLOYED to shard1 master.
    task is the named follow-up).
 4. Grid: the three #149 cells stay green from here; the ratchet's
    construction avenue is trustworthy again.
+
+## Audit cycle t72917269 (2026-08-10, edge-link session) — the 41,934-tick window: pile decay is the top line, port 8f08 reads SATURATED, and the RCL8 edge-link rung ships as the intervention
+
+The window since t72875335 ran unattended under the ramping sweep (fiscal
+archive closed FY4860-M05..FY4861-M01 at 100%, handicap stepping 3%→8%).
+Account headlines (methodology #19):
+
+- **Forgone mining 67.17 e/t (45% of capacity)** — the miners' pile-gate
+  stamps explain 33.78 of it (heldFrac). Controller 40.89 of 150 capacity
+  (27%, target ≥50%) — MISS both.
+- **TOP LINE: L1 pile decay 15.46 e/t vs budget 0.00** (ceil floor 5.80
+  across ~9.5 standing piles). E4 also FAIL: 413,038 above reserve, slope
+  +8.42/t, projected equilibrium past the absorbable knee. P1 flap: 4
+  sources (d017/d019/d01f/cd99 flipping funded↔over-budget). P7 FAIL on the
+  stock read (controllerStock 657→1433 — the energy stood).
+- **E6 chronic:** cd8e (buffered 3,552) and cee2 (2,312) held 100% of their
+  windows — "the leak is HAULING", says the row, and SCAV agrees: we collect
+  21% of pile outflow, the engine takes 79%, LOSING on 3 of 3 stocks.
+- **DEP names the mechanism candidate:** per-link deposit demand 4a83
+  40.0 e/t (rho 0.85) and **8f08 60.0 e/t against 51.5 absorbable — rho
+  1.16, SATURATED**, with 10 routes still wanting a port (savings 19/16/13/
+  13/13/12 tiles). Spec 47's own band table: rho ≥ 1.0 is the regime where
+  no buffer helps — the routed load has to come down.
+
+**The cycle's hypothesis (one, labeled):** the saturated port throttles
+evacuation on the routes that want it; their mouths back up; the pile-gate
+holds the miners (E6) and the standing piles rot (L1). The intervention is
+the one the owner directed this session (*"Let's take a look at adding links
+since we're rcl8"*): the RCL8 edge-link placement rung — spec 47's third
+blocker, shipped as `bestEdgeLinkTile` + `findMissingLink` rung 3, corrected
+same-day to the owner's model (real published `Memory.fundedRemoteFlows`
+weights; the 800/F ring measured per tile from each candidate's own
+catchment, fire rate strictly exceeding it). Full design trail: spec 47
+§edge links, spec 26 stage 5 UPDATE. Gates: unit 2,463 (23 pinning the
+feature), lint at baseline, trio green on the final bundle.
+
+### Methodology note #10 — the grid cannot ratchet on the sandbox host
+
+The full grid on this session's remote container fails 21 baseline-green
+cells (bot level 4→0) **identically on the branch and on its base commit
+dbad248** — failure sets byte-equal, while the same cells pass run SOLO on
+the same bundles. The full run's 12-bot worlds overrun this host's real
+per-tick CPU (the mockup meters real CPU — the armed-governor trap's
+mechanism, minus the governor). Consequence: on a slower host, single-cell
+runs and A/B attribution remain valid; the RATCHET verdict does not.
+`baseline.json` was left untouched; ratcheting it on a host-invalid run
+would corrupt the metric. Attribution method when a full-run cell reds on
+foreign hardware: solo rerun first, then base-commit A/B — identical
+failure pre/post acquits the change (the standing attribution rule, now
+with a measured host-scale instance).
+
+### Deployed t~72917600, predictions registered
+
+Branch = deployed master (dbad248) + exactly two commits (2a4ca61 rung,
+d04ab81 owner-model correction). Predictions:
+
+1. `Memory.fundedRemoteFlows` publishes within ~2 solves: ~10 remote rooms,
+   Σ ≈ 130 e/t (the P&L's funded set).
+2. A STRUCTURE_LINK site places in W43N23 within a placement cooldown of
+   the first publishing solve: range ≤ 26 of the core (35,25), outside the
+   core/controller/source lens bands, on the unserved S/SW/W arc — and NO
+   twin beside 8f08/4a83 (their approaches' marginal saving is ~0).
+3. The site builds at builder pace (P8 read 1.65 e/t → ~3,000t for 5,000e),
+   so buffer/tender/rho relief are NEXT-cycle observables — this window
+   verifies placement + publication + heartbeat only.
+4. Heartbeat unharmed: feederActive true, no X5 spike, no placeResult error
+   spam from the new rung.
+
+Verdict: PENDING post-deploy verification (below, after recapture).
