@@ -2,8 +2,11 @@ import { expect } from "chai";
 import {
   SPAWN_EMERGENCE_MIN,
   SPAWN_LIMITS,
+  TOWER_LIMITS,
+  TOWER_TARGET_PER_ROOM,
   emergenceTileCount,
-  wantsAnotherSpawn
+  wantsAnotherSpawn,
+  wantsAnotherTower
 } from "../../../src/corps/constructionPlacement";
 import { buildRank } from "../../../src/corps/repair";
 
@@ -118,5 +121,45 @@ describe("spawn rung: additional spawns as RCL allows", () => {
       expect(buildRank("storage")).to.be.at.most(buildRank("link"));
       expect(buildRank("link")).to.be.lessThan(buildRank("road"));
     });
+  });
+});
+
+describe("TOWER_LIMITS / wantsAnotherTower (RCL8 build-out, owner 2026-08-09)", () => {
+  // Owner: "RCL8 we can build a few buildings like a 3rd spawn. Another
+  // tower. More links." The tower rung was hard-coded to ONE tower (any
+  // tower at all silenced it - built at RCL3, never another). It now mirrors
+  // the spawn rung's shape: an engine-limit table plus a COLONY TARGET that
+  // deliberately stops below the RCL8 engine cap of six - every standing
+  // tower is idle capital plus refill overhead (tower burn is the account's
+  // unmetered residual), so growing past "another tower" is a decision, not
+  // a default. One constant to raise when the owner wants more.
+  it("mirrors CONTROLLER_STRUCTURES: 1 at RCL3, 2 at RCL5, 3 at RCL7, 6 at RCL8", () => {
+    expect(TOWER_LIMITS[3]).to.equal(1);
+    expect(TOWER_LIMITS[5]).to.equal(2);
+    expect(TOWER_LIMITS[7]).to.equal(3);
+    expect(TOWER_LIMITS[8]).to.equal(6);
+  });
+
+  it("wants the second tower at RCL5+ with one built (the owner's 'another tower')", () => {
+    expect(wantsAnotherTower(5, 1, 0)).to.equal(true);
+    expect(wantsAnotherTower(8, 1, 0)).to.equal(true);
+  });
+
+  it("the colony target stops at TWO even where the engine allows six", () => {
+    expect(TOWER_TARGET_PER_ROOM).to.equal(2);
+    expect(wantsAnotherTower(8, 2, 0)).to.equal(false);
+  });
+
+  it("COUNTS PENDING SITES - never double-places while one is building", () => {
+    expect(wantsAnotherTower(8, 1, 1)).to.equal(false);
+  });
+
+  it("the engine cap still binds below the target (RCL3/4: one tower only)", () => {
+    expect(wantsAnotherTower(3, 1, 0)).to.equal(false);
+    expect(wantsAnotherTower(4, 1, 0)).to.equal(false);
+  });
+
+  it("no towers below RCL3", () => {
+    expect(wantsAnotherTower(2, 0, 0)).to.equal(false);
   });
 });

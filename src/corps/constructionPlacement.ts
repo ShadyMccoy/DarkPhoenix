@@ -89,6 +89,41 @@ export function wantsAnotherSpawn(rcl: number, builtSpawns: number, spawnSites: 
   return builtSpawns + spawnSites < limit;
 }
 
+/**
+ * CONTROLLER_STRUCTURES[STRUCTURE_TOWER] mirrored, same discipline as
+ * SPAWN_LIMITS above (engine ground truth, pinned by test).
+ */
+export const TOWER_LIMITS: { [rcl: number]: number } = {
+  3: 1,
+  4: 1,
+  5: 2,
+  6: 2,
+  7: 3,
+  8: 6
+};
+
+/**
+ * The COLONY's tower target per room (owner 2026-08-09: "Another tower") -
+ * deliberately below the RCL8 engine cap of six. A standing tower is idle
+ * capital plus a refill lane on the tender's circuit, and tower burn is the
+ * account's unmetered residual, so growing the battery past two is a
+ * decision to make on numbers, not a default to inherit from the engine
+ * table. One constant to raise when that decision comes.
+ */
+export const TOWER_TARGET_PER_ROOM = 2;
+
+/**
+ * The tower rung's want, spawn-rung shape (owner 2026-08-09 RCL8 build-out).
+ * The rung was previously hard-coded to ONE tower - `hasTower` silenced it
+ * forever once the RCL3 tower stood, so "another tower" could never place.
+ * Engine limit AND colony target both bind; pending sites count so a 600e
+ * site never double-places.
+ */
+export function wantsAnotherTower(rcl: number, builtTowers: number, towerSites: number): boolean {
+  const limit = Math.min(TOWER_LIMITS[rcl] ?? 0, TOWER_TARGET_PER_ROOM);
+  return builtTowers + towerSites < limit;
+}
+
 export const EXTENSION_LIMITS: { [rcl: number]: number } = {
   1: 0,
   2: 5,
