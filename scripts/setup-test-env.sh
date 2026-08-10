@@ -32,10 +32,34 @@ if [ ! -d node_modules ] || [ ! -x "$GYP" ]; then
 fi
 
 # 1. isolated-vm native module (the user-script VM).
-if ! node -e "require('isolated-vm')" >/dev/null 2>&1; then
-  echo "[setup-test-env] building isolated-vm (single-threaded - parallel make races)"
-  (cd node_modules/isolated-vm && rm -rf build out && "$GYP" configure >/dev/null && "$GYP" build -j 1)
-  node -e "require('isolated-vm')"
+#
+# LOCATION IS NOT FIXED: depending on the lockfile/npm version, isolated-vm
+# hoists to node_modules/isolated-vm OR nests under
+# node_modules/@screeps/driver/node_modules/isolated-vm (measured 2026-08-09:
+# the nested layout is what a fresh `npm install --ignore-scripts` produces
+# here, and the old hard-coded top-level cd made this step a silent no-op-
+# then-crash). Resolve the REAL path from the consumer's context - the driver
+# is what actually require()s it - and check loadability from there too; a
+# bare `require('isolated-vm')` from the repo root cannot see a nested copy
+# and would rebuild forever. `npm rebuild isolated-vm` handles both layouts
+# and uses npm's own node-gyp, so prefer it; the manual gyp fallback keeps
+# the single-threaded build for the parallel-make race documented above.
+IVM_DIR=$(node -e "
+  const path = require('path');
+  for (const base of ['@screeps/driver/node_modules/isolated-vm', 'isolated-vm']) {
+    try { console.log(path.dirname(require.resolve(path.join(base, 'package.json'), { paths: [path.join(process.cwd(), 'node_modules')] }))); process.exit(0); } catch {}
+  }
+  process.exit(1);
+" 2>/dev/null || true)
+if [ -z "$IVM_DIR" ]; then
+  echo "[setup-test-env] isolated-vm package not found under node_modules - npm install layout unexpected" >&2
+  exit 1
+fi
+if ! node -e "require('$IVM_DIR')" >/dev/null 2>&1; then
+  echo "[setup-test-env] building isolated-vm at $IVM_DIR (single-threaded - parallel make races)"
+  npm rebuild isolated-vm --foreground-scripts >/dev/null 2>&1 \
+    || (cd "$IVM_DIR" && rm -rf build out && "$GYP" configure >/dev/null && "$GYP" build -j 1)
+  node -e "require('$IVM_DIR')"
   echo "[setup-test-env] isolated-vm OK"
 else
   echo "[setup-test-env] isolated-vm OK (cached)"

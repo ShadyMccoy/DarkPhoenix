@@ -12805,3 +12805,453 @@ inventing a fix for a mechanism that just changed shape would be the wrong move.
    the falsifiable half of the "hostile ⇒ unreachable" explanation.
 4. X3 stays WARN with `controllerFeeder 3/1` present.
 5. The top line does not move on account of anything deployed.
+
+## Audit cycle t72884395 (2026-08-09, review session) — the 9,060-tick unattended window: cargo EXONERATED, the sweep's first fully-archived stretch, and the picker mis-ranks again
+
+Capture t72884395 vs baseline t72875335: **dt 9,060 ≈ six fiscal months,
+unattended** (no deploy recorded in the window; master unchanged at core v38).
+`fiscal:archive` closed **seven months at 100% coverage each from the bot's own
+boundary snapshots** (FY4858-M03..M09, handicap 12%→18% stamped per month) —
+spec 50 doing exactly what it was built for; a capture-bracketed close could
+never have covered this stretch. Sweep now at **19%, cycle 1, stepReason
+`nominal`** (cycle 0's full 0→20% pass already archived; the wrap in ~2 months
+gives two full passes = the designed aliasing protection).
+
+### Prediction 1 — SETTLED: creep cargo is EXONERATED as the standing bias
+
+`creepCargo` 5,642 → 11,174 over 9,060t = **+0.61 e/t**, against a window
+residual of **−7.77 e/t**. A cargo slope explaining that residual would need
+~70k of accumulation; cargo is fleet-size-bound. So the standing −3..−8 e/t
+residual band is NOT cargo. The t72875067 one-window −21.50 flip remains
+consistent with a cargo TRANSIENT (±5.5k in 268t ≈ ±20.6 e/t — this window
+demonstrates swings of exactly that size are real), and nothing else on file
+competes for it.
+
+**Instrument gap, recorded not fixed:** the account still prints *"creep cargo
+not measured"* in the balance sheet's committed line — the v38 field is on the
+wire and the LEDGER does not consume it. One-line report change; it moves the
+NET WORTH floor (+11k), so it lands with a methodology bump at the sweep-wrap
+boundary per spec 51's timing rule, not mid-sweep.
+
+### Prediction 2 — the cee0 coverage-gap worry DISSOLVES
+
+cee0 hp 0.67 → **0.71**. The registered alternative fired: the repair rotation
+is slower than a 268t window can see, but it reached cee0. No coverage gap to
+chase there.
+
+### Prediction 3 — NOT CONFIRMED: d01f fell despite the room clearing
+
+d01f hp 0.69 → **0.61** net, over a window in which W41N23 cleared
+(~t72876621) and the source re-funded. Not decisive alone — the window mixes
+the hostile stretch with resumed mining — but d01f joins the falling side, and
+the faller that matters is:
+
+### The watch item: cd8d is falling FASTEST again
+
+**cd8d hp 0.86 → 0.59 (−0.27), ground 1,835 → 2,257, pile-gate held 100% of
+the window** — the freshly rebuilt container (5,000e, spec 59 §4c) is back on
+the path that killed its predecessor, at ~2,950t to zero at the unrepaired
+rate. Spec 59's sharpened question ("how does a container reach zero while a
+repairer with spare budget works its neighbours") now has a live rerun
+candidate. Colony-wide the rotation still nets positive (Σdhp +0.20 across ten
+mouths; depreciation memo: repair 5.82 vs accrual 5.91, first small SHORTFALL
+on record), and cee0/cd8e containers sit back AT the 2000 cap.
+
+### Prediction 4 — CONFIRMED (sixth capture)
+
+X3 WARN, 47/50, `tender 2/1, controllerFeeder 3/1`. The countMismatch class is
+now the longest-standing WARN on the books.
+
+### Prediction 5 — HELD, and the TOP LINE picker mis-ranked a second time
+
+L1 10.52 → **13.33 e/t at 53.3× a 0.00 budget** (monthly closes ran 10.24–21.51
+across the stretch — the series' normal band; nothing deployed claims any of
+it). But the printed TOP LINE is **P1 (2 funded flips)** — a count naming no
+energy ranked above the account's largest loss. **Spec 58(a)'s picker defect,
+second live instance, different row pair** (first: S5 over L1 at t72871684).
+The flips themselves: `4adbd01f defunded→funded` is the hostile machinery
+recovering (legitimate, stamped); `4adbcd98 funded→over-budget` dropped the
+farthest source (d=105) — needs attribution at the next boundary (tranche-edge
+flap vs honest re-solve; spec 46's D-row is the instrument that would name it).
+
+### The window itself (methodology #18 highlights)
+
+- **G1: 99% income-funded, 52.03 pts/t sustainable — the most income-funded
+  long window on record** (M02 close: 42%). Bank slope −0.39 e/t over six
+  months, under handicaps 13→19%. Delivery held 106–112 e/t in every month.
+- **E4 names an EQUILIBRIUM, not convergence: storage ~161k = reserve 77k +
+  84k standing surplus, projected equilibrium 160,680 ≈ measured.** The bank
+  has settled ABOVE its target with the feeder active — spec 48's gross-vs-net
+  gap in stock form (the plan appropriates on gross; storage absorbs the
+  difference; the "spend path" being checked is priced on the wrong basis).
+- **S4 34% idle, 94% of it `empty` (no demand), while F2 under-fields 79p
+  (547 declared / 468 fielded) and E6 holds 6 of 12 miner ops CHRONIC** —
+  spec 55's signature, unchanged: capacity idle + ask declined + piles
+  decaying. Mouth stocks fell 29,668 → 18,319 across the stretch, but part of
+  that is cd98's defund-then-rot (a loss REALIZED, not cured).
+- Instrument health: CPU bucket 10,000 (used 31/300), GCL 32 at 96%, spawns
+  util 0.66/0.63 vs 0.667 ceiling parts 0.43, R1 at 2.60× accumulating toward
+  the ≥10-window swap, X5 0.06 (worst: W43N23-construction 2,350e@103t, raid
+  churn). No threat to the instrument.
+
+### Workflow note (cost one close, fixed same session)
+
+Running `fiscal:close` BEFORE `fiscal:archive` stole M04 into a 60%-coverage
+capture-bracketed close with NO handicap stamp while the archive held a 100%
+pair; deleted (seconds old) and re-closed from the archive: 100%, handicap 13%.
+**Archive-first is the correct order** — the audit loop's §0 lists close first
+and should be read archive-first from now on; better, `fiscal:close` could
+prefer an archive pair when one covers the period.
+
+### Cycle verdict: **VERIFIED (2 confirmed, 1 dissolved productively, 1 not confirmed→watch, 1 held) + one instrument gap named** (no code change — review session; findings feed the 2026-08-09 backlog/refactor/statement discussion)
+
+**Predictions for the next capture:**
+
+1. **cd8d's hp keeps falling** and reaches ≤0.35 within ~1,500t unless the
+   rotation reaches it; a second death books another 5,000e rebuild + a 2,000e
+   ground dump. If it TURNS UP instead, the rotation covers even the
+   worst-piled mouth and spec 59's repair question loses its live case.
+2. **The sweep wraps**: M10 runs at 20%, then 0% — cycle 1 completes with
+   every month archived at ≥95% coverage.
+3. X3 stays WARN with `controllerFeeder 3/1` (seventh capture).
+4. `creepCargo`'s third point lands in the 5–15k band (fleet-size-bound, not
+   trending); the residual stays in the −3..−10 band absent a raid window.
+5. **cd98 stays over-budget at the next boundary.** If it re-funds with no
+   world change, the tranche edge is flapping and spec 46 phase D (the shadow
+   variance row) is the named instrument to build.
+
+### Addendum, same session: spec 58(b) DISCRIMINATED — the three construction reds are PR #149's, and the environment is exonerated
+
+The environment recovery made the check possible in-session (fresh sandbox:
+`npm install` rolled back on the documented isolated-vm race; `setup:test-env`
+had a path bug for the nested npm layout — fixed and verified,
+`probe:mockup` → "OK - bot script executed").
+
+On a freshly built master-tip bundle (src untouched this session), the three
+cells reproduce **byte-identically to the original observation**:
+
+```
+  [T] cons-link-core-first                 (T4, timeout @60/60t)
+  [T] cons-link-farthest-source            (T4, timeout @60/60t)
+  [T] cons-t3-build-and-repair-concurrent  (T3, timeout @400/400t)
+```
+
+while two sibling controls PASS in the same sandbox, same build:
+`cons-one-site-at-a-time` (satisfied @ tick 10) and — the same T4 link world
+class as the two red cells — `cons-t4-link-completes` (satisfied @ tick 20).
+**"Broken environment" may no longer be asserted.**
+
+`git bisect` over #146 (f894be1, the last baseline ratchet) → #155 (the 56/57
+session's attribution run had already proved master red BEFORE #156 merged),
+predicate = the `cons-link-core-first` verdict marker:
+
+```
+  #148 f6e9487   PASS @ tick 20      good
+  #149 48fbe19   [T] @60/60t         BAD  <- first bad commit
+  #150 1bde4dd   [T] @60/60t         bad
+```
+
+**First bad: 48fbe19 (#149, merged 2026-08-03), "Methodology #7"** — titled as
+a methodology change but actually a 146-file session squash (531k insertions;
+src side: CarryCorp 254 lines, ConstructionCorp 142, ControllerFeederCorp 132,
+UpgradingCorp 107, bank 106, commissionPlan 100). The MECHANISM inside the PR
+is not yet identified — the two link cells die waiting for the core-link SITE
+to be placed, so the ConstructionCorp placement/gate and bank/warchest hunks
+are the first suspects for the follow-up session.
+
+**Corroboration:** spec 08's row already carried `cons-t3` in the
+"pre-existing reds" window dated by the 2026-08-03/04 bisects — the same
+commit window #149 merged in. What the baseline has been carrying as ratchet
+debt is, for these three cells, PR #149's regression with a name.
+
+Next step (own session, full regression gate): read #149's ConstructionCorp/
+bank diffs against the two 60t link cells (fast probes), fix or — if the
+behavior change was intended — re-ratchet the baseline deliberately in the
+same commit as the explanation.
+
+## Audit cycle t72898387 (2026-08-09, second cycle of the day) — the raid window: H3 fires first time, the residual busts on a transition smear, and two proven fixes ship
+
+Capture t72898387 vs t72884395: **dt 13,992 (~9.3 fiscal months), unattended,
+no deploys**. `fiscal:archive` (run FIRST this time, per the last cycle's
+lesson) closed **nine more months at 100% coverage** (FY4858-M10 → FY4859-M08).
+**The sweep wrapped: cycle 1 complete (peaked 20%), and cycle 2 is walking at
+~2%/month — the self-escalation clause fired for the first time** (the bot's
+own controller-rate projection). Cumulative loss counters reset mid-window
+(`losses.windowTicks` 6,267), so loss lines span 6,267t of the 13,992.
+
+### The window's event: a raid defunded W43N24, and the correct-class rule has a gap
+
+Two sources (cd8e, cd8d — 20 e/t of capacity) **defunded for occupied/hostile**
+mid-window. The hostile-defund rule did what it says (no new bodies, strand
+nobody) — and that exposed a seam nobody had priced: **standing miners keep
+mining while the dropped plan routes stop all evacuation.** The mouths grew
+2,257 → 6,135 and 3,614 → 6,815 (**~13k standing, growing**), the fielded cure
+is one scavenger draining 0.51 e/t against ~7 e/t of decay (LOSING 14:1), and
+the new-to-fire **H3 gauge named it exactly**: "2 mouths over cap with zero
+drain creeps at both captures."
+
+This is NOT a call to touch the defund rule casually — it took two incidents
+to get right and it is the trap list's correct-class exemplar. It IS a named,
+measured gap for the owner discussion: **production outlives evacuation by up
+to a miner lifetime (~1500t) after every hostile defund**, cost this window
+~7-12 e/t of rot plus the container deaths below.
+
+### Prediction verdicts (registered t72884395)
+
+1. **cd8d falls — CONFIRMED, past the threshold**: hp 0.59 → **0.19** (cd8e
+   0.73 → 0.39 alongside), both containers AT CAP (`free: 0`) with the room
+   hostile so no repairer can reach them. ~950t from death at the unrepaired
+   rate; the second lap of the container-death loop is imminent, **with a
+   named driver this time (raid), unlike the first lap**. Spec 59's repair
+   question stays open for the ORIGINAL mechanism; this lap answers itself.
+2. **Sweep wraps — CONFIRMED**: cycle 1 archived complete at 100% coverage
+   every month; cycle 2 running (self-escalated step).
+3. **X3 `controllerFeeder 3/1` — CONFIRMED (seventh capture)**; joined this
+   window by `reservation 1/0` and `cbd5 3/2` (4 untracked total, all
+   countMismatch, zero orphans).
+4. **creepCargo in the 5–15k band — CONFIRMED**: 11,174 → 8,799
+   (fleet-size-bound, not trending). **Residual −28.05 e/t, OUTSIDE the
+   −3..−10 band — but the prediction's "absent a raid window" qualifier
+   fired** (this was emphatically a raid window: R1 at 6.10×, 70% of deaths
+   killed, guards up, 2 sources defunded). Leading hypothesis, labeled as
+   such: most of the −28 is **capacity-basis transition smear** (revenue
+   prices funded capacity across a window in which the funded set changed
+   mid-stream) plus unmetered tower burn. Falsifiable next capture: with a
+   stable funded set, the residual returns to band; if it does not, tower
+   burn gets a meter before any re-theorizing.
+5. **cd98 stays over-budget — DID NOT HOLD, but with a world change**: cd98
+   re-funded because the W43N24 defunds freed 20 e/t of tranche. The naked
+   tranche-edge-flap conditional did not fire; P1's 3 flips all trace to the
+   raid. **The picker printed P1 over L1 (15.54 e/t named at 60× budget)
+   anyway — the THIRD mis-rank in three cycles — which converted spec 58(a)
+   from proposal to shipped fix this cycle (below).**
+
+### The window itself (methodology #18 highlights)
+
+- Income-funded **52% (MET)**; G1 51.82 pts/t sustainable; bank ~flat
+  (−0.97 e/t) at reserve 70k (the target tracks funded income down:
+  84k → 77k → 70k as capacity fell 120 → 110 → 100).
+- **L1 14.99 e/t** (∞× a zero budget); forgone 6.61 (MISS — the pile gate
+  holding miners at 5 of 12 ops, 42.70 heldFrac).
+- F1 1.02×, F2 0.26 (worst rows now the DEFUNDED-room corps), H1 duty 0.94,
+  X1 0.10 — the funded economy itself ran tight.
+- Spawn util 0.66/0.63 vs ceiling; S5 0.72× (35%+ headroom); CPU bucket
+  10,000. Instrument healthy.
+
+### Shipped fix 1 (live behavior): the tender swarm cap re-denominated
+
+Spec 55 catalogue #3 was "FIXED 2026-08-02" **in CarryCorp only** — the
+2026-08-09 code sweep found `ExtensionTenderCorp` still count-capped behind a
+stale "mirrors CarryCorp's" comment (the t72851251 mechanism: tender standing
+34 of 48 declared parts, spawn idling `empty`, fleet stuck at 2× count with
+CARRY short). Red-first: staged four 1-CARRY runts against a target-2 world,
+watched the old gate decline, then replaced the count-2× line with the
+absolute `TENDER_CREW_CEILING = TENDER_FLEET_CAP * 2` backstop (the staffed
+exit already stops on COUNT+CARRY coverage — CarryCorp's carry-2× line is
+unreachable here, so the honest port is the ceiling, not a copied line).
+Latent-class fix: **no immediate live delta predicted** (current tender fleet
+is 1 healthy body); the pin is the acceptance, and the t72851251 deadlock is
+now unrepresentable. Unit suite 2,434 green; full trio gate GREEN (flow-handoff 4m, runt-economy 3m, storage-depot 7s) against the exact deployed bundle.
+
+### Shipped fix 2 (instrument, METHODOLOGY #18 → #19): the picker and the cargo line
+
+(a) **TOP LINE ranks by named energy.** Rows gain optional `energyRate` (L1
+sets its breach sum); the picker promotes the largest named e/t, lists
+unnamed FAILs beside the top line, and prints `BINDING: S5 ...` as its own
+line at ≥0.95× ceiling (58a's counter-argument honoured — both facts print).
+Re-run on this capture: `TOP LINE: L1 ... (15.54 e/t named)` with
+`also FAIL: P1, H3` beside. Red-first pinned in `wasteLedger.test.ts` (6
+tests, including the all-unnamed fallback and the no-binding case).
+
+(b) **creepCargo joins the balance sheet** where the capture reports it
+(absent stays absent for pre-v38 captures): committed = tombstones 11 +
+ground piles 16,039 + creep cargo 8,799 = 24,849 this capture; the named-gaps
+footer drops cargo. No account figure re-derived — #18 lines compare directly
+to #19; NET WORTH moves by measurement only.
+
+Timing note: the sweep-wrap boundary the review brief proposed for the
+methodology batch has PASSED (cycle 1 closed complete at #18); these two
+instrument changes are the batch's no-figure-changes half. The spec-51
+budget-column re-graining (which DOES re-derive figures) still waits for its
+own boundary + the owner's Decision 2.
+
+### Predictions for the next capture
+
+1. **cd8d's container dies** (hp 0.19, hostile room, no repair possible) and
+   cd8e follows within ~2,500t; NO rebuild while the room stays hostile —
+   expect `sourceMouth` to lose the container (or hp to reset high on a
+   later rebuild after the room clears). The mouth stock rots in place.
+2. **The residual returns to the −3..−10 band** with a stable funded set; if
+   it does not, tower burn gets a meter before any re-theorizing (the
+   transition-smear hypothesis is then dead).
+3. **H3 stays FAIL** while W43N24 is hostile (the defund-evacuation gap is
+   structural); the TOP LINE stays L1 by the new picker unless a larger named
+   loss appears.
+4. X3 stays WARN with `controllerFeeder 3/1` (eighth capture).
+5. **No tender-fix live delta** in steady state (latent class); if a runt
+   wave occurs, the fleet recovers to carry coverage instead of deadlocking
+   at 2× count — the observable is `staffing > 2×target` with the ask still
+   firing, impossible under the old gate.
+
+### Cycle verdict: **FIXED (2 shipped: one live-behavior latent-class, one instrument) + BLOCKER NAMED WITH DATA (the defund-evacuation gap, H3's first fire) + 4/5 predictions confirmed or qualifier-fired**
+
+## Audit cycle t72906414 (2026-08-09, third cycle of the day) — RCL 8, the falsified death, and the demand-seam fix ships on the owner's go-ahead
+
+Capture t72906414 vs t72898387 (dt 8,027; the previous cycle's deploy + its
+global reset sit inside the window). Six more months archive-closed at 100%
+(FY4859-M09..FY4860-M04) — **sweep cycle 2 completed its wrap (2%/month
+self-escalated steps) and cycle 3 is walking at 1%/month again.**
+
+### THE EVENT: W43N23 reached RCL 8
+
+The self-escalation was racing exactly this landing, and it landed inside the
+window. Everything unusual in this capture follows from it plus the raid
+clearing: warchest re-sized 70k → **105k** (funded income basis), **15 of 38
+candidates funded (capacity 150)**, fleet ramping 49 → 72 creeps with F1 at
+0.79× (the plan prices a fleet the spawn is still building), controller
+published **0.00** against a 3.50 law cap (storage 110,250 vs reserve 105,000
+— surplus 5,250/1500 = 3.50 exactly; P12 FAILs on the 3.5 e/t gap, which is
+the RCL8 posture question arriving, not a valve break). P1: 7 flips, all
+raid/RCL8-attributable (d017/d019/cd99/ca05 newly funded, cd8e+cd8d re-funded,
+cbd8 out).
+
+### Prediction verdicts (registered t72898387)
+
+1. **cd8d dies — FALSIFIED, happily**: W43N24's hostile window expired before
+   hp reached zero; the room re-funded, routes restored, and repair drove the
+   container 0.19 → **0.62** (cd8e 0.39 → 0.32, still the risk case). The
+   mouths are draining (`free` 164/760, off the cap). The defund-evacuation
+   gap's COST stands (the stock rotted while hostile); the second container
+   death did not land. **H3 cleared the same way — the routes coming back
+   fielded the drain — which CONFIRMS the mechanism reading** (the gap was
+   the dropped routes, nothing else).
+2. Residual returns to −3..−10 → **precondition failed again** (7 flips, RCL8,
+   reset): −15.59, halfway back from −28.05. The transition-smear hypothesis
+   stays live and still owns the next stable-funded-set window.
+3. H3 stays FAIL while W43N24 hostile → premise ended (room cleared); row
+   cleared with it. Consistent, not a verdict.
+4. **X3 `controllerFeeder 3/1` — CONFIRMED (eighth capture)**, now beside
+   `construction 6/5` and `ca05 3/1` (5 total, all countMismatch).
+5. No tender steady-state delta → **HELD** (no deadlock signature; tender line
+   ramping normally with the RCL8 fleet).
+
+### The demand-seam fix (owner: "Go ahead with the demand seam fix")
+
+Shipped as ONE tranche, red-first, on the evidence base of specs 55/59 and
+three cycles of rank-ordered `deadband` stamps:
+
+**(a) The dead-band re-denominated in the measured jitter.** The mature ask
+gate rode any deficit under HALF A HEAL BODY — 9–12 CARRY at capacity 5,600,
+~10× the "+−1 CARRY solve to solve" wiggle it was written for, and the five
+most-piled sources stamped `deadband` in exact pile order every solve. The
+band is now `carryNeeded − fieldedCarry <= HAUL_ASK_JITTER_CARRY` (= 1,
+primitives, with the measurement note). The POUNCE is deliberately untouched:
+the §5 fence holds because the two sides never judged the same quantity — the
+pounce classifies BODIES against floor share, and the heal branch buys
+SHARE-sized bodies, so a fired ask cannot mint a cullable runt. Trace recorded
+as spec 55 §5's addendum; pinned by the live-scale red test (deficit 4 vs old
+band 11 → must ask) plus two stability pins (post-heal no-ask/no-cull;
+drained-pile self-retire).
+
+**(b) The owner's midpoint law.** `bufferDrainCarry` gains the /2
+(`staged/2/CREEP_LIFETIME` — "half the ground pile over 1500 ticks", the same
+temporal-midpoint argument `scavengeRate` uses). One law, three coherent
+readers: the plan's route repricing, the corp's bootstrap re-add, X6's
+judgment. Admission (`selectProducers`) never read the drain, so §4's
+pile-cannot-flip-funding guard holds by construction.
+
+Explicitly NOT in this tranche (one hypothesis at a time): the construction-
+route filter hole (spec 59 B — a construction-only source's drain has no
+owner; own design question), catalogue #4 (the upgrader sliver — same
+predicate family, own red-first work), and the spec-39 declaredParts wire.
+**Spec 55 stays OPEN: the F2==0 cell and #4 are still owed.**
+
+### Gate results + predictions registered BEFORE deploy
+
+Unit 2,437 green (3 new tests + 2 law pins updated). **Trio GREEN**
+(flow-handoff 4m, runt-economy 4m, storage-depot 7s) on the deployed bundle.
+`fid-t4-synthetic-steady-state` re-run as the nearest baseline-red: still
+[x] at its pre-existing "controller fidelity >= 15% of upgrade budget"
+assertion - the 2026-08-03/04 ratchet-debt red, not moved by this fix and
+not caused by it (its failure is a controller-side fidelity term, not the
+hauler ask). DEPLOYED to shard1 master (global reset). Predictions for the
+post-deploy window:
+
+1. **The `deadband` stamps clear off the piled sources** — `innerSizing.exit`
+   flips to `asking`/`staffed` on the most-piled ops within ~2 solves.
+2. **E6 falls**: held share on the chronic ops drops from ~100% as drain
+   bodies field and the pile gate un-holds; forgone mining falls with it.
+3. **L1 falls measurably** from 22.99 e/t named — not to zero (the /2 law
+   drains asymptotically and decay keeps its share of the standing ~15k) —
+   over the next 2–3 generations.
+4. **X5 stays ≤ 0.09 of spawn spend** (the anti-treadmill live bound — the
+   one number that falsifies the §5 analysis if it breaches), and X6 stays 0.
+5. RISK named: the RCL8 ramp already runs F1 0.79× under-built; firing asks
+   on every piled source adds hauler demand to a busy spawn. S5 headroom
+   (0.72×, handicap ~1%) should absorb it; S3/S4 are the watch rows.
+
+### Cycle verdict: **FIXED + DEPLOYED (the demand seam: dead-band jitter re-denomination + the owner's /2 drain law) + 2 predictions falsified productively (cd8d lived; the room cleared first) + RCL 8 reached**
+
+The next capture owns the verification: the five predictions above, with X5's
+<=0.09 bound as the falsifier of the SS5 fence analysis. If the deadband
+stamps do NOT clear, the next suspect is already named in the tree (the
+construction-route filter, spec 59 B) - instrument, don't re-theorize.
+
+## Cycle addendum t72906414+ (2026-08-09, the RCL8 build-out): the #149 mechanism FOUND AND FIXED, the tower rung uncapped, and two of the owner's four asks turn out already built
+
+Owner directive: *"RCL8 we can build a few buildings like a 3rd spawn.
+Another tower. More links. And maybe more extensions. We will skip labs for
+now."* The placement audit against the RCL8 allowances:
+
+| ask | state found | action |
+|---|---|---|
+| 3rd spawn | **ALREADY BUILT** - Spawn3 stands at util 0.65; the spawn rung has been cap-aware since owner 2026-07-29 and fired on the RCL8 transition unprompted | none needed |
+| more extensions | **ALREADY BUILT** - energyCapacity reads 12,900 = 3x300 + 60x200 exactly; the checkerboard rung read `EXTENSION_LIMITS[8] = 60` and filled the allowance | none needed |
+| another tower | **IMPOSSIBLE by code** - `findMissingTower` was hard-coded to ONE tower (`hasTower` silenced it forever once the RCL3 tower stood) | **FIXED**: `TOWER_LIMITS` table + `wantsAnotherTower` (spawn-rung shape, counts sites) + `TOWER_TARGET_PER_ROOM = 2` - deliberately below the engine's 6 (a tower is idle capital + a tender refill lane + unmetered burn; growing past "another" is a numbers decision, one constant away) |
+| more links | **NO RUNG WANTS THEM** - `LINK_LIMITS[8] = 6` with 4 standing, but the rung's ladder (core, controller, source links) is satisfied: both home sources already carry the port links | named as the open design task: the two free slots want EDGE deposit-port links (spec 26 stage 5 / spec 49 leg B / spec 45's edge geometry - the DEP gauge already ranks the candidates at ~870 tile*e/t). A placement optimizer, not a constant - deliberately NOT bolted on |
+| labs | skipped per owner | none |
+
+### The #149 regression: mechanism found, and it was the recycle pad's ladder slot
+
+The bisect (t72884395 addendum) named PR #149; the hunt this cycle named the
+LINE. #149 added the recycle-pad rung at position 1.8 - ABOVE the tower,
+spawn, storage and link rungs. In a mature room the pad places a 5,000e
+container site first; in the three staged cell worlds (`creeps: quiet()` - no
+builders - and a bank below reserve) that site can never complete, and
+`placementGateOpen` (activeSites > 0, no surplus) never reopens - so every
+infrastructure rung behind it starved forever, and all three cells timed out
+byte-identically. Live rooms have builders, so the pad built in minutes and
+the ladder proceeded - which is why the regression was invisible outside the
+grid for six days.
+
+Fix, two halves, both principled rather than cell-shaped:
+- **The pad moves BELOW the capacity structures** (new rung 2.8, after
+  links): a convenience container yields to defense, spawn throughput and
+  the link network by priority, not just by the incident.
+- **The pad joins `wantsAnyContainer`** (spec 56 open item 2 - the same D1
+  defect the port rung had): a mature room wanting ONLY the pad now opens
+  the gate at all.
+
+### Gate: ALL GREEN, deployed
+
+The three #149 cells, on the fixed ladder: `cons-link-core-first` **1/1 @
+tick 30**, `cons-link-farthest-source` **1/1 @ tick 30** (both were timeout
+@60/60), and `cons-t3-build-and-repair-concurrent` **1/1** (site @10, repair
+past the gate @243 - the pad site was breaking the build-and-repair world
+too). Controls unharmed (`cons-one-site-at-a-time` @10, `cons-t4-link-completes`
+@20). Trio GREEN (flow-handoff 4m, runt-economy 3m, storage-depot 7s). Unit
+2,443. **Spec 58(b) is CLOSED end to end: observed -> environment exonerated ->
+bisected to #149 -> mechanism named -> fixed -> all three cells green.**
+DEPLOYED to shard1 master.
+
+### Predictions for the next capture
+
+1. **A second tower site appears in W43N23** within ~2 placement cooldowns of
+   the deploy (the rung's want is immediate; tower #2 lands near the spawns)
+   and completes at builder pace. Tender refill covers it (spec 07 wiring).
+2. The pad rung stays QUIET in W43N23 (container table 5/5 FULL - the
+   (41,22) orphan holds one of the five slots; spec 54 item 10 unchanged).
+3. No new links place (correct per the table above - the edge-port design
+   task is the named follow-up).
+4. Grid: the three #149 cells stay green from here; the ratchet's
+   construction avenue is trustworthy again.

@@ -33,6 +33,7 @@ import { driveRecycle, runtUpsizeThreshold, worthABody } from "./recycle";
 import {
   CARRY_MOVE_PAIR_COST,
   CREEP_LIFETIME,
+  HAUL_ASK_JITTER_CARRY,
   bufferDrainCarry,
   carryPartsFor,
   depositRouteCarryCap,
@@ -1549,19 +1550,28 @@ export class CarryCorp extends Corp {
     // DEMAND-side gate, not affordability - and two gates here can produce it.
     this.lastExit = "staffed";
     if (current >= targetHaulers && fieldedCarry >= carryNeeded) return [];
-    // MATURE DEAD-BAND (the sliver-ask, t72773737): the heal actuator is a
-    // whole spawn purchase, and the drain-priced routes move carryNeeded
-    // +-1 CARRY solve to solve as buffers stage and clear. A count-complete
-    // fleet within HALF the heal body of its route rides to natural
-    // replacement (EOL re-sizes for free) instead of buying the sliver the
-    // pounce would then cull an incumbent over - the even-share treadmill
-    // that bought d01f eight bodies in ~1200t (5.17 e/t vs a 1.27 e/t plan).
-    // Bootstrap keeps the strict ask: the ramp needs every CARRY (worthABody
-    // is the one predicate both this gate and the pounce read).
+    // MATURE DEAD-BAND (the sliver-ask, t72773737 - RE-DENOMINATED 2026-08-09,
+    // spec 55 mechanism 2, owner go-ahead): the heal actuator is a whole
+    // spawn purchase, and the drain-priced routes move carryNeeded +-1 CARRY
+    // solve to solve as buffers stage and clear. That WIGGLE is what the band
+    // absorbs - and it is ~1 CARRY, not half a heal body. The old band
+    // (!worthABody(gap, healBody)) scaled with spawn capacity: 9-12 CARRY at
+    // 5,600, ~10x the wiggle, and the five most-piled sources stamped
+    // `deadband` in exact pile order every solve, forever (t72874433;
+    // 19.48 e/t of ground decay = 17% of funded capacity). A count-complete
+    // fleet within the JITTER of its route rides to natural replacement (EOL
+    // re-sizes for free); a deficit above it is a real drain and buys the
+    // body. The treadmill stays closed from the POUNCE side, deliberately
+    // untouched: floor-share runt classification + the full-size
+    // affordability gate + one-at-a-time, and the heal branch below buys
+    // SHARE-sized bodies, so a fired ask cannot mint the runt the pounce
+    // would cull (spec 55 SS5's two-sided fence - pinned by the live-scale
+    // stability tests). Bootstrap keeps the strict ask: the ramp needs every
+    // CARRY.
     if (
       ctx.storageBacked === true &&
       current >= targetHaulers &&
-      !worthABody(carryNeeded - fieldedCarry, haulerBodyCarry(ctx.energyCapacity, carryNeeded))
+      carryNeeded - fieldedCarry <= HAUL_ASK_JITTER_CARRY
     ) {
       this.lastExit = "deadband";
       return [];

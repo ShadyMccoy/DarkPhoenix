@@ -86,7 +86,8 @@ import {
   TOWER_MIN_RCL,
   TrunkSurvey,
   trunkGateFromSurvey,
-  wantsAnotherSpawn
+  wantsAnotherSpawn,
+  wantsAnotherTower
 } from "./constructionPlacement";
 import { roomContainerCensus } from "../telemetry/containerCensus";
 
@@ -1321,24 +1322,15 @@ export class ConstructionCorp extends Corp {
       }
     }
 
-    // 1.8 Recycle pad (AFTER the surplus controller container - rung 1.7
-    //     keeps its pinned queue-jump, cons-ctrl-container-surplus-first) (owner 2026-08-03): a container beside each spawn in a
-    //     MATURE room. The depot rule (1.5) is storage-gated off, so mature
-    //     rooms had NO spawn-side container - and recycleCreep's body refund
-    //     decays in the tombstone onto a bare tile (measured t72757611:
-    //     13.07 e/t of refund flow against ~5 recovered, zero containers in
-    //     the live home room; the 5k container pays back in under half a
-    //     fiscal month). Storage-gated ON, so every bootstrap-era rung
-    //     ordering pin is untouched; driveRecycle seats the pad the moment
-    //     it stands.
-    if (containersOpen && room.storage?.my) {
-      const pad = this.findMissingRecyclePad(room);
-      if (pad) {
-        this.placeSite(room, pad.x, pad.y, STRUCTURE_CONTAINER);
-        return;
-      }
-    }
-
+    // (The recycle pad rung used to sit HERE, above tower/spawn/storage/
+    // link - and that ordering was PR #149's grid regression, bisected
+    // 2026-08-09: in a mature room the pad places a 5k container site
+    // first, and with no builder to finish it the placement gate
+    // (activeSites > 0, no surplus) never reopens, so every infrastructure
+    // rung below starved forever. Three construction cells timed out
+    // byte-identically on exactly this. A convenience container must never
+    // outrank the room's defense, spawn throughput, or link network - the
+    // pad now places AFTER the link rung, below.)
 
     // 1.8 Tower (RCL 3, spec 07 - owner directive 2026-07-17 "at home, we
     //     will build towers"): the room's entire NPC defense. Between the core
@@ -1419,6 +1411,29 @@ export class ConstructionCorp extends Corp {
     if (link) {
       this.placeSite(room, link.x, link.y, STRUCTURE_LINK);
       return;
+    }
+
+    // 2.8 Recycle pad (owner 2026-08-03): a container beside each spawn in a
+    //     MATURE room. The depot rule (1.5) is storage-gated off, so mature
+    //     rooms had NO spawn-side container - and recycleCreep's body refund
+    //     decays in the tombstone onto a bare tile (measured t72757611:
+    //     13.07 e/t of refund flow against ~5 recovered; the 5k container
+    //     pays back in under half a fiscal month). Storage-gated ON, so
+    //     every bootstrap-era rung ordering pin is untouched; driveRecycle
+    //     seats the pad the moment it stands. MOVED BELOW the tower/spawn/
+    //     storage/link rungs 2026-08-09: its original slot above them was PR
+    //     #149's grid regression - a mature room with no builder placed the
+    //     pad site first and the closed placement gate starved every
+    //     infrastructure rung behind it (three cells timed out
+    //     byte-identically; bisected, then traced here). A convenience
+    //     container yields to capacity structures by principle, not just by
+    //     the incident.
+    if (containersOpen && room.storage?.my) {
+      const pad = this.findMissingRecyclePad(room);
+      if (pad) {
+        this.placeSite(room, pad.x, pad.y, STRUCTURE_CONTAINER);
+        return;
+      }
     }
 
     // 3. Controller container last: it buffers the upgrade push (containerFed
@@ -2144,10 +2159,13 @@ export class ConstructionCorp extends Corp {
    */
   private findMissingTower(room: Room, rcl: number): { x: number; y: number } | null {
     if (rcl < TOWER_MIN_RCL) return null;
-    const hasTower =
-      room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_TOWER }).length > 0 ||
-      room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_TOWER }).length > 0;
-    if (hasTower) return null;
+    // Cap-aware since the RCL8 build-out (owner 2026-08-09: "Another
+    // tower") - the old `hasTower` boolean silenced this rung forever once
+    // the RCL3 tower stood. wantsAnotherTower binds BOTH the engine table
+    // and the colony target (2), and counts pending sites.
+    const built = room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_TOWER }).length;
+    const pending = room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_TOWER }).length;
+    if (!wantsAnotherTower(rcl, built, pending)) return null;
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     if (!spawn) return null;
     const tile = bestAdjacentTile(room, spawn.pos, 3, spawn.pos, [spawn.pos], STRUCTURE_TOWER);
@@ -2334,7 +2352,13 @@ export class ConstructionCorp extends Corp {
       this.findMissingSourceContainer(room) !== null ||
       this.findMissingCoreDepot(room) !== null ||
       this.findMissingPortContainer(room) !== null ||
-      this.findMissingControllerContainer(room) !== null
+      this.findMissingControllerContainer(room) !== null ||
+      // The recycle pad joins the gate (spec 56 open item 2 - the same D1
+      // defect the port rung had: absent from this list, the pad could only
+      // ride other rungs' wants, and a mature room wanting ONLY the pad
+      // never opened the gate at all). Ladder position is separate and LOW
+      // (rung 2.8, below every capacity structure - the #149 lesson).
+      (room.storage?.my === true && this.findMissingRecyclePad(room) !== null)
     );
   }
 
