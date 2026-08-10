@@ -13094,3 +13094,105 @@ own boundary + the owner's Decision 2.
    firing, impossible under the old gate.
 
 ### Cycle verdict: **FIXED (2 shipped: one live-behavior latent-class, one instrument) + BLOCKER NAMED WITH DATA (the defund-evacuation gap, H3's first fire) + 4/5 predictions confirmed or qualifier-fired**
+
+## Audit cycle t72906414 (2026-08-09, third cycle of the day) — RCL 8, the falsified death, and the demand-seam fix ships on the owner's go-ahead
+
+Capture t72906414 vs t72898387 (dt 8,027; the previous cycle's deploy + its
+global reset sit inside the window). Six more months archive-closed at 100%
+(FY4859-M09..FY4860-M04) — **sweep cycle 2 completed its wrap (2%/month
+self-escalated steps) and cycle 3 is walking at 1%/month again.**
+
+### THE EVENT: W43N23 reached RCL 8
+
+The self-escalation was racing exactly this landing, and it landed inside the
+window. Everything unusual in this capture follows from it plus the raid
+clearing: warchest re-sized 70k → **105k** (funded income basis), **15 of 38
+candidates funded (capacity 150)**, fleet ramping 49 → 72 creeps with F1 at
+0.79× (the plan prices a fleet the spawn is still building), controller
+published **0.00** against a 3.50 law cap (storage 110,250 vs reserve 105,000
+— surplus 5,250/1500 = 3.50 exactly; P12 FAILs on the 3.5 e/t gap, which is
+the RCL8 posture question arriving, not a valve break). P1: 7 flips, all
+raid/RCL8-attributable (d017/d019/cd99/ca05 newly funded, cd8e+cd8d re-funded,
+cbd8 out).
+
+### Prediction verdicts (registered t72898387)
+
+1. **cd8d dies — FALSIFIED, happily**: W43N24's hostile window expired before
+   hp reached zero; the room re-funded, routes restored, and repair drove the
+   container 0.19 → **0.62** (cd8e 0.39 → 0.32, still the risk case). The
+   mouths are draining (`free` 164/760, off the cap). The defund-evacuation
+   gap's COST stands (the stock rotted while hostile); the second container
+   death did not land. **H3 cleared the same way — the routes coming back
+   fielded the drain — which CONFIRMS the mechanism reading** (the gap was
+   the dropped routes, nothing else).
+2. Residual returns to −3..−10 → **precondition failed again** (7 flips, RCL8,
+   reset): −15.59, halfway back from −28.05. The transition-smear hypothesis
+   stays live and still owns the next stable-funded-set window.
+3. H3 stays FAIL while W43N24 hostile → premise ended (room cleared); row
+   cleared with it. Consistent, not a verdict.
+4. **X3 `controllerFeeder 3/1` — CONFIRMED (eighth capture)**, now beside
+   `construction 6/5` and `ca05 3/1` (5 total, all countMismatch).
+5. No tender steady-state delta → **HELD** (no deadlock signature; tender line
+   ramping normally with the RCL8 fleet).
+
+### The demand-seam fix (owner: "Go ahead with the demand seam fix")
+
+Shipped as ONE tranche, red-first, on the evidence base of specs 55/59 and
+three cycles of rank-ordered `deadband` stamps:
+
+**(a) The dead-band re-denominated in the measured jitter.** The mature ask
+gate rode any deficit under HALF A HEAL BODY — 9–12 CARRY at capacity 5,600,
+~10× the "+−1 CARRY solve to solve" wiggle it was written for, and the five
+most-piled sources stamped `deadband` in exact pile order every solve. The
+band is now `carryNeeded − fieldedCarry <= HAUL_ASK_JITTER_CARRY` (= 1,
+primitives, with the measurement note). The POUNCE is deliberately untouched:
+the §5 fence holds because the two sides never judged the same quantity — the
+pounce classifies BODIES against floor share, and the heal branch buys
+SHARE-sized bodies, so a fired ask cannot mint a cullable runt. Trace recorded
+as spec 55 §5's addendum; pinned by the live-scale red test (deficit 4 vs old
+band 11 → must ask) plus two stability pins (post-heal no-ask/no-cull;
+drained-pile self-retire).
+
+**(b) The owner's midpoint law.** `bufferDrainCarry` gains the /2
+(`staged/2/CREEP_LIFETIME` — "half the ground pile over 1500 ticks", the same
+temporal-midpoint argument `scavengeRate` uses). One law, three coherent
+readers: the plan's route repricing, the corp's bootstrap re-add, X6's
+judgment. Admission (`selectProducers`) never read the drain, so §4's
+pile-cannot-flip-funding guard holds by construction.
+
+Explicitly NOT in this tranche (one hypothesis at a time): the construction-
+route filter hole (spec 59 B — a construction-only source's drain has no
+owner; own design question), catalogue #4 (the upgrader sliver — same
+predicate family, own red-first work), and the spec-39 declaredParts wire.
+**Spec 55 stays OPEN: the F2==0 cell and #4 are still owed.**
+
+### Gate results + predictions registered BEFORE deploy
+
+Unit 2,437 green (3 new tests + 2 law pins updated). **Trio GREEN**
+(flow-handoff 4m, runt-economy 4m, storage-depot 7s) on the deployed bundle.
+`fid-t4-synthetic-steady-state` re-run as the nearest baseline-red: still
+[x] at its pre-existing "controller fidelity >= 15% of upgrade budget"
+assertion - the 2026-08-03/04 ratchet-debt red, not moved by this fix and
+not caused by it (its failure is a controller-side fidelity term, not the
+hauler ask). DEPLOYED to shard1 master (global reset). Predictions for the
+post-deploy window:
+
+1. **The `deadband` stamps clear off the piled sources** — `innerSizing.exit`
+   flips to `asking`/`staffed` on the most-piled ops within ~2 solves.
+2. **E6 falls**: held share on the chronic ops drops from ~100% as drain
+   bodies field and the pile gate un-holds; forgone mining falls with it.
+3. **L1 falls measurably** from 22.99 e/t named — not to zero (the /2 law
+   drains asymptotically and decay keeps its share of the standing ~15k) —
+   over the next 2–3 generations.
+4. **X5 stays ≤ 0.09 of spawn spend** (the anti-treadmill live bound — the
+   one number that falsifies the §5 analysis if it breaches), and X6 stays 0.
+5. RISK named: the RCL8 ramp already runs F1 0.79× under-built; firing asks
+   on every piled source adds hauler demand to a busy spawn. S5 headroom
+   (0.72×, handicap ~1%) should absorb it; S3/S4 are the watch rows.
+
+### Cycle verdict: **FIXED + DEPLOYED (the demand seam: dead-band jitter re-denomination + the owner's /2 drain law) + 2 predictions falsified productively (cd8d lived; the room cleared first) + RCL 8 reached**
+
+The next capture owns the verification: the five predictions above, with X5's
+<=0.09 bound as the falsifier of the SS5 fence analysis. If the deadband
+stamps do NOT clear, the next suspect is already named in the tree (the
+construction-route filter, spec 59 B) - instrument, don't re-theorize.
