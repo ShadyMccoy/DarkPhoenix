@@ -982,18 +982,42 @@ export function reserverRoomEnergy(): number {
 
 /**
  * The ONE drain law applied to a source-mouth buffer: CARRY parts that clear
- * `staged` energy over one creep generation at `distance` - the same
- * stock/CREEP_LIFETIME law the bank surplus and consumer sizing use.
- * CarryCorp's haulCarryNeeded and the planner's route sizing BOTH read this,
- * so the fleet the corp fields and the fleet the plan prices size from the
- * same two terms (sustained + drain) - X6 was previously judged "against the
- * corp's OWN carryNeeded stamp (rest against the plan route, drain-blind)",
- * ~1.0 e/t of real fleet standing permanently outside the budget.
+ * HALF of `staged` over one creep generation at `distance`. The /2 is the
+ * owner's formula (2026-08-08, adopted with the 2026-08-09 demand-seam
+ * go-ahead: "factor in something like half the ground pile over 1500 ticks
+ * into the source rate") and the same temporal-midpoint argument
+ * `scavengeRate` already uses (amount/2 - a pile decaying at ~1/1000 sits
+ * near half its size across the drain window, so half is the honest
+ * average; what decay takes was never recoverable at spawn speed anyway).
+ * CarryCorp's bootstrap re-add and the planner's route repricing BOTH read
+ * this, so the fleet the corp fields and the fleet the plan prices size from
+ * the same two terms (sustained + drain) - X6 was previously judged "against
+ * the corp's OWN carryNeeded stamp (rest against the plan route,
+ * drain-blind)", ~1.0 e/t of real fleet standing permanently outside the
+ * budget. Self-retiring by construction: as the pile clears, the term
+ * returns to zero with no gate to switch off.
  */
 export function bufferDrainCarry(staged: number, distance: number): number {
   if (!(staged > 0)) return 0;
-  return carryPartsFor(staged / CREEP_LIFETIME, distance);
+  return carryPartsFor(staged / 2 / CREEP_LIFETIME, distance);
 }
+
+/**
+ * The mature ask gate's dead-band width, in CARRY parts: the measured
+ * solve-to-solve wiggle of a drain-priced route (spec 55 / t72773737: "the
+ * drain-priced routes move carryNeeded +-1 CARRY solve to solve"). A
+ * count-complete fleet within this band of its route rides to natural
+ * replacement (EOL re-sizes for free); anything above it is a real deficit
+ * and buys the body. The band was previously denominated in HALF THE HEAL
+ * BODY, which scales with spawn capacity - 9-12 CARRY at capacity 5,600,
+ * ~10x this wiggle - and the five most-piled sources stamped `deadband` in
+ * pile order every solve (t72874433; 19.48 e/t of ground decay). The
+ * recycle pounce is deliberately NOT re-coupled to this: its floor-share
+ * runt classification plus the full-size affordability gate close the
+ * treadmill on their own, and the heal branch buys share-sized bodies, so a
+ * fired ask cannot mint a cullable runt (spec 55 SS5's two-sided fence).
+ */
+export const HAUL_ASK_JITTER_CARRY = 1;
 
 /**
  * Spawn parts/tick of the FLOOR hauler body amortized at `distance` - the

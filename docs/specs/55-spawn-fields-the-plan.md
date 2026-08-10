@@ -40,7 +40,7 @@ for treating it as a class.
 | # | Mechanism | Measured cost | Status |
 |---|---|---|---|
 | 1 | **Cost-less demand** — `LinkCorp.portDemands` built a `SpawnDemand` through an `as SpawnDemand` cast with no `minCost`/`desiredCost`. Every funding comparison is a numeric `>=`, and `x >= undefined` is false, so the walk recorded gate `"impossible"` (the RCL-can-never-build verdict) at the HEAD of both spawn queues for 1804+ ticks | The port tender NEVER spawned. Zero of 92 spawn rows. The plan meanwhile routed 40 e/t through each of two ports and priced the body via `portTenderSpawnLoad` | **FIXED + class closed** at the collection seam (`hasFundableCosts`) |
-| 2 | **The mature dead-band** — `CarryCorp` declines the marginal hauler while `deficit < bodyShare/2`. Written for *"+-1 CARRY solve to solve"* jitter; the actual threshold at capacity 5600 is **9-12 CARRY**, ~10x the jitter | **7 of 7 piled sources declined**, every solve, forever. Fleet at 89% of the ask (241 of 271.5 CARRY), shortfall perfectly rank-correlated with the piles. Cost: **19.48 e/t** of ground-pile decay, 17% of funded capacity | **OPEN — this spec's first target** |
+| 2 | **The mature dead-band** — `CarryCorp` declines the marginal hauler while `deficit < bodyShare/2`. Written for *"+-1 CARRY solve to solve"* jitter; the actual threshold at capacity 5600 is **9-12 CARRY**, ~10x the jitter | **7 of 7 piled sources declined**, every solve, forever. Fleet at 89% of the ask (241 of 271.5 CARRY), shortfall perfectly rank-correlated with the piles. Cost: **19.48 e/t** of ground-pile decay, 17% of funded capacity | **FIXED 2026-08-09 (owner go-ahead: "Go ahead with the demand seam fix")** — the band re-denominated in the MEASURED jitter (`HAUL_ASK_JITTER_CARRY = 1`, primitives) instead of half a heal body; §5's fence held by the POUNCE side unchanged (see §5 addendum). Shipped with the owner's §4 midpoint law: `bufferDrainCarry` gains the /2 (`staged/2/CREEP_LIFETIME`, scavengeRate's argument), so the plan post-pass, the bootstrap re-add and X6 all halve coherently. Red-first pinned at the live rank-order scale (capacity 5,600, deficit 4 vs old band 11) + two stability pins. **Acceptance still owed: the F2==0 cell and #4** — the spec stays OPEN |
 | 3 | **Swarm cap in the wrong currency** — capped the physical COUNT at 2x target while the ask gate stops on CARRY, so a count-heavy carry-short fleet stopped asking at a permanent deficit | Fielded carry 53-74% of plan with the spawn 54-82% IDLE, controller shortfall tracking the carry shortfall across all three fidelity cells | FIXED 2026-08-02 **in CarryCorp only** — the 2026-08-09 code sweep found `ExtensionTenderCorp` still count-capped behind a stale "mirrors CarryCorp's" comment (the t72851251 tender incident's mechanism, 34/48 parts standing, spawn idle `empty`), and `UpgradingCorp` carries a third sibling at its own patch level. **Tender twin FIXED 2026-08-09** (staffed exit already stops on COUNT+CARRY; the count-2x line became the absolute `TENDER_CREW_CEILING` backstop, red-first pinned in `extensionTender.test.ts`). The upgrader sibling rides catalogue #4 |
 | 4 | **Upgrader sliver** — the same predicate family on the consumer side; the corp stamps `demand: "sliver"` and declines | F2 worst line: `upgrading-W43N23` 50p fielded vs 85p declared (**-35**) | OPEN, likely the same fix as #2 |
 
@@ -109,6 +109,27 @@ side only will re-open a measured incident, and CLAUDE.md's trap list already
 names this situation exactly — *"if you are writing the SECOND patch on the same
 mechanism, the mechanism is the bug."* Two patches have now been written on
 `worthABody`'s threshold family. It is the mechanism.
+
+### §5 addendum (2026-08-09, how the shipped fix satisfies the fence)
+
+The 2026-08-09 fix loosens the ASK side only — and the trace of why that is
+safe is the load-bearing part, so it is recorded: **the two sides never judged
+the same quantity.** The pounce classifies a BODY against its floor share
+(`worthABody(share − minCarry, share)`); the ask's band judged a FLEET deficit
+against half a heal body. Re-denominating the fleet band to the measured jitter
+leaves the runt definition — the thing "sizer and culler cannot disagree"
+about — untouched. The oscillation the fence fears requires the ask to mint
+bodies the pounce will cull, and it cannot: **the heal branch buys SHARE-sized
+bodies** (`desiredCarry = haulerBodyCarry(...)`), never gap-sized slivers, so a
+fired ask produces a body at/above its share by construction. From the pounce
+side the loop stays closed by its own three guards (floor-share
+classification, full-size affordability, one-at-a-time) — and a DRAINING pile
+shrinks the share, which can only make standing bodies pass the runt test more
+easily, never less. Pinned by the live-scale stability tests
+(`CarryCorp.behavior.test.ts`: post-heal no-ask + no-cull, drained-pile
+self-retire). The residual churn vector — a cull opening a small deficit the
+ask then heals with one share-sized body — is bounded to one buy per episode
+and lands in X5, whose ≤0.09 bound is the standing live acceptance.
 
 ## 6. Acceptance tests (the contract)
 

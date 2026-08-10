@@ -58,8 +58,12 @@ function world(sourceOver: Partial<PlannerSource> = {}): ColonyProblem {
 }
 
 describe("the plan prices the buffer-drain term (one drain law, both sides)", () => {
-  it("bufferDrainCarry IS the corp's arithmetic: staged/CREEP_LIFETIME over the route", () => {
-    expect(bufferDrainCarry(3000, 36)).to.be.closeTo(carryPartsFor(3000 / CREEP_LIFETIME, 36), 1e-9);
+  it("bufferDrainCarry IS the corp's arithmetic: staged/2/CREEP_LIFETIME over the route (the owner's midpoint law, 2026-08-09)", () => {
+    // The /2 is the temporal-midpoint argument scavengeRate already uses
+    // (amount/2): half the standing pile over one generation is the honest
+    // average of a stock that decays while it drains. Owner formula, spec 55
+    // SS4, adopted with the demand-seam go-ahead.
+    expect(bufferDrainCarry(3000, 36)).to.be.closeTo(carryPartsFor(3000 / 2 / CREEP_LIFETIME, 36), 1e-9);
     expect(bufferDrainCarry(0, 36)).to.equal(0);
     expect(bufferDrainCarry(-50, 36)).to.equal(0);
   });
