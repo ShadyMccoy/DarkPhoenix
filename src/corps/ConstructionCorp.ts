@@ -63,18 +63,17 @@ import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { buildPool, buildPoolAbsorbRate, buildPoolBacklog, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
 import {
   bestControllerLinkTile,
-  bestEdgeLinkTile,
+  bestHaulLinkTile,
   bestPortContainerTile,
   PortApproach,
   containersUnlocked,
   CONTAINER_LIMIT,
   reclaimableContainer,
-  EDGE_APPROACH_FALLBACK_FLOW,
-  EDGE_LINK_SCAN_INTERVAL,
+  APPROACH_FALLBACK_FLOW,
+  HAUL_LINK_SCAN_INTERVAL,
   EXTENSION_LIMITS,
   findGridPosition,
   LINK_LIMITS,
-  LINK_MIN_SOURCE_RANGE,
   emergenceTileCount,
   PLACEMENT_COOLDOWN,
   placementGateOpen,
@@ -192,12 +191,12 @@ export class ConstructionCorp extends Corp {
   /** Per-tick memo for `roomDepositPorts` (heap only - a reset just re-scans). */
   private portScan: ReturnType<typeof detectLinkDepositPorts> = [];
   private portScanTick = -1;
-  /** Edge-link election memo (heap only - a reset just re-scans). A NULL
-   * verdict holds for EDGE_LINK_SCAN_INTERVAL ticks because the election is a
+  /** Haul-link election memo (heap only - a reset just re-scans). A NULL
+   * verdict holds for HAUL_LINK_SCAN_INTERVAL ticks because the election is a
    * full-room scan on `wantsLink`'s every-tick path; an elected TILE is
    * re-verified each tick so it sees its own site land. */
-  private edgeLinkScanTick = -Infinity;
-  private edgeLinkScanTile: { x: number; y: number } | null = null;
+  private haulLinkScanTick = -Infinity;
+  private haulLinkScanTile: { x: number; y: number } | null = null;
 
   /**
    * Builder count the demand lens wanted at its last walk - stashed by
@@ -2417,7 +2416,7 @@ export class ConstructionCorp extends Corp {
    * edge-link election's objective AND its 800/F catchment constraint (owner
    * 2026-08-10). The former equal-weight KNOWN LIMIT is retired; the fallback
    * below only covers pre-publication memory (at most one solve after
-   * deploy), and errs HIGH - see EDGE_APPROACH_FALLBACK_FLOW.
+   * deploy), and errs HIGH - see APPROACH_FALLBACK_FLOW.
    */
   private portApproaches(room: Room): PortApproach[] {
     const mem = Memory as unknown as { fundedRemoteRooms?: string[]; fundedRemoteFlows?: Record<string, number> };
@@ -2429,7 +2428,7 @@ export class ConstructionCorp extends Corp {
       if (remote === room.name || seen.has(remote)) continue;
       seen.add(remote);
       const tile = this.exitTileToward(room, remote);
-      if (tile) out.push({ from: tile, flowRate: flows?.[remote] ?? EDGE_APPROACH_FALLBACK_FLOW });
+      if (tile) out.push({ from: tile, flowRate: flows?.[remote] ?? APPROACH_FALLBACK_FLOW });
     }
     return out;
   }
@@ -2556,53 +2555,41 @@ export class ConstructionCorp extends Corp {
       }
     }
 
-    // 2) Source links, farthest first; nearby sources aren't worth one.
+    // 2) HAUL LINKS - every slot beyond the two structural links, one election
+    //    (owner 2026-08-10: "Besides core and upgrader seems like placing
+    //    links in general where they most efficiently replace haul fleet size
+    //    is ideal"). The former source-link rung is this election's
+    //    degenerate case: an unlinked home mouth is just another approach,
+    //    the old LINK_MIN_SOURCE_RANGE=8 floor is the same bar as
+    //    HAUL_LINK_MIN_SAVING in the unified metric, and the free tending a
+    //    standing miner provides is priced (the tender debit) instead of
+    //    encoded as rung order. Everything downstream of a standing link
+    //    already ships: detectLinkDepositPorts registers it with the same
+    //    ownSourceRate law the election rings with, the container rung
+    //    buffers a miner-less port, the LinkCorp tenders it (spec 54), and
+    //    the LinkRunner's sender queue fires it.
     if (all.length >= limit) return null; // table full; only the swap above may free a slot
-    const spawn = room.find(FIND_MY_SPAWNS)[0];
-    const candidates = room
-      .find(FIND_SOURCES)
-      .filter(s => !linkNear(s.pos, 2) && s.pos.getRangeTo(storage.pos) > LINK_MIN_SOURCE_RANGE)
-      .sort((a, b) => b.pos.getRangeTo(storage.pos) - a.pos.getRangeTo(storage.pos));
-    for (const source of candidates) {
-      const spot = sourceHarvestSpot(source, spawn?.pos);
-      const tile = bestAdjacentTile(room, spot, 1, spawn?.pos, room.find(FIND_MY_SPAWNS).map(s => s.pos), STRUCTURE_LINK);
-      if (tile) return { x: tile.x, y: tile.y };
-    }
-
-    // 3) EDGE LINKS (owner 2026-08-06: "Building links inside our rooms near
-    //    the edge for remote mining is probably a great way to go in a lot of
-    //    cases", then "Let's build the edge links then" - blocked that day on
-    //    RCL 7's four-link table). Rungs 1-2 top out at core + controller +
-    //    one per far home source; RCL 8's six slots were unreachable by
-    //    construction. A free slot now meets the remote flow AT THE DOOR: the
-    //    tile comes from the SAME approach lens the port container sites
-    //    against (portApproaches - funded remotes' entry exits, the plan's
-    //    durable signal), scored by marginal saving under the reach rule
-    //    (bestEdgeLinkTile). Everything downstream of a standing link already
-    //    ships: detectLinkDepositPorts registers it source-less (spec 47),
-    //    the container rung buffers it, the LinkCorp tenders it (spec 54),
-    //    and the LinkRunner's sender queue fires it.
-    return this.findEdgeLinkTile(room);
+    return this.findHaulLinkTile(room);
   }
 
   /**
-   * The edge-link election, memoised (see EDGE_LINK_SCAN_INTERVAL): the
+   * The haul-link election, memoised (see HAUL_LINK_SCAN_INTERVAL): the
    * full-room scan sits on `wantsLink`'s every-tick path, so a NULL verdict
    * holds for the interval while a live tile is re-verified cheaply each tick
    * - it must notice its own site landing (or a rival structure claiming the
    * tile) rather than re-electing it for 25 ticks of ERR_INVALID_TARGET.
    */
-  private findEdgeLinkTile(room: Room): { x: number; y: number } | null {
-    if (this.edgeLinkScanTick === Game.time) return this.edgeLinkScanTile;
-    if (Game.time - this.edgeLinkScanTick < EDGE_LINK_SCAN_INTERVAL) {
-      const held = this.edgeLinkScanTile;
+  private findHaulLinkTile(room: Room): { x: number; y: number } | null {
+    if (this.haulLinkScanTick === Game.time) return this.haulLinkScanTile;
+    if (Game.time - this.haulLinkScanTick < HAUL_LINK_SCAN_INTERVAL) {
+      const held = this.haulLinkScanTile;
       if (held === null) return null;
       if (!this.tileTaken(room, held.x, held.y)) return held;
       // The held tile is gone - fall through to a fresh election.
     }
-    const verdict = this.electEdgeLinkTile(room);
-    this.edgeLinkScanTick = Game.time;
-    this.edgeLinkScanTile = verdict;
+    const verdict = this.electHaulLinkTile(room);
+    this.haulLinkScanTick = Game.time;
+    this.haulLinkScanTile = verdict;
     return verdict;
   }
 
@@ -2615,17 +2602,27 @@ export class ConstructionCorp extends Corp {
   /**
    * Assemble the pure election's world from the live room: the core to range
    * against (a port fires to it - no standing core, no port), the approaches
-   * (funded remotes' entry exits), and the existing deposit ports BUILT or
-   * pending (marginal value: a served approach is never served twice). A
-   * pending site inside the core's or controller's lens band is that rung's
-   * link mid-build, not a port.
+   * (funded remotes' entry exits PLUS every unlinked home-source mouth at
+   * SOURCE_RATE - the unified demand set), the miners' posts (a candidate a
+   * standing miner can feed skips the tender debit), and the existing deposit
+   * ports BUILT or pending (marginal value: a served approach is never served
+   * twice). A pending site inside the core's or controller's lens band is
+   * that rung's link mid-build, not a port. A LINKED source's mouth stays out
+   * of the approach set - its own link sits in `existingPorts`, so its
+   * baseline is ~0 and re-adding it would only smear the catchment.
    */
-  private electEdgeLinkTile(room: Room): { x: number; y: number } | null {
+  private electHaulLinkTile(room: Room): { x: number; y: number } | null {
     const storage = room.storage;
     if (!storage?.my) return null;
     const core = coreLink(room);
     if (!core) return null;
-    const approaches = this.portApproaches(room);
+    const sources = room.find(FIND_SOURCES);
+    const approaches = [
+      ...this.portApproaches(room),
+      ...sources
+        .filter(s => !sourceLink(s.pos, core.id))
+        .map(s => ({ from: { x: s.pos.x, y: s.pos.y }, flowRate: SOURCE_RATE }))
+    ];
     if (approaches.length === 0) return null;
     const ctrl = room.controller;
     const ctrlLink = controllerLink(room);
@@ -2641,15 +2638,23 @@ export class ConstructionCorp extends Corp {
         .filter(s => !s.pos.inRangeTo(storage.pos, 2) && !(ctrl && s.pos.inRangeTo(ctrl.pos, 3)))
         .map(s => ({ x: s.pos.x, y: s.pos.y }))
     ];
+    const spawn = room.find(FIND_MY_SPAWNS)[0];
     const terrain = room.getTerrain();
-    return bestEdgeLinkTile(
+    return bestHaulLinkTile(
       {
         corePos: { x: core.pos.x, y: core.pos.y },
         storagePos: { x: storage.pos.x, y: storage.pos.y },
         approaches,
         existingPorts,
         ...(ctrl ? { controllerPos: { x: ctrl.pos.x, y: ctrl.pos.y } } : {}),
-        sourcePositions: room.find(FIND_SOURCES).map(s => ({ x: s.pos.x, y: s.pos.y }))
+        sourcePositions: sources.map(s => ({ x: s.pos.x, y: s.pos.y })),
+        // Every home source keeps a standing miner at its harvest spot - the
+        // SAME election that once was "the source-link rung" reads that post
+        // as free tending rather than as a category.
+        minerPosts: sources.map(s => {
+          const spot = sourceHarvestSpot(s, spawn?.pos);
+          return { x: spot.x, y: spot.y };
+        })
       },
       (x, y) => terrain.get(x, y) === TERRAIN_MASK_WALL,
       (x, y) => this.tileTaken(room, x, y)

@@ -896,6 +896,44 @@ today.
 >   (range 2) lens bands so the link stays an edge port the moment it stands.
 >   Acceptance: `test/unit/corps/edgeLinkPlacement.test.ts` +
 >   `test/unit/economy/fundedRemoteFlows.test.ts`.
+>
+> **UNIFIED, same day** (owner: *"Do we have to distinguish between 'edge'
+> links? Besides core and upgrader seems like placing links in general where
+> they most efficiently replace haul fleet size is ideal."* then *"Yes clear
+> up these 3 vestiges and generalize it"*). "Edge link" was the feature's
+> birth story, not a category — the election above IS the general
+> fleet-offset optimizer, and three vestiges of the old source-vs-edge split
+> were dissolved into it (`bestHaulLinkTile`, the renamed election):
+>
+> 1. **Home-source mouths joined the approach set** at `SOURCE_RATE`. The
+>    source-link rung (rung 2) is DELETED — an unlinked far mouth is the
+>    election's degenerate case, and `LINK_MIN_SOURCE_RANGE = 8` retired
+>    into `HAUL_LINK_MIN_SAVING` (8 tiles × SOURCE_RATE = 80 tile·e/t: the
+>    same bar, one name).
+> 2. **The source lens stopped being an exclusion zone.** A link within 2 of
+>    a mouth is a haul link whose fire rate carries its source — the
+>    election prices that through the detector's own law,
+>    `depositPortHeadroom(range, ownSourceRate)`, with the mouth's flow on
+>    the ownSource side and NEVER double-booked into the routed catchment.
+>    Only the source's exact tile and the miner's post stay barred (nothing
+>    builds on a source; a link on the post evicts the miner).
+> 3. **Rung priority dissolved into the one L-ranking** — a heavy remote
+>    confluence now outbids a marginal home mouth for a scarce slot, and the
+>    optimizer may legitimately elect ONE tile serving both a lane and a
+>    mouth where the geometry allows (pinned in the acceptance suite).
+>
+> The single surviving distinction is a PRICE, not a category: a candidate
+> no standing miner can feed debits the port tender's body from its score
+> (`portTenderHaulEquivalent()` = PORT_TENDER_PARTS × CARRY_CAPACITY/4 =
+> 100 tile·e/t, the tender's parts exchanged through the same carry law the
+> saving is measured in), and a debited score must stay positive — a link
+> whose tender eats its saving shrinks no fleet. Core and controller remain
+> the two structural rungs; the LINK SWAP stays controller-only (revocation
+> of standing capital stays exceptional). Acceptance:
+> `test/unit/corps/haulLinkPlacement.test.ts` (renamed, +5 unification
+> pins); `cons-link-core-first` and `cons-link-farthest-source` grid cells
+> pass 1/1 under the unified election — the deleted rung's placements
+> reproduce exactly.
 
 The original blocker list, kept for the record:
 

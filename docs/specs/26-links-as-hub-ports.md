@@ -245,7 +245,15 @@ with the source's own mining flow; one eligibility lens for pricing + delivery.
 > there — requiring `depositPortHeadroom(range, 0) > F` (owner: the link's
 > throughput must EXCEED the incoming hauling). `findMissingLink` rung 3
 > places the winner; `EDGE_LINK_MIN_SAVING` refuses a slot-spend below 8
-> saved tiles. Full status + acceptance tests: spec 47 §"What remains before
+> saved tiles. **Unified same day into ONE election for every non-structural
+> link** (owner: *"placing links in general where they most efficiently
+> replace haul fleet size is ideal"*): the source-link rung deleted (mouths
+> are approaches at SOURCE_RATE), the source lens de-zoned (ownSourceRate
+> prices it), rung priority dissolved into the L-ranking, and the tender
+> body debited from miner-less candidates (`portTenderHaulEquivalent`) —
+> the naive "one link per home source" convention this section calls out is
+> now structurally impossible to over-serve: a mouth wins a slot only when
+> its L beats every rival's. Full trail: spec 47 §"What remains before
 > an edge link can be turned on". Still open from the list below: the
 > DEP-ledger candidate-ranking instrument, per-cluster `L`/`U` reporting, and
 > the source-less drain ATTRIBUTION (the physical drain is the feeder's core

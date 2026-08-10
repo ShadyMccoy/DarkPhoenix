@@ -2,36 +2,36 @@
 import { expect } from "chai";
 import { setupGlobals, Game, Memory } from "../mock";
 import {
-  bestEdgeLinkTile,
-  EDGE_APPROACH_FALLBACK_FLOW,
-  EDGE_LINK_MIN_SAVING,
-  EdgeLinkSiting,
+  bestHaulLinkTile,
+  APPROACH_FALLBACK_FLOW,
+  HAUL_LINK_MIN_SAVING,
+  HaulLinkSiting,
   PortApproach
 } from "../../../src/corps/constructionPlacement";
-import { LINK_CAPACITY } from "../../../src/economy/primitives";
+import { LINK_CAPACITY, SOURCE_RATE, portTenderHaulEquivalent } from "../../../src/economy/primitives";
 import { resetGovernor } from "../../../src/execution/CpuGovernor";
 
 /**
- * EDGE LINKS (owner 2026-08-06: *"Let's build the edge links then"*, unblocked
- * by RCL 8's 6-link table).
+ * HAUL LINKS - one election for every link that is not the core or the
+ * controller link (owner 2026-08-10: *"Do we have to distinguish between
+ * 'edge' links? Besides core and upgrader seems like placing links in general
+ * where they most efficiently replace haul fleet size is ideal."*).
  *
- * Spec 47 named three blockers: RCL 8 (arrived), the relay (shipped as the
- * LinkCorp's port tender, spec 54), and SITING - *"an edge LINK wants the same
- * treatment against the same approach lens, minus the range-2 constraint. Not
- * built."* This file is that siting, red-first.
+ * Born as the RCL8 edge-link rung (spec 47's third blocker, owner 2026-08-06
+ * *"Let's build the edge links then"*), then unified: home-source mouths join
+ * the approach set at SOURCE_RATE, the source lens stops being an exclusion
+ * zone (a link beside a mouth is just a haul link whose tender is free and
+ * whose fire rate carries its source), and rung priority dissolves into one
+ * L-ranking. The single surviving distinction is a PRICE: a candidate no
+ * standing miner can feed pays the port tender's body
+ * (`portTenderHaulEquivalent`) out of its saving.
  *
- * The objective is the FLEET (owner 2026-08-10: *"we want the link to be
- * placed to reduce or offset the whole fleet as much as possible"*): maximize
- * flow x marginal saving against each approach's current best deposit
- * (storage or an existing port - which is what keeps successive elections
- * marginal). The constraint is ENDOGENOUS (owner, same session: the sources
- * that *"will drop off at the link"* set the total throughput, and the link
- * must sit close enough to the core that its own throughput *"exceeds the
- * throughput of incoming hauling"*): the tile's CATCHMENT - the flow of every
- * approach that would divert to it - sets F, and LINK_CAPACITY/range must
- * strictly exceed F.
+ * Objective: maximize flow x marginal saving vs each approach's current best
+ * deposit. Constraint (endogenous): the tile's ROUTED catchment sets F and
+ * `depositPortHeadroom(range, ownSourceRate) > F` must hold strictly - an
+ * adjacent mouth's rate rides the ownSourceRate side, never both.
  */
-describe("bestEdgeLinkTile (spec 47 edge links, spec 26 stage 5 reach rule)", () => {
+describe("bestHaulLinkTile (unified link election)", () => {
   const cheb = (a: { x: number; y: number }, b: { x: number; y: number }): number =>
     Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
   const open = (): ((x: number, y: number) => boolean) => () => false;
@@ -40,8 +40,8 @@ describe("bestEdgeLinkTile (spec 47 edge links, spec 26 stage 5 reach rule)", ()
   const from = (x: number, y: number, flowRate = 1): PortApproach => ({ from: { x, y }, flowRate });
 
   /** A room whose hub sits center-east: approaches from the west have a long
-   *  baseline to beat, which is the edge link's whole reason to exist. */
-  const base = (over: Partial<EdgeLinkSiting> = {}): EdgeLinkSiting => ({
+   *  baseline to beat, which is a haul link's whole reason to exist. */
+  const base = (over: Partial<HaulLinkSiting> = {}): HaulLinkSiting => ({
     corePos: { x: 30, y: 25 },
     storagePos: { x: 31, y: 26 },
     approaches: [from(1, 25, 30)],
@@ -50,32 +50,23 @@ describe("bestEdgeLinkTile (spec 47 edge links, spec 26 stage 5 reach rule)", ()
   });
 
   it("meets the flow at the door: a west approach elects a tile toward the west exit", () => {
-    const t = bestEdgeLinkTile(base(), open(), free());
+    const t = bestHaulLinkTile(base(), open(), free());
     expect(t, "a long unserved approach must elect a tile").to.not.equal(null);
     expect(t!.x, `expected west of the hub, got ${JSON.stringify(t)}`).to.be.lessThan(20);
-    // And it saves real route: the approach's walk to the tile beats its walk
-    // to storage by at least the placement bar.
     const baseline = cheb({ x: 1, y: 25 }, { x: 31, y: 26 });
-    expect(baseline - cheb({ x: 1, y: 25 }, t!)).to.be.at.least(EDGE_LINK_MIN_SAVING);
+    expect(baseline - cheb({ x: 1, y: 25 }, t!)).to.be.at.least(HAUL_LINK_MIN_SAVING);
   });
 
   it("obeys the reach rule: the link's fire rate strictly EXCEEDS its catchment's flow", () => {
-    // One 30 e/t approach: every candidate that serves it carries the full 30,
-    // so the elected tile must fire faster than 30 - range < 800/30 = 26.67.
-    const t30 = bestEdgeLinkTile(base(), open(), free())!;
+    const t30 = bestHaulLinkTile(base(), open(), free())!;
     expect(LINK_CAPACITY / cheb(t30, { x: 30, y: 25 })).to.be.greaterThan(30);
-    // A heavier route pulls the ring IN (range* <= 800/F): the same approach
-    // at 60 e/t gets a tile at range <= 13, not the far-west tile.
-    const t60 = bestEdgeLinkTile(base({ approaches: [from(1, 25, 60)] }), open(), free())!;
+    const t60 = bestHaulLinkTile(base({ approaches: [from(1, 25, 60)] }), open(), free())!;
     expect(cheb(t60, { x: 30, y: 25 }), "60 e/t must be caught close to the core").to.be.at.most(13);
     expect(cheb(t30, { x: 30, y: 25 }), "30 e/t reaches farther out").to.be.greaterThan(cheb(t60, { x: 30, y: 25 }));
   });
 
   it("the catchment SUMS every approach that would divert - two west routes tighten the ring together", () => {
-    // 30 + 25 e/t both entering the west edge: any tile that beats their
-    // baselines catches BOTH, so F = 55 and the ring is 800/55 ~ 14.5 - far
-    // tighter than either route alone would demand.
-    const t = bestEdgeLinkTile(
+    const t = bestHaulLinkTile(
       base({ approaches: [from(1, 20, 30), from(1, 30, 25)] }),
       open(),
       free()
@@ -86,10 +77,7 @@ describe("bestEdgeLinkTile (spec 47 edge links, spec 26 stage 5 reach rule)", ()
   });
 
   it("...but flow that would NOT divert here does not tighten it", () => {
-    // The east approach is fat (60 e/t) and already served by a port at its
-    // own exit - a west tile offers it no saving, so it is OUTSIDE the west
-    // tile's catchment and must not drag the west link toward the core.
-    const t = bestEdgeLinkTile(
+    const t = bestHaulLinkTile(
       base({
         approaches: [from(1, 25, 30), from(48, 25, 60)],
         existingPorts: [{ x: 46, y: 25 }]
@@ -98,22 +86,19 @@ describe("bestEdgeLinkTile (spec 47 edge links, spec 26 stage 5 reach rule)", ()
       free()
     )!;
     expect(t.x, "the west approach is the one being served").to.be.lessThan(20);
-    // Ring from the WEST catchment only (30 e/t -> range up to 26), not 90.
     expect(cheb(t, { x: 30, y: 25 })).to.be.greaterThan(Math.floor(LINK_CAPACITY / 90));
     expect(LINK_CAPACITY / cheb(t, { x: 30, y: 25 })).to.be.greaterThan(30);
   });
 
   it("scores MARGINAL saving: an approach already served by an existing port elects nothing", () => {
-    // A port 4 tiles in from the west exit: the approach's baseline is 4, so
-    // no legal tile can save EDGE_LINK_MIN_SAVING more - null, not a twin.
-    const t = bestEdgeLinkTile(base({ existingPorts: [{ x: 5, y: 25 }] }), open(), free());
+    const t = bestHaulLinkTile(base({ existingPorts: [{ x: 5, y: 25 }] }), open(), free());
     expect(t).to.equal(null);
   });
 
   it("serves the UNSERVED approach when another is already ported", () => {
-    const north = from(25, 1);
-    const west = from(1, 25);
-    const t = bestEdgeLinkTile(
+    const north = from(25, 1, 30);
+    const west = from(1, 25, 30);
+    const t = bestHaulLinkTile(
       base({ approaches: [north, west], existingPorts: [{ x: 25, y: 5 }] }),
       open(),
       free()
@@ -124,13 +109,13 @@ describe("bestEdgeLinkTile (spec 47 edge links, spec 26 stage 5 reach rule)", ()
   });
 
   it("weights by flowRate: the fatter approach wins the slot", () => {
-    const heavyNorth = bestEdgeLinkTile(
+    const heavyNorth = bestHaulLinkTile(
       base({ approaches: [from(25, 1, 30), from(1, 25, 10)] }),
       open(),
       free()
     )!;
     expect(heavyNorth.y, "30 e/t north outranks 10 e/t west").to.be.lessThan(15);
-    const heavyWest = bestEdgeLinkTile(
+    const heavyWest = bestHaulLinkTile(
       base({ approaches: [from(25, 1, 10), from(1, 25, 30)] }),
       open(),
       free()
@@ -138,13 +123,11 @@ describe("bestEdgeLinkTile (spec 47 edge links, spec 26 stage 5 reach rule)", ()
     expect(heavyWest.x, "and the pull flips with the flow").to.be.lessThan(15);
   });
 
-  it("never lands where a link would be misread as core, controller or source link", () => {
-    // The classification lenses are identity, not preference: a link within 2
-    // of storage IS the core link (coreLink), within 3 of the controller IS
-    // the controller link (controllerLink), within 2 of a source IS that
-    // source's link (sourceLink). An edge link on those tiles would change
-    // owners the moment it stood.
-    const t = bestEdgeLinkTile(
+  it("never lands inside the CORE or CONTROLLER lens; a source's neighbourhood is fair game", () => {
+    // The structural lenses stay identity guards. The source lens does NOT -
+    // only the source's exact tile (nothing builds on a source) and the
+    // miner's post (a link there evicts the standing miner) are barred.
+    const t = bestHaulLinkTile(
       base({
         controllerPos: { x: 5, y: 25 },
         sourcePositions: [{ x: 11, y: 25 }]
@@ -154,22 +137,104 @@ describe("bestEdgeLinkTile (spec 47 edge links, spec 26 stage 5 reach rule)", ()
     )!;
     expect(t, "guards move the tile, they must not kill the election").to.not.equal(null);
     expect(cheb(t, { x: 5, y: 25 }), "outside the controller-link lens").to.be.greaterThan(3);
-    expect(cheb(t, { x: 11, y: 25 }), "outside the source-link lens").to.be.greaterThan(2);
     expect(cheb(t, { x: 31, y: 26 }), "outside the core-link lens").to.be.greaterThan(2);
+    expect(t.x === 11 && t.y === 25, "never ON the source tile").to.equal(false);
+  });
+
+  it("a home-source mouth is just another approach: elected beside the mouth, fed by the standing miner", () => {
+    // The old source-link rung as the unified election's degenerate case: one
+    // unlinked far mouth, its miner posted beside it. The winner must sit
+    // where the miner can feed it (debit-free) - within 1 of the post - and
+    // never ON the mouth or the post.
+    const mouth = { x: 5, y: 25 };
+    const post = { x: 6, y: 25 };
+    const t = bestHaulLinkTile(
+      base({
+        approaches: [from(mouth.x, mouth.y, SOURCE_RATE)],
+        sourcePositions: [mouth],
+        minerPosts: [post]
+      }),
+      open(),
+      free()
+    )!;
+    expect(t, "a far unlinked mouth earns a link").to.not.equal(null);
+    expect(cheb(t, mouth), "beside the mouth (the saving is the whole haul)").to.be.at.most(2);
+    expect(cheb(t, post), "where the standing miner can feed it").to.be.at.most(1);
+    expect(t.x === mouth.x && t.y === mouth.y, "never on the source").to.equal(false);
+    expect(t.x === post.x && t.y === post.y, "never on the miner's post").to.equal(false);
+  });
+
+  it("the tender is a PRICE: the same marginal geometry places with a miner and refuses without one", () => {
+    // A mouth 11 tiles from storage: max saving 10 x SOURCE_RATE = 100
+    // tile-e/t, exactly the tender's body equivalent. With a post the link is
+    // free-tended and worth it; without one the tender eats the whole saving
+    // and the slot correctly stays free.
+    const mouth = { x: 20, y: 25 };
+    const world = (posts: { x: number; y: number }[]): HaulLinkSiting =>
+      base({
+        approaches: [from(mouth.x, mouth.y, SOURCE_RATE)],
+        sourcePositions: [mouth],
+        minerPosts: posts
+      });
+    expect(portTenderHaulEquivalent(), "the debit this test is built around").to.equal(100);
+    expect(bestHaulLinkTile(world([{ x: 21, y: 25 }]), open(), free()), "miner-fed: worth it").to.not.equal(null);
+    expect(bestHaulLinkTile(world([]), open(), free()), "tender eats the saving: refused").to.equal(null);
+  });
+
+  it("rung priority is dissolved: a heavier remote confluence outbids a farther source mouth", () => {
+    // The old ladder placed source links unconditionally first. Under one
+    // L-ranking the 30 e/t remote (L ~ 800) beats the 10 e/t mouth (L ~ 180)
+    // for the scarce slot - and once the remote is served, the NEXT election
+    // picks the mouth. (The mouth sits in the OPPOSITE corner: on a shared
+    // axis the optimizer legitimately elects one middle tile serving both,
+    // which is the unified model's point, not this test's subject.)
+    const mouth = { x: 40, y: 45 };
+    const post = { x: 41, y: 45 };
+    const siting = (ports: { x: number; y: number }[]): HaulLinkSiting =>
+      base({
+        approaches: [from(1, 25, 30), from(mouth.x, mouth.y, SOURCE_RATE)],
+        existingPorts: ports,
+        sourcePositions: [mouth],
+        minerPosts: [post]
+      });
+    const first = bestHaulLinkTile(siting([]), open(), free())!;
+    expect(cheb(first, mouth), "the remote wins the first slot").to.be.greaterThan(2);
+    expect(first.x, "toward the west approach, not the mouth").to.be.lessThan(20);
+    const second = bestHaulLinkTile(siting([first]), open(), free())!;
+    expect(cheb(second, post), "the mouth takes the next slot, miner-fed").to.be.at.most(1);
+  });
+
+  it("an adjacent mouth rides the ownSourceRate side of the headroom law, never the routed catchment", () => {
+    // Core at the far east wall, mouth at the far west: range ~46 leaves fire
+    // rate 800/46 = 17.4, minus the source's own 10 = 7.4 e/t of routed
+    // headroom. The mouth's flow must NOT also count as routed catchment -
+    // double-booking it (10 > 7.4) would refuse the very link that serves it.
+    const t = bestHaulLinkTile(
+      {
+        corePos: { x: 48, y: 25 },
+        storagePos: { x: 47, y: 26 },
+        approaches: [from(2, 25, SOURCE_RATE)],
+        existingPorts: [],
+        sourcePositions: [{ x: 2, y: 25 }],
+        minerPosts: [{ x: 3, y: 25 }]
+      },
+      open(),
+      free()
+    );
+    expect(t, "the mouth's own supply is miner-fed, not hauled in").to.not.equal(null);
+    expect(cheb(t!, { x: 3, y: 25 })).to.be.at.most(1);
   });
 
   it("skips occupied tiles and takes the next-best", () => {
-    const winner = bestEdgeLinkTile(base(), open(), free())!;
+    const winner = bestHaulLinkTile(base(), open(), free())!;
     const occupied = (x: number, y: number): boolean => x === winner.x && y === winner.y;
-    const t = bestEdgeLinkTile(base(), open(), occupied)!;
+    const t = bestHaulLinkTile(base(), open(), occupied)!;
     expect(t, "an occupied winner yields to the runner-up").to.not.equal(null);
     expect(t.x === winner.x && t.y === winner.y).to.equal(false);
   });
 
   it("refuses a sub-bar saving: a hub already near the exit elects nothing", () => {
-    // Storage 5 tiles from the approach: nothing an edge link could save is
-    // worth one of six slots plus a 5000e build.
-    const t = bestEdgeLinkTile(
+    const t = bestHaulLinkTile(
       base({ corePos: { x: 5, y: 25 }, storagePos: { x: 6, y: 25 } }),
       open(),
       free()
@@ -178,30 +243,31 @@ describe("bestEdgeLinkTile (spec 47 edge links, spec 26 stage 5 reach rule)", ()
   });
 
   it("returns null with no approaches, and under full blockage", () => {
-    expect(bestEdgeLinkTile(base({ approaches: [] }), open(), free())).to.equal(null);
-    expect(bestEdgeLinkTile(base(), () => true, free())).to.equal(null);
+    expect(bestHaulLinkTile(base({ approaches: [] }), open(), free())).to.equal(null);
+    expect(bestHaulLinkTile(base(), () => true, free())).to.equal(null);
   });
 
   it("is deterministic: the same world elects the same tile", () => {
-    const a = bestEdgeLinkTile(base(), open(), free());
-    const b = bestEdgeLinkTile(base(), open(), free());
+    const a = bestHaulLinkTile(base(), open(), free());
+    const b = bestHaulLinkTile(base(), open(), free());
     expect(a).to.deep.equal(b);
   });
 });
 
 /**
- * THE RUNG: `findMissingLink` step 3. RCL 8 lifts the table to six and the
- * existing ladder (core, controller, home-source links) tops out at four in the
- * live room - the two remaining slots were unreachable by construction. The
- * rung elects an edge-link tile from the SAME approach lens the port container
- * uses (`portApproaches` - funded remotes' entry exits; the plan's durable
- * signal, never creep positions).
+ * THE RUNG: `findMissingLink` step 2 (unified). RCL 8 lifts the table to six;
+ * the structural rungs (core, controller + swap) stay, and every remaining
+ * slot goes through ONE election over funded-remote entries and unlinked
+ * home mouths (`portApproaches` + the source lens; the plan's durable
+ * signals, never creep positions).
  */
-describe("findMissingLink rung 3: edge links at RCL 8 slots", () => {
+describe("findMissingLink: the unified haul-link election at RCL 8 slots", () => {
   const FIND_SOURCES = 105;
   const FIND_MY_STRUCTURES = 108;
   const FIND_MY_SPAWNS = 112;
   const FIND_MY_CONSTRUCTION_SITES = 114;
+  const FIND_CONSTRUCTION_SITES = 111;
+  const FIND_MINERALS = 116;
   const FIND_EXIT_LEFT = 7;
   const ROOM = "W43N23";
 
@@ -217,7 +283,14 @@ describe("findMissingLink rung 3: edge links at RCL 8 slots", () => {
     g.FIND_MY_STRUCTURES = FIND_MY_STRUCTURES;
     g.FIND_MY_SPAWNS = FIND_MY_SPAWNS;
     g.FIND_MY_CONSTRUCTION_SITES = FIND_MY_CONSTRUCTION_SITES;
+    g.FIND_CONSTRUCTION_SITES = FIND_CONSTRUCTION_SITES;
+    g.FIND_MINERALS = FIND_MINERALS;
     g.FIND_STRUCTURES = 107;
+    g.RoomPosition = function (this: any, x: number, y: number, roomName: string) {
+      this.x = x;
+      this.y = y;
+      this.roomName = roomName;
+    };
     g.LOOK_STRUCTURES = "structure";
     g.LOOK_CONSTRUCTION_SITES = "site";
     g.STRUCTURE_CONTAINER = "container";
@@ -245,10 +318,11 @@ describe("findMissingLink rung 3: edge links at RCL 8 slots", () => {
 
   /**
    * The live-room shape at RCL 8: storage+core, controller+link, two far home
-   * sources each already link-served - the ladder's first four links stand and
-   * two table slots are free. One funded remote to the WEST, its mined rate
-   * published (Memory.fundedRemoteFlows) as the plan does live; `flowsAbsent`
-   * stages the one-deploy-boundary window before the first publishing solve.
+   * sources each already link-served - the structural rungs and both mouths
+   * are satisfied, two table slots are free. One funded remote to the WEST,
+   * its mined rate published (Memory.fundedRemoteFlows) as the plan does
+   * live; `flowsAbsent` stages the deploy-boundary window before the first
+   * publishing solve.
    */
   const world = (
     opts: { rcl?: number; linkSites?: { x: number; y: number }[]; remotes?: string[]; flowsAbsent?: boolean } = {}
@@ -297,9 +371,10 @@ describe("findMissingLink rung 3: edge links at RCL 8 slots", () => {
       find: (type: number, o?: any) => {
         if (type === FIND_SOURCES) return sources;
         if (type === FIND_MY_SPAWNS) return [{ id: "spawn1", pos: posOf(33, 24) }];
-        if (type === FIND_MY_CONSTRUCTION_SITES) {
+        if (type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES) {
           return o?.filter ? sites.filter(o.filter) : sites;
         }
+        if (type === FIND_MINERALS) return [];
         if (type === FIND_EXIT_LEFT) {
           const run: any[] = [];
           for (let y = 20; y <= 28; y++) run.push({ x: 0, y, roomName: ROOM });
@@ -318,7 +393,10 @@ describe("findMissingLink rung 3: edge links at RCL 8 slots", () => {
       s.room = room;
       s.pos.findInRange = scanFrom(s.pos);
     }
-    for (const s of sources) (s.pos as any).findInRange = scanFrom(s.pos);
+    for (const s of sources) {
+      (s as any).room = room;
+      (s.pos as any).findInRange = scanFrom(s.pos);
+    }
     Game.rooms = { [ROOM]: room } as any;
     return room;
   };
@@ -328,44 +406,35 @@ describe("findMissingLink rung 3: edge links at RCL 8 slots", () => {
     return new ConstructionCorp(`${ROOM}-construction`, "spawn1") as any;
   };
 
-  it("RCL 8 with free slots and a funded west remote: elects a west edge-link tile", () => {
+  it("RCL 8 with free slots and a funded west remote: elects a west haul-link tile", () => {
     const room = world();
     const tile = corp().findMissingLink(room, 8);
     expect(tile, "two slots are free and a long approach is unserved").to.not.equal(null);
     expect(tile.x, `expected a west tile, got ${JSON.stringify(tile)}`).to.be.lessThan(20);
-    // Reach rule against the core at (35,25): the link's fire rate must
-    // strictly exceed the published 30 e/t the west remote routes.
-    expect(800 / cheb(tile, { x: 35, y: 25 })).to.be.greaterThan(30);
-    // Classification guards: the new link must stay itself.
+    expect(800 / cheb(tile, { x: 35, y: 25 }), "fire rate strictly exceeds the routed 30 e/t").to.be.greaterThan(30);
     expect(cheb(tile, { x: 36, y: 26 }), "not the core's tile-space").to.be.greaterThan(2);
     expect(cheb(tile, { x: 40, y: 32 }), "not the controller link").to.be.greaterThan(3);
-    expect(cheb(tile, { x: 44, y: 12 }), "not s1's link").to.be.greaterThan(2);
-    expect(cheb(tile, { x: 43, y: 39 }), "not s2's link").to.be.greaterThan(2);
   });
 
   it("unpublished flows (one deploy-boundary solve): the fallback errs HIGH and still places", () => {
-    // Memory.fundedRemoteFlows absent - the rung assumes
-    // EDGE_APPROACH_FALLBACK_FLOW per funded room (two standing sources,
-    // deliberately conservative in the TIGHT direction) rather than refusing
-    // to elect or guessing the ring loose from zero.
     const room = world({ flowsAbsent: true });
     const tile = corp().findMissingLink(room, 8);
     expect(tile, "the pre-publication window must not stall the rung").to.not.equal(null);
     expect(tile.x, "still a west tile").to.be.lessThan(20);
-    expect(800 / cheb(tile, { x: 35, y: 25 })).to.be.greaterThan(EDGE_APPROACH_FALLBACK_FLOW);
+    expect(800 / cheb(tile, { x: 35, y: 25 })).to.be.greaterThan(APPROACH_FALLBACK_FLOW);
   });
 
-  it("RCL 7: the table is full at four - the wall holds, no edge link", () => {
+  it("RCL 7: the table is full at four - the wall holds, no haul link", () => {
     const room = world({ rcl: 7 });
     expect(corp().findMissingLink(room, 7)).to.equal(null);
   });
 
-  it("no funded remotes: no approaches, no edge link", () => {
+  it("no funded remotes and both mouths linked: nothing to serve, no link", () => {
     const room = world({ remotes: [] });
     expect(corp().findMissingLink(room, 8)).to.equal(null);
   });
 
-  it("a pending edge-link SITE serves its approach: no double placement", () => {
+  it("a pending haul-link SITE serves its approach: no double placement", () => {
     // The site sits where the previous election landed; the approach's
     // baseline is now 9-10 tiles and the 800/30 ring blocks anything
     // meaningfully closer to the exit, so the second slot stays free rather

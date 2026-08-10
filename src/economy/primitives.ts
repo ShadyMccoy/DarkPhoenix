@@ -842,6 +842,26 @@ export function portTenderSpawnLoad(): number {
 }
 
 /**
+ * The port tender's standing body expressed as flow-weighted HAUL SAVING
+ * (tile-e/t) - the debit the unified link election charges a candidate that no
+ * standing miner can feed (owner 2026-08-10: links place "where they most
+ * efficiently replace haul fleet size", and the tender IS fleet, so a
+ * miner-less link must beat a miner-fed one by its own body before it earns
+ * the slot).
+ *
+ * Derivation, same laws as the fleet it trades against: a 1:1 hauler keeping
+ * `rate` e/t in flight over one-way `d` stands `2 x carryPartsFor(rate, d)`
+ * ~= `4 x rate x d / CARRY_CAPACITY` body parts (roundTripTicks' +2 handling
+ * ticks ignored - they vanish against real route lengths), so ONE standing
+ * body part carries `CARRY_CAPACITY / 4` = 12.5 tile-e/t of route. The
+ * tender's PORT_TENDER_PARTS exchanged at that rate is the saving its body
+ * would have bought as plain haulage.
+ */
+export function portTenderHaulEquivalent(): number {
+  return PORT_TENDER_PARTS * (CARRY_CAPACITY / 4);
+}
+
+/**
  * Spawn build-time (parts/tick) of the standing infrastructure the plan
  * implies but does not commission through routeToSinks: the storage->
  * controller feeder shuttle sized to `relayRate`, the extension tender
