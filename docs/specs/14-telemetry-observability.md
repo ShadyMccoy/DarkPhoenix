@@ -13324,3 +13324,39 @@ d04ab81 owner-model correction). Predictions:
    spam from the new rung.
 
 Verdict: PENDING post-deploy verification (below, after recapture).
+
+### Post-deploy verification t72918044 (+ live room read t72918xxx) — 4/4 confirmed, BOTH slots placed
+
+1. **CONFIRMED (indirect)** — the election ran with real approach weights: two
+   sites in two elections, the second treating the first as an existing port
+   (marginal baseline working). `fundedRemoteFlows` itself is not
+   capture-visible (Memory only; the flow segment does not emit it — named
+   gap, harmless: the plan's own consumers read Memory).
+2. **CONFIRMED, twice** — link sites at **(23,38)** (range 13 → ceiling 61.5,
+   the SW arc: the relief lane for 8f08, which this read caught at 800/800
+   FULL) and **(31,6)** (range 19 → ceiling 42.1, the N arc). Both inside
+   their rings, outside core/controller/source lenses, no twins by existing
+   ports (cheb 20 and 15 to the nearest).
+3. **IN PROGRESS as predicted** — both 0/5000; builder-pace observable next
+   cycle (with two sites the widening gate funded 10k of board at once,
+   surplus 545k).
+4. **CONFIRMED** — feederActive true, bucket 10,000, controllerStock
+   1,433→2,676, no churn spike, no placeResult error stamps.
+
+Cycle t72917269 verdict so far: **FIXED (placement) + INSTRUMENTED (flows
+publication)**; the L1/rho-relief half stays open until the sites BUILD and
+the next capture reads the new ports' rho and 8f08's wait shares.
+
+### Same session, owner-directed: the link P&L question and its instrument
+
+Owner: *"Can you show me a link income statement PnL chart or something about
+their distance, throughput any creep waits or transfer waits or transfer
+amounts per each link"* — answered from t72917269 (per-route portWaits joined
+to ports via the plan's hauler `port` field): 4a83 at rho 0.85 runs a
+ZERO-wait book on 5 routes; 8f08 at rho 1.16 makes 40-62% of arrivals hold,
+and cd99 (the best-saving route, 19 tiles) is the one squeezed out entirely
+(waitFrac 0.846, 11 fallbacks, demoted to the long haul). Named gaps became
+core v39: `links[].perLink` — per-SENDER fires / sentRate / volleyAvg /
+clampShare (LinkMeter split, sender id threaded through every
+recordLinkFire). Deposit VOLUME per port (events are counted, energy is not)
+remains open.

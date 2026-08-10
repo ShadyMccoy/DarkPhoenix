@@ -133,7 +133,14 @@ export function runLinks(): void {
           coreFreeLeft = Math.max(0, coreFreeLeft - amount);
         }
         link.transferEnergy(target);
-        recordLinkFire(room.name, isDirect ? "controllerDirect" : "hub", amount, Game.time, isDirect ? undefined : wanted);
+        recordLinkFire(
+          room.name,
+          isDirect ? "controllerDirect" : "hub",
+          amount,
+          Game.time,
+          isDirect ? undefined : wanted,
+          link.id
+        );
       }
     }
 
@@ -158,7 +165,7 @@ export function runLinks(): void {
     ) {
       const amount = Math.min(core.store[RESOURCE_ENERGY], ctrl.store.getFreeCapacity(RESOURCE_ENERGY));
       core.transferEnergy(ctrl);
-      recordLinkFire(room.name, "controllerRelay", amount, Game.time);
+      recordLinkFire(room.name, "controllerRelay", amount, Game.time, undefined, core.id);
     }
   }
 }

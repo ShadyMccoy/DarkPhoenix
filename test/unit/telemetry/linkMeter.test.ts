@@ -49,6 +49,40 @@ describe("LinkMeter (link-throughput instrument)", () => {
     expect(row.directShare).to.equal(0); // none direct
   });
 
+  /**
+   * PER-LINK SPLIT (owner 2026-08-10: *"Can you show me a link income
+   * statement ... per each link"*). The room aggregate could answer waits per
+   * ROUTE but throughput only per room - which port carried what was not a
+   * read. Every fire now attributes to its SENDER (id last-4), so the ledger
+   * prints each link's own throughput, volley shape and clamp share.
+   */
+  it("splits throughput per SENDER link, heaviest first", () => {
+    recordLinkFire("W1N1", "hub", 600, 100, undefined, "aaaa4a83");
+    recordLinkFire("W1N1", "hub", 200, 120, undefined, "aaaa4a83");
+    recordLinkFire("W1N1", "hub", 700, 130, 800, "bbbb8f08"); // clamped (wanted 800, moved 700)
+    const [row] = linkLedger(200);
+    expect(row.perLink.map(l => l.id), "sorted by sentRate, id last-4").to.deep.equal(["4a83", "8f08"]);
+    const [a, b] = row.perLink;
+    expect(a.fires).to.equal(2);
+    expect(a.sentRate).to.be.closeTo(8, 1e-9); // 800/100
+    expect(a.volleyAvg).to.be.closeTo(400, 1e-9);
+    expect(a.clampShare).to.equal(0);
+    expect(b.fires).to.equal(1);
+    expect(b.volleyAvg).to.be.closeTo(700, 1e-9);
+    expect(b.clampShare, "the clamped volley is ITS clamp, not the room's alone").to.equal(1);
+  });
+
+  it("attributes the core's own relay fires to the core's id; legacy sender-less calls stay room-only", () => {
+    recordLinkFire("W1N1", "controllerRelay", 400, 100, undefined, "cccccore");
+    recordLinkFire("W1N1", "hub", 100, 100); // legacy caller: no sender
+    const [row] = linkLedger(200);
+    expect(row.perLink).to.have.length(1);
+    expect(row.perLink[0].id).to.equal("core");
+    expect(row.perLink[0].sentRate).to.be.closeTo(4, 1e-9);
+    // The sender-less fire still lands in the ROOM aggregate.
+    expect(row.toHubRate).to.be.closeTo(1, 1e-9);
+  });
+
   it("meters rooms independently", () => {
     recordLinkFire("W1N1", "hub", 100, 100);
     recordLinkFire("W2N2", "controllerRelay", 300, 100);
