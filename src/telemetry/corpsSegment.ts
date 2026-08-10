@@ -17,6 +17,7 @@
 
 import { CorpSizingRecord } from "../corps/Corp";
 import { CommissionFleet } from "../economy/Commission";
+import { categoryOfKind } from "../economy/accountCategory";
 import { BodyAggregate, CorpCensusEntry, corpCreepCount, corpRoomName, emptyBody } from "./bodyCensus";
 import { TELEMETRY_SEGMENTS } from "./segmentIds";
 
@@ -47,6 +48,25 @@ export interface CorpsTelemetry {
      * declares none (aux kinds until spec 39 phase 4).
      */
     fleet?: CommissionFleet;
+    /**
+     * THE CORP BUDGET (v17, spec 51): the commission's declared inputs and
+     * outputs, and the statement line it reports on.
+     *
+     * Owner 2026-08-06: *"Every corp plan is essentially a list of inputs and
+     * outputs. Thats the corp budget. The colony budget is the sum of the
+     * corps."* Published so the statement can SUM these rows instead of
+     * re-deriving what it thinks each corp costs - the reporting layer's
+     * parallel reconstruction (waste-ledger.planSpawnLoad) is a second book.
+     *
+     * `account` is the reporting category the KIND declares
+     * (economy/accountCategory), so a row aggregates by corp and drills back
+     * down to it. Absent = the kind is unclassified, which must stay VISIBLE:
+     * folding an unknown into a residual is how the `jack` role hid.
+     */
+    shape?: string;
+    consumes?: { energyRate?: number; spawnPartsPerTick: number };
+    produces?: { energyRate?: number; valuePerTick?: number };
+    account?: string;
     /**
      * Inputs of the corp's last sizing decision, exported verbatim from the
      * decision-site stamp (spec 14 phase 2). Absent for corps that don't stamp.
@@ -108,7 +128,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   const corpsByKind: { [kind: string]: number } = {};
   let activeCorps = 0;
 
-  for (const { kind, corp, fleet } of census) {
+  for (const { kind, corp, fleet, commissionShape, consumes, produces } of census) {
     const creepCount = corpCreepCount(corp);
     // ACTUAL body of this corp's live creeps (measured), or empty when it owns
     // none - never a reconstruction from planned rates.
@@ -138,6 +158,16 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
       bodyParts: body.total,
       body: body.byPart,
       ...(fleet ? { fleet } : {}),
+      // The corp budget (v17): shape/consumes/produces verbatim off the
+      // envelope, plus the kind's declared reporting category.
+      ...(commissionShape ? { shape: commissionShape } : {}),
+      // `at` (a Position) is deliberately dropped: the account sums rates, and
+      // the corp's place is already on the row as nodeId/roomName.
+      ...(consumes
+        ? { consumes: { energyRate: consumes.energyRate, spawnPartsPerTick: consumes.spawnPartsPerTick } }
+        : {}),
+      ...(produces ? { produces: { energyRate: produces.energyRate, valuePerTick: produces.valuePerTick } } : {}),
+      ...(categoryOfKind(kind) ? { account: categoryOfKind(kind) } : {}),
       sizing: corp.lastSizing,
       ...(innerSizing.length > 0 ? { innerSizing } : {}),
       ...(corp.unitsProduced > 0 ? { produced: corp.unitsProduced } : {}),
@@ -150,7 +180,7 @@ export function updateCorpsTelemetry(census: CorpCensusEntry[], perCorpBody: Map
   }
 
   const telemetry: CorpsTelemetry = {
-    version: 16, // v15 planned fleet per commission; v16 hauler departure-reason meter in haul sizing stamps (cycle t72786811) 2026-08-05
+    version: 17, // v16 hauler departure-reason meter; v17 the CORP BUDGET (shape/consumes/produces/account, spec 51) 2026-08-06
     tick: Game.time,
     corps,
     summary: {

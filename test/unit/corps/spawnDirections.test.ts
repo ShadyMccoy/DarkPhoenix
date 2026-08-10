@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import "../../../src/types/Memory";
 import { spawnDirectionsToward } from "../../../src/corps/SpawningCorp";
-import { controllerFeederKind } from "../../../src/corps/kinds/controllerFeederKind";
+import { linkKind } from "../../../src/corps/kinds/linkKind";
 
 /**
  * Spawn placement (owner 2026-07-24: "spawn the feeder using the spawn
@@ -30,7 +30,7 @@ describe("spawnDirectionsToward (spawn placement bias)", () => {
   });
 });
 
-describe("controllerFeederKind.spawnTarget (the parked relay post)", () => {
+describe("linkKind.spawnTarget (the parked relay post)", () => {
   beforeEach(() => {
     (global as any).FIND_MY_STRUCTURES = 108;
     (global as any).STRUCTURE_LINK = "link";
@@ -49,19 +49,19 @@ describe("controllerFeederKind.spawnTarget (the parked relay post)", () => {
   it("targets the CORE LINK when the room is link-fed (born on-post)", () => {
     const link = { structureType: "link", pos: { x: 21, y: 20, roomName: "W1N1" } };
     const spawn: any = { room: room({ link, storageMy: true }) };
-    const target = controllerFeederKind.spawnTarget!("feeder", spawn);
+    const target = linkKind.spawnTarget!("feeder", spawn);
     expect(target).to.equal(link.pos);
   });
 
   it("falls back to the storage depot when there is no core link (walking relay)", () => {
     const spawn: any = { room: room({ storageMy: true }) };
-    const target = controllerFeederKind.spawnTarget!("feeder", spawn);
+    const target = linkKind.spawnTarget!("feeder", spawn);
     expect(target!.x).to.equal(20);
     expect(target!.y).to.equal(20);
   });
 
   it("returns null with no storage yet (nothing to relay - default placement)", () => {
     const spawn: any = { room: room({ storageMy: false }) };
-    expect(controllerFeederKind.spawnTarget!("feeder", spawn)).to.equal(null);
+    expect(linkKind.spawnTarget!("feeder", spawn)).to.equal(null);
   });
 });

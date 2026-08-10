@@ -58,7 +58,7 @@ import {
   tankerCarryNeededFor,
   RoadRouteSpec
 } from "../economy/roadEconomics";
-import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isRoomEdgeTile, isSourceApproachTile, isSpawnRefillStock, sourceBufferStock, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
+import { bestAdjacentTile, controllerInputSpot, controllerLink, coreLink, isPortBuffer, isRoomEdgeTile, isSourceApproachTile, isSpawnRefillStock, pickPortBuffer, sourceBufferStock, sourceHarvestSpot, sourceLink } from "./nodeEnergy";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 import { buildPool, buildPoolAbsorbRate, buildPoolBacklog, ProjectRecord, PROJECT_LEDGER_DECAY } from "./constructionLedger";
 import {
@@ -86,7 +86,8 @@ import {
   TOWER_MIN_RCL,
   TrunkSurvey,
   trunkGateFromSurvey,
-  wantsAnotherSpawn
+  wantsAnotherSpawn,
+  wantsAnotherTower
 } from "./constructionPlacement";
 import { roomContainerCensus } from "../telemetry/containerCensus";
 
@@ -185,6 +186,9 @@ export class ConstructionCorp extends Corp {
    * just re-arms the scan a cooldown early, which is harmless). */
   private lastRoadAttempt = 0;
   private remoteTrunks: { sourceId: string; pos: Position; flow: number }[] = [];
+  /** Per-tick memo for `roomDepositPorts` (heap only - a reset just re-scans). */
+  private portScan: ReturnType<typeof detectLinkDepositPorts> = [];
+  private portScanTick = -1;
 
   /**
    * Builder count the demand lens wanted at its last walk - stashed by
@@ -522,11 +526,7 @@ export class ConstructionCorp extends Corp {
       filter: s => s.structureType !== STRUCTURE_ROAD && s.structureType !== STRUCTURE_TOWER
     }).length;
 
-    const wantsContainer =
-      containersUnlocked(rcl, currentExtensions >= maxExtensions) &&
-      (this.findMissingSourceContainer(room) !== null ||
-        this.findMissingCoreDepot(room) !== null ||
-        this.findMissingControllerContainer(room) !== null);
+    const wantsContainer = this.wantsAnyContainer(room, rcl, currentExtensions >= maxExtensions);
     const wantsStorage = this.findMissingStorage(room, rcl) !== null;
     const wantsLink = this.findMissingLink(room, rcl) !== null;
     const wantsTower = this.findMissingTower(room, rcl) !== null;
@@ -1322,24 +1322,15 @@ export class ConstructionCorp extends Corp {
       }
     }
 
-    // 1.8 Recycle pad (AFTER the surplus controller container - rung 1.7
-    //     keeps its pinned queue-jump, cons-ctrl-container-surplus-first) (owner 2026-08-03): a container beside each spawn in a
-    //     MATURE room. The depot rule (1.5) is storage-gated off, so mature
-    //     rooms had NO spawn-side container - and recycleCreep's body refund
-    //     decays in the tombstone onto a bare tile (measured t72757611:
-    //     13.07 e/t of refund flow against ~5 recovered, zero containers in
-    //     the live home room; the 5k container pays back in under half a
-    //     fiscal month). Storage-gated ON, so every bootstrap-era rung
-    //     ordering pin is untouched; driveRecycle seats the pad the moment
-    //     it stands.
-    if (containersOpen && room.storage?.my) {
-      const pad = this.findMissingRecyclePad(room);
-      if (pad) {
-        this.placeSite(room, pad.x, pad.y, STRUCTURE_CONTAINER);
-        return;
-      }
-    }
-
+    // (The recycle pad rung used to sit HERE, above tower/spawn/storage/
+    // link - and that ordering was PR #149's grid regression, bisected
+    // 2026-08-09: in a mature room the pad places a 5k container site
+    // first, and with no builder to finish it the placement gate
+    // (activeSites > 0, no surplus) never reopens, so every infrastructure
+    // rung below starved forever. Three construction cells timed out
+    // byte-identically on exactly this. A convenience container must never
+    // outrank the room's defense, spawn throughput, or link network - the
+    // pad now places AFTER the link rung, below.)
 
     // 1.8 Tower (RCL 3, spec 07 - owner directive 2026-07-17 "at home, we
     //     will build towers"): the room's entire NPC defense. Between the core
@@ -1420,6 +1411,29 @@ export class ConstructionCorp extends Corp {
     if (link) {
       this.placeSite(room, link.x, link.y, STRUCTURE_LINK);
       return;
+    }
+
+    // 2.8 Recycle pad (owner 2026-08-03): a container beside each spawn in a
+    //     MATURE room. The depot rule (1.5) is storage-gated off, so mature
+    //     rooms had NO spawn-side container - and recycleCreep's body refund
+    //     decays in the tombstone onto a bare tile (measured t72757611:
+    //     13.07 e/t of refund flow against ~5 recovered; the 5k container
+    //     pays back in under half a fiscal month). Storage-gated ON, so
+    //     every bootstrap-era rung ordering pin is untouched; driveRecycle
+    //     seats the pad the moment it stands. MOVED BELOW the tower/spawn/
+    //     storage/link rungs 2026-08-09: its original slot above them was PR
+    //     #149's grid regression - a mature room with no builder placed the
+    //     pad site first and the closed placement gate starved every
+    //     infrastructure rung behind it (three cells timed out
+    //     byte-identically; bisected, then traced here). A convenience
+    //     container yields to capacity structures by principle, not just by
+    //     the incident.
+    if (containersOpen && room.storage?.my) {
+      const pad = this.findMissingRecyclePad(room);
+      if (pad) {
+        this.placeSite(room, pad.x, pad.y, STRUCTURE_CONTAINER);
+        return;
+      }
     }
 
     // 3. Controller container last: it buffers the upgrade push (containerFed
@@ -2145,10 +2159,13 @@ export class ConstructionCorp extends Corp {
    */
   private findMissingTower(room: Room, rcl: number): { x: number; y: number } | null {
     if (rcl < TOWER_MIN_RCL) return null;
-    const hasTower =
-      room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_TOWER }).length > 0 ||
-      room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_TOWER }).length > 0;
-    if (hasTower) return null;
+    // Cap-aware since the RCL8 build-out (owner 2026-08-09: "Another
+    // tower") - the old `hasTower` boolean silenced this rung forever once
+    // the RCL3 tower stood. wantsAnotherTower binds BOTH the engine table
+    // and the colony target (2), and counts pending sites.
+    const built = room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === STRUCTURE_TOWER }).length;
+    const pending = room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_TOWER }).length;
+    if (!wantsAnotherTower(rcl, built, pending)) return null;
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     if (!spawn) return null;
     const tile = bestAdjacentTile(room, spawn.pos, 3, spawn.pos, [spawn.pos], STRUCTURE_TOWER);
@@ -2291,19 +2308,84 @@ export class ConstructionCorp extends Corp {
    */
   private findMissingPortContainer(room: Room): { x: number; y: number } | null {
     if (this.containerBudgetFull(room)) return null;
-    const ports = detectLinkDepositPorts().filter(p => p.pos.roomName === room.name);
+    const ports = this.roomDepositPorts(room);
     if (ports.length === 0) return null;
     const terrain = room.getTerrain();
     const isBlocked = (x: number, y: number): boolean => terrain.get(x, y) === TERRAIN_MASK_WALL;
     const isOccupied = (x: number, y: number): boolean =>
       room.lookForAt(LOOK_STRUCTURES, x, y).length > 0 || room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0;
+    // "Already served?" through the SHARED predicate (spec 56). The bare
+    // range-2 scan that stood here counted the CONTROLLER's feed store as this
+    // port's buffer - the one container the tender's lens refuses - so the
+    // rung skipped the live (43,38) port permanently while the port had no
+    // post and no drain. Pending SITES count too: a placed-but-unbuilt buffer
+    // must not be re-placed every cooldown.
+    const built = this.roomContainerTiles(room);
     for (const port of ports) {
-      const pos = new RoomPosition(port.pos.x, port.pos.y, room.name);
-      if (this.hasContainerNear(room, pos, 2)) continue;
+      if (pickPortBuffer(port.pos, built, room.controller?.pos)) continue;
       const tile = bestPortContainerTile(port.pos, this.portApproaches(room), isBlocked, isOccupied);
       if (tile) return tile;
     }
     return null;
+  }
+
+  /**
+   * Does ANY container rung want a slot? The gate's `wantsMore` term.
+   *
+   * EVERY container rung `tryPlaceNextSite` can reach must be represented
+   * here, or that rung is unreachable (spec 56). `placementGateOpen` takes
+   * this as `wantsMore` and a false `wantsMore` short-circuits BEFORE
+   * `tryPlaceNextSite` runs at all - so rung 1.6, the deposit-port buffer, was
+   * gated on some OTHER rung wanting something. In a mature room - extensions
+   * at cap, storage/links/tower built, no second spawn wanted, roads surveyed
+   * - no other rung does, and a mature room is precisely the room that HAS
+   * deposit ports. That is one of the two reasons "the deposit-port rung has
+   * never placed anything"; the stale buffer lens was the other.
+   *
+   * Extracted from `work()` so the omission is a TESTABLE fact rather than a
+   * line of an inline boolean nobody re-reads when a rung is added. When you
+   * add a container rung to `tryPlaceNextSite`, add it here too.
+   */
+  private wantsAnyContainer(room: Room, rcl: number, extensionsAtCap: boolean): boolean {
+    if (!containersUnlocked(rcl, extensionsAtCap)) return false;
+    return (
+      this.findMissingSourceContainer(room) !== null ||
+      this.findMissingCoreDepot(room) !== null ||
+      this.findMissingPortContainer(room) !== null ||
+      this.findMissingControllerContainer(room) !== null ||
+      // The recycle pad joins the gate (spec 56 open item 2 - the same D1
+      // defect the port rung had: absent from this list, the pad could only
+      // ride other rungs' wants, and a mature room wanting ONLY the pad
+      // never opened the gate at all). Ladder position is separate and LOW
+      // (rung 2.8, below every capacity structure - the #149 lesson).
+      (room.storage?.my === true && this.findMissingRecyclePad(room) !== null)
+    );
+  }
+
+  /**
+   * This room's deposit ports, memoised for the tick.
+   *
+   * `detectLinkDepositPorts` walks every owned room's structures, and spec 56
+   * put it on the EVERY-TICK path (the gate's `wantsAnyContainer`) where it
+   * previously only ran when the gate was already open. Two callers per tick
+   * times a global scan is a CPU regression on a corp that runs beside the
+   * heartbeat; one scan per tick is not.
+   */
+  private roomDepositPorts(room: Room): ReturnType<typeof detectLinkDepositPorts> {
+    if (this.portScanTick !== Game.time) {
+      this.portScan = detectLinkDepositPorts();
+      this.portScanTick = Game.time;
+    }
+    return this.portScan.filter(p => p.pos.roomName === room.name);
+  }
+
+  /** Every container tile in the room, BUILT or pending as a site - the shape
+   *  `pickPortBuffer` ranks over. */
+  private roomContainerTiles(room: Room): { pos: RoomPosition }[] {
+    return [
+      ...room.find(FIND_STRUCTURES, { filter: s => s.structureType === STRUCTURE_CONTAINER }),
+      ...room.find(FIND_MY_CONSTRUCTION_SITES, { filter: s => s.structureType === STRUCTURE_CONTAINER })
+    ].map(s => ({ pos: s.pos }));
   }
 
   /**
@@ -2498,6 +2580,20 @@ export class ConstructionCorp extends Corp {
     // wanted.
     const input = controllerInputSpot(ctrl);
     if (input.structure) return null;
+    // NEVER INSIDE A PORT'S BUFFER RANGE (spec 56; spec 54 open item 4, which
+    // went BACKWARDS in the live window: containers 3->4 with the new one at
+    // (41,36), immediately flagged `supersededControllerContainer`). This rung
+    // and `reclaimableContainer` were reading different lenses about the same
+    // tile, so construction spent a 5,000e site placing the exact container the
+    // reclaim rung exists to demolish - and each round costs a builder. Refuse
+    // the tile instead: two subsystems that fight are one lens short, and the
+    // port needs that slot more than the controller does (the owner's call -
+    // "the controller link should not have a container").
+    const ports = this.roomDepositPorts(room);
+    // `isPortBuffer` with no controller argument asks exactly "is this tile
+    // inside a port's buffer range" - the same predicate, so the refusal here
+    // and the reclaim there can never drift apart.
+    if (ports.some(p => isPortBuffer(input.pos, p.pos))) return null;
     return { x: input.pos.x, y: input.pos.y };
   }
 
@@ -3201,6 +3297,25 @@ export class ConstructionCorp extends Corp {
     // regardless of the ratio built).
     const pavedF = this.buildFuelPavedFraction(room, site);
     const carryNeeded = tankerCarryNeededFor(consumption, dist, pavedF, TANKER_CARRY_PER_MOVE_PLAIN);
+    // STAMP THE PAVEMENT (2026-08-08). `pavedF` was computed here, consumed on
+    // the line above, and recorded NOWHERE - a pricing term with no stamp,
+    // which is the exact failure `sources[].swampFraction` was added to fix
+    // ("the very next capture could not say whether carry was unchanged because
+    // the routes have no swamp or because the wiring was dead").
+    //
+    // It bit immediately: the tanker gait sweep could not say which PAVEMENT
+    // regime it measured, so "3:1 is optimal" was scoped to an unknown. And the
+    // gait it is priced against is `TANKER_CARRY_PER_MOVE_PLAIN` unconditionally
+    // while `buildTankerBody(..., false)` builds the plain body at every call
+    // site - so `TANKER_CARRY_PER_MOVE_ROAD` has no live caller and a fully
+    // paved fuel route still fields the plain shape. Owner 2026-08-08:
+    // *"builders tend to build roads so 2:1 is good"* - that is the case this
+    // stamp exists to make measurable before the ratio is made conditional.
+    this.stampSizing({
+      tankerPavedF: Math.round(pavedF * 100) / 100,
+      tankerDist: dist,
+      tankerCarryNeeded: carryNeeded
+    });
     // At least TWO bodies so one is always staged for a seamless hot swap, but
     // size EACH to its SHARE of the real carryNeeded - never the max body.
     // The old code fielded max(2, ...) bodies each at perTankerMax (16 CARRY at

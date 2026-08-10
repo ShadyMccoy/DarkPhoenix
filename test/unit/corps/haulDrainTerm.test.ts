@@ -91,9 +91,11 @@ describe("CarryCorp haulCarryNeeded: plan-only when mature, +drain in bootstrap"
     const sustained = Math.ceil(carryPartsFor(10, 36));
     const asked = mkCorp(staged).haulCarryNeeded(false);
     expect(asked).to.be.greaterThan(sustained);
-    // rate = 10 + 3874/1500; carry = rate * roundTrip / 50, rounded up -
-    // gentle by construction (a few CARRY), never a swarm.
-    expect(asked).to.equal(Math.ceil(carryPartsFor(10 + staged / CREEP_LIFETIME, 36)));
+    // rate = 10 + 3874/2/1500 (the owner's midpoint law, 2026-08-09 - half
+    // the standing pile over one generation, same argument as scavengeRate);
+    // carry = rate * roundTrip / 50, rounded up - gentle by construction
+    // (a few CARRY), never a swarm.
+    expect(asked).to.equal(Math.ceil(carryPartsFor(10 + staged / 2 / CREEP_LIFETIME, 36)));
     expect(asked).to.be.lessThan(sustained * 2);
   });
 

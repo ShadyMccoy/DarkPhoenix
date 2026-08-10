@@ -1,4 +1,4 @@
-# Spec 46 — Concentration of force: the RCL8 sprint, priced
+# Spec 53 — Concentration of force: the RCL8 sprint, priced
 
 **Status: BACKLOG 2026-08-06 (owner direction).** The *strategy* is not new —
 [GRAND_STRATEGY §4](../GRAND_STRATEGY.md) already names the concentration engine
@@ -210,7 +210,7 @@ Donors will out-produce the 240 e/t ceiling. Ranked:
    "fully-RCL8 empire has no sink" problem.
 
 **The donor side of this section is already built.**
-[Spec 47](47-consumption-constrained-economy.md) (landed 2026-08-05, from the
+[Spec 58](58-consumption-constrained-economy.md) (landed 2026-08-05, from the
 owner's description of the same regime and independently of this analysis)
 makes a donor whose target is full *behave*: its storage sink tapers by
 `storageAbsorbRate` instead of cliffing, so mining contracts source-by-source
@@ -219,7 +219,7 @@ reopens — which is exactly what a donor must do between sprints. Its phases 1�
 also price the transfer edge this spec's §4 charges 9.4 e/t for
 (`terminalSendCost`, the engine's own formula), so the income statement's
 TRANSPORT line and the planner's arc cost are the same number rather than two
-estimates. What is NOT built is the executor (spec 47 phase 3) — so the 145.2
+estimates. What is NOT built is the executor (spec 58 phase 3) — so the 145.2
 e/t "shipped" line is currently priced and planned but not moved, and any
 measurement leg here should treat it as such.
 

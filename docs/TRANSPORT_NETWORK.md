@@ -12,7 +12,7 @@ and pathing slop.
 value-per-intent, the concentration engine, peace-as-CPU-optimal. This document
 supplies the arc costs and the intent accounting that doctrine assumes but never
 derived. The actionable programme is
-[spec 46](specs/46-concentration-of-force.md); the intent-cost table §7 produces
+[spec 53](specs/53-concentration-of-force.md); the intent-cost table §7 produces
 is fed to [spec 29](specs/29-cpu-as-costed-resource.md), which asked for exactly
 it. Two reconciliations were forced and are flagged in place: §12.1's military
 framing is **withdrawn** in favour of GRAND_STRATEGY §5–§6, and §13.3's reading of
@@ -794,7 +794,7 @@ work.
 ## 11. The RCL8 inversion: the room stops being a sink
 
 > **The planner side of this section is BUILT** — see
-> [spec 47](specs/47-consumption-constrained-economy.md), landed 2026-08-05
+> [spec 58](specs/58-consumption-constrained-economy.md), landed 2026-08-05
 > from the owner's description of the same regime, independently of this
 > analysis. The convergence is worth noting because it is a check on both:
 > that spec's `controllerMaxUpgradeRate` is the 15 e/t cap below,
@@ -802,11 +802,11 @@ work.
 > `terminalSendCost` is §4.3's fee to the digit. What §11 supplies that the
 > spec did not have is the *ranking* — §11.4's finding that exporting to
 > another RCL8 room is the worst option and a rotating sink controller the
-> best, which is now spec 47's §6 refinement list rather than an open
+> best, which is now spec 58's §6 refinement list rather than an open
 > question. What the spec supplies that this section assumes is the mechanism:
 > the plan already contracts mining to consumption, priced and gated, with the
 > RCL8 regime ratcheted by the `cons-rcl8-full-bank-contracts-mining` grid
-> cell. The one leg neither has yet is the executor (spec 47 phase 3).
+> cell. The one leg neither has yet is the executor (spec 58 phase 3).
 
 At RCL8 the controller hard-caps at **15 e/t**
 (`CONTROLLER_MAX_UPGRADE_PER_TICK`). Below RCL8 a controller is an unbounded

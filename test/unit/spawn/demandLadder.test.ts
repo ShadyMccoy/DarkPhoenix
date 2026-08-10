@@ -96,3 +96,78 @@ describe("demandLadder (the one spawn-value ladder home)", () => {
     });
   });
 });
+
+/**
+ * SPEC 39 PHASE 3 - THE REGIME DECIDES THE ORDER (owner 2026-08-07).
+ *
+ * > "currently we have a storage with enough energy to handle the full fiscal
+ * > month. So we can assume we have energy available unlike the cold start...
+ * > feeders and tenders could bid a lot then. And a cold start miner maybe bids
+ * > even more."
+ *
+ * HEARTBEAT sat below BLOCKING by construction because a COLD room without its
+ * first miner never flows. A storage-backed room has already answered that
+ * question - t72851251 carried 169,712 against a whole fiscal month of spawn
+ * (~51k) plus controller draw (~75k) - while a starved extension network cost
+ * 208 parts/month and the supply post that fixes it ranked below every producer.
+ *
+ * The ladder VALUES are untouched here. What changes is which tier the heartbeat
+ * occupies, and each regime's own constraint picks it.
+ */
+describe("spawnPriority: the heartbeat's tier follows the REGIME", () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { spawnPriority } = require("../../../src/spawn/SpawnScheduler");
+  const { FEEDER_LINCHPIN } = require("../../../src/spawn/demandLadder");
+
+  /** A blocking first miner of a started source - the top of the income tier. */
+  const blockingMiner = (storageBacked?: boolean) => ({
+    buyerCorpId: "mining-x",
+    role: "miner",
+    value: 146, // top of the 100..146 band
+    groupId: "src-1",
+    groupStarted: true,
+    producesIncome: true,
+    blocking: true,
+    since: 0,
+    ...(storageBacked === undefined ? {} : { storageBacked })
+  });
+
+  const supplyPost = (storageBacked?: boolean) => ({
+    buyerCorpId: "moving-x-tender",
+    role: "tanker",
+    value: FEEDER_LINCHPIN,
+    linchpin: true,
+    blocking: false,
+    producesIncome: false,
+    since: 0,
+    ...(storageBacked === undefined ? {} : { storageBacked })
+  });
+
+  it("COLD START: the blocking first miner still outranks the heartbeat", () => {
+    // Nothing to spend, so the thing that starts the flow must win. Unchanged.
+    expect(spawnPriority(supplyPost(false))).to.be.lessThan(spawnPriority(blockingMiner(false)));
+  });
+
+  it("STORAGE-BACKED: the heartbeat outranks the blocking first miner", () => {
+    expect(spawnPriority(supplyPost(true))).to.be.greaterThan(spawnPriority(blockingMiner(true)));
+  });
+
+  it("an UNSTAMPED demand keeps the cold-start order exactly (every legacy path)", () => {
+    // The flag is stamped centrally by the SpawnDirector; unit and harness
+    // paths leave it absent and must be bit-identical to before.
+    expect(spawnPriority(supplyPost())).to.equal(spawnPriority(supplyPost(false)));
+    expect(spawnPriority(supplyPost())).to.be.lessThan(spawnPriority(blockingMiner()));
+  });
+
+  it("still outranks a SCALING producer in both regimes - the rung's original job", () => {
+    const scaling = { ...blockingMiner(), blocking: false };
+    expect(spawnPriority(supplyPost(false))).to.be.greaterThan(spawnPriority({ ...scaling, storageBacked: false }));
+    expect(spawnPriority(supplyPost(true))).to.be.greaterThan(spawnPriority({ ...scaling, storageBacked: true }));
+  });
+
+  it("does not lift a NON-linchpin supply demand in either regime", () => {
+    // The regime changes where the heartbeat sits, not who gets to claim it.
+    const ordinary = { ...supplyPost(true), linchpin: false, value: 96 };
+    expect(spawnPriority(ordinary)).to.be.lessThan(spawnPriority(blockingMiner(true)));
+  });
+});

@@ -1,8 +1,8 @@
-# Spec 47 — The consumption-constrained economy
+# Spec 58 — The consumption-constrained economy
 
 **Status:** LANDED 2026-08-05 (owner-directed). Renumbered from 46 on the
-2026-08-06 master merge — master's 46 is
-[Concentration of force](46-concentration-of-force.md).
+2026-08-06 master merge — master's renumbering settled on 53 for
+[Concentration of force](53-concentration-of-force.md).
 
 **Independently corroborated, same week, from the other end.**
 [TRANSPORT_NETWORK.md §11](../TRANSPORT_NETWORK.md) ("The RCL8 inversion: the
@@ -12,7 +12,7 @@ published constants, having never seen this code: same 15 e/t
 runs a 20–50 e/t surplus with nowhere local to go, and the same finding that
 banking is a delay rather than a sink (1.3M of storage+terminal fills in
 ~32,000 ticks — "a nine-hour option, not a strategy"). This spec is the
-mechanism; §11 is the arithmetic; [spec 46 §7](46-concentration-of-force.md)
+mechanism; §11 is the arithmetic; [spec 53 §7](53-concentration-of-force.md)
 ("Where the surplus goes when the target is full") is the strategy. Two
 places where they now agree and should be kept agreeing:
 
@@ -258,7 +258,7 @@ then: the kind, the `Memory.terminalTransfers` publication beside
 adapter detection that finally arms `terminalRooms` — in that order, because
 detection is the switch and must land last.
 
-One refinement to fold in when it does (spec 47 §6.1): the destination test
+One refinement to fold in when it does (spec 58 §6.1): the destination test
 should become the far end's **controller headroom** rather than its bank
 hunger, because TRANSPORT_NETWORK §11.4 ranks "export to another RCL8 room"
 dead last — it moves the problem — while a sub-RCL8 controller is uncapped and
@@ -298,12 +298,12 @@ plan and runtime agree by construction, which is worth more than the energy
   - `controllerMaxUpgradeRate`: 15 at level 8; Infinity below; Infinity on
     unknown level.
 - `test/unit/economy/flowAdapter.test.ts` — "consumption-constrained sinks
-  (spec 47)": full storage ⇒ capacity-0 sink; near-full ⇒ ullage/1500 (the
+  (spec 58)": full storage ⇒ capacity-0 sink; near-full ⇒ ullage/1500 (the
   old code exposed full rate there); far-from-full unchanged;
   `controllerUpgradeCap` = 15 at RCL8 even on a partial mock; END-TO-END
   RCL8 + full storage assembles `{controller: 15, storage: 0}`.
 - `test/unit/economy/CorpPlanner.test.ts` — "consumption-constrained economy
-  (spec 47)": full storage ⇒ zero miners/zero mined haulers, consumers fed
+  (spec 58)": full storage ⇒ zero miners/zero mined haulers, consumers fed
   from the bank, everything ≤ 15 + spawn, every drop stamped; partial ullage
   (6 e/t) ⇒ exactly one surviving source shipping 6; the mined fleet is
   MONOTONE in the sink side (0/6/1000 ⇒ 0/1/4 miners); EVERY hauler has a

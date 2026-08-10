@@ -7,7 +7,7 @@
  * POOL (standing sites plus blind-route receipt remainders). This is the one
  * module non-corp readers may consume: the plan's sink admission
  * (economy/planningAssembly), the consumers' construction-first clamp
- * (UpgradingCorp / ControllerFeederCorp) and the corp's own crew sizing all
+ * (UpgradingCorp / LinkCorp) and the corp's own crew sizing all
  * read HERE, so none of them imports the corp runtime.
  *
  * Layer: corps-side WORLD LENS, not PLAN-pure — it reads Game.rooms and the

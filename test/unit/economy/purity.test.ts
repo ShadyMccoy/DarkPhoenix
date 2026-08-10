@@ -47,7 +47,18 @@ const PURE: string[] = [
   "strategy.ts",
   "depositSavings.ts",
   "ids.ts",
-  "proposeHelpers.ts"
+  "proposeHelpers.ts",
+  // Spec 51: the corp -> statement-line map. Constants and a lookup; the
+  // planning core reads it to group its own commissions.
+  "accountCategory.ts",
+  // The handicap sweep (spec 50) is PURE by construction: its state is
+  // persisted by telemetry/fiscalArchive and mirrored in here, precisely so
+  // primitives.ts can resolve the planner's margin through it without the
+  // planning core gaining a Memory read.
+  "spawnSweep.ts",
+  // spec 39 phase 3: declared-vs-fielded arithmetic only; the actuals enter
+  // through the SpawnDirector seam, never through this module.
+  "replacementSchedule.ts"
 ];
 
 /** Sanctioned world adapters: Game reads allowed, but only typeof-guarded.
@@ -127,7 +138,7 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
       // intra-economy
       "./CorpPlanner", "./primitives", "./Commission", "./CorpKind", "./commissionPlan",
       "./siteValue", "./roadEconomics", "./bank", "./expansion", "./flowAdapter", "./scavenge",
-      "./goals", "./strategy", "./ids", "./proposeHelpers",
+      "./goals", "./strategy", "./ids", "./proposeHelpers", "./spawnSweep",
       // pure shared types
       "../types/Position", "../types/Memory",
       // (debt) the Corp base type lives in corps/ - Game-free, pinned by this suite's sibling

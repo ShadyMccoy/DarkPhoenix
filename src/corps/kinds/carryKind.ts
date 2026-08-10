@@ -31,7 +31,7 @@ import { haulerAssignmentFromCommissioned } from "../../flow/FlowTypes";
  * sourceId works directly. Rebuilt here so live haulers' memory.corpId still
  * resolves across the migration; roomName comes from the commission (consumes.at).
  */
-function legacyNodeId(roomName: string, sourceId: string): string {
+export function legacyNodeId(roomName: string, sourceId: string): string {
   return `${roomName}-hauling-${sourceId.slice(-4)}`;
 }
 

@@ -70,7 +70,10 @@ import {
   CARRY_CAPACITY,
   CREEP_LIFETIME,
   MINER_PARTS,
+  TANKER_CARRY_PER_MOVE_PLAIN,
   carryPartsFor,
+  constructionWorkSpawnLoad,
+  controllerWorkSpawnLoad,
   effectiveLife,
   minerOverhead
 } from "./primitives";
@@ -480,4 +483,71 @@ export function vectorSupplyPartsGait(
 ): number {
   const carry = tankerCarryNeededFor(rate, distance, pavedFraction, carryPerMove);
   return carry + Math.ceil(carry / carryPerMove);
+}
+
+/**
+ * The same gait-aware vector, CONTINUOUS - `vectorSupplyPartsGait` with both
+ * ceilings removed, so it is exactly linear in `rate`.
+ *
+ * The ceilings belong to a BODY (you cannot field 2.46 CARRY); a budget is a
+ * RATE, and rounding a rate is what makes two books disagree. This is
+ * `controllerWorkSpawnLoad`'s stated precedent applied to the vector - that
+ * primitive is deliberately never ceiled because "a ceil made charge and audit
+ * disagree" (primitives.ts). Keep sizing on `tankerCarryNeededFor` /
+ * `vectorSupplyPartsGait`, which still ceil, and price on this.
+ *
+ * Measured on the spec-51 construction world (rate 30, d 20): 98.40 parts
+ * against the ceiled 99 - 0.6%. The linearity it buys is worth far more than
+ * the 0.6%, because it is what lets ONE per-unit law serve both the fill and
+ * the envelope. And at SMALL rates the ceilings are not a rounding at all: at
+ * rate 1 they inflate the same vector 22%, which is a budget that over-states
+ * every marginal unit it prices.
+ */
+export function vectorSupplyPartsGaitRate(
+  rate: number,
+  distance: number,
+  pavedFraction: number,
+  carryPerMove: number
+): number {
+  const carry = carryPartsFor(rate, effectiveOneWayTiles(distance, pavedFraction, carryPerMove)) * 1.5;
+  return carry * (1 + 1 / carryPerMove);
+}
+
+/**
+ * THE CONSUMER CHARGE, per unit of energy routed (parts/tick per e/t) - spec 51
+ * GAP 1, 2026-08-08.
+ *
+ * ONE derivation, read by BOTH sides that used to price a consumer
+ * independently:
+ *
+ *  - the FILL (`CorpPlanner.routeToSinks`), as `workPerUnit` - what the parts
+ *    ledger actually debits per unit routed to this sink;
+ *  - the ENVELOPE (`commissionPlan.consumerSpawnLoad`), as `allocated x this` -
+ *    what the corp declares it consumes.
+ *
+ * They disagreed by 1.79x on the construction sink (measured 2026-08-06:
+ * declared 0.074189 against 0.041351 filled), and the whole of it was the
+ * SUPPLY VECTOR: the envelope had been moved to the 3C:1M gait the runtime
+ * really fields (spec 34 vector-gait follow-up B) while the fill kept the 1:1
+ * model - the same ~2x under-pricing that follow-up existed to remove, left
+ * standing on the other side of the seam. The builder term was identical on
+ * both sides throughout, which is why this is a seam bug and not a formula
+ * disagreement.
+ *
+ * Being per-UNIT is what makes it one law rather than two: the fill needs a
+ * rate to multiply by each `take`, so anything the envelope does that is not
+ * linear in the allocation cannot be shared. Hence the continuous vector above.
+ *
+ * The controller branch carries NO vector, deliberately: its mover is the
+ * feeder, priced in `infraSpawnLoad` and declared by controllerFeeder's own
+ * corp - a vector here would double-count it. That asymmetry between the two
+ * branches is real economics, and it now lives in exactly one place instead of
+ * being restated (and mis-stated) at each call site.
+ */
+export function consumerUnitSpawnLoad(kind: "controller" | "construction", distance: number): number {
+  if (kind === "controller") return controllerWorkSpawnLoad(1, distance);
+  return (
+    constructionWorkSpawnLoad(1, distance) +
+    vectorSupplyPartsGaitRate(1, distance, 0, TANKER_CARRY_PER_MOVE_PLAIN) / effectiveLife(distance)
+  );
 }

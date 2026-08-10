@@ -18,6 +18,7 @@
 import "../types/Memory"; // RoomMemory.deadTiles augmentation (single-file ts-node runs)
 import { travelToBypass } from "./movement";
 import { LINK_FIRE_THRESHOLD } from "../economy/primitives";
+import { stripSourcePrefix } from "../economy/ids";
 
 /** A store-bearing structure a hauler can deposit into or draw from. */
 type StoreStructure = StructureContainer | StructureStorage | StructureSpawn | StructureExtension | StructureLink;
@@ -393,10 +394,30 @@ export function isSourceApproachTile(
 
 function besideOpenExit(terrain: RoomTerrain, x: number, y: number): boolean {
   let edge: [number, number][] | null = null;
-  if (x === 1) edge = [[0, y - 1], [0, y], [0, y + 1]];
-  if (x === 48) edge = [[49, y - 1], [49, y], [49, y + 1]];
-  if (y === 1) edge = [[x - 1, 0], [x, 0], [x + 1, 0]];
-  if (y === 48) edge = [[x - 1, 49], [x, 49], [x + 1, 49]];
+  if (x === 1)
+    edge = [
+      [0, y - 1],
+      [0, y],
+      [0, y + 1]
+    ];
+  if (x === 48)
+    edge = [
+      [49, y - 1],
+      [49, y],
+      [49, y + 1]
+    ];
+  if (y === 1)
+    edge = [
+      [x - 1, 0],
+      [x, 0],
+      [x + 1, 0]
+    ];
+  if (y === 48)
+    edge = [
+      [x - 1, 49],
+      [x, 49],
+      [x + 1, 49]
+    ];
   if (!edge) return false;
   return edge.some(([ex, ey]) => (terrain.get(ex, ey) & TERRAIN_MASK_WALL) === 0);
 }
@@ -786,7 +807,7 @@ export function controllerSideStock(controller: StructureController): number {
 
 /**
  * The FEEDER's narrow view of the same stock - the gate for its
- * CONTROLLER_FEED_TARGET top-up (ControllerFeederCorp). Deliberately
+ * CONTROLLER_FEED_TARGET top-up (LinkCorp). Deliberately
  * NARROWER than {@link controllerSideStock}; each difference is a reason,
  * not an accident:
  *  - EXCLUDES storage: a storage within reach of the controller is the BANK
@@ -837,6 +858,56 @@ export function sourceDroppedStock(source: Source): number | null {
   }
 }
 
+/** The container census at one source mouth - see {@link sourceMouthContainers}. */
+export interface SourceMouthContainers {
+  /** Containers standing within range 1 of the source. */
+  n: number;
+  /** Free capacity summed across them - 0 is the CAP, where overflow starts rotting. */
+  free?: number;
+  /** Weakest container's hits fraction (2dp) - the one that drops its load first. */
+  hp?: number;
+}
+
+/**
+ * The CONTAINER at a source's mouth as a fact, not an inference.
+ *
+ * `sourceBufferStock` minus `sourceDroppedStock` gives the energy a mouth holds
+ * in containers, and that number is zero under three different worlds: an empty
+ * container, a container that just died and dumped its load on the ground, and a
+ * mouth that never had one. Live cd8d went from container 2000 (at cap) to
+ * container 0 in 619 ticks WHILE its ground pile grew - a reading all three
+ * explain and none is implied (spec 59 section 4).
+ *
+ * So this reports the three facts the stock cannot: whether a container is there
+ * (`n`, emitted as 0 rather than omitted - "this source has no container" is a
+ * positive claim), whether it is at cap (`free`), and whether it is dying (`hp`,
+ * the WORST of them: a mouth is only as sound as the container that fails
+ * first). Remote containers decay five times as fast as owned ones and no
+ * capture has ever carried their hits, which is also the inventory the account's
+ * depreciation memo prices its accrual without.
+ *
+ * Null when unmeasurable (a partial mock without wired finds) - a different fact
+ * from "no containers", exactly as `sourceBufferStock` treats it.
+ */
+export function sourceMouthContainers(source: Source): SourceMouthContainers | null {
+  try {
+    const containers = source.pos
+      .findInRange(FIND_STRUCTURES, 1)
+      .filter(s => s.structureType === STRUCTURE_CONTAINER) as StructureContainer[];
+    if (containers.length === 0) return { n: 0 };
+    let free = 0;
+    let hp = 1;
+    for (const c of containers) {
+      free += c.store?.getFreeCapacity?.(RESOURCE_ENERGY) ?? 0;
+      const max = c.hitsMax ?? 0;
+      if (max > 0) hp = Math.min(hp, (c.hits ?? 0) / max);
+    }
+    return { n: containers.length, free, hp: Math.round(hp * 100) / 100 };
+  } catch {
+    return null;
+  }
+}
+
 export function sourceBufferStock(source: Source): number | null {
   try {
     let stock = 0;
@@ -852,6 +923,45 @@ export function sourceBufferStock(source: Source): number | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * How stale a mouth observation may be and still price a drain fleet: one
+ * creep generation, the same horizon the drain law itself clears the buffer
+ * over.
+ *
+ * Erring long is the SAFE direction here, and the asymmetry is the argument.
+ * Over-price the drain and the plan buys CARRY that empties the mouth, after
+ * which the next observation reads ~0 and the term retires itself - one
+ * generation of slightly fat routes. Under-price it (today's behaviour) and
+ * the pile grows without bound, gates the miner off its own source, and takes
+ * the room's vision with it - which is why nothing self-corrects.
+ */
+export const MOUTH_STOCK_MAX_AGE = 1500;
+
+/**
+ * THE DURABLE MOUTH-STOCK LENS: what a miner last SAW at this source's mouth,
+ * or null if nobody has looked recently.
+ *
+ * Exists because `sourceBufferStock` needs VISION - `Game.getObjectById`
+ * returns null for a source in a remote room with no creep standing in it -
+ * and the SOLVE runs whether or not a creep happens to be there. The miner's
+ * read always succeeds (it is standing at the mouth), so it stamps what it
+ * sees and the plan reads the stamp. Exactly the durable-signal rule the
+ * stranded-reserver incident wrote: never key a decision on "one of our creeps
+ * is standing there", because it flaps on every death AND goes blind with the
+ * vision that creep provided.
+ *
+ * Measured t72850264: six of eleven mouths held 2,737-3,553 for 78-100% of the
+ * window while EVERY hauler route in the published plan was sized at
+ * `flow = 10` - the raw source rate, no drain term anywhere. The miner saw the
+ * pile (E6 reads these very stamps); the plan did not.
+ */
+export function observedMouthStock(sourceId: string, tick: number): number | null {
+  if (typeof Memory === "undefined") return null;
+  const w = Memory.pileMeter?.[stripSourcePrefix(sourceId).slice(-6)];
+  if (!w || w.stock === undefined || w.stockAt === undefined) return null;
+  return tick - w.stockAt <= MOUTH_STOCK_MAX_AGE ? w.stock : null;
 }
 
 /**
@@ -892,4 +1002,159 @@ export function coreInboundPending(room: Room, core: StructureLink, nearFireTick
     if ((link.store?.[RESOURCE_ENERGY] ?? 0) >= LINK_FIRE_THRESHOLD) return true;
   }
   return false;
+}
+
+/** Containers this close to the controller are its FEED store, not a port
+ *  buffer - the feeder fills them and the upgraders draw from them. */
+export const CONTROLLER_CONTAINER_RANGE = 3;
+
+/**
+ * How far a port's BUFFER container may sit from its link.
+ *
+ * Not a preference: `parkedRelayCarry`'s premise is a creep standing adjacent
+ * to BOTH its bank and its sink (withdraw tick + transfer tick, zero travel),
+ * which forces range(container, link) <= 2 and nothing wider. Every reader of
+ * "is this container that port's buffer" shares this number, and
+ * `bestPortContainerTile` sites within it.
+ */
+export const PORT_BUFFER_RANGE = 2;
+
+/** Any in-room tile: a `Position`, a live `RoomPosition`, or a census row's
+ *  coordinates. Structural on purpose - the whole point of the buffer lens is
+ *  that the pure census and the live rungs call the SAME function. */
+interface Tile {
+  x: number;
+  y: number;
+}
+
+const chebTile = (a: Tile, b: Tile): number => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+
+/**
+ * IS this container the BUFFER of the deposit-port link at `link`? THE
+ * predicate - spec 56.
+ *
+ * There were FOUR answers to this question in the tree and three of them were
+ * wrong (measured t72869702, spec 54 open item 4): the tender's lens
+ * (`portPosts`) applied the controller guard below, while the placement rung
+ * (`findMissingPortContainer`), the census (`classifyContainers`) and the
+ * DELIVERY side (`CarryCorp.resolvePortBuffer`) each ran a bare range-2 scan.
+ * The disagreement is not cosmetic and it is not symmetric - it deadlocks:
+ * placement sees the controller's container inside range 2, believes the port
+ * is already served and skips it FOREVER; the census reports the same port
+ * `hasContainer: true`, so `reclaimableContainer` never frees a slot for it;
+ * and delivery drops loads into the controller's feed store, which the tender
+ * correctly refuses to pump back out. Nobody is wrong locally and the port
+ * never gets a buffer. This is CLAUDE.md's staffsPost-symmetry trap with the
+ * question changed from "how many creeps" to "which container".
+ *
+ * The guard: a container inside `CONTROLLER_CONTAINER_RANGE` of the controller
+ * is the upgraders' feed store, whatever else it is near. Tending it would
+ * pump the controller's supply back out through a link, in direct opposition
+ * to the feeder filling it.
+ *
+ * Pure (positions only) so the census - which never touches Game - shares the
+ * identical predicate rather than a hand-copied twin.
+ */
+export function isPortBuffer(container: Tile, link: Tile, controller?: Tile): boolean {
+  if (chebTile(container, link) > PORT_BUFFER_RANGE) return false;
+  return !controller || chebTile(container, controller) > CONTROLLER_CONTAINER_RANGE;
+}
+
+/**
+ * The container buffering `link`, or null. Nearest-first so a room with
+ * several containers nearby picks the one actually beside the link.
+ *
+ * Generic over the container shape (live structures, census rows) because the
+ * whole point of spec 56 is that the placement rung, the census, the delivery
+ * side and the tender resolve the buffer through ONE function.
+ */
+export function pickPortBuffer<T extends { pos: Tile }>(
+  link: Tile,
+  containers: readonly T[],
+  controller?: Tile
+): T | null {
+  let best: T | null = null;
+  for (const c of containers) {
+    if (!isPortBuffer(c.pos, link, controller)) continue;
+    if (!best || chebTile(c.pos, link) < chebTile(best.pos, link)) best = c;
+  }
+  return best;
+}
+
+/** A port link and the buffer container that feeds it. */
+export interface PortPost {
+  link: StructureLink;
+  buffer: StructureContainer;
+}
+
+/**
+ * Every deposit port in `room` that HAS a buffer container, paired with it.
+ *
+ * Which container counts is `isPortBuffer`'s call and only its call - see
+ * there for why four private answers to that question deadlocked the port
+ * rung. Excludes the CORE link (it sits on storage - the feeder's job) and the
+ * CONTROLLER link (terminal; the feeder drains it too).
+ */
+export function portPosts(room: Room): PortPost[] {
+  // DEFENSIVE by contract: this is a read-only lens with three callers (the
+  // corp's post, the adapter's price, the host's problem lens) and partial
+  // mocks/harnesses supply rooms without a full structure API. A lens that
+  // throws would take the whole tick with it - `buildDepositInstrument` states
+  // the same rule for the same reason.
+  if (typeof room.find !== "function" || typeof room.getTerrain !== "function") return [];
+  const core = coreLink(room);
+  const ctrl = controllerLink(room);
+  const out: PortPost[] = [];
+  const links = room.find(FIND_MY_STRUCTURES, {
+    filter: s => s.structureType === STRUCTURE_LINK
+  }) as StructureLink[];
+  for (const link of links) {
+    if (!link || typeof link.pos?.findInRange !== "function") continue;
+    if (core && link.id === core.id) continue;
+    if (ctrl && link.id === ctrl.id) continue;
+    const ctrlPos = link.room.controller?.pos;
+    const near = link.pos.findInRange(FIND_STRUCTURES, PORT_BUFFER_RANGE, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER
+    }) as StructureContainer[];
+    const buffer = pickPortBuffer(link.pos, near, ctrlPos);
+    if (buffer) out.push({ link, buffer });
+  }
+  return out;
+}
+
+/** The workType a LinkCorp port tender carries. One string, so the demand side
+ *  (`LinkCorp.getPortTenders`) and the delivery side (`livePortTenders`) can
+ *  never count different creeps. */
+export const PORT_TENDER_WORK_TYPE = "porttend";
+
+/**
+ * How many port TENDERS are alive in `room` - the drain behind its buffers.
+ *
+ * A port buffer with no tender is not a buffer, it is a hole: the haulers fill
+ * it and nothing ever moves the energy across into the link. That is exactly
+ * the dead end spec 54 started from (t72862894: the (44,12) container standing
+ * at 2000/2000, `portFallbacks` 0 on all 8 port-routed routes, `portWaits` to
+ * 602) and it was silent because no reader ever asked this question.
+ *
+ * Counted the SAME way the demand side counts (`creepsOfWorkType("porttend",
+ * {includeSpawning:false})`) - staffsPost symmetry: if delivery counted a
+ * spawning tender the demand side does not, haulers would commit loads to a
+ * post whose drain is not yet on it.
+ *
+ * Room membership, not a stored flag: a port tender is a PARKED creep that
+ * never leaves the room it tends, so `creep.room` here is an identity, not the
+ * kind of live-position trigger the trap list forbids (that rule is about ROOM
+ * state - "do we work this room" - which must come from intel).
+ */
+export function livePortTenders(room: Room): number {
+  if (typeof Game === "undefined" || !Game.creeps) return 0;
+  let n = 0;
+  for (const name in Game.creeps) {
+    const creep = Game.creeps[name];
+    if (creep.memory?.workType !== PORT_TENDER_WORK_TYPE) continue;
+    if (creep.spawning) continue;
+    if (creep.room?.name !== room.name) continue;
+    n++;
+  }
+  return n;
 }

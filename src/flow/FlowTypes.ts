@@ -128,6 +128,16 @@ export interface FlowSink {
  * Miner assignment from the solver.
  */
 export interface MinerAssignment {
+  /**
+   * The mouth BUFFER the plan priced this source's drain fleet against (v17).
+   *
+   * Published because the drain term is otherwise undiagnosable from a capture:
+   * `carryParts` carries it folded in and `flowRate` never shows it at all, so
+   * "the lens is dead" and "the lens is fine, the uplift is small" print
+   * identically. Absent = the plan saw no buffer, which is a DIFFERENT
+   * statement from zero.
+   */
+  staged?: number;
   /** Source being mined */
   sourceId: string;
 
@@ -209,6 +219,10 @@ export interface HaulerAssignment {
    * materialization path (haulerAssignmentFromCommissioned) leaves it unset.
    */
   spawnParts?: number;
+  /** What this route actually DEBITED from the parts ledger (audit t72846447),
+   * against `spawnParts` which is what it is PRICED at. Carried verbatim from
+   * CommissionedHauler. */
+  charged?: number;
 
   /** Nearest spawn for these haulers */
   spawnId: string;
@@ -241,6 +255,9 @@ export interface SinkAllocation {
    * trace) - why filling stopped: capacity met, pool dry, or ledger dry.
    */
   partsLeft?: number;
+  /** The consumer-body charge the ROUTING pass debited for this sink (audit
+   * t72846447), next to the adapter's independently-computed `spawnLoad`. */
+  chargedWork?: number;
 
   /**
    * The plan's ALL-IN spawn charge for this consumer (parts/tick) and the
@@ -368,8 +385,24 @@ export interface FlowSolution {
      * decomposed from a capture, the exact diagnosis failure the stamp
      * exists to prevent). infraSpawnEnergy(pricedRelay, depotRooms,
      * remoteRooms, linkFedRooms) is re-runnable from these four numbers.
+     *
+     * `remoteRoomsFunded` is the fifth (spec 51, t72828763): the remotes the
+     * plan actually funded, next to the `remoteRooms` it was PRICED for. The
+     * solve's corrective reserver pass normally makes them equal; when it
+     * cannot, the difference is the residual over-charge - one reserver per
+     * room - and the pair is what separates "the two books disagree" from "a
+     * corp's budget is wrong" straight from a capture.
      */
-    infraInputs?: { pricedRelay: number; depotRooms: number; remoteRooms: number; linkFedRooms: number };
+    infraInputs?: {
+      pricedRelay: number;
+      depotRooms: number;
+      remoteRooms: number;
+      linkFedRooms: number;
+      remoteRoomsFunded?: number;
+      /** Armed rooms carrying a standing guard (spec 51 phase 2) - the sixth
+       *  input, and the only one that is usually zero. */
+      guardedRooms?: number;
+    };
   };
 
   /**
@@ -519,6 +552,8 @@ export function haulerAssignmentFromCommissioned(h: CommissionedHauler): HaulerA
     spawnCostPerTick: haulerOverhead(h.carryParts, h.distance),
     // Carry the planner's paved-aware parts/tick verbatim (P4 ledger echoes it).
     spawnParts: h.spawnParts,
+    // ...and what the ledger ACTUALLY debited for it (audit t72846447).
+    ...(h.charged !== undefined ? { charged: h.charged } : {}),
     spawnId: h.spawnId,
     // A paved route spawns road haulers: 2 CARRY per MOVE (SpawningCorp.getPartRatios).
     ...(h.paved ? { haulerRatio: "2:1" as const } : {}),

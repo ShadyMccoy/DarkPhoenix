@@ -90,8 +90,10 @@ Later families (same rule — one home):
   plan; one number that can be audited beats two that disagree quietly.
   `sustainableConsumptionRate` remains the drain law for OTHER consumers
   (construction fuel, haul policy) and is no longer an upgrader valve; the
-  bank's remaining job here is FINANCING, not sizing.
-- **The drain law, both directions** (spec 47): `storageAbsorbRate(ullage) =
+  bank's remaining job here is FINANCING, not sizing. (Both sides of the
+  2026-08-06 merge corrected this bullet independently — kept as the fuller
+  form.)
+- **The drain law, both directions** (spec 58): `storageAbsorbRate(ullage) =
   ullage / CREEP_LIFETIME` is the ABSORB mirror of that stock/1500 drain — a
   bank fills over one creep generation exactly as a stock empties over one.
   It is the storage SINK's capacity (flowAdapter), which makes the
@@ -156,7 +158,7 @@ The live roster (KINDS, `execution/CommissionHost.ts`):
 | **scout** | auxiliary | intel | scout (scout) |
 | **reservation** | auxiliary | double remote sources | reserver (reserve) |
 | **tender** | auxiliary | refill extensions | tanker (tank) |
-| **controllerFeeder** | auxiliary | bank→controller relay | feeder (feed) |
+| **controllerFeeder** | auxiliary | link network: bank→controller relay + deposit-port drain (class `LinkCorp` since spec 54; kind string frozen — trap list) | feeder (feed), porttender (porttend) |
 | **raidGuard** | auxiliary (military) | protect remote producers | guard (guard) |
 | **coreBuster** | auxiliary (military) | reclaim occupied remotes | buster (buster), striker (strike) |
 | **claim** | auxiliary (CAPEX) | expansion claimer | claimer (claim) |

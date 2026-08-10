@@ -1,4 +1,6 @@
-import { assert } from "chai";
+import { assert, expect } from "chai";
+import * as fs from "fs";
+import * as path from "path";
 import { loop } from "../../src/main";
 import { Game, Memory, setupGlobals } from "./mock";
 import { resetCommissionHost } from "../../src/execution/CommissionHost";
@@ -45,6 +47,49 @@ describe("main", () => {
     } finally {
       console.log = realLog;
       console.error = realError;
+    }
+  });
+});
+
+/**
+ * THE HANDICAP MIRROR IS POPULATED BEFORE ANY SOLVE (spec 50).
+ *
+ * `economy/spawnSweep` holds the planner's margin in HEAP, which is empty after
+ * a global reset; `fiscalArchive.syncSweep()` refreshes it from Memory and the
+ * fiscal-month hook is its only caller. Any solve that runs before that hook
+ * prices at the fail-safe SPAWN_PLAN_FRACTION instead of the armed handicap.
+ *
+ * Measured live t72828763: the hook sat at the top of PHASE 2, but
+ * `getOrCreateFlowEconomy` solves inside PHASE 0 on the reset tick, so the VM's
+ * first plan read margin 0.90 while Memory.spawnSweep said pct 3. Under the
+ * fiscal-month plan term that plan then STANDS for the rest of the month, so a
+ * single deploy mis-prices a whole month of the sweep.
+ *
+ * A behavioural test cannot see this - by the end of the tick the mirror is
+ * correct either way - so the pin is structural: the hook precedes every solve
+ * entry point in the loop. If a new solve site appears, add it here.
+ */
+describe("main: loop ordering", () => {
+  const SOLVE_SITES = [
+    // PHASE 0 - runs a full solve on the reset tick ("don't wait for the
+    // planning cycle"), which is the one this test was written for.
+    "flowEconomy = getOrCreateFlowEconomy(colony)",
+    // PHASE 2 - the scheduled/forced re-solve.
+    'bulkhead("planning"'
+  ];
+
+  it("refreshes the handicap mirror before every solve entry point", () => {
+    const src = fs.readFileSync(path.join(__dirname, "..", "..", "src", "main.ts"), "utf8");
+    const hook = src.indexOf('bulkhead("fiscal-month"');
+    expect(hook, "the fiscal-month hook is gone from the loop entirely").to.be.greaterThan(-1);
+    for (const site of SOLVE_SITES) {
+      const at = src.indexOf(site);
+      expect(at, `solve site moved or was renamed - update SOLVE_SITES: ${site}`).to.be.greaterThan(-1);
+      expect(
+        hook,
+        `\`${site}\` can solve BEFORE the fiscal-month hook refreshes the handicap mirror, so a plan ` +
+          `built there prices at the fail-safe margin instead of the armed sweep handicap (t72828763).`
+      ).to.be.lessThan(at);
     }
   });
 });

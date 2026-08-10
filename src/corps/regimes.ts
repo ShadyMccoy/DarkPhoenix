@@ -57,7 +57,7 @@ export function stampTenderRegime(
 }
 
 /**
- * ControllerFeederCorp.work()'s regime stamp - the ONE writer of
+ * LinkCorp.work()'s regime stamp - the ONE writer of
  * `controllerFeederActive`. Deliberately LIVENESS-keyed (storage exists AND a
  * feeder is alive): if the feeder dies the flag clears and haulers resume
  * delivering to the controller directly, so a dead feeder never starves

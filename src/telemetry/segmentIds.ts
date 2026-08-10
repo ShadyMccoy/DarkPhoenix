@@ -26,10 +26,17 @@ export const TELEMETRY_SEGMENTS = {
   INTEL: 3, // Room intel from scouting
   CORPS: 4, // Corps details
   FLOW: 6, // Flow economy: sources, sinks, allocations
-  HAUL_TRACE: 7 // Per-tick flight recorder for ONE hauler (telemetry/HaulTrace)
+  HAUL_TRACE: 7, // Per-tick flight recorder for ONE hauler (telemetry/HaulTrace)
+  FISCAL: 8, // Month-boundary accounting archive, part 1 (telemetry/fiscalArchive)
+  FISCAL2: 9 // ...part 2. The archive is sharded: one segment holds ~13 months.
 };
 
 /**
  * Segments to make publicly readable via API.
+ *
+ * ALL TEN active-segment slots the engine allows (`RawMemory.setActiveSegments`
+ * caps at 10). There is no margin left: a new telemetry family must RETIRE one,
+ * and the honest candidate is 7 (haulTrace, a single-hauler debug recorder) -
+ * never this list silently growing past the cap, which fails the write.
  */
-export const PUBLIC_SEGMENTS = [0, 1, 2, 3, 4, 5, 6, 7];
+export const PUBLIC_SEGMENTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];

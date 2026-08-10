@@ -21,6 +21,9 @@ import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/prop
 import { SerializedCorp } from "../Corp";
 import { RaidGuardCorp, SerializedRaidGuardCorp } from "../RaidGuardCorp";
 import { buildGuardBody } from "../../spawn/BodyBuilder";
+import { roomGuardSpawnLoad } from "../../economy/primitives";
+import { roomLinearDistance } from "../../utils/RoomDiscovery";
+import { MAX_SCOUT_DISTANCE } from "../CorpConstants";
 
 /** The guard commission's binding: which home room, which spawn. */
 export interface RaidGuardAssignment {
@@ -34,11 +37,42 @@ export const raidGuardKind: CorpKind<RaidGuardCorp> = {
   runOrder: 40,
 
   propose(problem: ColonyProblem): Commission[] {
-    // Off-budget: the guard is producer PROTECTION (it keeps a remote's
-    // flow alive through a raid), priced by the SpawnDirector's value
-    // ranking, not the flow planner.
-    return [...homeSpawnsByRoom(problem)].map(([roomName, spawnId]) =>
-      perRoomAuxiliaryCommission("raidGuard", roomName, spawnId)
+    // ON-BUDGET since spec 51 phase 2. The commission shape is unchanged - one
+    // corp per SPAWN room, unconditionally, because a corp with no targets and
+    // no creeps costs nothing and the arming trigger stays at runtime - but its
+    // PRICE now follows the armed-room lens: one standing guard body per room
+    // this home guards, zero when the colony is quiet.
+    //
+    // Declaring 0 did not make guards free. The colony's parts ledger deducts
+    // the same fleet as `infraPartsPerTick`, so a 0 here was a cost the colony
+    // paid and no row owned - the statement's `defense (guards)` line
+    // reconstructed it from measured bodies against a "-" budget (0.020 p/t
+    // live at t72847768, 3 guards). The SpawnDirector's value ranking still
+    // decides WHEN to buy a body; this is what the plan BUDGETS for it.
+    //
+    // Rooms bind to their NEAREST home (reservationKind's rule, same tiebreak),
+    // so a room two homes can both see is charged ONCE and the corps' sum stays
+    // equal to `infraSpawnLoad`'s guard term. The runtime would field two guards
+    // there today - a multi-home coverage gap that predates this pricing and is
+    // invisible in a single-colony world; when it is fixed, this stays correct.
+    const homes = [...homeSpawnsByRoom(problem)].map(([room, spawnId]) => ({ room, spawnId }));
+    const count = new Map<string, number>(); // home room -> rooms it pays to guard
+    for (const target of [...new Set(problem.guardedRooms ?? [])].sort()) {
+      const home = homes
+        .map(h => ({ ...h, d: roomLinearDistance(h.room, target) }))
+        .filter(h => h.d <= MAX_SCOUT_DISTANCE)
+        .sort((a, b) => a.d - b.d || a.room.localeCompare(b.room))[0];
+      if (!home) continue;
+      count.set(home.room, (count.get(home.room) ?? 0) + 1);
+    }
+    return homes.map(({ room, spawnId }) =>
+      perRoomAuxiliaryCommission(
+        "raidGuard",
+        room,
+        spawnId,
+        undefined,
+        (count.get(room) ?? 0) * roomGuardSpawnLoad()
+      )
     );
   },
 

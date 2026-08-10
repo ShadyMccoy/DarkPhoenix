@@ -218,20 +218,32 @@ describe("economy/flowAdapter - controllerRoutingCapacity (#21 + the bank-fed in
     expect(controllerRoutingCapacity(ctrlSink, 30, 40)).to.equal(30);
   });
 
-  it("WARTIME: a construction backlog in the room RELEGATES the controller to its floor (spec 33)", () => {
+  it("WARTIME relegates the controller by VALUE and keeps its DEMAND (spec 33, revised owner 2026-08-08)", () => {
     // Owner 2026-07-27: "surplus ... normally for upgrading, but now for
-    // building." A room with a standing build backlog caps the controller at
-    // its floor (the sip, 2 - the 15 preference dropped 2026-08-04) so the
-    // surplus flows to construction - even over the
-    // bank-fed rate. Doctrine keyed to a real backlog, not a bank level.
+    // building" - refined 2026-08-08: *"We can have a mix of upgrading and
+    // building. We just want building to take priority and not be slowed down by
+    // the upgrading."*
+    //
+    // SUPERSEDED ASSERTIONS (this case previously demanded 0): relegating by
+    // zeroing the DEMAND took a healthy controller fully OFF, because the floor
+    // it relegated to is `controllerFloorRate` = 0 unless the downgrade timer is
+    // low. A sink with no demand occupies no rung, so the residual construction
+    // could not absorb fell past the controller to storage and BANKED - measured
+    // t72868738 over 2131 reset-free ticks: demand 0, storage taking 106.69 e/t,
+    // bank +25.68 e/t to 154,472 above reserve, construction converting 5.11 of
+    // 10.06. Relegation is now by VALUE (the ladder's controllerMin rung); see
+    // wartimeControllerRung.test.ts for the mix's own pins, including why
+    // building cannot be slowed by it.
     const wartime = new Set(["W0N0"]);
-    // The floor wartime relegates TO is itself danger-gated now: 0 with a
-    // comfortable timer (build gets everything), the sip when danger is
-    // passed in from the live lens.
-    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime)).to.equal(0);
-    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80)).to.equal(0);
-    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80, 2)).to.equal(2);
-    // A room NOT in the wartime set still mops up (relegation is per-room).
+    // Capacity is the SAME expression as peacetime (wartime moves the rung, not
+    // the physics), floored by the danger-gated sip.
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime)).to.equal(200);
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80)).to.equal(80);
+    // An armed anti-downgrade floor is a LOWER bound, never the whole story...
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 0, 2)).to.equal(2);
+    // ...and it never REDUCES an allocation the bank can already sustain.
+    expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, wartime, 80, 2)).to.equal(80);
+    // A room NOT in the wartime set is unchanged (relegation is per-room).
     expect(controllerRoutingCapacity(ctrlSink, 200, Infinity, new Set())).to.equal(200);
   });
 });
@@ -539,7 +551,7 @@ describe("economy/flowAdapter - storage draw-down: the surplus spend (spec 03)",
 // source AND a sink; miner needs a routed hauler) contracts mining to match
 // consumption - no "storage full" flag anywhere. The planner-side reaction is
 // pinned in CorpPlanner.test.ts ("consumption-constrained economy").
-describe("economy/flowAdapter - consumption-constrained sinks (spec 47)", () => {
+describe("economy/flowAdapter - consumption-constrained sinks (spec 58)", () => {
   const g = globalThis as unknown as { Game?: any; Memory?: any };
   let savedGame: unknown;
   let savedMemory: unknown;
@@ -624,7 +636,7 @@ describe("economy/flowAdapter - consumption-constrained sinks (spec 47)", () => 
     // pressure's source half, and the storage sink's capacity IS its sink
     // half, for the same room at the same instant. Read separately (as they
     // were before) nothing forced them to agree - which is how the sink half
-    // stayed dimensionally wrong until spec 47.
+    // stayed dimensionally wrong until spec 58.
     const { storageBankPressure, detectBankSources, buildColonyProblem } = await import(
       "../../../src/economy/flowAdapter"
     );
@@ -806,10 +818,56 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
 
     const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
     const builds = sol.sinkAllocations.filter(a => a.sinkType === "construction");
-    const store = sol.sinkAllocations.find(a => a.sinkType === "storage")!;
-    expect(ctrl.allocated, "home controller relegated by the REMOTE backlog (comfortable timer: floor 0)").to.equal(0);
-    expect(builds.reduce((s, a) => s + a.allocated, 0), "construction absorbs at its own caps").to.be.greaterThan(0);
-    expect(store.allocated, "the residual BANKS - excess construction can't consume goes to storage").to.be.greaterThan(0);
+    const buildTotal = builds.reduce((s, a) => s + a.allocated, 0);
+    // REVISED (owner 2026-08-08): "We can have a mix of upgrading and building.
+    // We just want building to take priority and not be slowed down by the
+    // upgrading." The remote backlog still relegates the home controller - but to
+    // the ladder's FLOOR RUNG, not to zero demand. Construction is unchanged
+    // (its own fill pass runs first); the residual now upgrades instead of
+    // banking, which is the mix.
+    expect(buildTotal, "construction absorbs at its own caps - unchanged by the mix").to.be.greaterThan(0);
+    expect(ctrl.allocated, "relegated != off: the controller takes the residual, ahead of the bank").to.be.greaterThan(0);
+    // BUILDING TAKES PRIORITY means construction is never SHORT, not that it
+    // out-allocates upgrading: its cap is the project's own absorb rate (here
+    // ~8.2 e/t for two remote roads), so a bigger residual legitimately goes to
+    // the controller (~41.8). The priority claim is that construction got
+    // everything it asked for.
+    for (const b of builds) {
+      expect(b.unmet, `construction sink ${b.sinkId} was left short by the mix`).to.be.closeTo(0, 1e-9);
+    }
+  });
+
+  it("BUILDING IS NOT SLOWED BY THE MIX: construction's allocation is identical with and without upgrading (owner 2026-08-08)", () => {
+    // The owner's constraint is an ORDERING, so this is the assertion that
+    // actually enforces it: solve the same wartime world twice and compare
+    // construction's own allocation - once as the plan now runs (the controller
+    // relegated to the floor rung, taking the residual), once with the
+    // controller sink's demand removed entirely (the old zero-demand shape).
+    // Construction must be BYTE-IDENTICAL, because CorpPlanner fills it in a
+    // dedicated pass before storage and before the general value pass - the
+    // production-first ledger order (t72445337). Energy AND spawn parts.
+    const build = (): { total: number; unmet: number; partsLeft: number; ctrl: number } => {
+      const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+      graph.addConstructionSite("bigbuild", "home", at(9), 15000);
+      const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+      const cons = sol.sinkAllocations.filter(a => a.sinkType === "construction");
+      return {
+        total: cons.reduce((s, a) => s + a.allocated, 0),
+        unmet: cons.reduce((s, a) => s + a.unmet, 0),
+        partsLeft: Math.min(...cons.map(a => a.partsLeft ?? 0)),
+        ctrl: sol.sinkAllocations.find(a => a.sinkType === "controller")?.allocated ?? 0
+      };
+    };
+    const withMix = build();
+    expect(withMix.ctrl, "the mix is live in this world (controller takes the residual)").to.be.greaterThan(0);
+    // THE CONSTRAINT: with upgrading drawing its residual alongside, construction
+    // is still fully funded - every construction sink's unmet is zero. If the
+    // upgrading claim were slowing the build, this is where it would show.
+    expect(withMix.unmet, "the upgrading claim left construction short").to.be.closeTo(0, 1e-9);
+    expect(withMix.total, "construction is funded").to.be.greaterThan(0);
+    // And its spawn-parts charge is drawn in construction's OWN pass, so the
+    // ledger cannot be emptied by upgraders before the build is priced.
+    expect(withMix.partsLeft, "construction's fill ended with ledger headroom").to.be.at.least(0);
   });
 
   it("colony-wide wartime keeps the anti-flap threshold: a lone sub-3000 remote site never relegates", () => {
@@ -820,29 +878,33 @@ describe("economy/flowAdapter - construction absorb cap (sum of projects, prod t
     expect(ctrl.allocated, "trivial paving never relegates upgrading (threshold preserved)").to.be.greaterThan(0);
   });
 
-  it("WARTIME: a real build-out RELEGATES the controller - the surplus goes to building, not upgrading (owner 2026-07-27)", () => {
+  it("WARTIME: a real build-out is FULLY funded first and the residual upgrades (owner 2026-08-08: a mix, building first)", () => {
     // The site sits 4 tiles from the spawn; a bank surplus stands and the 15k
     // backlog is >= the wartime threshold (3000). So (spec 33): construction
-    // bursts at the 1/3-life horizon (~30 e/t) AND the controller RELEGATES to
-    // its floor - the surplus goes to BUILDING, not the controller mop-up
-    // ("normally for upgrading, but now for building"). Pre-wartime the residual
-    // upgraded and the controller kept more than construction; now the mode
-    // inverts that while the backlog stands. The anti-downgrade FLOOR still
-    // holds (relegated != off), and upgrading resumes mop-up once it drains.
+    // bursts at the 1/3-life horizon (~30 e/t) and the controller RELEGATES.
+    //
+    // REVISED (owner 2026-08-08): *"We can have a mix of upgrading and building.
+    // We just want building to take priority and not be slowed down by the
+    // upgrading."* Relegation is by VALUE now (the ladder's controllerMin rung),
+    // so the residual reaches the controller instead of banking. The old
+    // assertions here demanded `ctrl.allocated === 0` - the off switch whose cost
+    // audit t72868738 measured: +25.68 e/t banked, 154,472 above reserve.
+    //
+    // PRIORITY IS "NEVER SHORT", NOT "LARGEST SHARE": construction's cap is its
+    // own completion rate (30.08 e/t here), so a bigger residual legitimately
+    // upgrades (39.92). Getting the full burst rate IS the priority claim.
     const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
     graph.addConstructionSite("bigbuild", "home", at(9), 15000);
     const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
 
     const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
     const ctrl = sol.sinkAllocations.find(a => a.sinkType === "controller")!;
-    expect(build.allocated, "wartime-completion rate (1/3 life)").to.be.closeTo(15000 / ((1 / 3) * 1496), 1e-6);
-    expect(build.allocated, "construction now WINS the surplus over upgrading").to.be.greaterThan(ctrl.allocated);
-    expect(ctrl.allocated, "controller relegated to ~its floor, not mopping up").to.be.at.most(20);
-    // 2026-08-04: the floor wartime relegates TO is danger-gated - with a
-    // comfortable downgrade timer (no staged danger here) it is ZERO, so
-    // building takes everything. The sip returns only when the timer runs
-    // low (pinned in the scarce-supply danger test above).
-    expect(ctrl.allocated, "comfortable timer: relegation goes to zero, no trickle").to.equal(0);
+    expect(build.allocated, "wartime-completion rate (1/3 life) - unchanged by the mix").to.be.closeTo(
+      15000 / ((1 / 3) * 1496),
+      1e-6
+    );
+    expect(build.unmet, "building was left short by the upgrading claim").to.be.closeTo(0, 1e-9);
+    expect(ctrl.allocated, "relegated != off: the residual upgrades instead of banking").to.be.greaterThan(0);
   });
 });
 
@@ -1254,5 +1316,278 @@ describe("economy/flowAdapter - two-pass solve charges the spawn its fleet cost"
       buildColonyProblem(graph, manhattan, [], new Map(), new Map(), [], undefined, undefined, undefined, undefined, 25)
     );
     expect(charged, "energy the spawn needs stops being handed down the ladder").to.be.lessThan(base);
+  });
+});
+
+/**
+ * THE ADMISSION TAX FOLLOWS THE ROOM'S RATE (2026-08-07, owner: *"We can
+ * estimate the invader tax rate from first principles. 10 or 20 energy mined
+ * per tick. Every 10,000 to 5,000 ticks for 100,000 trigger right?"*).
+ *
+ * Right - and the consequence is that the tax cannot be a single coefficient.
+ * The engine's raid counter accrues per ROOM, so a two-source remote hits the
+ * trigger in half the ticks and holds its standing guard for half as long per
+ * unit mined. The flat `INVADER_TAX_PER_ENERGY` charged both the same.
+ *
+ * Pinned at the SEAM rather than in the primitive (which has its own coverage):
+ * what matters here is that the adapter feeds the primitive the ROOM's total
+ * rate, not the source's own, and that home sources are never taxed.
+ */
+describe("flowAdapter: the invader tax reads the ROOM's mined rate", () => {
+  const g = globalThis as unknown as { Game?: unknown };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  const pos = (x: number, roomName: string): Position => ({ x, y: 25, roomName });
+  const home = (): Node => {
+    const n = createNode("home", "W0N0", pos(5, "W0N0"), 100, ["W0N0"], 0);
+    n.resources = [
+      { type: "spawn", id: "spawn-0", position: pos(5, "W0N0") },
+      { type: "controller", id: "ctrl-0", position: pos(5, "W0N0"), isOwned: true }
+    ] as NodeResource[];
+    return n;
+  };
+  const remoteSrc = (id: string, room: string, x: number): Node => {
+    const n = createNode(id, room, pos(x, room), 50, [room], 0);
+    n.resources = [{ type: "source", id, position: pos(x, room), capacity: 3000 }] as NodeResource[];
+    return n;
+  };
+  const homeSrc = (id: string, x: number): Node => {
+    const n = createNode(id, "W0N0", pos(x, "W0N0"), 50, ["W0N0"], 0);
+    n.resources = [{ type: "source", id, position: pos(x, "W0N0"), capacity: 3000 }] as NodeResource[];
+    return n;
+  };
+
+  it("taxes a ONE-source room at twice the rate of a TWO-source room", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const { raidGuardTaxPerEnergy } = await import("../../../src/economy/primitives");
+    // W1N0 holds one source, W2N0 holds two - same distance class, same rate
+    // per source. Only the ROOM's accrual differs.
+    const graph = new FlowGraph([
+      home(),
+      remoteSrc("lone", "W1N0", 15),
+      remoteSrc("pairA", "W2N0", 15),
+      remoteSrc("pairB", "W2N0", 20)
+    ]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    const taxOf = (id: string): number => problem.sources.find(s => s.id.includes(id))!.invaderTax!;
+
+    const rate = problem.sources.find(s => s.id.includes("lone"))!.rate;
+    expect(taxOf("lone")).to.be.closeTo(raidGuardTaxPerEnergy(rate), 1e-12);
+    expect(taxOf("pairA")).to.be.closeTo(raidGuardTaxPerEnergy(2 * rate), 1e-12);
+    expect(taxOf("pairA"), "both sources in a room pay the room's rate").to.equal(taxOf("pairB"));
+    expect(taxOf("lone"), "the slow room pays double per unit mined").to.be.closeTo(2 * taxOf("pairA"), 1e-12);
+  });
+
+  it("never taxes a HOME source - the tower absorbs the raid for the cost of its shots", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const graph = new FlowGraph([home(), homeSrc("inRoom", 15), remoteSrc("away", "W1N0", 15)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    expect(problem.sources.find(s => s.id.includes("inRoom"))!.invaderTax).to.equal(undefined);
+    expect(problem.sources.find(s => s.id.includes("away"))!.invaderTax).to.be.greaterThan(0);
+  });
+
+  it("an injected () => 0 disables it entirely (the seam stays testable)", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const graph = new FlowGraph([home(), remoteSrc("away", "W1N0", 15)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), [], () => 0);
+    expect(problem.sources.find(s => s.id.includes("away"))!.invaderTax).to.equal(undefined);
+  });
+});
+
+/**
+ * THE MOUTH-STOCK LENS IS AN OBSERVATION, NOT A VISION CHECK (2026-08-07).
+ *
+ * The drain machinery was complete and correct: `CorpPlanner` prices
+ * `bufferDrainCarry(staged * share, distance)` into every route of a source
+ * that carries a `staged` buffer. The lens feeding it was not - it read
+ * `Game.getObjectById`, which returns null for a source in a remote room with
+ * no creep standing in it, and the SOLVE runs whether or not one is.
+ *
+ * So the plan priced ZERO drain for exactly the mouths that were piling up.
+ * Measured t72850264: six of eleven mouths held 2,737-3,553 for 78-100% of the
+ * window - from the MINERS' OWN stamps, which E6 reads - while every hauler
+ * route in the published plan was sized at `flow = 10`, the raw source rate,
+ * no drain term anywhere in the capture. 13.36 e/t of ground decay, the
+ * cycle's TOP LINE, and self-reinforcing: the pile costs the miner its spawn
+ * priority, the miner leaving takes the room's vision, and the plan goes
+ * blinder still.
+ *
+ * The stranded-reserver rule, applied to a source mouth: read the OBSERVATION,
+ * never "is one of our creeps standing there".
+ */
+describe("flowAdapter: the mouth-stock lens survives losing vision", () => {
+  const g = globalThis as unknown as { Game?: unknown; Memory?: unknown };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+
+  const SRC = "abc123";
+  const TAIL = SRC.slice(-6);
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    // No getObjectById hit for the source: a remote room with nobody in it,
+    // which is the state the solve actually finds most ticks.
+    g.Game = { time: 10_000, getObjectById: () => null, rooms: {}, creeps: {} };
+    g.Memory = {};
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  const pos = (x: number, roomName: string): Position => ({ x, y: 25, roomName });
+  const world = (): Node[] => {
+    const home = createNode("home", "W0N0", pos(5, "W0N0"), 100, ["W0N0"], 0);
+    home.resources = [
+      { type: "spawn", id: "spawn-0", position: pos(5, "W0N0") },
+      { type: "controller", id: "ctrl-0", position: pos(5, "W0N0"), isOwned: true }
+    ] as NodeResource[];
+    const remote = createNode(SRC, "W1N0", pos(20, "W1N0"), 50, ["W1N0"], 0);
+    remote.resources = [{ type: "source", id: SRC, position: pos(20, "W1N0"), capacity: 3000 }] as NodeResource[];
+    return [home, remote];
+  };
+
+  const stamp = (stock: number, at: number): void => {
+    (g.Memory as any).pileMeter = { [TAIL]: { t0: at, last: at, samples: 1, held: 1, since: at, stock, stockAt: at } };
+  };
+
+  const stagedOf = async (): Promise<number | undefined> => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const problem = buildColonyProblem(new FlowGraph(world()), manhattan, [], new Map(), new Map(), []);
+    return problem.sources.find(s => s.id.includes(SRC))!.staged;
+  };
+
+  it("prices the drain from the miner's stamp when the solve has NO vision", async () => {
+    stamp(3000, 9_900); // seen 100 ticks ago
+    expect(await stagedOf(), "the pile the miner saw reaches the plan").to.equal(3000);
+  });
+
+  it("and that staged buffer becomes real CARRY on the route - the whole point", async () => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const { planColony } = await import("../../../src/economy/CorpPlanner");
+    const carryOf = (): number => {
+      const problem = buildColonyProblem(new FlowGraph(world()), manhattan, [], new Map(), new Map(), []);
+      return planColony(problem)
+        .haulers.filter(h => h.sourceId.includes(SRC))
+        .reduce((n, h) => n + h.carryParts, 0);
+    };
+    const blind = carryOf(); // no stamp: inflow-sized, exactly today's behaviour
+    stamp(3000, 9_900);
+    expect(carryOf(), "a 3000e mouth buys CARRY to clear it").to.be.greaterThan(blind);
+  });
+
+  it("ages the observation out after one creep generation - a stale pile is not priced forever", async () => {
+    const { MOUTH_STOCK_MAX_AGE } = await import("../../../src/corps/nodeEnergy");
+    stamp(3000, 10_000 - MOUTH_STOCK_MAX_AGE - 1);
+    expect(await stagedOf(), "nobody has looked in a generation").to.equal(undefined);
+    stamp(3000, 10_000 - MOUTH_STOCK_MAX_AGE + 1);
+    expect(await stagedOf(), "just inside the window still counts").to.equal(3000);
+  });
+
+  it("never fabricates a buffer for a mouth nobody has ever seen", async () => {
+    expect(await stagedOf()).to.equal(undefined);
+  });
+
+  it("a witnessed EMPTY mouth prices no drain (the term retires itself)", async () => {
+    stamp(0, 9_900);
+    expect(await stagedOf()).to.equal(undefined);
+  });
+});
+
+/**
+ * CONSTRUCTION IS SCOPED TO THE ROOMS THE COLONY WORKS (2026-08-07).
+ *
+ * Owner: *"What's construction even allocating for. I feel like at this point
+ * everything we need should be built."* It was allocating for exactly one
+ * thing, and they were right to ask.
+ *
+ * Measured t72850264 - the colony's ENTIRE construction budget was a container
+ * in W41N25 at 4,582/5,000, a two-source remote last harvested ~12,000 ticks
+ * earlier that the plan had since stopped funding. It held 10 e/t of sink
+ * demand at priority 70 - ABOVE the controller, which sat at effective 44.8
+ * with 35.69 unmet - plus 0.135 p/t of spawn budget, four times the whole
+ * tender detail. It delivered 0.00 e/t for the window with its corp at
+ * creeps 0, because there is no supply line to a room the plan does not work.
+ *
+ * Not a gate and not a defund: `graph.getSinks()` returns every site the ENGINE
+ * knows about, and the working set is simply what the plan is solving. Fund the
+ * room or don't - never build infrastructure FOR a room you decided not to work.
+ */
+describe("flowAdapter: construction only funds rooms the colony works", () => {
+  const g = globalThis as unknown as { Game?: unknown };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  const pos = (x: number, roomName: string): Position => ({ x, y: 25, roomName });
+  /** Home + a FUNDED remote + a site in each of: home, the remote, a dropped room. */
+  const world = (): Node[] => {
+    const home = createNode("home", "W0N0", pos(5, "W0N0"), 100, ["W0N0"], 0);
+    home.resources = [
+      { type: "spawn", id: "spawn-0", position: pos(5, "W0N0") },
+      { type: "controller", id: "ctrl-0", position: pos(5, "W0N0"), isOwned: true }
+    ] as NodeResource[];
+    const worked = createNode("worked", "W1N0", pos(20, "W1N0"), 50, ["W1N0"], 0);
+    worked.resources = [
+      { type: "source", id: "srcWorked", position: pos(20, "W1N0"), capacity: 3000 }
+    ] as NodeResource[];
+    // The W41N25 shape: a source AND a 92%-done container, in a room the plan
+    // has stopped funding.
+    const dropped = createNode("dropped", "W9N9", pos(30, "W9N9"), 50, ["W9N9"], 0);
+    dropped.resources = [
+      { type: "source", id: "srcDropped", position: pos(30, "W9N9"), capacity: 3000 }
+    ] as NodeResource[];
+    return [home, worked, dropped];
+  };
+
+  /** Sites are added through the graph's own API, as the live adapter does. */
+  const graphWithSites = (): FlowGraph => {
+    const graph = new FlowGraph(world());
+    graph.addConstructionSite("site-home", "home", pos(8, "W0N0"), 3000);
+    graph.addConstructionSite("site-worked", "worked", pos(21, "W1N0"), 3000);
+    graph.addConstructionSite("site-dropped", "dropped", pos(31, "W9N9"), 418);
+    return graph;
+  };
+
+  const siteRooms = async (funded?: readonly string[]): Promise<string[]> => {
+    const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    const problem = buildColonyProblem(
+      graphWithSites(), manhattan, [], new Map(), new Map(), [], () => 0,
+      undefined, undefined, [], 0, funded
+    );
+    return problem.sinks.filter(s => s.kind === "construction").map(s => s.pos.roomName).sort();
+  };
+
+  it("drops a site in a room the previous solve did NOT fund - the W41N25 case", async () => {
+    expect(await siteRooms(["W1N0"])).to.deep.equal(["W0N0", "W1N0"]);
+  });
+
+  it("keeps sites in the home room and in FUNDED remotes", async () => {
+    const rooms = await siteRooms(["W1N0", "W9N9"]);
+    expect(rooms, "a remote back in the plan brings its site with it").to.deep.equal(["W0N0", "W1N0", "W9N9"]);
+  });
+
+  it("admits everything on a COLD solve, then converges (the pricedRelay ratchet)", async () => {
+    // No history is not "fund nothing" - it is "we do not know yet". One
+    // over-funded solve, then the published funded set narrows it, exactly as
+    // the reserver pricing does.
+    expect(await siteRooms(undefined)).to.deep.equal(["W0N0", "W1N0", "W9N9"]);
+  });
+
+  it("an empty funded set still keeps the home room", async () => {
+    expect(await siteRooms([])).to.deep.equal(["W0N0"]);
   });
 });

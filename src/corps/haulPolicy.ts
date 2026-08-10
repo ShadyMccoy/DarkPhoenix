@@ -121,6 +121,22 @@ export function pickStorageDeposit(params: {
    * pre-buffer behaviour bit-for-bit.
    */
   portBufferFree?: number;
+  /**
+   * Is a TENDER alive on that buffer's post (spec 57)?
+   *
+   * The buffer is not a sink, it is a queue - the tender is what empties it
+   * into the link. Without one the drop is a one-way trip: measured t72862894
+   * the (44,12) container stood at 2000/2000 while `portFallbacks` read 0 on
+   * all 8 port-routed routes and `portWaits` ran to 602, because every hauler
+   * that arrived took an escape hatch that led nowhere.
+   *
+   * UNKNOWN COUNTS AS UNTENDED, deliberately: this is the one asymmetric
+   * failure on the ladder. Guessing "tended" when it is not strands the load
+   * and the energy decays where nothing reads it; guessing "untended" when a
+   * tender does exist costs the hauler the hub leg it would have walked
+   * anyway. So the buffer must be positively CLAIMED, never assumed.
+   */
+  portTended?: boolean;
   /** Free capacity in the storage hub right now. */
   storageFree: number;
   /** Ticks this hauler has already held at a FULL port this trip (0 = not waiting yet). */
@@ -133,7 +149,11 @@ export function pickStorageDeposit(params: {
   // SECOND choice - ahead of waiting, never ahead of the link itself. It also
   // outranks the hub-full escape valve below: a full hub must not strand a
   // load the buffer could take.
-  if (params.depositPos && (params.portBufferFree ?? 0) > 0) return "portBuffer";
+  //
+  // ...AND ONLY WHILE SOMETHING MOVES IT ACROSS (spec 57). "Still needs the
+  // tender" above was already the whole argument for ranking the buffer
+  // second; with no tender there is no second choice to rank, just a hole.
+  if (params.depositPos && (params.portBufferFree ?? 0) > 0 && params.portTended === true) return "portBuffer";
   // Port full (or no port). If the hub is ALSO full there is nowhere to bank -
   // spill to a hungry spawn/controller (the escape valve; never camp a full port).
   if (params.storageFree <= 0) return "none";

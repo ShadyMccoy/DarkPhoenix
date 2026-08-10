@@ -3,7 +3,7 @@ import "../../../src/types/Memory"; // load the CreepMemory/Memory type augmenta
 import { HarvestCorp } from "../../../src/corps/HarvestCorp";
 import { CarryCorp } from "../../../src/corps/CarryCorp";
 import { UpgradingCorp } from "../../../src/corps/UpgradingCorp";
-import { ControllerFeederCorp } from "../../../src/corps/ControllerFeederCorp";
+import { LinkCorp } from "../../../src/corps/LinkCorp";
 import { MinerAssignment, HaulerAssignment, SinkAllocation } from "../../../src/flow/FlowTypes";
 
 const ctx = { energyCapacity: 550, tick: 100 };
@@ -270,7 +270,7 @@ describe("corp getSpawnDemand()", () => {
    * FIRST feeder now outranks the marginal producer; additional feeders (surplus
    * drawdown) stay infra-tier. It never WALLS (blocking false), so no spiral.
    */
-  describe("ControllerFeederCorp priority (the linchpin, owner 2026-07-24)", () => {
+  describe("LinkCorp priority (the linchpin, owner 2026-07-24)", () => {
     const ROOM = "W1N1";
     const SPAWN_ID = "spawn1";
     let savedGame: any;
@@ -329,7 +329,7 @@ describe("corp getSpawnDemand()", () => {
     }
 
     it("WITH ENERGY the first feeder outranks the miner band (value 150), never walls", () => {
-      const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
+      const corp = new LinkCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
       stageRoom(60_000, { x: 25, y: 10 }, 0, corp.id); // banked surplus, ZERO feeders
       const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
       expect(demands).to.have.length(1);
@@ -342,7 +342,7 @@ describe("corp getSpawnDemand()", () => {
     });
 
     it("DRAINED (NO energy, the rare case) the feeder yields to income (value 90, below miners)", () => {
-      const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
+      const corp = new LinkCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
       stageRoom(1_000, { x: 25, y: 10 }, 0, corp.id); // banked < FEEDER_INCOME_FIRST_FLOOR
       const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
       expect(demands).to.have.length(1);
@@ -351,7 +351,7 @@ describe("corp getSpawnDemand()", () => {
     });
 
     it("ADDITIONAL feeders (surplus drawdown) stay infra-tier (value 95)", () => {
-      const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
+      const corp = new LinkCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
       // A far controller inflates neededCarry past one body, so with ONE feeder
       // fielded the corp still demands a second - which must NOT front-run income.
       stageRoom(60_000, { x: 48, y: 48 }, 1, corp.id);
@@ -371,7 +371,7 @@ describe("corp getSpawnDemand()", () => {
    * hubClampShare 0.50). Idle feeder ticks between volleys are the PRICE of
    * hauler duty; idle hauler ticks are the waste.
    */
-  describe("ControllerFeederCorp volley-service floor (spec 45)", () => {
+  describe("LinkCorp volley-service floor (spec 45)", () => {
     const ROOM = "W1N1";
     const SPAWN_ID = "spawn1";
     let savedGame: any;
@@ -436,36 +436,47 @@ describe("corp getSpawnDemand()", () => {
       };
     }
 
-    // UPDATED t72819265: the floor is ONE VOLLEY PER SENDER, not one volley
-    // total. This test staged the two-port shape and pinned 16 - exactly the
-    // case the live A/B refuted. With the pair aged back to one 16-CARRY
-    // feeder the core clamped 0.268 (predicted 0.28) against 0.091 for the
-    // accidental 32, while the SINGLE feeder moved MORE per tick (187.33 vs
-    // 131.28): latency, not rate. One creep cannot cover two senders arriving
-    // at once, it can only serve them serially.
-    it("with TWO inbound senders the body floors at TWO volleys, energy permitting", () => {
-      const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
+    // UPDATED t72819265: the floor is PER SENDER, not one total. The live A/B
+    // aged the pair back to one feeder and the core clamped 0.268 (predicted
+    // 0.28) against 0.091, while the SINGLE feeder moved MORE per tick (187.33
+    // vs 131.28): latency, not rate. One creep cannot cover two senders
+    // arriving at once - it serves them serially.
+    //
+    // RESIZED 2026-08-07 (owner): the per-sender coefficient drops 16 -> 4, so
+    // two senders floor at 8. The A/B's finding is KEPT - it was about creeps
+    // per sender, and the corp still fields one feeder per sender - but its
+    // per-creep body was sized to swallow a whole 800e volley in one cycle,
+    // which is insurance against a latency the arrival rate cannot produce
+    // (a source link can only fire every LINK_COOLDOWN x range). Measured at
+    // the old floor, t72851251: hubClampShare 0.000, coreEmptyShare 0.474,
+    // hubVolleyAvg 592 - never clamped, drained half the time, volleys not
+    // even arriving full, for 100 spawn parts on the colony's dearest corp.
+    it("with TWO inbound senders the body floors at two senders' service carry", () => {
+      const corp = new LinkCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
       stageLinkRoom(2, corp.id); // two deposit ports, the live shape
       const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
       expect(demands).to.have.length(1);
-      expect(corp.lastSizing?.volleyFloor, "two senders => two volleys of floor").to.equal(32);
+      expect(corp.lastSizing?.volleyFloor, "two senders x 4 CARRY - the owner's 8").to.equal(8);
       expect(corp.lastSizing?.inboundSenders).to.equal(2);
       // The BODY is still bounded by what the room can afford in one go -
       // maxCarryPairs(2300) = 23. The floor states the requirement; the budget
       // states what is buyable this tick, and the demand may not exceed it.
-      expect(demands[0].bodyParam, "capped by the energy budget, not by the floor").to.equal(23);
+      // The floor no longer binds against a 2300-energy room: the body is now
+      // sized by the THROUGHPUT law it always had, which is the point - the
+      // floor is a latency backstop, not the sizing input.
+      expect(demands[0].bodyParam, "no longer floor-bound at this capacity").to.be.at.most(23);
     });
 
-    it("ONE inbound sender still floors at one volley - the pre-A/B contract", () => {
-      const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
+    it("ONE inbound sender floors at one sender's service carry (lower-RCL shape)", () => {
+      const corp = new LinkCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
       stageLinkRoom(1, corp.id);
       corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
-      expect(corp.lastSizing?.volleyFloor).to.equal(16);
+      expect(corp.lastSizing?.volleyFloor, "the owner's 4 at lower RCL").to.equal(4);
       expect(corp.lastSizing?.inboundSenders).to.equal(1);
     });
 
     it("a pure-relay link room (core + ctrl only) keeps the throughput law untouched", () => {
-      const corp = new ControllerFeederCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
+      const corp = new LinkCorp(`${ROOM}-controllerFeeder`, SPAWN_ID);
       stageLinkRoom(0, corp.id);
       const demands = corp.getSpawnDemand({ energyCapacity: 2300, tick: 100 });
       expect(demands).to.have.length(1);

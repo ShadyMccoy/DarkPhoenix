@@ -343,6 +343,46 @@ describe("ExtensionTenderCorp spawn demand (local mover)", () => {
     } as any;
     expect(corp.getSpawnDemand(ctx as any)).to.have.length(0);
   });
+
+  // THE SWARM CAP IS DENOMINATED IN CARRY, like the staffed gate above it
+  // (spec 55 catalogue #3, fixed in CarryCorp 2026-08-02 and found still
+  // count-denominated here 2026-08-09). A count-heavy carry-short fleet is
+  // not a swarm - it is undersized - and capping the COUNT at 2x target
+  // stopped the ask at a permanent CARRY deficit while the spawn idled
+  // "empty" (the t72851251 shape: tender standing 34 of 48 declared parts).
+  describe("swarm cap currency (the runt-fleet deadlock)", () => {
+    const RUNT_BODY = [{ type: "carry" }];
+    const runts = (corp: ExtensionTenderCorp, n: number): any => {
+      const creeps: any = {
+        m1: { room: { name: "W0N0" }, memory: { corpId: "mining-abc", workType: "harvest" }, spawning: false }
+      };
+      for (let i = 0; i < n; i++) {
+        creeps[`t${i}`] = {
+          room: { name: "W0N0" },
+          memory: { corpId: corp.id, workType: "tank" },
+          spawning: false,
+          body: RUNT_BODY
+        };
+      }
+      return creeps;
+    };
+
+    it("keeps asking at 2x the target COUNT while the fielded CARRY is short (runts are not a swarm)", () => {
+      const corp = corpFor(room({ depot: true, extensions: 5 }));
+      // Target is 2 in this world; four 1-CARRY runts satisfy the old count
+      // cap (4 >= 2x2) while delivering almost nothing.
+      Game.creeps = runts(corp, 4);
+      const demand = corp.getSpawnDemand(ctx as any);
+      expect(demand, "a carry-short fleet must keep asking regardless of count").to.have.length(1);
+      expect(demand[0].role).to.equal("tanker");
+    });
+
+    it("still stops at the absolute crew ceiling (the pathological-crowd backstop)", () => {
+      const corp = corpFor(room({ depot: true, extensions: 5 }));
+      Game.creeps = runts(corp, 6);
+      expect(corp.getSpawnDemand(ctx as any)).to.have.length(0);
+    });
+  });
 });
 
 /**

@@ -1,4 +1,4 @@
-# 31 — Base layout: highways + a serpentine extension string, one lane tender
+# 52 — Base layout: highways + a serpentine extension string, one lane tender
 
 **Status:** PROPOSED 2026-07-25 (owner session). The DESIGN TOOLING is landed
 (`scripts/base-lab/*` + the extension-sim); the measured design below holds

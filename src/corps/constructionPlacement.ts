@@ -19,7 +19,7 @@
 import { UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
 import { ContainerCensus } from "../telemetry/containerCensus";
 import { Position } from "../types/Position";
-import { controllerInputSpot, coreDepot } from "./nodeEnergy";
+import { controllerInputSpot, coreDepot, PORT_BUFFER_RANGE } from "./nodeEnergy";
 
 /**
  * Extension limits by controller level (RCL 1-8)
@@ -87,6 +87,41 @@ export function emergenceTileCount(isBlocked: (x: number, y: number) => boolean,
 export function wantsAnotherSpawn(rcl: number, builtSpawns: number, spawnSites: number): boolean {
   const limit = SPAWN_LIMITS[rcl] ?? 1;
   return builtSpawns + spawnSites < limit;
+}
+
+/**
+ * CONTROLLER_STRUCTURES[STRUCTURE_TOWER] mirrored, same discipline as
+ * SPAWN_LIMITS above (engine ground truth, pinned by test).
+ */
+export const TOWER_LIMITS: { [rcl: number]: number } = {
+  3: 1,
+  4: 1,
+  5: 2,
+  6: 2,
+  7: 3,
+  8: 6
+};
+
+/**
+ * The COLONY's tower target per room (owner 2026-08-09: "Another tower") -
+ * deliberately below the RCL8 engine cap of six. A standing tower is idle
+ * capital plus a refill lane on the tender's circuit, and tower burn is the
+ * account's unmetered residual, so growing the battery past two is a
+ * decision to make on numbers, not a default to inherit from the engine
+ * table. One constant to raise when that decision comes.
+ */
+export const TOWER_TARGET_PER_ROOM = 2;
+
+/**
+ * The tower rung's want, spawn-rung shape (owner 2026-08-09 RCL8 build-out).
+ * The rung was previously hard-coded to ONE tower - `hasTower` silenced it
+ * forever once the RCL3 tower stood, so "another tower" could never place.
+ * Engine limit AND colony target both bind; pending sites count so a 600e
+ * site never double-places.
+ */
+export function wantsAnotherTower(rcl: number, builtTowers: number, towerSites: number): boolean {
+  const limit = Math.min(TOWER_LIMITS[rcl] ?? 0, TOWER_TARGET_PER_ROOM);
+  return builtTowers + towerSites < limit;
 }
 
 export const EXTENSION_LIMITS: { [rcl: number]: number } = {
@@ -570,25 +605,63 @@ export function bestPortContainerTile(
  * PRECEDENT: the LINK SWAP rung already retires the weakest source link to
  * free a link-table slot for the controller link. This is that, one table over.
  *
- * THREE CONDITIONS, and each is a guard rather than a preference:
- *  - the table must be FULL. Retiring destroys 5,000e of build; while a rung
- *    can simply place, it must.
- *  - something must WANT the slot - here, a deposit port with no buffer.
- *    Reclaiming for tidiness is pure loss.
+ * CONDITIONS, each a guard rather than a preference:
  *  - the census must have PROVEN the container superseded, which it only does
  *    with a controller link present. Without one the container IS the input
  *    spot and retiring it strands the upgraders mid-upgrade.
+ *  - something must WANT it gone. Reclaiming for tidiness is pure loss, so
+ *    either the table is FULL and a port needs the slot, or - added
+ *    2026-08-08 - the dead container is itself BLOCKING a port.
+ *
+ * THE BLOCKING CASE (owner 2026-08-08: *"the controller link should not have a
+ * container"*). Measured t72862894: the superseded controller container at
+ * (41,36) sits within 2 of the deposit port at (43,38), and that range is not
+ * incidental - it is exactly the range `resolvePortBuffer` searches and
+ * `hasContainerNear` tests. So the dead container made the port rung believe
+ * that port was already served (it never places one, forever) while the
+ * delivery side bound the CONTROLLER's store as the port's buffer. The table
+ * was 4/5 with a free slot the whole time, so the FULL gate never fired and
+ * nothing ever noticed.
+ *
+ * That is not tidiness - one dead container silently costs a real port its
+ * buffer. The `full` gate is therefore lifted for this case only.
+ *
+ * THE SPILL IS ACCEPTED (owner 2026-08-08: *"I don't care about draining it
+ * first. I just want this done asap"*). Destroying a container drops its
+ * contents, and a ground pile decays at ceil(amount/1000) per tick - the live
+ * one held 1,900e. That is a ONE-OFF bounded by the container cap; the block it
+ * clears costs a whole deposit port its buffer for every tick it stands.
+ * `energyLost` is still reported so the trade is visible, never silent.
  */
+/** The range a port's buffer may sit at, and therefore the range at which a
+ *  foreign container BLOCKS one. Re-exported from the buffer lens rather than
+ *  re-declared: spec 56's whole point is that this number, and the predicate
+ *  built on it, have exactly one home. */
+export { PORT_BUFFER_RANGE };
+
 export function reclaimableContainer(
   census: ContainerCensus | null
 ): { pos: Position; energyLost: number; reason: string } | null {
-  if (!census || !census.full) return null;
-  if (!census.ports.some(p => !p.hasContainer)) return null;
+  if (!census) return null;
   const dead = census.supersededControllerContainer;
   if (!dead) return null;
+  const cheb = (a: Position, b: Position): number => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+  // Is this dead container the thing a port is mistaking for its buffer? Range
+  // 2 because that is what resolvePortBuffer and hasContainerNear both use - a
+  // third number here would be the two-books failure by construction.
+  const blocking = census.ports.some(p => cheb(p.pos, dead.pos) <= PORT_BUFFER_RANGE);
+  const wanted = census.full && census.ports.some(p => !p.hasContainer);
+  if (!wanted && !blocking) return null;
+  // NO DRAIN WAIT (owner 2026-08-08: *"I don't care about draining it first"*).
+  // The spill is real - a ground pile decays at ceil(amount/1000) per tick - but
+  // it is one-off and bounded by the container cap, while the block it clears
+  // costs a whole port its buffer for as long as it stands. `energyLost` still
+  // reports the spill, so the trade stays visible rather than silent.
   return {
     pos: dead.pos,
     energyLost: dead.energy,
-    reason: "controller link owns the input spot; this container predates it and nothing reads it"
+    reason: blocking
+      ? "controller link owns the input spot; this dead container is inside a deposit port's buffer range and blocks it"
+      : "controller link owns the input spot; this container predates it and nothing reads it"
   };
 }

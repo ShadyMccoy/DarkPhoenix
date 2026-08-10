@@ -183,3 +183,84 @@ whole in-room leg is paved trunk. That geometry is where `p + r < D` genuinely
 holds and where the overflow band pays outright rather than on second-order
 terms. Leg B is the pricing edge links need to exist; without it the plan
 refuses them the moment they fill faster than they fire.
+
+## Measured t72862894 — rho is MARGINAL, and the buffer that would fix it is never built
+
+The deposit-port rho stamp (flow segment v18) landed and read:
+
+```
+  link 4a83   40.0 e/t over 4 routes   rho 0.85 of 47.1
+  link 8f08   40.0 e/t over 4 routes   rho 0.78 of 51.5
+```
+
+**This FALSIFIES the saturation hypothesis** the stamp was shipped to test
+(predicted rho >= 0.85 on both, i.e. a rate deficit no buffer can fix). Neither
+port is rate-deficient. They sit in exactly the band
+`depositPortHeadroom`'s own docblock calls *marginal* — and at rho 0.85 an
+M/M/1 queue waits ~5.7x its service time, so heavy queueing is EXPECTED there
+without any rate deficit at all.
+
+That matters because spec 47's rule cuts the other way in this band: **a buffer
+fixes burstiness, never a rate deficit.** rho < 1 means a buffer is the right
+instrument.
+
+**And the buffer is already implemented — on the read side only.**
+`pickStorageDeposit` ranks `portBuffer` SECOND, ahead of waiting, with the
+ordering argued in its own comment ("the link outranks its own buffer... the
+buffer is the SECOND choice - ahead of waiting, never ahead of the link
+itself"). `CarryCorp.resolvePortBuffer` looks for a container within range 2 of
+the port link. **Nothing places that container.** No site in ConstructionCorp or
+the base layout targets a port link's neighbourhood.
+
+So the branch can never fire, and the measured consequence is exactly what the
+stamps show: `portFallbacks: 0` on all eight port-routed routes with
+`portWaits` up to 602 — the hauler's only two outcomes are deposit or wait,
+because the third one has no container to land in.
+
+The corroborating FAIL is H3 at the same capture: `mining-W43N24-harvest-cd8e`
+buffered 3268 -> 3542 GROWING with zero drain creeps at both captures, on the
+route served by link 4a83 (the rho 0.85 one). Its plan sizes 12 CARRY against
+the PORT leg (23 tiles, RT 46, 600/46 = 13 e/t — ample) and the queue is what
+eats the margin.
+
+Next: place a container beside each deposit port link. The consumption side
+needs no change.
+
+**The drain landed as spec 54** (2026-08-08): the port's buffer is emptied into
+its link by the LINK CORP, which now owns core, controller and ports together.
+The rho reading above is what redirected the fix - at 0.78-0.85 the ports are
+MARGINAL, not rate-deficient, so a buffer is the right instrument and it only
+ever needed something to empty it.
+
+## Blocker 1 realised live, in the direction this spec did not anticipate (t72871684)
+
+Leg B was backed out because *"the plan would price a route nobody drives"* — a
+pooled port→hub overflow route with no id shape to commission it. That reasoning
+was right, and the same defect is **already shipped elsewhere in the plan**, not
+as an overflow leg but as a CONSTRUCTION SUPPLY line:
+
+```
+  cd98 -> construction-6a77baf91   flow 10.00 e/t   carry  9.07   d=20
+  cee0 -> construction-6a77bf172   flow  9.88 e/t   carry 17.65   d=36
+  TOTAL                                  19.88 e/t   carry 26.72   <- the APPROPRIATIONS
+                                                                      construction BUDGET,
+                                                                      to the decimal
+```
+
+Delivered: **6.54 e/t**. The mining corps decline the energy correctly —
+`haulCarryNeeded` filters `construction-` routes out with *"the tankers own this
+energy, pile or no pile"* — so cee0 stamps `carryNeeded: 1`, `exit: "staffed"`
+beside **4,275e staged** and a miner pile-gated 84% of the window. The tankers
+that are supposed to own it are sized for a **10-tile** haul (`tankerDist: 10`)
+against supply routes at d=36 and d=20, and the construction corp in cee0's own
+room is a single 4-part runt consuming 0.
+
+So 26.72 CARRY of supply line is charged to the parts ledger and no corp drives
+it — F1 measures it as unbudgeted-in-reverse, exactly as this spec predicted the
+overflow leg would be. **The blocker is not hypothetical and it is not confined
+to Leg B**: it is the same missing ownership, already live, already costing 23%
+of the colony's standing piles. Whatever closes it (spec 39's spawn-authority
+ratchet, a relay corp, or giving the construction tankers the plan's routes
+instead of a self-chosen dedicated source) closes Leg B with it.
+
+Write-up: spec 14, cycle t72871684, Mechanism B.

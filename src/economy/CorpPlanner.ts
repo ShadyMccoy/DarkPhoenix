@@ -39,9 +39,6 @@ import {
   reserverRoomEnergy,
   bufferDrainCarry,
   carryPartsFor,
-  constructionWorkSpawnLoad,
-  operationSpawnLoad,
-  controllerWorkSpawnLoad,
   effectiveLife,
   minerOverhead,
   minerSpawnLoad,
@@ -52,7 +49,7 @@ import {
   terminalDeliveredFraction,
   SPAWN_PARTS_PER_TICK
 } from "./primitives";
-import { effectiveOneWayTiles, pavedNetEnergy, pavedSpawnPartsFor } from "./roadEconomics";
+import { consumerUnitSpawnLoad, effectiveOneWayTiles, pavedNetEnergy, pavedSpawnPartsFor } from "./roadEconomics";
 import { DEFAULT_VALUATION } from "./goals";
 import { bankRoomFromId, isBankSourceId, isMinedIncomeId } from "./ids";
 import { FieldedFleet } from "./Commission";
@@ -232,7 +229,24 @@ export interface ColonyProblem {
    * (t72749493: the published infra sum could not be decomposed from a
    * capture). Pure bookkeeping - the planner never reads it.
    */
-  infraInputs?: { pricedRelay: number; depotRooms: number; remoteRooms: number; linkFedRooms: number };
+  infraInputs?: {
+    pricedRelay: number;
+    depotRooms: number;
+    remoteRooms: number;
+    linkFedRooms: number;
+    /** Armed rooms carrying a standing guard (spec 51 phase 2). */
+    guardedRooms?: number;
+    /**
+     * Remote rooms the plan actually FUNDED, set by the solve's corrective
+     * reserver pass (flowAdapter). Equal to `remoteRooms` whenever that pass
+     * converged, which is the normal case; a difference is the residual - one
+     * reserver per room, over-charged when funded < priced - and having both
+     * numbers on the stamp is what lets a capture tell "the books disagree" from
+     * "the corps' sum is wrong". Absent on the problem itself (nothing is funded
+     * yet); the flow segment's fleetCharge stamp carries it.
+     */
+    remoteRoomsFunded?: number;
+  };
   /**
    * Execution-context facts for auxiliary propose() triggers, assembled by
    * the HOST (spec 17 P3): propose is a pure function of (problem, draft), so
@@ -246,7 +260,7 @@ export interface ColonyProblem {
   /** Rooms marked hostile by the vision-free defense lens (RoomDiscovery). */
   hostileRooms?: readonly string[];
   /**
-   * Rooms holding a live OWNED TERMINAL (spec 47 phase 2). The ONLY thing
+   * Rooms holding a live OWNED TERMINAL (spec 58 phase 2). The ONLY thing
    * that makes a cross-hub transfer executable, so it is what gates the
    * per-hub anti-pump: a bank may fill ANOTHER hub's storage sink exactly
    * when both rooms can terminal-send. Absent/empty (every world before the
@@ -263,6 +277,45 @@ export interface ColonyProblem {
    * edge is never emitted (canTransfer refuses) - so the gate is doubled.
    */
   roomDist?: (a: string, b: string) => number;
+  /**
+   * Rooms with a BUILT storage - the depot rooms (spec 39 phase 4). Host:
+   * Game.rooms[...].storage.
+   *
+   * The depot movers (tender, feeder) exist only where a depot does, which is
+   * exactly how `infraSpawnLoad` prices them - but their kinds propose one corp
+   * per SPAWN room. Without this lens a pre-storage room commissions a tender
+   * the colony's ledger never charged for, and the corps' sum stops
+   * reconciling with the deduction. The two must agree on which rooms have
+   * depots or the budget is two books again.
+   */
+  depotRooms?: readonly string[];
+  /**
+   * Depot rooms whose CONTROLLER has a link (spec 24 rung 3). Host:
+   * `controllerLink(room)` - the same lens the feeder corp and the adapter's
+   * `infraSpawnLoad` call both read. A link-fed feeder's leg is distance 1
+   * rather than 6, so its price differs ~6x; the corp must see the same fact
+   * the aggregate does.
+   */
+  linkFedRooms?: readonly string[];
+  /**
+   * Rooms whose raid meter is ARMED, or under a live raid - the rooms that get a
+   * standing guard (spec 51 phase 2). Host: `guardTargetsFor` over the home
+   * rooms, the SAME lens RaidGuardCorp holds its posts with.
+   *
+   * The guard is a CONDITIONAL standing fleet: unlike the tender or the feeder
+   * it is usually zero, and it must be priced from this lens rather than a
+   * constant or a peaceful colony pays for defense it never fields. Absent =
+   * quiet, priced at zero - exactly the pre-spec-51 behaviour.
+   */
+  guardedRooms?: readonly string[];
+  /**
+   * Rooms carrying a DEPOSIT PORT with a buffer container - one standing port
+   * tender each. A host LENS like `depotRooms` / `guardedRooms`, never a room
+   * count recomputed per reader: the kind's `propose()` and the adapter's
+   * `infraSpawnLoad` call must read the SAME fact or the corps' sum stops
+   * reconciling with the colony's deduction (spec 17 P3's pattern).
+   */
+  portRooms?: readonly string[];
   /**
    * FIELDED-fleet actuals per commission corpId (spec 39 phase 2), assembled
    * by the host (CommissionHost.assembleFieldedFleets - the store owns the
@@ -311,6 +364,16 @@ export interface CommissionedHauler {
   flowRate: number;
   carryParts: number;
   spawnParts: number;
+  /**
+   * The haul charge this route actually DEBITED from the parts ledger (audit
+   * t72846447). `spawnParts` is what the route is PRICED at; `charged` is what
+   * `routeToSinks` subtracted from `partsRemaining`. They should be equal -
+   * `carryPartsFor` is linear in rate - and publishing BOTH is what makes that
+   * checkable from a capture. Four separate hand-derivations of the P4
+   * overshoot disagreed with each other before this existed, and none could be
+   * settled without it.
+   */
+  charged?: number;
   /** Route is paved: spawn the haulers at the 2:1 road CARRY:MOVE ratio. */
   paved?: boolean;
   /**
@@ -321,7 +384,7 @@ export interface CommissionedHauler {
    */
   depositPos?: Position;
   /**
-   * A TERMINAL TRANSFER (spec 47 phase 2), not a walking haul: this hub's
+   * A TERMINAL TRANSFER (spec 58 phase 2), not a walking haul: this hub's
    * bank ships to ANOTHER hub's storage through the terminal network. It buys
    * no bodies (carryParts/spawnParts 0) and `flowRate` is the SENDER'S SPEND -
    * the sink accounts the smaller landed amount, the difference being the
@@ -342,6 +405,13 @@ export interface CommissionedSink {
   /** Spawn-parts ledger remaining when this sink's fill ENDED (spec 15 P4
    * trace - why did filling stop: capacity met, pool dry, or ledger dry). */
   partsLeft?: number;
+  /**
+   * The consumer-body charge this sink actually DEBITED (audit t72846447):
+   * `workPerUnit x allocated`, summed over the fill. Sits next to the ADAPTER's
+   * independently-computed `spawnLoad` on the flow segment - two numbers for
+   * the same commitment that were never comparable in one place.
+   */
+  chargedWork?: number;
 }
 
 /**
@@ -613,7 +683,7 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
   // gated by the sink capacities: with a storage sink soaking `totalSupply`
   // there is always room, so it fires only once storage tops out (flowAdapter
   // tapers its capacity by the absorb law, ullage/1500 -> ~0 when full -
-  // spec 47) and the controller is at its cap (spot-bound, or the RCL8 game
+  // spec 58) and the controller is at its cap (spot-bound, or the RCL8 game
   // throttle). Worst net-per-part first; keep at least one so the colony
   // never strands itself.
   const sinkCapacity = problem.sinks.reduce((sum, k) => sum + k.capacity, 0);
@@ -722,7 +792,7 @@ function routeToSinks(
   const hasStorageSink = sinks.some(s => s.kind === "storage");
   const isDeposit = (id: string): boolean => hasStorageSink && !isBankSourceId(id);
 
-  // CROSS-HUB TRANSFER (spec 47 phase 2, owner 2026-08-05: "model the energy
+  // CROSS-HUB TRANSFER (spec 58 phase 2, owner 2026-08-05: "model the energy
   // in the storage as a source and the ullage as a sink"). Once both halves
   // are first-class, moving energy between colonies is an ORDINARY route from
   // one hub's source to another hub's sink - no new planner subsystem. Three
@@ -852,15 +922,12 @@ function routeToSinks(
     // a controller, builders at construction (5x cheaper per e/t - BUILD is
     // 5 energy per WORK-tick). Spawn/storage sinks have no standing body.
     const workPerUnit =
-      sink.kind === "controller"
-        ? controllerWorkSpawnLoad(1, nearestSpawnDist(sink.pos))
-        : sink.kind === "construction"
-        ? // ALL-IN (spec 34 D4): the WORK bodies plus the supply vector that
-          // fuels them - the SAME charge the commission envelope declares
-          // (commissionPlan), linear in the rate so the per-unit form holds.
-          operationSpawnLoad(constructionWorkSpawnLoad(1, nearestSpawnDist(sink.pos)), [
-            { rate: 1, distance: nearestSpawnDist(sink.pos) }
-          ])
+      sink.kind === "controller" || sink.kind === "construction"
+        ? // THE one derivation, shared with the commission envelope
+          // (`consumerSpawnLoad` = allocated x this). Both sides used to price
+          // the consumer independently and disagreed 1.79x on construction -
+          // spec 51 GAP 1, closed 2026-08-08.
+          consumerUnitSpawnLoad(sink.kind, nearestSpawnDist(sink.pos))
         : 0;
 
     for (const { id, d } of order) {
@@ -948,6 +1015,15 @@ function routeToSinks(
       // on a transfer, by exactly the engine's fee - so the plan's delivered
       // totals never over-state a colony that is shipping energy uphill.
       const landed = take * frac;
+      // THE CHARGE STAMP (audit t72846447): record what was ACTUALLY debited,
+      // split the way the ledger spends it - haul bodies on the route, consumer
+      // bodies on the sink. Published next to the independently-computed
+      // `spawnParts` / `spawnLoad` so `spent` decomposes from a capture.
+      // A terminal transfer stamps 0 on both terms by construction: its
+      // chargePerUnit is 0 (the engine moves it) and storage sinks carry no
+      // consumer work, so the decomposition stays exact.
+      const haulCharge = take * (chargePerUnit - workPerUnit);
+      acc.chargedWork = (acc.chargedWork ?? 0) + take * workPerUnit;
       partsRemaining -= take * chargePerUnit;
       pool.set(id, avail - take);
       // Debit the port's shared throughput by what ACTUALLY flowed via it
@@ -966,6 +1042,7 @@ function routeToSinks(
         flowRate: take,
         carryParts: transfer ? 0 : carryPartsFor(take, dEff),
         spawnParts: transfer ? 0 : ((paved ? 1.5 : 2) * carryPartsFor(take, dEff)) / effectiveLife(physD),
+        charged: haulCharge,
         ...(transfer ? { transfer } : {}),
         ...(paved ? { paved } : {}),
         ...(depositPos ? { depositPos } : {})
@@ -1021,7 +1098,7 @@ function routeToSinks(
   // emerges at the CORE (the port fired it there); PRICE the short core->storage
   // drain by adding the deposited flow to the port's OWNING link-served source
   // (keeps the parts ledger honest and the remote route sized to the short leg).
-  // EXECUTION is the ControllerFeederCorp's job - the sole bidirectional core-
+  // EXECUTION is the LinkCorp's job - the sole bidirectional core-
   // link operator drains the core to storage (spec 02 feeder-router), and its
   // body carries a drain floor that includes this deposit headroom, so deposits
   // never back up (the silent-collapse mode the v1 leg punted on). Cheap
@@ -1034,17 +1111,111 @@ function routeToSinks(
     const storageSink = sinks.find(s => s.kind === "storage" && s.pos.roomName === port.pos.roomName);
     if (!storageSink) continue;
     const dDrain = Math.max(1, dist(port.drainFrom, storageSink.pos));
-    const drainParts = (2 * carryPartsFor(deposited, dDrain)) / effectiveLife(dDrain);
+    // LEDGER-CLAMPED, like every route in the fill above (audit t72846447).
+    // This debit used to be unguarded - `partsRemaining -= drainParts` with no
+    // `maxByParts` - so it could drive the ledger NEGATIVE and make `spent`
+    // exceed `budget`. Measured live: budget 0.4450, spent 0.4527, dry true;
+    // and it scales with the leg, reaching spent 6.41 against budget 0.28863 on
+    // a long forward link in the unit world.
+    //
+    // That is small in isolation and structural in kind: the parts budget is
+    // the one control the spawn-handicap sweep turns, so a debit that can
+    // ignore it is a hole in the instrument, not just in a plan.
+    //
+    // Scaled, not dropped: a drain is a RATE, so a partially drained port is a
+    // real plan while an unaffordable one is not - the same shape as the fill's
+    // `take = min(avail, target - allocated, maxByParts)`. `carryPartsFor` is
+    // linear in rate, so the per-unit form below is exact.
+    const drainPerUnit = (2 * carryPartsFor(1, dDrain)) / effectiveLife(dDrain);
+    const affordable = drainPerUnit > 1e-12 ? Math.max(0, partsRemaining) / drainPerUnit : Infinity;
+    const drained = Math.min(deposited, affordable);
+    if (drained <= 1e-9) continue;
+    const drainParts = drained * drainPerUnit;
     haulers.push({
       sourceId: port.drainSourceId,
       sinkId: storageSink.id,
       spawnId: spawnBySource.get(port.drainSourceId) ?? problem.spawns[0]?.id ?? "",
       distance: dDrain,
-      flowRate: deposited,
-      carryParts: carryPartsFor(deposited, dDrain),
-      spawnParts: drainParts
+      flowRate: drained,
+      carryParts: carryPartsFor(drained, dDrain),
+      spawnParts: drainParts,
+      charged: drainParts
     });
     partsRemaining -= drainParts;
+  }
+
+  // --- PHASE-1 ROUTE REPRICING (income-statement program, 2026-08-02) ---
+  //
+  // DRAIN TERM: a source whose mouth stands a buffer gets the ONE drain law
+  // (primitives.bufferDrainCarry - the same staged/CREEP_LIFETIME the corp's
+  // haulCarryNeeded applies) priced INTO its routes, distributed by carry
+  // share, so the plan and the fleet size from the same two terms.
+  //
+  // TRANSIENT FLOOR: a scavenge stock's route computing a fraction of a CARRY
+  // still buys a whole floor body (CarryCorp's 3-CARRY runt rule), so its
+  // spawn-parts price floors at scavengeFloorParts.
+  //
+  // STILL A POST-PASS, and that part was always right: both terms are
+  // stock-shaped (flow-independent), so folding them into `chargePerUnit` -
+  // which drives `maxByParts`, and therefore how much each sink takes - would
+  // distort marginal pricing. What was wrong is only WHERE it ran. It lived in
+  // `planColony`, AFTER routeToSinks returned, so it raised each route's
+  // published `spawnParts` and never touched `partsRemaining`: the fleet it
+  // prices stayed outside the budget, which is the exact condition this reprice
+  // was written to end.
+  //
+  // Measured live t72847768 off the v16 charge stamp: haulers published 0.29747
+  // against charged 0.26933. Bank and short routes sat at ratio 1.000 (neither
+  // uplift applies), long source routes 0.85-0.93 (drain), scavenge 0.414 and
+  // 0.328 (floor) - the pattern naming its own cause.
+  //
+  // The original comment also argued these "land inside the plan's 10%
+  // execution headroom". That justification has EXPIRED: the headroom is
+  // SPAWN_PLAN_FRACTION, which the handicap sweep (spec 50) now varies on
+  // purpose - 13% and walking to 20%. A cost that hides in the margin is a cost
+  // that consumes the experiment's own instrument.
+  //
+  // Debited, not clamped: unlike a route's take there is nothing to scale here
+  // (the drain law clears one generation, the floor is one body), and dropping
+  // the uplift would restore exactly the under-pricing this fixes. It can push
+  // the ledger dry, which is honest - `dry` then means what it says.
+  const transientById = new Map(problem.sources.filter(s => s.transient).map(s => [s.id, s]));
+  const stagedById = new Map(
+    problem.sources.filter(s => !s.transient && (s.staged ?? 0) > 0).map(s => [s.id, s.staged ?? 0])
+  );
+  if (stagedById.size > 0 || transientById.size > 0) {
+    const bySource = new Map<string, typeof haulers>();
+    for (const h of haulers) {
+      const list = bySource.get(h.sourceId) ?? [];
+      list.push(h);
+      bySource.set(h.sourceId, list);
+    }
+    const debit = (h: CommissionedHauler, uplift: number): void => {
+      if (uplift <= 0) return;
+      h.spawnParts += uplift;
+      h.charged = (h.charged ?? 0) + uplift;
+      partsRemaining -= uplift;
+    };
+    for (const [sourceId, staged] of stagedById) {
+      const routes = bySource.get(sourceId);
+      if (!routes || routes.length === 0) continue;
+      const totalCarry = routes.reduce((acc, h) => acc + h.carryParts, 0);
+      for (const h of routes) {
+        const share = totalCarry > 0 ? h.carryParts / totalCarry : 1 / routes.length;
+        const drainCarry = bufferDrainCarry(staged * share, h.distance);
+        if (drainCarry <= 0) continue;
+        h.carryParts += drainCarry;
+        debit(h, ((h.paved ? 1.5 : 2) * drainCarry) / effectiveLife(h.distance));
+      }
+    }
+    for (const [sourceId] of transientById) {
+      const routes = bySource.get(sourceId);
+      if (!routes || routes.length === 0) continue;
+      const total = routes.reduce((acc, h) => acc + h.spawnParts, 0);
+      const nearest = routes.reduce((a, b) => (a.distance <= b.distance ? a : b));
+      const floor = scavengeFloorParts(nearest.distance);
+      if (total < floor) debit(nearest, floor - total);
+    }
   }
 
   return { haulers, sinks: [...out.values()], partsRemaining };
@@ -1153,59 +1324,6 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
       for (const v of sourceVerdicts) {
         if (unroutedIds.has(v.sourceId) && v.verdict === "funded") v.verdict = "unrouted";
       }
-    }
-  }
-
-  // --- PHASE-1 ROUTE REPRICING (income-statement program, 2026-08-02) ---
-  //
-  // DRAIN TERM: a source whose mouth stands a buffer gets the ONE drain law
-  // (primitives.bufferDrainCarry - the same staged/CREEP_LIFETIME the corp's
-  // haulCarryNeeded applies) priced INTO its routes, distributed by carry
-  // share, so the plan and the fleet size from the same two terms. Before
-  // this the corp fielded the drain and X6 had to be judged against the
-  // corp's own stamp ("rest against the plan route, drain-blind") - ~1.0 e/t
-  // of real fleet stood permanently outside the budget.
-  //
-  // TRANSIENT FLOOR: a scavenge stock's route computing a fraction of a CARRY
-  // still buys a whole floor body (CarryCorp's 3-CARRY runt rule), so its
-  // spawn-parts price floors at scavengeFloorParts - the account's
-  // "transient-route haulers (unbudgeted)" 2.0 e/t becomes a budgeted line.
-  //
-  // Post-pass ON PURPOSE: both terms are stock-shaped (flow-independent), so
-  // charging them at admission (chargePerUnit) would distort marginal
-  // pricing; they are small by construction (the drain law clears one
-  // generation; the floor is 6 parts) and land inside the plan's 10%
-  // execution headroom the same way the fleet they price does.
-  const transientById = new Map(problem.sources.filter(s => s.transient).map(s => [s.id, s]));
-  const stagedById = new Map(
-    problem.sources.filter(s => !s.transient && (s.staged ?? 0) > 0).map(s => [s.id, s.staged ?? 0])
-  );
-  if (stagedById.size > 0 || transientById.size > 0) {
-    const bySource = new Map<string, typeof haulers>();
-    for (const h of haulers) {
-      const list = bySource.get(h.sourceId) ?? [];
-      list.push(h);
-      bySource.set(h.sourceId, list);
-    }
-    for (const [sourceId, staged] of stagedById) {
-      const routes = bySource.get(sourceId);
-      if (!routes || routes.length === 0) continue;
-      const totalCarry = routes.reduce((s, h) => s + h.carryParts, 0);
-      for (const h of routes) {
-        const share = totalCarry > 0 ? h.carryParts / totalCarry : 1 / routes.length;
-        const drainCarry = bufferDrainCarry(staged * share, h.distance);
-        if (drainCarry <= 0) continue;
-        h.carryParts += drainCarry;
-        h.spawnParts += ((h.paved ? 1.5 : 2) * drainCarry) / effectiveLife(h.distance);
-      }
-    }
-    for (const [sourceId] of transientById) {
-      const routes = bySource.get(sourceId);
-      if (!routes || routes.length === 0) continue;
-      const total = routes.reduce((s, h) => s + h.spawnParts, 0);
-      const nearest = routes.reduce((a, b) => (a.distance <= b.distance ? a : b));
-      const floor = scavengeFloorParts(nearest.distance);
-      if (total < floor) nearest.spawnParts += floor - total;
     }
   }
 

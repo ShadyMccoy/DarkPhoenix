@@ -12,7 +12,7 @@ import {
   classifyHaulerTick,
   CONTROLLER_STARVE_FLOOR
 } from "../../../src/corps/haulPolicy";
-import { pickRuntToRecycle } from "../../../src/corps/recycle";
+import { pickRuntToRecycle, worthABody } from "../../../src/corps/recycle";
 // The tender-regime lens moved to its neutral home (spec 35 phase D; the
 // reader corp no longer owns the writer kind's regime definition).
 import { tenderOwnsExtensions } from "../../../src/corps/regimes";
@@ -469,6 +469,95 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
         corp.getSpawnDemand(ctx).length,
         "bootstrap keeps the strict ask - the ramp needs every CARRY"
       ).to.be.greaterThan(0);
+    });
+
+    /**
+     * THE DEAD-BAND'S CURRENCY (spec 55 mechanism 2, the 2026-08-09 owner
+     * go-ahead). The band absorbed the +-1 CARRY solve wiggle by riding any
+     * deficit under HALF THE HEAL BODY - but the heal body scales with spawn
+     * capacity, so at 5,600 the band was 9-12 CARRY, ~10x the measured
+     * wiggle, and the five most-piled sources stamped `deadband` in pile
+     * order, every solve, forever (t72874433: the cut fell between staged
+     * 2,590 and 2,569; 19.48 e/t of ground decay = 17% of funded capacity).
+     * The band is now denominated in the MEASURED JITTER (primitives
+     * HAUL_ASK_JITTER_CARRY): a 1-CARRY wiggle still rides to EOL, anything
+     * above it is a real drain deficit and buys the body. The pounce is
+     * untouched - its floor-share classification plus the full-size
+     * affordability gate already close the t72773737 loop, and the heal
+     * branch buys SHARE-sized bodies, so a fired ask can never mint the runt
+     * the pounce would cull (the two-sided requirement of spec 55 SS5).
+     */
+    it("MATURE at live scale: a drain deficit above the solve jitter ASKS (the rank-order shape, cd8d)", () => {
+      const nodeId = "W1N1-hauling-liverank";
+      const corp = carryCorp(nodeId);
+      // The live shape: capacity 5,600, one route, carryNeeded 22 (drain
+      // priced into the plan route), one 18-CARRY body standing. Count 1/1,
+      // deficit 4 - UNDER half the heal body (11), OVER the jitter (1).
+      corp.setHaulerAssignments([{ ...route("controller-cccc", 50, 6), carryParts: 22 }]);
+      const creeps: Record<string, unknown> = {
+        big: {
+          memory: { corpId: nodeId, workType: "haul" },
+          spawning: false,
+          store: { getCapacity: () => 900 },
+          getActiveBodyparts: (part: string) => (part === "carry" ? 18 : 0)
+        }
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = { ...MockGame, creeps, time: 100 };
+
+      expect(
+        corp.getSpawnDemand({ ...ctx, storageBacked: true, energyCapacity: 5600 }).length,
+        "four CARRY of drain is a real deficit, not solve wiggle - the mature ask must fire"
+      ).to.be.greaterThan(0);
+    });
+
+    it("MATURE at live scale: the fleet is STABLE after the heal (no ask, and the incumbent is no runt)", () => {
+      const nodeId = "W1N1-hauling-postheal";
+      const corp = carryCorp(nodeId);
+      corp.setHaulerAssignments([{ ...route("controller-cccc", 50, 6), carryParts: 22 }]);
+      // Post-heal fleet: the incumbent 18 plus the share-sized heal body 22.
+      const creeps: Record<string, unknown> = {};
+      [18, 22].forEach((carry, i) => {
+        creeps[`p${i}`] = {
+          memory: { corpId: nodeId, workType: "haul" },
+          spawning: false,
+          store: { getCapacity: () => carry * 50 },
+          getActiveBodyparts: (part: string) => (part === "carry" ? carry : 0)
+        };
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = { ...MockGame, creeps, time: 100 };
+
+      expect(
+        corp.getSpawnDemand({ ...ctx, storageBacked: true, energyCapacity: 5600 }),
+        "covered fleet: no further ask - the loop terminates in one buy"
+      ).to.deep.equal([]);
+      // And the 18-body is NOT a runt to the pounce's own predicate (18 is
+      // well above half the 22 share), so no cull follows the heal either:
+      // one buy, stable state - the anti-treadmill contract at unit grain.
+      expect(worthABody(22 - 18, 22), "the incumbent rides - no cull, no oscillation").to.equal(false);
+    });
+
+    it("MATURE at live scale: a drained pile self-retires the ask (fleet covered at sustained size)", () => {
+      const nodeId = "W1N1-hauling-selfretire";
+      const corp = carryCorp(nodeId);
+      // Pile cleared: the plan's routes re-price back to sustained (18).
+      corp.setHaulerAssignments([{ ...route("controller-cccc", 50, 6), carryParts: 18 }]);
+      const creeps: Record<string, unknown> = {
+        one: {
+          memory: { corpId: nodeId, workType: "haul" },
+          spawning: false,
+          store: { getCapacity: () => 900 },
+          getActiveBodyparts: (part: string) => (part === "carry" ? 18 : 0)
+        }
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = { ...MockGame, creeps, time: 100 };
+
+      expect(
+        corp.getSpawnDemand({ ...ctx, storageBacked: true, energyCapacity: 5600 }),
+        "sustained-size fleet on a clean mouth: nothing to buy"
+      ).to.deep.equal([]);
     });
 
     it("MATURE: a REAL heal-branch gap (>= half the heal body) still asks", () => {
@@ -1129,9 +1218,15 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
     });
 
     it("drops into the BUFFER when the link is full - instead of waiting", () => {
-      expect(pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 2000, storageFree: 1000 })).to.equal(
-        "portBuffer"
-      );
+      expect(
+        pickStorageDeposit({
+          depositPos: port,
+          portFree: 0,
+          portBufferFree: 2000,
+          portTended: true,
+          storageFree: 1000
+        })
+      ).to.equal("portBuffer");
     });
 
     it("falls back to WAIT when the link is full and the buffer is too", () => {
@@ -1158,9 +1253,59 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
 
     it("still spills when the hub is full but the BUFFER has room (income first)", () => {
       // A full hub must not strand a load the buffer could take.
-      expect(pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 500, storageFree: 0 })).to.equal(
-        "portBuffer"
-      );
+      expect(
+        pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 500, portTended: true, storageFree: 0 })
+      ).to.equal("portBuffer");
+    });
+
+    /**
+     * THE TENDER CHECK (spec 57). The buffer's whole claim to second place on
+     * the ladder is that "energy in the container still needs the tender to
+     * move it across" - which is an argument that PRESUPPOSES a tender. With
+     * none, the drop is not a deposit, it is an abandonment: measured
+     * t72862894 the (44,12) container stood at 2000/2000 while `portFallbacks`
+     * read 0 on all 8 port-routed routes and `portWaits` ran to 602.
+     */
+    it("REFUSES the buffer when no tender drains it - a hole is not a sink", () => {
+      expect(
+        pickStorageDeposit({
+          depositPos: port,
+          portFree: 0,
+          portBufferFree: 2000,
+          portTended: false,
+          storageFree: 1000,
+          portWaitedTicks: 0
+        }),
+        "an untended buffer must not outrank the wait"
+      ).to.equal("wait");
+    });
+
+    it("...and hauls the load HOME rather than stranding it once the wait is spent", () => {
+      expect(
+        pickStorageDeposit({
+          depositPos: port,
+          portFree: 0,
+          portBufferFree: 2000,
+          portTended: false,
+          storageFree: 1000,
+          portWaitedTicks: 999
+        })
+      ).to.equal("storage");
+    });
+
+    it("treats UNKNOWN as untended - the one asymmetric failure on the ladder", () => {
+      // Guessing "tended" strands the load where nothing reads it; guessing
+      // "untended" costs the hub leg the hauler would have walked anyway. The
+      // buffer must be positively claimed.
+      expect(
+        pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 2000, storageFree: 1000, portWaitedTicks: 0 })
+      ).to.equal("wait");
+    });
+
+    it("still spills to the escape valve when the buffer is untended AND the hub is full", () => {
+      expect(
+        pickStorageDeposit({ depositPos: port, portFree: 0, portBufferFree: 2000, portTended: false, storageFree: 0 })
+      ).to.equal("none");
     });
   });
 

@@ -29,7 +29,7 @@
  * flows also never materialize as
  * CarryCorp haulers (commissionPlan skips them): the depot movers already run
  * the last legs - the extension tender (bank -> spawn/extensions) and the
- * ControllerFeederCorp (bank -> controller input) - and both size themselves
+ * LinkCorp (bank -> controller input) - and both size themselves
  * from these same primitives, so plan and runtime cannot drift apart.
  *
  * @module economy/bank
@@ -197,7 +197,7 @@ export interface BankPressure {
  * liquidity reserve), the room fills at ullage/1500 (storageAbsorbRate). They
  * lived in different modules with nothing tying them together, which is
  * exactly how the sink half stayed dimensionally wrong for so long - it min'd
- * an e/t rate against an absolute energy until spec 47. This is their ONE
+ * an e/t rate against an absolute energy until spec 58. This is their ONE
  * home: one storage read in, both rates out, so the pair cannot drift and the
  * invariants have somewhere to be tested.
  *

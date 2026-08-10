@@ -37,7 +37,8 @@ import { raidGuardKind } from "../corps/kinds/raidGuardKind";
 import { coreBusterKind } from "../corps/kinds/coreBusterKind";
 import { claimKind } from "../corps/kinds/claimKind";
 import { extensionTenderKind } from "../corps/kinds/extensionTenderKind";
-import { controllerFeederKind } from "../corps/kinds/controllerFeederKind";
+import { linkKind } from "../corps/kinds/linkKind";
+import { portPosts } from "../corps/nodeEnergy";
 import { harvestKind } from "../corps/kinds/harvestKind";
 import { carryKind } from "../corps/kinds/carryKind";
 import { upgradeKind } from "../corps/kinds/upgradeKind";
@@ -45,6 +46,8 @@ import { constructionKind } from "../corps/kinds/constructionKind";
 import { record as blackBox } from "../telemetry/BlackBox";
 import { plan as governorPlan } from "./CpuGovernor";
 import { hostileRooms } from "../utils/RoomDiscovery";
+import { guardTargetsFor } from "../utils/raidMeter";
+import { controllerLink } from "../corps/nodeEnergy";
 import type { CorpRegistry } from "./CorpRunner";
 
 /** Survives ticks, dies on global reset - rehydrated from Memory then. */
@@ -63,7 +66,7 @@ const KINDS: CorpKind[] = [
   coreBusterKind as CorpKind,
   claimKind as CorpKind,
   extensionTenderKind as CorpKind,
-  controllerFeederKind as CorpKind,
+  linkKind as CorpKind,
   constructionKind as CorpKind
 ];
 
@@ -105,6 +108,88 @@ function registerKinds(): void {
  * read spawns + draft only); dist is same-room Chebyshev and NOT
  * cross-room-safe - kinds needing room distance use roomLinearDistance.
  */
+/**
+ * DEPOT lens (spec 39 phase 4): which rooms have a storage, and which of those
+ * are link-fed. The depot movers (tender, feeder) are priced per DEPOT room by
+ * `infraSpawnLoad` but proposed per SPAWN room by their kinds, so without this
+ * the corps' budget and the colony's deduction disagree in exactly the
+ * early-game rooms that have no storage yet.
+ *
+ * CACHED on a stride because `controllerLink` runs a `findInRange`, and
+ * `liveProblem` is rebuilt EVERY tick while the adapter computes the same fact
+ * once per solve (every 1500t). Recomputing it per tick would add a scan the
+ * plan already pays for elsewhere - the waste class this phase exists to remove.
+ * Structures change on the order of hundreds of ticks, so a 50-tick stride is
+ * far inside the resolution of anything that reads it.
+ */
+let depotCache: { tick: number; depotRooms: string[]; linkFedRooms: string[] } | null = null;
+const DEPOT_LENS_STRIDE = 50;
+
+function depotLens(): { depotRooms: string[]; linkFedRooms: string[] } {
+  if (depotCache && Game.time - depotCache.tick < DEPOT_LENS_STRIDE) return depotCache;
+  const depotRooms: string[] = [];
+  const linkFedRooms: string[] = [];
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room.storage) continue;
+    depotRooms.push(roomName);
+    if (controllerLink(room)) linkFedRooms.push(roomName);
+  }
+  depotCache = { tick: Game.time, depotRooms, linkFedRooms };
+  return depotCache;
+}
+
+/**
+ * ARMED-ROOM lens (spec 51 phase 2): the union of every home's guard targets,
+ * which is what the raidGuard commission is BUDGETED for. Reads
+ * `guardTargetsFor` - the same function RaidGuardCorp holds its posts with, so
+ * "which rooms do we guard" and "what do we pay to guard them" can never become
+ * two answers.
+ *
+ * Deduped: a room two homes can both see is ONE guard's worth of budget (the
+ * kind binds it to its nearest home, reservationKind's rule).
+ *
+ * CACHED on the same reasoning as the depot lens - `liveProblem` rebuilds every
+ * tick, and this scans roomIntel per home. Raid meters move over tens of
+ * thousands of harvested energy, so a 50-tick stride is far inside the
+ * resolution of anything that reads it. A SIGHTED raid is not delayed by this:
+ * the corp's own targeting reads the lens live every tick; only the price waits.
+ */
+/**
+ * PORTED-ROOM lens (2026-08-08): home rooms carrying a deposit port that HAS a
+ * buffer container - the ports the port tender has a post at.
+ *
+ * Reads `portPosts`, the same function `PortTenderCorp` holds its post with and
+ * the flow adapter prices `infraSpawnLoad` from, so "which ports do we tend" and
+ * "what do we pay to tend them" can never become two answers. Cached on the same
+ * 50-tick stride and the same reasoning as the depot lens: liveProblem rebuilds
+ * every tick and links/containers move on the order of hundreds.
+ */
+let portCache: { tick: number; rooms: string[] } | null = null;
+
+function portRoomsLens(): string[] {
+  if (portCache && Game.time - portCache.tick < DEPOT_LENS_STRIDE) return portCache.rooms;
+  const rooms: string[] = [];
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (room.controller?.my && portPosts(room).length > 0) rooms.push(roomName);
+  }
+  portCache = { tick: Game.time, rooms: rooms.sort() };
+  return portCache.rooms;
+}
+
+let guardCache: { tick: number; rooms: string[] } | null = null;
+
+function guardedRoomsLens(spawns: ColonyProblem["spawns"]): string[] {
+  if (guardCache && Game.time - guardCache.tick < DEPOT_LENS_STRIDE) return guardCache.rooms;
+  const rooms = new Set<string>();
+  for (const home of new Set(spawns.map(s => s.pos.roomName))) {
+    for (const target of guardTargetsFor(home)) rooms.add(target);
+  }
+  guardCache = { tick: Game.time, rooms: [...rooms].sort() };
+  return guardCache.rooms;
+}
+
 function liveProblem(): ColonyProblem {
   const spawns: ColonyProblem["spawns"] = [];
   for (const name in Game.spawns) {
@@ -112,14 +197,19 @@ function liveProblem(): ColonyProblem {
     spawns.push({ id: s.id, pos: { x: s.pos.x, y: s.pos.y, roomName: s.pos.roomName } });
   }
   const expansionRoom = typeof Memory !== "undefined" ? Memory.expansion?.roomName : undefined;
+  const { depotRooms, linkFedRooms } = depotLens();
   return {
+    guardedRooms: guardedRoomsLens(spawns),
+    portRooms: portRoomsLens(),
     spawns,
     sources: [],
     sinks: [],
     dist: (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)),
     ...(expansionRoom ? { expansion: { roomName: expansionRoom } } : {}),
     freezes: { scouting: governorPlan().freezeScouting },
-    hostileRooms: [...hostileRooms()]
+    hostileRooms: [...hostileRooms()],
+    depotRooms,
+    linkFedRooms
   };
 }
 
@@ -221,7 +311,12 @@ function publishCorpCpu(tick: number): void {
     if (!cpuThisTick.has(corpId) && !ensureStore().has(corpId)) cpuEma.delete(corpId);
   }
   const top = [...cpuThisTick.entries()]
-    .map(([corpId, row]) => ({ corpId, kind: row.kind, cpu: Number(row.cpu.toFixed(3)), avg: Number((cpuEma.get(corpId) ?? row.cpu).toFixed(3)) }))
+    .map(([corpId, row]) => ({
+      corpId,
+      kind: row.kind,
+      cpu: Number(row.cpu.toFixed(3)),
+      avg: Number((cpuEma.get(corpId) ?? row.cpu).toFixed(3))
+    }))
     .sort((a, b) => b.avg - a.avg)
     .slice(0, CPU_TOP_ROWS);
   const rounded: { [kind: string]: number } = {};
@@ -348,6 +443,16 @@ export interface CorpCensusEntry {
    * body. Absent when the commission declares none (aux kinds, legacy).
    */
   fleet?: Commission["fleet"];
+  /**
+   * THE CORP BUDGET (spec 47), verbatim off the envelope - what this corp draws
+   * from the colony and what it yields back.
+   *
+   * Published so the statement can SUM the corps instead of re-deriving what it
+   * thinks they cost. The reporting layer's parallel reconstruction
+   * (`waste-ledger.planSpawnLoad`) is a second book; this is the first one.
+   */
+  consumes?: Commission["consumes"];
+  produces?: Commission["produces"];
 }
 
 /**
@@ -364,6 +469,8 @@ export function allCommissionedCorps(): CorpCensusEntry[] {
       kind: entry.kind,
       corp: entry.corp,
       commissionShape: entry.commission.shape,
+      consumes: entry.commission.consumes,
+      produces: entry.commission.produces,
       ...(entry.commission.fleet ? { fleet: entry.commission.fleet } : {})
     });
   }

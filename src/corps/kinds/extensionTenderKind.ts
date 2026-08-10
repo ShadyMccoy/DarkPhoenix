@@ -19,6 +19,7 @@ import { Commission } from "../../economy/Commission";
 import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
 import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/proposeHelpers";
+import { tenderSpawnLoad } from "../../economy/primitives";
 import { SerializedCorp } from "../Corp";
 import { ExtensionTenderCorp, SerializedExtensionTenderCorp } from "../ExtensionTenderCorp";
 import { buildTankerBody } from "../../spawn/BodyBuilder";
@@ -36,10 +37,17 @@ export const extensionTenderKind: CorpKind<ExtensionTenderCorp> = {
   runOrder: 40,
 
   propose(problem: ColonyProblem): Commission[] {
-    // Off-budget: a tender MOVES energy already produced (depot -> extensions),
-    // priced by the SpawnDirector's infrastructure tier, not the planner.
+    // ON-BUDGET since spec 39 phase 4: a tender detail costs the same
+    // `tenderSpawnLoad()` the colony's ledger already deducts as standing infra.
+    //
+    // Priced only where a DEPOT exists, because that is exactly how
+    // infraSpawnLoad charges it (`depotRoomCount`). The corp is still
+    // commissioned per spawn room - a room with no depot demands nothing at
+    // runtime - but charging it there would make the corps' sum exceed the
+    // colony's deduction in every pre-storage room. Same fact, both sides.
+    const depots = new Set(problem.depotRooms ?? []);
     return [...homeSpawnsByRoom(problem)].map(([roomName, spawnId]) =>
-      perRoomAuxiliaryCommission("tender", roomName, spawnId)
+      perRoomAuxiliaryCommission("tender", roomName, spawnId, undefined, depots.has(roomName) ? tenderSpawnLoad() : 0)
     );
   },
 

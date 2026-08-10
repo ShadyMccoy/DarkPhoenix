@@ -17,7 +17,12 @@
  */
 
 import { Colony } from "../colony/Colony";
-import { controllerSideStock, sourceBufferStock, sourceDroppedStock } from "../corps/nodeEnergy";
+import {
+  controllerSideStock,
+  sourceBufferStock,
+  sourceDroppedStock,
+  sourceMouthContainers
+} from "../corps/nodeEnergy";
 import { lossReport } from "./LossMeter";
 import { spawnSpendView } from "./spawnLedger";
 import { linkLedger } from "./LinkMeter";
@@ -108,6 +113,29 @@ export interface CoreTelemetry {
    */
   bodyParts: BodyAggregate;
   /**
+   * ENERGY THE FLEET IS HOLDING right now (v38) - the last gap the account's
+   * balance sheet names in its own text ("creep cargo not measured").
+   *
+   * The energy account balances by construction, so its RESIDUAL is the whole
+   * point of the report. At t72874433 it read +4.97 e/t (4% of gross mining);
+   * one window later, -21.50 e/t (19% OVER-attributed) - a 26.5 e/t swing and
+   * the wrong sign, which no leak can produce and only a mis-measurement can.
+   * Every stock the capture DOES measure moved ~4.7 e/t between those two
+   * captures against a 21.50 e/t gap.
+   *
+   * Cargo is the candidate with the right magnitude: 408 CARRY parts standing
+   * at the base capture is ~20,400e that can be in flight at either end, and a
+   * window that catches the fleet loaded at one capture and empty at the other
+   * moves exactly that much across the books with no line to carry it. This
+   * field does not argue that - it TESTS it, and the residual either closes or
+   * it does not.
+   *
+   * Always emitted, 0 included: the field exists to close a balancing identity,
+   * and an absent key cannot distinguish "the fleet carried nothing" from
+   * "nobody looked".
+   */
+  creepCargo: number;
+  /**
    * Spawn meter (spec 14 phase 3): MEASURED utilization per spawn over a
    * rolling ~1500-tick window. Every busy tick builds exactly 1/3 part, so
    * `partsPerTick = utilization / 3` - no spawn-start detection, no receipt
@@ -170,8 +198,36 @@ export interface CoreTelemetry {
    * ceil(amount/1000) per tick, so this is the only part that rots. Exported
    * so the audit's energy account can price ground rot as its own line instead
    * of leaving it inside the unattributed residual.
+   *
+   * DECLARED v19, FIRST EMITTED v36. Between those it was computed into a
+   * local and then dropped on the floor - never added to the returned object,
+   * so it produced ZERO data points across every capture in
+   * `test/fixtures/telemetry/` and `fiscalArchive` archived `sd: undefined`
+   * for every fiscal month. Spec 54 open item 8 recorded the consequence
+   * without the cause: "BLOCKED on the absent `sourceDropped` meter". It was
+   * not absent, it was unplugged. A field that is declared, filled and never
+   * returned reads exactly like a field that is legitimately empty.
    */
   sourceDropped?: { [idTail: string]: number };
+  /**
+   * The CONTAINER census at each visible source mouth (v37), same keys as
+   * `sourceBuffers`: how many stand there (`n`), their summed free capacity
+   * (`free`) and the weakest one's hits fraction (`hp`).
+   *
+   * v36's split localised the ledger's top line to "the container is at cap and
+   * everything after that rots" - and then, one window later, produced a
+   * reading the split cannot explain: cd8d's container went 2000 -> 0 while its
+   * ground pile GREW. Container energy of 0 reads identically whether the
+   * container is empty, has just died and dumped its load on the ground, or was
+   * never there. Those are three different bugs with three different fixes, so
+   * the stock alone can only support a hypothesis (spec 59 section 4).
+   *
+   * `n: 0` is emitted rather than omitted: "this source has no container" is the
+   * positive claim spec 54 open item 8 wanted about the home sources, and an
+   * absent key cannot make it. `free`/`hp` are omitted where `n` is 0 - there is
+   * nothing to be full or damaged.
+   */
+  sourceMouth?: { [idTail: string]: { n: number; free?: number; hp?: number } };
   /**
    * Our construction sites in visible UNOWNED rooms (v9): the owned-room
    * ledger's siteCount misses cross-room trunk paving entirely - the P8
@@ -409,6 +465,17 @@ export function updateCoreTelemetry(
     creeps.tracked += n;
   }
   creeps.untracked = Math.max(0, creeps.total - creeps.tracked);
+
+  // CREEP CARGO (v38): the energy the fleet is holding right now. The balance
+  // sheet has named this gap in its own text since it was written ("creep cargo
+  // not measured") and the account's residual has been carrying it silently.
+  // Always emitted, 0 included - the field exists to close a BALANCING
+  // identity, and an omitted key would put the reader back where they started,
+  // unable to tell "the fleet carried nothing" from "nobody looked".
+  let creepCargo = 0;
+  for (const name in Game.creeps) {
+    creepCargo += Game.creeps[name]?.store?.[RESOURCE_ENERGY] ?? 0;
+  }
   // NAME the leak (X3 sat at 3-4 for days with no names): creeps whose
   // memory.corpId resolves to NO census corp, listed with the id they
   // claim. This is its OWN lens (id-match), deliberately separate from the
@@ -488,6 +555,7 @@ export function updateCoreTelemetry(
   // source's mouth - the over/under-haul read.
   const sourceBuffers: NonNullable<CoreTelemetry["sourceBuffers"]> = {};
   const sourceDropped: NonNullable<CoreTelemetry["sourceDropped"]> = {};
+  const sourceMouth: NonNullable<CoreTelemetry["sourceMouth"]> = {};
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     let sources: Source[] = [];
@@ -504,6 +572,10 @@ export function updateCoreTelemetry(
       sourceBuffers[source.id.slice(-6)] = stock;
       const dropped = sourceDroppedStock(source);
       if (dropped !== null && dropped > 0) sourceDropped[source.id.slice(-6)] = dropped;
+      // v37: container energy of 0 is three different worlds (empty / died and
+      // dumped its load / never existed) and the stock cannot say which.
+      const mouth = sourceMouthContainers(source);
+      if (mouth !== null) sourceMouth[source.id.slice(-6)] = mouth;
     }
   }
 
@@ -594,7 +666,11 @@ export function updateCoreTelemetry(
   const telemetry: CoreTelemetry = {
     // v15 collided on two branches (corpCpu vs link core-fill/hub-clamp); both
     // shipped, so the merge advances to v16 to name the combined schema.
-    version: 35, // v34 siteLedger; v35 rooms[].containers - the container table by ROLE, the first structure inventory (owner 2026-08-06)
+    // v34 siteLedger; v35 rooms[].containers - the container table by ROLE, the first structure inventory (owner 2026-08-06);
+    // v36 sourceDropped ACTUALLY EMITTED (declared v19, never returned - zero data points until now)
+    // v37 sourceMouth - the container census at each mouth (there? at cap? dying?), because container energy 0 is three different worlds
+    // v38 creepCargo - the balance sheet's last NAMED gap, and the leading candidate for the residual's -21.50 sign flip at t72875067
+    version: 38,
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
@@ -615,10 +691,13 @@ export function updateCoreTelemetry(
     },
     ...(Memory.warchestTarget !== undefined ? { warchestTarget: Memory.warchestTarget } : {}),
     creeps,
+    creepCargo,
     bodyParts,
     spawns,
     agenda,
     ...(Object.keys(sourceBuffers).length > 0 ? { sourceBuffers } : {}),
+    ...(Object.keys(sourceDropped).length > 0 ? { sourceDropped } : {}),
+    ...(Object.keys(sourceMouth).length > 0 ? { sourceMouth } : {}),
     ...(Object.keys(remoteSites).length > 0 ? { remoteSites } : {}),
     ...(Object.keys(siteLedger).length > 0 ? { siteLedger } : {}),
     ...(() => {

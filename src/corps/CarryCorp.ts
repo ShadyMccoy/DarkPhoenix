@@ -17,12 +17,23 @@ import { isIntelId, isScavengeId, parsePositionalId, stripSourcePrefix } from ".
 import { SCAVENGE_THRESHOLD } from "../economy/scavenge";
 import { isTenderCreep } from "./censusLens";
 import { tenderOwnsExtensions } from "./regimes";
-import { CoreDepot, controllerDeliverySpot, coreDepot, scavengeSpot, sourcePickupSpot, workSpot } from "./nodeEnergy";
+import {
+  CoreDepot,
+  PORT_BUFFER_RANGE,
+  controllerDeliverySpot,
+  coreDepot,
+  livePortTenders,
+  pickPortBuffer,
+  scavengeSpot,
+  sourcePickupSpot,
+  workSpot
+} from "./nodeEnergy";
 import { travelToLane, travelToQueued } from "./movement";
 import { driveRecycle, runtUpsizeThreshold, worthABody } from "./recycle";
 import {
   CARRY_MOVE_PAIR_COST,
   CREEP_LIFETIME,
+  HAUL_ASK_JITTER_CARRY,
   bufferDrainCarry,
   carryPartsFor,
   depositRouteCarryCap,
@@ -1038,7 +1049,15 @@ export class CarryCorp extends Corp {
     const decision = pickStorageDeposit({
       depositPos,
       portFree: port ? port.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
-      ...(portBuffer ? { portBufferFree: portBuffer.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 } : {}),
+      ...(portBuffer
+        ? {
+            portBufferFree: portBuffer.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0,
+            // Counted the same way the LinkCorp's demand side counts its own
+            // tenders (spec 57) - so "there is a drain here" and "we need a
+            // drain here" can never be two different answers.
+            portTended: livePortTenders(portBuffer.room) > 0
+          }
+        : {}),
       storageFree: storage && storage.my ? storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0 : 0,
       portWaitedTicks
     });
@@ -1131,19 +1150,22 @@ export class CarryCorp extends Corp {
   /** Resolve a deposit port position to its live link, or null if it is gone /
    * not ours (delivery then falls back to the storage hub). */
   /**
-   * The container buffering this port link, if one has been built. Range 2 is
-   * not arbitrary: it is the radius `bestPortContainerTile` sites within,
-   * which is itself the radius a parked tender can bridge (a tile adjacent to
-   * both). Nearest-first so a room with several containers nearby picks the
-   * one actually beside the link.
+   * The container buffering this port link, if one has been built - through
+   * `pickPortBuffer`, the ONE predicate every reader shares (spec 56).
+   *
+   * The bare range-2 scan that stood here is what bound the CONTROLLER's feed
+   * store as a port buffer at t72862894: haulers dropped loads into the
+   * upgraders' container, the tender correctly refused to pump the
+   * controller's supply back out through a link, and the load sat there. The
+   * delivery side and the drain side must resolve the same container or the
+   * drop has no drain - the staffsPost-symmetry class, asked about a structure.
    */
   private resolvePortBuffer(port: StructureLink): StructureContainer | null {
     try {
-      const found = port.pos.findInRange(FIND_STRUCTURES, 2, {
+      const found = port.pos.findInRange(FIND_STRUCTURES, PORT_BUFFER_RANGE, {
         filter: s => s.structureType === STRUCTURE_CONTAINER
       }) as StructureContainer[];
-      if (found.length === 0) return null;
-      return found.reduce((a, b) => (port.pos.getRangeTo(a.pos) <= port.pos.getRangeTo(b.pos) ? a : b));
+      return pickPortBuffer(port.pos, found, port.room?.controller?.pos);
     } catch {
       return null; // partial harness link without a wired pos.findInRange
     }
@@ -1528,19 +1550,28 @@ export class CarryCorp extends Corp {
     // DEMAND-side gate, not affordability - and two gates here can produce it.
     this.lastExit = "staffed";
     if (current >= targetHaulers && fieldedCarry >= carryNeeded) return [];
-    // MATURE DEAD-BAND (the sliver-ask, t72773737): the heal actuator is a
-    // whole spawn purchase, and the drain-priced routes move carryNeeded
-    // +-1 CARRY solve to solve as buffers stage and clear. A count-complete
-    // fleet within HALF the heal body of its route rides to natural
-    // replacement (EOL re-sizes for free) instead of buying the sliver the
-    // pounce would then cull an incumbent over - the even-share treadmill
-    // that bought d01f eight bodies in ~1200t (5.17 e/t vs a 1.27 e/t plan).
-    // Bootstrap keeps the strict ask: the ramp needs every CARRY (worthABody
-    // is the one predicate both this gate and the pounce read).
+    // MATURE DEAD-BAND (the sliver-ask, t72773737 - RE-DENOMINATED 2026-08-09,
+    // spec 55 mechanism 2, owner go-ahead): the heal actuator is a whole
+    // spawn purchase, and the drain-priced routes move carryNeeded +-1 CARRY
+    // solve to solve as buffers stage and clear. That WIGGLE is what the band
+    // absorbs - and it is ~1 CARRY, not half a heal body. The old band
+    // (!worthABody(gap, healBody)) scaled with spawn capacity: 9-12 CARRY at
+    // 5,600, ~10x the wiggle, and the five most-piled sources stamped
+    // `deadband` in exact pile order every solve, forever (t72874433;
+    // 19.48 e/t of ground decay = 17% of funded capacity). A count-complete
+    // fleet within the JITTER of its route rides to natural replacement (EOL
+    // re-sizes for free); a deficit above it is a real drain and buys the
+    // body. The treadmill stays closed from the POUNCE side, deliberately
+    // untouched: floor-share runt classification + the full-size
+    // affordability gate + one-at-a-time, and the heal branch below buys
+    // SHARE-sized bodies, so a fired ask cannot mint the runt the pounce
+    // would cull (spec 55 SS5's two-sided fence - pinned by the live-scale
+    // stability tests). Bootstrap keeps the strict ask: the ramp needs every
+    // CARRY.
     if (
       ctx.storageBacked === true &&
       current >= targetHaulers &&
-      !worthABody(carryNeeded - fieldedCarry, haulerBodyCarry(ctx.energyCapacity, carryNeeded))
+      carryNeeded - fieldedCarry <= HAUL_ASK_JITTER_CARRY
     ) {
       this.lastExit = "deadband";
       return [];

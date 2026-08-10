@@ -5,14 +5,28 @@ import {
   ACCOUNT_CLASS_OF_ROLE,
   F1_CLASS_OF_KIND,
   F1_PLAN_PREFIX,
+  METHODOLOGY,
   computeChurn,
   computeLedger,
   formatAccounts,
+  formatLedger,
   formatSourcePnL,
   planSpawnLoad
 } from "../../../scripts/waste-ledger";
 import { ALL_CORP_KINDS, ALL_SPAWN_ROLES } from "../../../src/execution/CommissionHost";
-import { haulerOverhead, reserverSpawnLoad } from "../../../src/economy/primitives";
+import {
+  ATTACK_MOVE_PER_PART,
+  CARRY_MOVE_PER_PART,
+  CLAIM_MOVE_PER_PART,
+  feederSpawnLoad,
+  haulerOverhead,
+  reserverSpawnLoad,
+  roomGuardSpawnLoad,
+  roomReserverSpawnLoad,
+  tenderSpawnLoad
+} from "../../../src/economy/primitives";
+import { BASE_RESERVE, bankFedControllerRate } from "../../../src/economy/bank";
+import { categoryOfKind, classifiedKinds } from "../../../src/economy/accountCategory";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -57,10 +71,19 @@ describe("waste ledger (spec 15 phase 1)", () => {
     const p4 = rows2.find(r => r.id === "P4")!;
     // 2026-08-04: the recompute prices the feeder at the sip-floor law
     // (STORAGE_UPGRADE_TARGET dropped), ~1.3% of ceiling below the era's own
-    // 15-based plan - the boundary fixture reads 0.987 now. The pin's
-    // subject is unchanged: AT the budget-dry boundary the ledger must not
-    // print a false RED on recompute drift.
-    expect(p4.value).to.be.greaterThan(0.98); // the boundary shape, not a slack plan
+    // 15-based plan - the boundary fixture read 0.987.
+    //
+    // METHODOLOGY #17 moves it again, to 0.936, and the direction is the
+    // demonstration: the tender line used to be `sizing.target x MEASURED
+    // body`, which on this era's fixture was 3 x 24 = 72p where the plan
+    // charges TENDER_FLEET_PARTS = 48p. An actuals-fed budget reads high
+    // exactly when the fleet is fat, and low when it is thin - on the LIVE
+    // capture the same fix moves this line the other way (43p -> 48p). That
+    // is what "the budget moved with the fleet it exists to judge" costs.
+    //
+    // The pin's subject is unchanged: AT the budget-dry boundary the ledger
+    // must not print a false RED on recompute drift.
+    expect(p4.value).to.be.greaterThan(0.93); // the boundary shape, not a slack plan
     expect(p4.verdict).to.not.equal("FAIL"); // hot, worth watching - never a false red
   });
 
@@ -274,6 +297,66 @@ describe("waste ledger (spec 15 phase 1)", () => {
     const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
     expect(p8.verdict).to.equal("FAIL");
     expect(p8.detail).to.contain("CREW IDLE");
+  });
+
+  /**
+   * P8 MEASURES BUILD PROGRESS DIRECTLY (methodology #15, audit t72842655).
+   *
+   * P8's value was the sum of three acknowledged FLOORS - the home rooms'
+   * `siteProgress` delta, the road-receipts ratchet, and the poolWork
+   * remaining-decrease - each documented in place as undercounting. None is a
+   * measurement, and none can see a REMOTE site that completed and left the
+   * ledger, because every one of them reads state that vanishes with the site.
+   *
+   * Measured t72842655: `building-W43N21-construction` took its `produced`
+   * counter 6,270 -> 12,310 in 1,314 ticks - 6,040 units, 4.60 e/t - clearing
+   * 17 of 18 road sites. P8 reported the window at a small fraction of that and
+   * the ENERGY ACCOUNT, which reads P8 verbatim, booked construction ACTUAL at
+   * 0.42 e/t against a 30.00 budget. The -29.58 variance was the meter, not the
+   * colony; and the previous cycle's entry repeated "0 e/t built" as fact.
+   *
+   * The direct measurement was already published: a ConstructionCorp's
+   * `unitsProduced` IS build progress (segment 4 v14), so P8 now sums the
+   * construction corps' `produced` deltas and keeps the floors only as a
+   * fallback for captures that predate the counter.
+   *
+   * Per-corp deltas clamp at zero. A corp destroyed and rebuilt restarts its
+   * counter (measured -885 on `building-W43N24-construction` when the invader
+   * core took the room), and a negative delta is lost history, not negative
+   * building - so it undercounts, in the same direction as the floors it
+   * replaces.
+   */
+  it("P8 reads the construction corps' produced counters, not the vanishing site fields", () => {
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    // Sites standing at both ends and construction funded - the shape that used
+    // to read "CREW IDLE" - but the corp counter says 6,040 units were built.
+    Object.assign(capB.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    capB.data.flow.sinks.push({ id: "construction-x", type: "construction", allocated: 90 });
+    capB.data.corps.corps.push({ id: "building-W1N1-construction", kind: "construction", produced: 6270 });
+    capA.data.corps.corps.push({ id: "building-W1N1-construction", kind: "construction", produced: 12310 });
+    const dt = capA.tick - capB.tick;
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.value, "the corp counter is the measurement").to.be.closeTo(6040 / dt, 0.01);
+    expect(p8.verdict, "a crew that built 6,040 units is not idle").to.not.equal("FAIL");
+    expect(p8.detail).to.not.contain("CREW IDLE");
+  });
+
+  it("P8 clamps a rebuilt corp's counter reset to zero rather than booking negative building", () => {
+    // building-W43N24-construction went -885 when the invader core took the
+    // room and the corp was rebuilt. Lost history, not negative progress.
+    const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72420978.json")));
+    const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72421124.json")));
+    Object.assign(capB.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    Object.assign(capA.data.core.rooms[0], { siteCount: 1, siteProgress: 500, siteTotal: 5000 });
+    capB.data.corps.corps.push({ id: "building-A-construction", kind: "construction", produced: 885 });
+    capA.data.corps.corps.push({ id: "building-A-construction", kind: "construction", produced: 0 });
+    capB.data.corps.corps.push({ id: "building-B-construction", kind: "construction", produced: 1000 });
+    capA.data.corps.corps.push({ id: "building-B-construction", kind: "construction", produced: 3000 });
+    const dt = capA.tick - capB.tick;
+    const p8 = computeLedger(capA, capB).find(r => r.id === "P8")!;
+    expect(p8.value, "the reset contributes 0, not -885").to.be.closeTo(2000 / dt, 0.01);
   });
 
   it("P8 renders the siteLedger by room with window delta and ETA (core v34, owner 2026-08-05: stay informed of construction progress)", () => {
@@ -1167,6 +1250,185 @@ describe("F1 plan fidelity (waste ledger)", () => {
     expect(guard[2]).to.be.closeTo(10 / 1500, 1e-9);
   });
 
+  it("methodology #17: the depot-mover BUDGETS are the primitives, not a ledger recompute", () => {
+    // THE SECOND-BOOK CLASS, third instance. Methodology #8 caught the reserver
+    // line recomputing continuous duty while the primitive priced 0.5 (an +8.02 F
+    // "favorable" variance that was pure arithmetic); #7 caught P4's hauler line
+    // re-deriving spawnParts. This is the feeder and the tender.
+    //
+    // Measured t72849380: the ledger printed `feeder @ relay 100 (link-fed d1)
+    // 16p=0.011` while the feeder COMMISSION declared 0.02135 - exactly 2x,
+    // because the recompute `2 * carryPartsFor(relay, 1)` predates spec 45's
+    // volley-service floor and `feederSpawnLoad` clamps to it. The ledger was
+    // showing the plan charging half what it charges, on the account's single
+    // worst unfavourable line (infra -1.97 budget vs -12.61 actual).
+    //
+    // The tender line had the OTHER shape of the same defect: `sizing.target x
+    // measured body` is ACTUALS-FED, so its budget moved with the fleet it was
+    // supposed to judge.
+    const corps = [
+      {
+        id: "moving-W1N1-controllerFeeder",
+        kind: "controllerFeeder",
+        creepCount: 1,
+        bodyParts: 100,
+        body: { carry: 50, move: 50 },
+        sizing: { linkFed: true, relayRate: 100 }
+      },
+      { id: "moving-W1N1-tender", kind: "tender", creepCount: 2, bodyParts: 86, sizing: { target: 2 } }
+    ];
+    const cap = mk([], [0], corps);
+    const lines = planSpawnLoad(cap).lines;
+    const relay = bankFedControllerRate(0, BASE_RESERVE);
+
+    const feeder = lines.find(([n]) => String(n).startsWith("feeder"))!;
+    expect(feeder[2], "the feeder budget IS feederSpawnLoad - volley floor and all").to.be.closeTo(
+      feederSpawnLoad(relay, true),
+      1e-12
+    );
+
+    const tender = lines.find(([n]) => String(n).startsWith("tender"))!;
+    expect(tender[2], "the tender budget IS tenderSpawnLoad - one depot detail, not the measured fleet").to.be.closeTo(
+      tenderSpawnLoad(),
+      1e-12
+    );
+    // And it must NOT move when the fielded tender fleet does - that is what
+    // "actuals-fed budget" means, and it is the thing spec 14 forbids.
+    const fatter = mk([], [0], [corps[0], { ...corps[1], creepCount: 4, bodyParts: 300, sizing: { target: 4 } }]);
+    const tender2 = planSpawnLoad(fatter).lines.find(([n]) => String(n).startsWith("tender"))!;
+    expect(tender2[2], "a fatter fielded fleet does not raise its own budget").to.be.closeTo(tender[2], 1e-12);
+  });
+
+  it("methodology #16: the defense BUDGET is the PLAN's armed-room price, not the standing bodies", () => {
+    // #14 priced this line from the guards standing at capture time, which made
+    // the variance circular - measured bodies on both sides can never disagree.
+    // Since spec 51 phase 2 the plan itself charges one guard per ARMED room, so
+    // the budget reads that count and a gap becomes a real F1 signal.
+    const corps = [
+      { id: "raidGuard-A-raidGuard", kind: "raidGuard", creepCount: 1, bodyParts: 10, body: { attack: 5, move: 5 } }
+    ];
+    const cap = mk([], [0], corps);
+    // The solve was armed for THREE rooms; only one guard is standing right now.
+    cap.data.flow.fleetCharge = { infraInputs: { guardedRooms: 3 } };
+    const guard = planSpawnLoad(cap).lines.find(([n]) => String(n).startsWith("defense"))!;
+    expect(guard[2], "three armed rooms, not one standing body").to.be.closeTo(3 * (10 / 1500), 1e-12);
+    expect(guard[1], "and the parts column follows the same count").to.equal(30);
+
+    // A quiet solve prices nothing even with a guard still walking home.
+    const quiet = mk([], [0], corps);
+    quiet.data.flow.fleetCharge = { infraInputs: { guardedRooms: 0 } };
+    expect(planSpawnLoad(quiet).lines.find(([n]) => String(n).startsWith("defense"))).to.equal(undefined);
+
+    // Pre-spec-51 capture (no count published): the #14 measured reconstruction
+    // still runs, so old captures keep producing a defense line.
+    const legacy = planSpawnLoad(mk([], [0], corps)).lines.find(([n]) => String(n).startsWith("defense"))!;
+    expect(legacy[2]).to.be.closeTo(10 / 1500, 1e-12);
+  });
+
+  /**
+   * THE SECOND-BOOK CLASS, fifth instance - and the first on the ENERGY side.
+   *
+   * #16 (above) converged the defense line's PARTS onto the plan's armed-room
+   * count. Its ENERGY RATE was left behind: the account priced those parts from
+   * whatever guard bodies happened to be standing, defaulting to a hand-written
+   * 80 e/part when none were, while `infraSpawnEnergy` - the charge the colony's
+   * own solve deducts - prices the identical parts at ATTACK_MOVE_PER_PART = 65.
+   *
+   * The 23% gap landed in exactly the window #16 exists to make readable: the
+   * plan budgets a guard for an armed room and no body is standing yet. That is
+   * the F1 signal, and it was arriving pre-corrupted by an accounting constant.
+   *
+   * The classes below are the ones BOTH books price, so the invariant is simply
+   * that they agree. Guards are the case that was broken; feeder/tender/reserver
+   * are pinned beside them so the next divergence fails here rather than
+   * printing.
+   */
+  it("methodology #18: the infra ENERGY budget IS infraSpawnEnergy's own per-class rates", () => {
+    // The F1-signal case: three armed rooms priced by the plan, NO guard body
+    // standing to reconstruct a rate from.
+    const cap = mk([], [0], []);
+    cap.data.flow.fleetCharge = { infraInputs: { guardedRooms: 3 } };
+    const { energy } = planSpawnLoad(cap);
+    expect(
+      energy["defense (guards)"],
+      "guards are ATTACK+MOVE pairs - 65 e/part, the same rate the colony's charge uses"
+    ).to.be.closeTo(3 * roomGuardSpawnLoad() * ATTACK_MOVE_PER_PART, 1e-12);
+
+    // And it must not move when a body IS standing: the budget is the plan's,
+    // never the fielded fleet's (spec 14 - no actuals-fed budgets).
+    const standing = mk([], [0], [
+      { id: "raidGuard-A-raidGuard", kind: "raidGuard", creepCount: 1, bodyParts: 10, body: { attack: 5, move: 5 } }
+    ]);
+    standing.data.flow.fleetCharge = { infraInputs: { guardedRooms: 3 } };
+    expect(planSpawnLoad(standing).energy["defense (guards)"]).to.be.closeTo(energy["defense (guards)"], 1e-12);
+
+    // The other two classes both books price, pinned against the same constants.
+    const depot = mk([], [0], [
+      {
+        id: "moving-W1N1-controllerFeeder",
+        kind: "controllerFeeder",
+        creepCount: 1,
+        bodyParts: 100,
+        body: { carry: 50, move: 50 },
+        sizing: { linkFed: true, relayRate: 100 }
+      },
+      { id: "moving-W1N1-tender", kind: "tender", creepCount: 2, bodyParts: 86, sizing: { target: 2 } },
+      { id: "reservation-A-reservation", kind: "reservation", creepCount: 1, bodyParts: 4, sizing: { targets: 2 } }
+    ]);
+    const de = planSpawnLoad(depot).energy;
+    const relay = bankFedControllerRate(0, BASE_RESERVE);
+    const feederKey = Object.keys(de).find(k => k.startsWith("feeder"))!;
+    expect(de[feederKey]).to.be.closeTo(feederSpawnLoad(relay, true) * CARRY_MOVE_PER_PART, 1e-12);
+    expect(de.tenders).to.be.closeTo(tenderSpawnLoad() * CARRY_MOVE_PER_PART, 1e-12);
+    expect(de["reservers (claim life)"]).to.be.closeTo(2 * roomReserverSpawnLoad() * CLAIM_MOVE_PER_PART, 1e-12);
+  });
+
+  /**
+   * THE COST COLUMN ADDS UP (methodology #18).
+   *
+   * `TOTAL SPAWN (plan fleet, priced)` is the whole plan's fleet in energy, and
+   * the six cost lines above it are supposed to BE that fleet, split by
+   * account. So their budgets must sum to it - not approximately, exactly.
+   *
+   * They did agree before this was pinned, but only algebraically: four lines
+   * projected `planSpawnLoad`'s energy map while extraction and evacuation were
+   * reduced independently from `flow.sources` / `flow.haulers`. Two derivations
+   * that happen to be equal are one edit away from not being, and nothing would
+   * have caught it - the column has no self-check, and TOTAL SPAWN is the line
+   * the CONTROLLER VARIANCE BRIDGE charges its "fleet costs more than the plan
+   * prices" term against. A silent split there would have moved the bridge's
+   * closure into "rounding" and stayed there.
+   *
+   * Now every line reads the one book, so this is structural. Verified equal to
+   * 1e-15 across all 25 committed fixtures before the unification.
+   */
+  it("methodology #18: the six cost-line budgets SUM to the TOTAL SPAWN budget", () => {
+    const text = formatAccounts(cap72411542, cap72404213, computeLedger(cap72411542, cap72404213));
+    const budgetOf = (label: string): number => {
+      const line = text.split("\n").find(l => l.includes(label));
+      if (!line) throw new Error(`no line matching "${label}" in:\n${text}`);
+      const nums = (line.slice(line.indexOf(label) + label.length).match(/-?\d+\.\d\d/g) ?? []).map(Number);
+      // BUDGET ACTUAL VARIANCE - the budget is the FIRST of the three.
+      expect(nums.length, `"${label}" is a budgeted line`).to.be.greaterThanOrEqual(3);
+      return nums[0];
+    };
+    const parts = [
+      "extraction  (miner)",
+      "evacuation  (hauler)",
+      "reservation (reserver)",
+      "infra      (tanker, feeder, scout)",
+      "defense    (guard)",
+      "consumers  (upgrader, builder)"
+    ].map(budgetOf);
+    const total = budgetOf("= TOTAL SPAWN (plan fleet, priced)");
+    const sum = parts.reduce((s, v) => s + v, 0);
+    // 0.01 is the printed precision, not a tolerance on the arithmetic.
+    expect(sum, `lines ${parts.map(p => p.toFixed(2)).join(" + ")} vs total ${total.toFixed(2)}`).to.be.closeTo(
+      total,
+      0.011
+    );
+  });
+
   it("still surfaces a kind with NO plan line as UNPRICED (the detector outlives the hole)", () => {
     // An unpriced CLASS is a different defect from a mispriced one: no amount
     // of tuning an existing line can find it. The detector must survive the
@@ -1256,14 +1518,57 @@ describe("F1 class map covers every registered corp kind", () => {
  * A chart of accounts with an anonymous bucket is not a chart of accounts.
  */
 describe("energy account: every spawnable role has an account", () => {
+  /**
+   * Roles the bot really buys from OUTSIDE the kind registry, so `ALL_SPAWN_ROLES`
+   * (derived from the kinds' own `roles` declarations) cannot see them. Each
+   * needs a named reason - the set exists so a typo still fails the ghost check
+   * rather than being waved through as "probably one of those".
+   */
+  const BOUGHT_OUTSIDE_THE_REGISTRY = new Set([
+    // BootstrapCorp spawns jacks directly, bypassing the SpawningCorp executor
+    // (it accrues to the ledger itself). There is no bootstrapKind to declare
+    // the role, but the spend is real and lands in the account.
+    "jack"
+  ]);
+
   it("classifies every role any registered kind can buy", () => {
     const unclassified = ALL_SPAWN_ROLES.filter(r => !ACCOUNT_CLASS_OF_ROLE[r]);
     expect(unclassified, `roles with no account: ${unclassified.join(", ")}`).to.deep.equal([]);
   });
 
   it("maps no role that no kind declares (the ghost-key check)", () => {
-    const ghosts = Object.keys(ACCOUNT_CLASS_OF_ROLE).filter(r => !ALL_SPAWN_ROLES.includes(r));
+    const ghosts = Object.keys(ACCOUNT_CLASS_OF_ROLE).filter(
+      r => !ALL_SPAWN_ROLES.includes(r) && !BOUGHT_OUTSIDE_THE_REGISTRY.has(r)
+    );
     expect(ghosts, `mapped roles no kind buys: ${ghosts.join(", ")}`).to.deep.equal([]);
+  });
+
+  /**
+   * `jack` was the last role with no account, printing as a dangling
+   * `UNCLASSIFIED [jack]` line - one of the three role-keying defects spec 51
+   * names. The plan's vocabulary already had its home: `CATEGORY_OF_KIND`
+   * classifies kind `bootstrap`, and `AccountCategory`'s own comment reads
+   * "cold-start bodies, before the economy exists to classify them".
+   *
+   * BootstrapCorp used to argue the opposite - "no account class on purpose ...
+   * which is honest for a pre-economy body" - but the honesty there is the
+   * ABSENT BUDGET, not the absent name, and a named line keeps the first while
+   * dropping the second. Pinned both ways: it is classified, and it stays inside
+   * overhead where the unclassified bucket already carried it, so naming it
+   * moved no total.
+   */
+  it("gives the cold-start body a NAME, not an UNCLASSIFIED bucket", () => {
+    expect(ACCOUNT_CLASS_OF_ROLE.jack).to.equal("bootstrap");
+    expect(categoryOfKind("bootstrap"), "the two tables agree on the line").to.equal(ACCOUNT_CLASS_OF_ROLE.jack);
+  });
+
+  it("shares ONE vocabulary with the plan side - every role class is a real AccountCategory", () => {
+    // The two tables key differently (role here, kind there) but must name the
+    // same lines. TypeScript pins this at compile time; this pins it against the
+    // plan side's actual roster so a category retired there fails here.
+    const planCategories = new Set(classifiedKinds().map(k => categoryOfKind(k) as string));
+    const strays = [...new Set(Object.values(ACCOUNT_CLASS_OF_ROLE))].filter(c => !planCategories.has(c));
+    expect(strays, `role classes no kind reports on: ${strays.join(", ")}`).to.deep.equal([]);
   });
 
   it("keeps expansion OUT of operating cost (capex, funded from the reserve)", () => {
@@ -2515,10 +2820,15 @@ describe("methodology #10: the recovery P&L (cure vs illness, published)", () =>
     expect(detail).to.include("5.0");
   });
 
-  it("the header stamps methodology #14 (TARGETS denominator = capacity; #12 capacity rule unchanged)", () => {
+  it("the header stamps the CURRENT methodology, whatever it is", () => {
+    // Reads METHODOLOGY rather than restating it: the contract is that a report
+    // carries its own stamp (spec 41 - two reports compare only at the same
+    // one), not that the number is any particular value. Hardcoding it here
+    // made the constant a second book, so every bump broke a test that was
+    // never about the bump.
     const { cap, base } = rig(zero);
     const text = formatAccounts(cap, base, computeLedger(cap, base));
-    expect(text).to.include("[methodology #14]");
+    expect(text).to.include(`[methodology #${METHODOLOGY}]`);
   });
 });
 
@@ -2640,7 +2950,7 @@ describe("methodology #14: the controller target is scored against CAPACITY", ()
     };
     expect(terms.get("controller")!.v).to.be.closeTo(actualOf("controller (score)"), 0.01);
     expect(terms.get("bank")!.v).to.be.closeTo(actualOf("to/(from) bank"), 0.01);
-    expect(terms.get("build")!.v).to.be.closeTo(actualOf("construction (site progress)"), 0.01);
+    expect(terms.get("build")!.v).to.be.closeTo(actualOf("construction (built, measured)"), 0.01);
   });
 
   it("each term's PERCENT is that term over capacity - the shares cannot drift from the values", () => {
@@ -2709,15 +3019,26 @@ describe("the budget column balances by construction (methodology #11, t72773737
       budgetOf("= total overhead") +
       budgetOf("= measured losses") -
       budgetOf("controller (score)") -
-      budgetOf("construction (site progress)") -
+      budgetOf("construction (built, measured)") -
       budgetOf("to/(from) bank");
-    expect(Math.abs(identity), `budget column sums to zero (got ${identity.toFixed(2)})`).to.be.lessThan(0.01);
+    // Tolerance is PRINT ROUNDING, not slack in the identity. This sums ten
+    // figures parsed back out of the formatted account at 2dp, so the worst
+    // case is 10 x 0.005 = 0.05. The old 0.01 was passing by luck: the
+    // 2026-08-07 feeder resize moved the bank residual and the printed terms
+    // landed at exactly 0.010000000000001 - a rounding artifact reading as a
+    // broken identity. The identity itself is exact by construction.
+    expect(Math.abs(identity), `budget column sums to zero (got ${identity.toFixed(2)})`).to.be.lessThan(0.05);
   });
 
   it("the bank budget is the plan residual, not the solver's routed net draw (-55.16 at t72773737)", () => {
     const bank = budgetOf("to/(from) bank");
     expect(bank, "the routed -55.16 fiction is gone").to.be.greaterThan(0);
-    expect(bank).to.be.closeTo(21.1, 1.0); // 100 - 30.50 fleet - 3.59 link - 5.17 losses - 39.64 ctrl
+    // 100 - fleet - 3.59 link - 5.17 losses - 39.64 ctrl. METHODOLOGY #17 raised
+    // the depot-mover budgets to the primitives' price (+1.28 e/t on this
+    // fixture), and because the column balances BY CONSTRUCTION the residual
+    // that falls to the bank drops by exactly that: 21.1 -> 19.82. The identity
+    // test above is what guarantees this pin only ever moves for that reason.
+    expect(bank).to.be.closeTo(19.82, 1.0);
   });
 
   it("the solver's routed net bank flow stays visible in the over-routing note", () => {
@@ -2754,3 +3075,226 @@ describe("P12 valve coherence (published allocation vs the phase-D law)", () => 
   });
 });
 
+
+/**
+ * THE SOURCE P&L'S RECONCILIATION CLAIM WAS AN ASSERTION, NOT A CHECK
+ * (audit cycle t72874433).
+ *
+ * The P&L closes with a printed sentence: *"RECONCILES to the colony account:
+ * miner X = extraction line; reserve Y = reservation line."* At t72874433 it
+ * printed `reserve 11.80 = reservation line` while the colony account's
+ * reservation line read **18.90** - a 60% mis-statement, presented to the
+ * reader as a reconciliation.
+ *
+ * Neither number is wrong. They are measured over DIFFERENT WINDOWS:
+ *
+ *  - the account's spawn lines moved to the cumulative spawn ledger at
+ *    methodology #7 (`core.spawnSpend.energyByRole`, differenced between the
+ *    two captures) precisely because the blackbox ring is heap state that a
+ *    deploy resets - here, 619 ticks;
+ *  - the P&L needs per-CORP attribution, which the by-role cumulative ledger
+ *    cannot give, so it still reads the ring - here, 1,102 ticks.
+ *
+ * Reserver purchases are lumpy (one 1,300e body per room per ~600t), so the
+ * same spend normalised over two windows differs by more than half. The claim
+ * was true when both sides read the ring and has been false since #7, silently,
+ * because nothing computed it.
+ *
+ * It is not cosmetic: the P&L's `net` column is what the planner's own
+ * `candidates[].net` is compared against, and that comparison "ADMITS OR
+ * REJECTS a source" by the row's own words. Charging reservation at 1.18 e/t
+ * per source instead of the window's 1.89 flatters every remote's net by
+ * ~0.7 e/t - cbd8 reads -1.66 against plan where the capture window says
+ * ~-2.85.
+ *
+ * The fix keeps both numbers (neither basis is available to the other) and
+ * replaces the assertion with the arithmetic: state each side's window, and
+ * print the DELTA where they can be compared at all.
+ */
+describe("SOURCE P&L: the reconciliation is computed, not asserted (t72874433)", () => {
+  const cap = fixture("shard1-t72874433.json");
+  const base = fixture("shard1-t72873814.json");
+
+  it("states the window its costs are measured over", () => {
+    const pnl = formatSourcePnL(cap, base);
+    expect(pnl, "the ring window must be on the page - a rate without its window is not a reading").to.match(
+      /RING \(1102t\)/
+    );
+    expect(pnl, "and the account's window beside it").to.match(/CAPTURE WINDOW \(619t\)/);
+  });
+
+  it("never claims a reconciliation it has not computed", () => {
+    const pnl = formatSourcePnL(cap, base);
+    // The old text asserted equality between two numbers it never compared.
+    expect(pnl, "no bare RECONCILES claim").to.not.match(/RECONCILES to the colony account/);
+  });
+
+  it("prints the measured gap when the two windows disagree", () => {
+    const pnl = formatSourcePnL(cap, base);
+    // reservation: ring 11.80 e/t vs capture-window 18.90 e/t.
+    expect(pnl).to.include("11.80");
+    expect(pnl, "the account's own window must appear beside it").to.include("18.90");
+  });
+
+  it("says they AGREE when the two windows coincide", () => {
+    // Same capture on both sides of the difference: the account's window is 0
+    // ticks and unusable, so the comparison must be withheld, not faked.
+    const pnl = formatSourcePnL(cap, cap);
+    expect(pnl, "a degenerate window is stated, never differenced").to.match(/not comparable|no account window/i);
+  });
+
+  it("still renders without a base capture (the report is callable on one)", () => {
+    const pnl = formatSourcePnL(cap);
+    expect(pnl).to.not.equal("");
+    expect(pnl, "no fabricated comparison").to.not.match(/RECONCILES to the colony account/);
+  });
+});
+
+/**
+ * X3 FAILED ON A LEAK THE CAPTURE ALREADY DISPROVES (audit cycle t72875067).
+ *
+ * X3 has read exactly **4 untracked creeps** at t72871684, t72873814,
+ * t72874433 and t72875067 - four captures, four different fleet sizes (53, 54,
+ * 66, 59), the same 4 - and FAILED every time on the `> 2 ⇒ orphan leak`
+ * threshold. It is not an orphan leak, and the core segment has carried the
+ * proof the whole time in TWO fields the row never read:
+ *
+ *  - **`creeps.unattributed`** - every creep whose `memory.corpId` matches no
+ *    census corp, named. **Absent in all four captures**, and absent means
+ *    EMPTY (this codebase omits empty optionals so absent and zero stay
+ *    different facts). Zero orphans, every capture.
+ *  - **`creeps.countMismatch`** - corps whose id-attributed creep count differs
+ *    from their own `getCreepCount`. Its excess is **exactly 4** in all four
+ *    captures, and it names the corps.
+ *
+ * `untracked` is a difference of two lenses (`total` minus the sum of
+ * `getCreepCount`); `unattributed` is an id-match lens. The code that emits
+ * them says why they are separate, and names this exact case in its own
+ * comment - *"untracked 3, unattributed EMPTY - so corps exist that don't COUNT
+ * creeps they own, the newborn/recycling counting-lens class, not orphans"*.
+ * The ledger row then re-derived the leak from the count alone.
+ *
+ * `moving-W43N23-controllerFeeder` claims 3 and counts 1 in ALL FOUR captures -
+ * the LinkCorp absorbed two roles (walking feeder + parked port tender, spec
+ * 54) and its count lens follows one of them. That is the standing +2. The
+ * other +2 rotates across whichever corp has a newborn or a recycler in flight.
+ *
+ * So: FAIL only where the capture cannot ACQUIT it. Orphans (a non-empty
+ * `unattributed`) still fail on the original threshold; a difference the
+ * reconciliation accounts for warns and names the corps, because a corp
+ * mis-counting its own creeps is a real defect - just not a leaking one, and it
+ * must not outrank the energy lines (spec 58a's ranking argument).
+ */
+describe("X3: an untracked count the capture reconciles is not an orphan leak (t72875067)", () => {
+  const base = fixture("shard1-t72874433.json");
+  const x3 = (cap: any) => computeLedger(cap, base).find(r => r.id === "X3")!;
+
+  /** A capture clone whose creep census is replaced wholesale. */
+  const withCensus = (creeps: any): any => {
+    const c = JSON.parse(JSON.stringify(fixture("shard1-t72875067.json")));
+    c.data.core.creeps = creeps;
+    return c;
+  };
+
+  it("does not FAIL the live capture: unattributed empty, countMismatch accounts for all 4", () => {
+    const live = fixture("shard1-t72875067.json");
+    expect(live.data.core.creeps.unattributed, "no orphans in the capture").to.equal(undefined);
+    const excess = (live.data.core.creeps.countMismatch as any[]).reduce(
+      (n, m) => n + Math.max(0, m.claimed - m.counted),
+      0
+    );
+    expect(excess, "the mismatch accounts for the untracked count exactly").to.equal(
+      live.data.core.creeps.untracked
+    );
+    expect(x3(live).verdict, "reconciled ⇒ not a leak").to.not.equal("FAIL");
+    expect(x3(live).detail, "and it must name the corps that mis-count").to.include("controllerFeeder");
+  });
+
+  it("STILL FAILS on real orphans - a creep whose corpId matches no corp", () => {
+    const cap = withCensus({
+      total: 59,
+      tracked: 55,
+      untracked: 4,
+      byKind: {},
+      unattributed: [
+        { name: "a", corpId: "mining-GONE-harvest-dead" },
+        { name: "b", corpId: null },
+        { name: "c", corpId: "mining-GONE-harvest-dead" },
+        { name: "d", corpId: null }
+      ]
+    });
+    expect(x3(cap).verdict, "named orphans are the leak X3 exists for").to.equal("FAIL");
+  });
+
+  it("FAILS when the reconciliation does NOT add up - the residual is unexplained", () => {
+    // countMismatch explains 1 of 4. The other 3 have no account at all, which
+    // is the state that should have alarmed all along.
+    const cap = withCensus({
+      total: 59,
+      tracked: 55,
+      untracked: 4,
+      byKind: {},
+      countMismatch: [{ corpId: "moving-W43N23-controllerFeeder", claimed: 2, counted: 1 }]
+    });
+    expect(x3(cap).verdict).to.equal("FAIL");
+    expect(x3(cap).detail).to.include("unexplained");
+  });
+
+  it("stays ok at or below the original threshold regardless", () => {
+    const cap = withCensus({ total: 59, tracked: 57, untracked: 2, byKind: {} });
+    expect(x3(cap).verdict).to.equal("ok");
+  });
+});
+
+describe("TOP LINE picker ranks FAILs by the e/t they NAME (spec 58a, methodology #19)", () => {
+  // Measured mis-ranks: t72871684 printed S5 (a dimensionless margin) over L1
+  // at 69.28x budget; t72884395 and t72898387 printed P1 (a flip COUNT naming
+  // no energy) over L1 at 53.3x / 60.0x. The two numbers share no axis, so
+  // "first FAIL wins" ranked counts against energy. The law: a FAIL that
+  // names an energy rate outranks any FAIL that does not; among named rows,
+  // largest rate first; rows naming none are listed, not promoted. The
+  // binding-constraint half of 58a's counter-argument prints S5 alongside
+  // when the spawn is actually tight - both facts, neither hidden.
+  const row = (id: string, verdict: "FAIL" | "WARN" | "ok", energyRate?: number, value = 1): any => ({
+    id,
+    name: `${id} name`,
+    value,
+    unit: "u",
+    verdict,
+    detail: "detail",
+    ...(energyRate !== undefined ? { energyRate } : {})
+  });
+
+  it("a FAIL naming e/t outranks an earlier FAIL naming none (the P1-over-L1 mis-rank)", () => {
+    const out = formatLedger([row("P1", "FAIL"), row("L1", "FAIL", 15.54)], 2, 1);
+    expect(out).to.include("TOP LINE: L1");
+    expect(out).to.include("15.54 e/t named");
+  });
+
+  it("FAILs naming no e/t are still listed beside the top line, not hidden", () => {
+    const out = formatLedger([row("P1", "FAIL"), row("H3", "FAIL"), row("L1", "FAIL", 15.54)], 2, 1);
+    expect(out).to.include("also FAIL");
+    expect(out).to.include("P1");
+    expect(out).to.include("H3");
+  });
+
+  it("among named FAILs the largest rate wins", () => {
+    const out = formatLedger([row("L2", "FAIL", 3.1), row("L1", "FAIL", 15.54)], 2, 1);
+    expect(out).to.include("TOP LINE: L1");
+  });
+
+  it("all-unnamed FAILs keep the first-row pick (no named row to promote)", () => {
+    const out = formatLedger([row("P1", "FAIL"), row("H3", "FAIL")], 2, 1);
+    expect(out).to.include("TOP LINE: P1");
+  });
+
+  it("prints the BINDING line when S5 reads tight (>= 0.95 of the ceiling)", () => {
+    const out = formatLedger([row("L1", "FAIL", 15.54), row("S5", "ok", undefined, 0.97)], 2, 1);
+    expect(out).to.include("BINDING: S5");
+  });
+
+  it("no binding line when the spawn has headroom", () => {
+    const out = formatLedger([row("L1", "FAIL", 15.54), row("S5", "ok", undefined, 0.72)], 2, 1);
+    expect(out).to.not.include("BINDING");
+  });
+});

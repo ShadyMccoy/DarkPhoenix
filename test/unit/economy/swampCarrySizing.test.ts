@@ -101,7 +101,7 @@ describe("route -> ticks (swamp, move ratio, carry fill, roads)", () => {
  * idle the drop-off is blamed for.
  *
  * Match the actuator to the quantum it serves - the worthABody doctrine's
- * cousin. The cap reuses `volleyServiceCarry()` (LINK_CAPACITY/CARRY_CAPACITY
+ * cousin. The cap reuses `volleyServiceCarry()` (LINK_PAYLOAD_CARRY
  * = 16), the SAME primitive the feeder's volley-service floor reads, so the
  * unloading side and the draining side cannot drift apart.
  *
@@ -109,11 +109,14 @@ describe("route -> ticks (swamp, move ratio, carry fill, roads)", () => {
  * quantum, and their bodies are sized by the route's own round trip.
  */
 describe("deposit-route body cap: the landing quantum (spec 45 leg 3)", () => {
-  const { depositRouteCarryCap, volleyServiceCarry } = require("../../../src/economy/primitives") as typeof import("../../../src/economy/primitives");
+  // LINK_PAYLOAD_CARRY, not volleyServiceCarry: the two split 2026-08-07 when
+  // the core shuttle was resized to 4/sender. This cap is about what fits in a
+  // LINK per arrival (16) and is unaffected by how big the shuttle needs to be.
+  const { depositRouteCarryCap, LINK_PAYLOAD_CARRY } = require("../../../src/economy/primitives") as typeof import("../../../src/economy/primitives");
 
   it("caps a deposit route at ONE full volley of CARRY", () => {
     // The live shape: a 37-CARRY body (1,851e) on a port route.
-    expect(depositRouteCarryCap(37, true)).to.equal(volleyServiceCarry());
+    expect(depositRouteCarryCap(37, true)).to.equal(LINK_PAYLOAD_CARRY);
     expect(depositRouteCarryCap(37, true)).to.equal(16);
   });
 
@@ -129,6 +132,6 @@ describe("deposit-route body cap: the landing quantum (spec 45 leg 3)", () => {
   it("reads the SAME primitive as the feeder's volley-service floor (one home, no drift)", () => {
     // If one side is ever retuned the other follows by construction - the
     // unloading quantum and the draining quantum are the same physical fact.
-    expect(depositRouteCarryCap(99, true)).to.equal(volleyServiceCarry());
+    expect(depositRouteCarryCap(99, true)).to.equal(LINK_PAYLOAD_CARRY);
   });
 });

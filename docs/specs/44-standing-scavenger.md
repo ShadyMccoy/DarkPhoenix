@@ -109,6 +109,54 @@ and waits only on the owner's go (the "don't rush" gate is theirs).**
    at a ~96% recovery rate; the LIFECYCLE waste, a fresh corp+body per
    reforming pile every ~490t, is the real line).
 
+4. **THE OUTFLOW SPLIT — landed 2026-08-08 (audit t72866607), and it is the
+   number this design was missing.** The SCAV row judged each scavenger on
+   net-energy-per-spawn-part against the marginal funded route; decay was in
+   NONE of its terms, so it read `ok` while every stock lost. The row now
+   publishes the split of the pile's one outflow — what we collect against what
+   the engine takes (`scavengeOutflowSplit`, pure + unit-tested):
+
+   ```
+   OUTFLOW SPLIT (the pile is a wasting asset): planned drain 3.05 e/t vs
+   decay 15.00 e/t => we collect 17%, the engine takes 83%;
+   LOSING on 5 of 5 stocks:
+     W42N22-8-8   3452e  decay 4 vs drain 0.69   LOSING
+     W43N22-30-30 3992e  decay 4 vs drain 0.57   LOSING
+     W42N21-37-2  3303e  decay 4 vs drain 0.54   LOSING
+     W43N21-14-37 1896e  decay 2 vs drain 0.57   LOSING
+     W43N23-36-27   99e  decay 1 vs drain 0.69   LOSING
+   ```
+
+   Those five stocks' 15.00 e/t is **80% of the account's entire 18.68 e/t
+   pile-decay line** — the L1 top line is the scavenge pace, measured, not
+   inferred.
+
+   **The sizing law is circular.** `scavengeRate = min(20, amount/2 /
+   effectiveLife(d))` sizes from the STOCK over a full creep life, and its own
+   docstring writes the loss off — *"what decay takes anyway was never
+   recoverable at this pace"*. The pace is the free variable, so the write-off
+   is self-fulfilling. The recycle census corroborates the regime exactly:
+   `recycled why: eol-tail 100%` this window and `scavenge-drained 1%` over the
+   38k-tick window — the scavengers age out and the piles never clear.
+
+   **What I could NOT settle, stated so nobody re-derives it.** Bursting a pile
+   clear in ~150t is worth **-7.17 e/t** if the body is charged over its whole
+   creep life, and **+5,510e over these four stocks** if charged only for the
+   ticks it works. The accounting convention flips the sign, so neither is a
+   number to act on; and the 50-part body cap makes the per-stock optimum
+   (38-85 CARRY) 2-4 bodies anyway, which is what made the t72447104
+   displacement real.
+
+   **The convention-free framing, which is the one this spec should size on:**
+   drop the stock entirely and size the STANDING fleet to the pile FORMATION
+   rate. Collecting 18.68 e/t at the mean stock distance (~65) needs
+   `carryPartsFor(18.68, 65)` = 49.3 CARRY = two 25-pair bodies = 100 parts =
+   4,930e, amortised **3.44 e/t** over their life, **0.070 p/t** of the ledger.
+   Against 18.68 e/t recovered that is ~**+15 e/t net**, and 0.070 p/t fits the
+   measured slack (0.464 budget - 0.392 spent = 0.072) with nothing to spare.
+   No per-pile horizon, no midpoint approximation, no convention to pick —
+   which is why it is the framing to design against.
+
 ## Open questions (deliberately unanswered)
 
 - One recovery corp per ROOM or per COLONY? (Travel between rooms vs fleet

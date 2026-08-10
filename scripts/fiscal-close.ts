@@ -156,7 +156,7 @@ function closeOne(caps: Capture[], boundary: number, dry: boolean): string | nul
     "",
     "```",
     formatAccounts(cap, base, rows),
-    formatSourcePnL(cap),
+    formatSourcePnL(cap, base),
     "",
     formatLedger(rows, cap.tick, base.tick),
     "```",

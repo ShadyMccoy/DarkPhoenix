@@ -75,7 +75,7 @@ terrain ─▶ Nodes ─▶ FlowGraph ─▶ ColonyProblem ─▶ ColonyPlan ─
    `perInstanceSinkValue` over `DEFAULT_SINK_VALUE` (the ladder, ONTOLOGY §7);
    controllers carry the anti-downgrade `reserve`. Sink CAPACITIES are where
    the world's absorption limits enter the plan: storage =
-   `storageAbsorbRate(ullage)` (the drain law's absorb half, spec 47),
+   `storageAbsorbRate(ullage)` (the drain law's absorb half, spec 58),
    controller = `controllerRoutingCapacity` under `controllerUpgradeCap`
    (parking×WORK, and the RCL8 game throttle — `controllerMaxUpgradeRate`),
    construction = the sum-of-projects absorb. A CONSUMPTION-CONSTRAINED

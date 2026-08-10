@@ -310,7 +310,23 @@ declare global {
      * instruments join.
      */
     pileMeter?: {
-      [sourceTail: string]: { t0: number; last: number; samples: number; held: number; since: number };
+      [sourceTail: string]: {
+        t0: number;
+        last: number;
+        samples: number;
+        held: number;
+        since: number;
+        /**
+         * DURABLE MOUTH STOCK (2026-08-07): the buffer the miner last actually
+         * SAW, and the tick it saw it. The miner stands at the mouth while it
+         * works, so its read always succeeds; the SOLVE's read
+         * (`Game.getObjectById`) returns null in any remote room with no creep
+         * in it right now. Without this the plan priced zero drain for exactly
+         * the piled remotes - see flowAdapter's staged lens.
+         */
+        stock?: number;
+        stockAt?: number;
+      };
     };
 
     spawnAgenda?: {
@@ -429,6 +445,39 @@ declare global {
     spawnLedger?: {
       energyByRole: Record<string, number>;
       partsByRole: Record<string, number>;
+    };
+
+    /**
+     * THE HANDICAP SWEEP (economy/spawnSweep, owner 2026-08-06). The planner's
+     * spawn-capacity margin, walked 0%..20% one step per fiscal month so each
+     * month's income statement describes exactly one handicap.
+     *
+     * ABSENT MEANS UNARMED, and that is the safety property: every grid cell,
+     * sim and unit test - and a live colony whose Memory was wiped - falls back
+     * to the static SPAWN_PLAN_FRACTION (0.9, measured-good), never to the 1.0
+     * that overheated the colony on 2026-08-04.
+     */
+    spawnSweep?: {
+      pct: number;
+      step: number;
+      lastBoundary: number;
+      cycle: number;
+      lastProgress?: number;
+      stepReason?: string;
+    };
+
+    /**
+     * THE FISCAL ARCHIVE (telemetry/fiscalArchive, spec 50). A ring of
+     * month-boundary accounting snapshots the bot takes itself, published to
+     * segment 8, so an unattended fiscal month is still closeable long after it
+     * ended. Memory-backed for the same reason as lossLedger and spawnLedger
+     * above: heap state is bounded by VM lifetime (~480t), which is shorter
+     * than the 1500-tick month it would have to survive.
+     */
+    fiscalArchive?: {
+      recs: Record<string, unknown>[];
+      pending?: number;
+      dropped?: number;
     };
 
     /**
@@ -686,7 +735,7 @@ declare global {
 
     /**
      * True while a storage bank exists AND a live controller feeder is relaying it
-     * to the controller input. Set by ControllerFeederCorp, read by CarryCorp: when
+     * to the controller input. Set by LinkCorp, read by CarryCorp: when
      * set, controller-bound loads stop at the storage (the feeder runs the short
      * last leg to the upgraders); when the feeder dies it clears and haulers resume
      * delivering to the controller directly (so a dead feeder never starves

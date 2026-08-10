@@ -49,7 +49,7 @@ describe("Telemetry spawn meter (segment 0, spec 14 phase 3)", () => {
     tickOnce(t, 104, true);
 
     const core = JSON.parse(RawMemory.segments[0]);
-    expect(core.version).to.equal(35); // v35: rooms[].containers - the container table by ROLE
+    expect(core.version).to.equal(38); // v38: creepCargo - the balance sheet's last named gap
     const m = core.spawns[0];
     expect(m.id).to.equal("sid1");
     expect(m.windowTicks).to.equal(4);

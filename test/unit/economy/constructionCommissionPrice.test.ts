@@ -6,7 +6,7 @@ import {
   constructionWorkSpawnLoad,
   operationSpawnLoad
 } from "../../../src/economy/primitives";
-import { vectorSupplyPartsGait } from "../../../src/economy/roadEconomics";
+import { consumerUnitSpawnLoad, vectorSupplyPartsGaitRate } from "../../../src/economy/roadEconomics";
 
 /**
  * Spec 34 D4: the commission price is ALL-IN. A construction sink's declared
@@ -46,10 +46,16 @@ describe("construction commission price is ALL-IN (spec 34 D4: WORK bodies + sup
     // vector is priced at the 3C:1M tanker's real loaded gait, unpaved worst
     // case - the 1:1-laden-both-ways model under-priced every unpaved
     // campaign ~2x and F1 booked the fielded fleet as breach.
+    // Priced at the CONTINUOUS gait since spec 51 GAP 1 (2026-08-08): a budget
+    // is a rate, so it is not rounded up to a fieldable body - that rounding is
+    // what let this envelope and the planner's own fill drift 1.79x apart.
     const allIn = operationSpawnLoad(constructionWorkSpawnLoad(rate, d), [
-      { rate, distance: d, parts: vectorSupplyPartsGait(rate, d, 0, TANKER_CARRY_PER_MOVE_PLAIN) }
+      { rate, distance: d, parts: vectorSupplyPartsGaitRate(rate, d, 0, TANKER_CARRY_PER_MOVE_PLAIN) }
     ]);
     expect(build!.consumes.spawnPartsPerTick).to.be.closeTo(allIn, 1e-9);
+    // The whole price is the ONE per-unit law times the allocation - the
+    // property that makes it the same number the fill debits.
+    expect(build!.consumes.spawnPartsPerTick).to.be.closeTo(consumerUnitSpawnLoad("construction", d) * rate, 1e-9);
     // And the vector share is REAL (the old price was the node load alone),
     // sitting ABOVE the retired 1:1 model.
     expect(build!.consumes.spawnPartsPerTick).to.be.greaterThan(constructionWorkSpawnLoad(rate, d) + 1e-9);

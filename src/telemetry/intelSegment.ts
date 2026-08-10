@@ -41,6 +41,16 @@ export interface IntelTelemetry {
     invaderCorePresent?: boolean;
     raidDebt?: number;
     lastRaidSeen?: number;
+    /**
+     * When we last actually harvested here (spec 13). The guard's ARMED branch
+     * is `meterState === "armed" && Game.time - lastHarvested < 3000`, and
+     * without this field a capture cannot tell the two conjuncts apart: the
+     * production audit at t72829496 found one room ARMED on debt (W44N22,
+     * 86,180) while the corp still stamped `gate: "no-targets"`, and the
+     * remaining input was unreadable. A gate whose inputs are not all published
+     * can only be guessed at.
+     */
+    lastHarvested?: number;
     reservedUntil?: number;
     reservedBy?: string;
   }[];
@@ -76,6 +86,10 @@ export function updateIntelTelemetry(): void {
         ...(intel.invaderCorePresent !== undefined ? { invaderCorePresent: intel.invaderCorePresent } : {}),
         ...(intel.raidDebt !== undefined ? { raidDebt: intel.raidDebt } : {}),
         ...(intel.lastRaidSeen !== undefined ? { lastRaidSeen: intel.lastRaidSeen } : {}),
+        // The guard's OTHER conjunct - see the field doc. Published so
+        // `gate: "no-targets"` is decomposable from a capture instead of
+        // requiring a Memory pull.
+        ...(intel.lastHarvested !== undefined ? { lastHarvested: intel.lastHarvested } : {}),
         // Our reservation bank (spec 15 P5): the duty-cycle lens, exported
         // so a capture shows what the reserver gate coasts on.
         ...(intel.reservedUntil !== undefined ? { reservedUntil: intel.reservedUntil } : {}),
@@ -85,7 +99,7 @@ export function updateIntelTelemetry(): void {
   }
 
   const telemetry: IntelTelemetry = {
-    version: 1,
+    version: 2, // v2: lastHarvested - the guard's other ARMED conjunct (audit t72829496)
     tick: Game.time,
     rooms
   };

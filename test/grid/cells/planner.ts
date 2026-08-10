@@ -570,7 +570,7 @@ export const plannerCells: GridCell[] = [
 ];
 
 /**
- * THE CONSUMPTION-CONSTRAINED REGIME (spec 47) - the live ratchet the spec
+ * THE CONSUMPTION-CONSTRAINED REGIME (spec 58) - the live ratchet the spec
  * named as its own open item.
  *
  * Every other cell stages a colony whose problem is PRODUCTION. These stage

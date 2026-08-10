@@ -26,11 +26,9 @@
  */
 
 import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
-import { INVADER_TTL } from "../economy/primitives";
-import { raidMeterState } from "../utils/raidMeter";
+import { GUARD_MINED_RECENCY, guardTargetsFor } from "../utils/raidMeter";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { GUARD } from "../spawn/demandLadder";
-import { MAX_SCOUT_DISTANCE } from "./CorpConstants";
 import { buildGuardBody } from "../spawn/BodyBuilder";
 import { driveRecycle } from "./recycle";
 import { travelTo } from "./movement";
@@ -50,12 +48,11 @@ export const GUARD_RECYCLE_GRACE = 100;
 export const GUARD_ENGAGE_RANGE = 3;
 
 /**
- * How recently a room must have been harvested for its armed meter to field
- * a guard: two creep lifetimes - wide enough that no single death, re-solve
- * or vision gap un-arms an active mine, narrow enough that a genuinely
- * abandoned room stands its guard down.
+ * Re-exported from the lens that now owns it (utils/raidMeter) so this corp
+ * stays the readable home for guard doctrine while exactly one copy of the
+ * predicate exists.
  */
-export const GUARD_MINED_RECENCY = 3_000;
+export { GUARD_MINED_RECENCY };
 
 /**
  * Serialized state specific to RaidGuardCorp.
@@ -76,50 +73,14 @@ export class RaidGuardCorp extends SpawnAnchoredCorp {
   }
 
   /**
-   * Rooms that currently want a guard, from intel alone - the durable-signal
-   * doctrine (the stranded-reserver trap), taken all the way down: NOT live
-   * creep positions (flap on every miner death, blind without the dead
-   * miner's vision) and NOT the GOAL plan's remote content (measured in
-   * def-t4 dev: remotes flap in and out of the plan with home-saturation
-   * churn, idling the guard into its recycle grace mid-mission). The signal
-   * is the meter's own harvest stamp: raidDebt only grows while we ACTUALLY
-   * mine a room, and `lastHarvested` records when we last did.
-   *
-   * - ARMED (predictive): raidDebt crossed the 65k arm floor and the room
-   *   was harvested within GUARD_MINED_RECENCY - the raid can fire any time
-   *   after 70k, so commissioning here pre-positions the guard ahead of the
-   *   crossing. OVERDUE rooms (>130k, no raid ever seen) disarm - raids
-   *   provably don't fire there. A truly abandoned room disarms when its
-   *   harvest stamp ages out.
-   * - RAID IN PROGRESS (reactive): Invader creeps were sighted within their
-   *   1500-tick lifetime and the hostile mark is still live - covers rooms
-   *   whose counter history we didn't have (first raid after moving in).
-   *
-   * Owned rooms are never targeted (towers are the home answer, spec 07),
-   * and targets stay inside scouting range of this corp's home.
+   * Rooms that currently want a guard - THE lens (utils/raidMeter
+   * `guardTargetsFor`), read here exactly as the commission's budget and the
+   * colony's infra deduction read it. Doctrine and rationale live at the lens;
+   * this delegation is what keeps "which rooms do we guard" and "what do we pay
+   * to guard them" from becoming two answers.
    */
   public guardTargets(homeRoom: string): string[] {
-    if (typeof Memory === "undefined" || !Memory.roomIntel) return [];
-
-    const targets: string[] = [];
-    for (const roomName in Memory.roomIntel) {
-      if (roomName === homeRoom) continue;
-      const intel = Memory.roomIntel[roomName];
-      if (!intel) continue;
-      if (intel.controllerOwner) continue; // owned rooms never receive raids for us to guard
-      if (Game.map.getRoomLinearDistance(homeRoom, roomName) > MAX_SCOUT_DISTANCE) continue;
-
-      const minedRecently =
-        intel.lastHarvested !== undefined && Game.time - intel.lastHarvested < GUARD_MINED_RECENCY;
-      const armed = raidMeterState(intel.raidDebt) === "armed" && minedRecently;
-      const raidInProgress =
-        intel.lastRaidSeen !== undefined &&
-        Game.time - intel.lastRaidSeen < INVADER_TTL &&
-        (intel.hostileUntil ?? 0) > Game.time;
-
-      if (armed || raidInProgress) targets.push(roomName);
-    }
-    return targets.sort(); // determinism: stable assignment across ticks
+    return guardTargetsFor(homeRoom);
   }
 
   public work(tick: number): void {
