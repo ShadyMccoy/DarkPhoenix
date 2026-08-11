@@ -21,12 +21,14 @@ A draft, not a build order: §10 lists the questions the owner should rule on
 before phase 2 (the behavior-changing half) is implemented. Phase 1 (measure
 and publish, change nothing) is implementable as written.
 
-**First ruling landed 2026-08-11 (§10 Q1): "Per month is probably too fast.
-Let's go 0.3 per quarter instead."** The law and every number downstream are
-restated on that cadence. "Quarter" is taken as **3 fiscal months (4,500t) on
-the absolute tick clock** — the fiscal YEAR is 10 months (15,000t), so
-calibration quarters deliberately drift through the year; flag it if
-year-aligned reporting quarters are wanted instead.
+**Cadence ruled 2026-08-11 (§10 Q1, two rulings same day): "Per month is
+probably too fast. Let's go 0.3 per quarter instead" — then, on the draft's
+note that a 10-month fiscal year has no even quarters: "I guess we don't
+have quarters. Per half year then."** Final law: **α = 0.3 per HALF-YEAR —
+5 fiscal months, 7,500t** — a first-class fiscal calendar object (H1 =
+months 0–4, H2 = months 5–9, boundaries at tick % 7,500 === 0), so the
+drift caveat the quarter reading carried is retired by construction. Every
+number downstream is restated on this cadence.
 
 ## 1. What the deferral was waiting for, and why the door can open now
 
@@ -60,33 +62,34 @@ still leaves a standing gauge line pointing at it.
 ## 2. The loop, end to end
 
 The budget keeps its monthly cadence (spec 46). The CALIBRATION CLOCK is
-slower: **one step per quarter — 3 fiscal months, 4,500 ticks — on the same
-absolute clock as `isPlanBudgetBoundary`** (every third boundary is a quarter
-boundary; `fiscalArchive.onTick` is the seam, the same one the handicap sweep
+slower: **one step per half-year — 5 fiscal months, 7,500 ticks — on the
+same absolute clock as `isPlanBudgetBoundary`** (every fifth boundary is a
+half-year boundary, and these are exactly the fiscal calendar's own H1/H2
+edges; `fiscalArchive.onTick` is the seam, the same one the handicap sweep
 advances on). Consumption and update are deliberately decoupled: every
-monthly solve reads whatever f stands; f itself moves only quarterly.
+monthly solve reads whatever f stands; f itself moves only at the half.
 
 ```
-quarter q (months m, m+1, m+2 each serve their frozen budgets)
+half H (months m .. m+4 each serve their frozen budgets)
         │
-quarter-boundary tick t (q closes; the next month's budget solves):
+half-year boundary tick t (H closes; the next month's budget solves):
         │
-  1. CLOSE   difference per-corp delivered counters across the quarter's
+  1. CLOSE   difference per-corp delivered counters across the half's
              bracketing archive snapshots  →  measured e/t per operation
-  2. SAMPLE  measured ÷ the quarter's declared promise (time-weighted
-             across its three frozen budgets), winsorized, evidence-gated
-             at month grain (§4)           →  sample_q per corp
-  3. UPDATE  f ← f + 0.3 × (sample_q − f)  →  Memory.planCalibration
-             (the owner's 0.3-per-quarter; deadband snaps f to 1)
+  2. SAMPLE  measured ÷ the half's declared promise (time-weighted across
+             its five frozen budgets), winsorized, evidence-gated at month
+             grain (§4)                    →  sample_H per corp
+  3. UPDATE  f ← f + 0.3 × (sample_H − f)  →  Memory.planCalibration
+             (the owner's 0.3-per-half-year; deadband snaps f to 1)
   4. STAMP   the factor table into the archive record + the CAL gauge
-  5. SOLVE   every monthly boundary solve — this one and the quarter's
-             next two — prices with the standing f (armed mode only):
+  5. SOLVE   every monthly boundary solve — this one and the half's next
+             four — prices with the standing f (armed mode only):
              flowAdapter stamps per-source calibration → CorpPlanner
              prices vector parts at model/f through the ONE roadEconomics
              seam → bigger fleet on a lagging route, or the route prices
              out of the tranche
         │
-quarter q+1; repeat
+half H+1; repeat
 ```
 
 Steps 1–4 are telemetry (phase 1, always-on, shadow). Step 5 is the behavior
@@ -106,11 +109,11 @@ one thing — the ratio between what an operation landed at home and what its
 budget said it would land:
 
 ```
-measured_q = Δ delivered / quarter        (corps segment cumulative counter)
-declared_q = the quarter's routed promise for the operation — its three
-             frozen budgets' Σ vectors' flowRate, time-weighted (equal
-             1,500t months, so the mean) — the landed basis
-sample_q   = measured_q / declared_q
+measured_H = Δ delivered / half-year      (corps segment cumulative counter)
+declared_H = the half's routed promise for the operation — its five frozen
+             budgets' Σ vectors' flowRate, time-weighted (equal 1,500t
+             months, so the mean) — the landed basis
+sample_H   = measured_H / declared_H
 ```
 
 Basis discipline (spec 48's lesson, pinned by a unit test that stages taxes
@@ -149,39 +152,42 @@ degrades into defund-at-the-spawn, never into silence.
 
 ## 4. The calibration law (pure, in `economy/primitives`)
 
-α = 0.3 per quarter is RULED (owner 2026-08-11, header); the remaining
+α = 0.3 per half-year is RULED (owner 2026-08-11, header); the remaining
 constants are proposals — to be measured, not argued (spec 46's phrase).
 
 ```
 calibrationStep(f, sample):
   s  = clamp(sample, SAMPLE_FLOOR, SAMPLE_CEIL)     # winsorize: 0.25 .. 4.0
   f' = f + CAL_ALPHA * (s - f)                      # CAL_ALPHA = 0.3, one
-  if |f' - 1| <= CAL_DEADBAND: f' = 1               #   step per QUARTER
+  if |f' - 1| <= CAL_DEADBAND: f' = 1               #   step per HALF-YEAR
   return f'                                         # 0.05 deadband: on-model
                                                     #   is the resting state
 ```
 
 - **Seed 1.0** — a new corp is priced at the model, always.
 - **Asymptote**: against a stationary sample r, the residual multiplies by
-  0.7 per quarter (`|f_n − r| = 0.7ⁿ · |f_0 − r|`) — half-priced in ~2
-  quarters (6 fiscal months), ~88% in 6 quarters (18 fiscal months,
-  27,000t). Slow is the point of the ruling: a transient must persist for
-  QUARTERS to be believed, and the accepted cost is that a real drift takes
-  ~6 fiscal months to be half-priced.
+  0.7 per half (`|f_n − r| = 0.7ⁿ · |f_0 − r|`) — half-priced in ~2 halves
+  (ONE fiscal year, 15,000t), ~88% in 6 halves (three fiscal years). Slow
+  is the point of the ruling: a transient must persist across a full
+  five-month half to move the budget at all, and the accepted cost is that
+  a real drift takes about a fiscal year to be half-priced.
 - **Winsorize the SAMPLE, not the factor**: the 121-tick post-reset window
   that read 26× (spec 13's ramp-body artifact) enters at 4.0, not 26 — and
   the evidence gates below should have voided it anyway.
 - **Deadband**: single-window draws vary ±20–30% (the multi-draw rule). The
-  quarter sample is already a three-month average (~1/√3 of the monthly draw
-  σ), and the EWMA's stationary σ at α = 0.3 is ≈ 0.42× its input σ —
-  combined ~0.24×, so ±20–30% of monthly draw noise lands at ~5–7% on f.
+  half-year sample is already a five-month average (~1/√5 of the monthly
+  draw σ), and the EWMA's stationary σ at α = 0.3 is ≈ 0.42× its input σ —
+  combined ~0.19×, so ±20–30% of monthly draw noise lands at ~4–6% on f.
   The deadband sits AT that noise floor, so the common case — the model is
   right — stays EXACT: calibration is the exception that names itself, not
   a fog of 0.97s.
-- **No sample → no step**: f carries unchanged. The quarter's sample exists
-  only if ALL THREE of its months are clean (v0; prorating the sample to the
-  clean months is a noted refinement). Month-grain conditions that VOID a
-  month for a corp:
+- **No sample → no step**: f carries unchanged. The half's sample exists
+  only if ALL FIVE of its months are clean (v0). Five clean consecutive
+  months is a materially stricter streak than the earlier drafts asked
+  for, which moves the noted refinement — prorate the sample to the clean
+  months — from nice-to-have toward likely-needed; it stays out of v0 so
+  the first live distributions are unambiguous. Month-grain conditions
+  that VOID a month for a corp:
   - the corp was not in the month's frozen budget from boundary to boundary
     (commissioned late, defunded mid-month, hostile-defund trigger fired);
   - either boundary snapshot lacks its counters (pre-v14 capture, id churn);
@@ -190,9 +196,9 @@ calibrationStep(f, sample):
     to void only corps whose declared moved);
   - the source was `defunded` or transient for any part of the month.
 - **Retention**: an entry for a corp absent from the plan for
-  `CAL_RETENTION_QUARTERS` (proposed 2 — the same ~6 months of wall-clock as
-  the earlier draft) is dropped; recommissioning after that starts fresh at
-  1.0.
+  `CAL_RETENTION_HALVES` (proposed 1 — five months, about the same
+  wall-clock as the earlier drafts) is dropped; recommissioning after that
+  starts fresh at 1.0.
 
 State (versioned, fail-safe absent):
 
@@ -202,9 +208,9 @@ Memory.planCalibration?: {
   armed?: boolean;          // phase 2 gate; absent/false = shadow (publish only)
   corps: { [corpId: string]: {
     f: number;              // the factor
-    quarters: number;       // evidence count: accepted quarterly samples
+    halves: number;         // evidence count: accepted half-year samples
     lastSample?: number;    // winsorized, for the gauge's trend column
-    lastAt?: number;        // quarter-boundary tick of the last accepted sample
+    lastAt?: number;        // half-boundary tick of the last accepted sample
   }};
 }
 ```
@@ -242,22 +248,26 @@ The border-bounce builder (1.15 e/t delivered against 20 allocated, inside an
 defect becomes next month's plan. Guards, in order of importance:
 
 1. **The factor is a PUBLISHED, NAMED number.** A new CAL gauge in
-   `audit:ledger` prints every f ≠ 1 with its trend, quarters of evidence,
+   `audit:ledger` prints every f ≠ 1 with its trend, halves of evidence,
    and last sample; the fiscal archive stamps the table into every record,
    so every close is labeled with the calibration it was planned under.
    Today that 37× defect hides inside an aggregate; under this loop it is a
-   row reading `f 0.78 ↓ (sample pinned at floor, 1 quarter)` — the loop
+   row reading `f 0.78 ↓ (sample pinned at floor, 1 half)` — the loop
    doesn't silence the evidence, it IS the evidence.
 2. **Saturation is an alarm, not a state.** A sample pinned at the winsorize
-   bound, or |sample − f| > 0.5 two consecutive quarters, prints as a
+   bound, or |sample − f| > 0.5 on a SINGLE half-year sample, prints as a
    distress line: calibration has left its regime and the MECHANISM is the
    bug (the trap-list rule: if you are writing the second patch — or here,
    the second damped step — on the same mechanism, interrogate the
-   mechanism). The alarm reads the SAMPLE against the standing factor, not
-   the factor against 1: at 0.3/quarter the factor lags the world by design,
-   and an alarm waiting for f to walk past a threshold would arrive a year
-   late on exactly the worst defects.
-3. **Damping bounds the blast radius.** One defective quarter moves any
+   mechanism). Two re-basings under the slow clock, both deliberate: the
+   alarm reads the SAMPLE against the standing factor, not the factor
+   against 1 (at 0.3/half the factor lags the world by design — waiting for
+   f to walk past a threshold would take years on exactly the worst
+   defects); and ONE period suffices where the quarterly draft demanded two
+   consecutive, because a five-month aggregate landing 0.5 past the factor
+   is ~4–5σ against §4's noise floor, and demanding a second half would
+   hold the alarm for a full fiscal year.
+3. **Damping bounds the blast radius.** One defective half-year moves any
    budget at most 0.3 of the way to its clamped sample; nothing standing is
    revoked on any step.
 4. **Fixing the runtime un-prices itself.** When the defect is fixed, the
@@ -275,8 +285,8 @@ Precedents this generalizes, for the record: spec 13's R1 swap protocol is
 this loop done manually for one constant (measured/priced accumulated over
 ≥10 windows before a hard swap — the high evidence bar exists because the
 swap is undamped; this loop is more conservative in shape on both axes, each
-step accumulating a QUARTER of windows and then moving only 0.3 of the gap,
-self-reversing). Spec 55's owner design basis ("fold
+step accumulating a HALF-YEAR of windows and then moving only 0.3 of the
+gap, self-reversing). Spec 55's owner design basis ("fold
 the drain into the SOURCE RATE... one auditable number, every downstream term
 reprices itself") is the same shape: a measured fact folded into ONE plan
 input, everything downstream repricing honestly.
@@ -287,8 +297,8 @@ input, everything downstream repricing honestly.
 |---|---|---|
 | `calibrationStep`, clamps, deadband, sample law | `economy/primitives.ts` | pure; ALL economic formulas live here (kind-conformance enforces) |
 | `Memory.planCalibration` schema | `types/Memory.ts` | versioned; absent = inert |
-| boundary updater (close → sample → step → stamp) | `telemetry/fiscalArchive.ts` | this module already owns the month hook, the ring, and the sweep's persistence — one seam, not two (its own stated doctrine); fires at QUARTER boundaries only (every third `isPlanBudgetBoundary`, tick % 4,500 === 0), BEFORE that boundary's solve, so the closed quarter prices the next budget; the ring (24 monthly records) spans the 3-month bracket with room |
-| declared-side lookup | the quarter's THREE frozen budgets, time-weighted (spec 46 phase B objects, or the boundary archive snapshots' corp rows — v17 `consumes`/`produces`) | phase B landing first makes this trivial; the archive route works without it |
+| boundary updater (close → sample → step → stamp) | `telemetry/fiscalArchive.ts` | this module already owns the month hook, the ring, and the sweep's persistence — one seam, not two (its own stated doctrine); fires at HALF-YEAR boundaries only (every fifth `isPlanBudgetBoundary`, tick % 7,500 === 0 — the fiscal calendar's own H1/H2 edges), BEFORE that boundary's solve, so the closed half prices the next budget; the ring (24 monthly records ≈ 4.8 halves) spans the five-month bracket with room |
+| declared-side lookup | the half's FIVE frozen budgets, time-weighted (spec 46 phase B objects, or the boundary archive snapshots' corp rows — v17 `consumes`/`produces`) | phase B landing first makes this trivial; the archive route works without it |
 | factor → planner | `economy/flowAdapter.ts` (`buildColonyProblem` stamps `PlannerSource.haulCalibration?`) → `economy/CorpPlanner.ts` | the same adapter lane as `swampFraction`/`staged`/`FieldedFleet`; planner stays pure |
 | the priced seam | `economy/roadEconomics.ts` vector-parts functions | ONE seam shared by sizing and admission, so the two cannot fork — the spec-51 GAP-1 lesson (one derivation, both sites read it) |
 | CAL gauge + saturation alarm | `scripts/waste-ledger.ts` | beside F1/F2/F3; archive round-trip test extended to reproduce the table |
@@ -300,23 +310,23 @@ missing 3 rots at a capped container (L1's business: 13.33 e/t colony-wide
 against a budget of 0.00 at t72884395; spec 55 measured 19.48 e/t of decay
 rank-correlated with exactly the under-fielded routes).
 
-- **Close Q1** (three clean months at 7): sample 0.70 → f: 1.00 → **0.91**.
+- **Close H1** (five clean months at 7): sample 0.70 → f: 1.00 → **0.91**.
   CAL prints it.
-- **Q2's budgets** (armed): the route's vector prices at 1/0.91 ≈ 1.10×
+- **H2's budgets** (armed): the route's vector prices at 1/0.91 ≈ 1.10×
   CARRY; the routing pass commissions the bigger fleet — the owner's "bigger
   corp on that route" — and its net-per-part drops it a rung down the
   tranche order, still funded.
 - **If it was capacity** (the spec-55/59 class): the fleet drains the mouth
   and delivery recovers toward the promise; samples run ~1.0 against f 0.91,
-  so f walks 0.91 → 0.94 → 0.96 → deadband → **1** over ~3 quarters. The
-  pile line falls; the calibration retires itself.
+  so f walks 0.91 → 0.94 → 0.96 → deadband → **1** over ~3 halves (~1.5
+  fiscal years). The pile line falls; the calibration retires itself.
 - **If it was a defect**: samples hold at 0.70 and f walks 0.91 → 0.85 →
-  0.80 → 0.77…, the route's rank sinking each quarter until it prices out
+  0.80 → 0.77…, the route's rank sinking each half until it prices out
   of the tranche — dropped from the plan gradually ("that's ok"), standing
   haulers work their route to end of life (nothing revoked), and the CAL
   trend line names the corp the entire way down. An EGREGIOUS defect (the
   border-bounce class — sample ~0.06 against f ≈ 1) doesn't wait out the
-  walk: it trips the §6 saturation alarm on its second quarter.
+  walk at all: it trips the §6 saturation alarm on its FIRST half.
 
 ## 9. Phases and gates
 
@@ -324,15 +334,15 @@ rank-correlated with exactly the under-fielded routes).
   step, asymptote-geometric, winsorize, deadband, void-sample carry,
   retention).
   Pure; no behavior.
-- **Phase 1 — SHADOW (measure and publish, change nothing).** Quarterly
+- **Phase 1 — SHADOW (measure and publish, change nothing).** Half-year
   updater + archive stamp + CAL gauge. Always-on, like all telemetry. The
   archive record gains a field (versioned); METHODOLOGY does not renumber (no
   existing number changes meaning). Deliverable: real factor distributions
-  over live quarters — the evidence the phase-2 ruling wants. At one step
-  per 4,500t, a meaningful shadow read is 2–3 quarters (~9,000–13,500t) —
-  comfortably inside the archive ring's 24 months, and the same timescale
-  the 21-month sweep already runs on. Mid-sweep OK (nothing the sweep
-  measures moves).
+  over live halves — the evidence the phase-2 ruling wants. At one step per
+  7,500t, a meaningful shadow read is 2–3 halves (15,000–22,500t — one to
+  one-and-a-half fiscal years); the archive ring's 24 months holds ~4.8
+  halves, and the 21-month sweep already runs the program on exactly this
+  timescale. Mid-sweep OK (nothing the sweep measures moves).
 - **Phase 2 — ARMED (the budget consumes f).** Adapter stamp + the one priced
   seam + `armed` console arming. Gate: the full regression set (unit + trio),
   the compat pin (unarmed ⇒ byte-identical plan), the grid cells below — and
@@ -346,12 +356,12 @@ rank-correlated with exactly the under-fielded routes).
 
 ## 10. Open questions for the owner
 
-1. ~~α and cadence~~ — **RESOLVED 2026-08-11 (owner): "Per month is
-   probably too fast. Let's go 0.3 per quarter instead."** Restated
-   throughout (§2, §4, §6, §8). One residual to confirm: "quarter" is read
-   as 3 fiscal months (4,500t) on the absolute clock, which drifts through
-   the 10-month fiscal year — say the word if year-aligned reporting
-   quarters are wanted instead.
+1. ~~α and cadence~~ — **RESOLVED 2026-08-11, two rulings same day: "Per
+   month is probably too fast. Let's go 0.3 per quarter instead" — then,
+   on the no-even-quarters note: "I guess we don't have quarters. Per half
+   year then."** Final: α = 0.3 per half-year (5 fiscal months, 7,500t —
+   the calendar's own H1/H2 edges). Restated throughout (§2, §4, §6, §8);
+   the quarter draft's year-drift caveat is retired by construction.
 2. **Arming policy**: console-armed per colony after N clean shadow months
    (sweep-style, proposed), or default-armed once phase 2's cells are green?
 3. **Symmetry**: overperformance (f > 1) prices routes CHEAPER and can shrink
@@ -366,12 +376,13 @@ rank-correlated with exactly the under-fielded routes).
 
 1. **The law** (unit, primitives): `calibrationStep(1.0, 0.5) === 0.85`; a
    constant sample r multiplies the residual by 0.7 per step (half-priced in
-   ~2 quarters, ~88% in 6); winsorize bounds the step under an absurd sample
-   (26× enters as 4.0); deadband snaps; no sample → identical state.
-2. **The updater** (unit, staged archive ring): a clean quarter yields the
+   ~2 halves — one fiscal year; ~88% in 6); winsorize bounds the step under
+   an absurd sample (26× enters as 4.0); deadband snaps; no sample →
+   identical state.
+2. **The updater** (unit, staged archive ring): a clean half yields the
    landed-vs-landed sample to 1e-9, declared side time-weighted across the
-   three frozen budgets; **a month boundary that is not a quarter boundary
-   is a NO-OP** (the calibration clock is every third `isPlanBudgetBoundary`,
+   five frozen budgets; **a month boundary that is not a half-year boundary
+   is a NO-OP** (the calibration clock is every fifth `isPlanBudgetBoundary`,
    pinned); each void condition in §4 yields NO step; a basis-confusable
    world (staged taxes/decay so gross ≠ landed) fails unless both sides read
    the landed basis.
@@ -392,10 +403,10 @@ rank-correlated with exactly the under-fielded routes).
    its shadow twin (unarmed, same world) asserts the plan is unchanged AND
    the table still publishes. (Receipts-gated staging per the sim-blind-spot
    trap: the cell stages its own archive ring.)
-7. **Ledger**: CAL prints every f ≠ 1 with trend and evidence quarters; the
-   saturation alarm fires on a staged sample two consecutive quarters past
-   the |sample − f| bound (and NOT on one); the archive round-trip test
-   reproduces the stamped table from one capture.
+7. **Ledger**: CAL prints every f ≠ 1 with trend and evidence halves; the
+   saturation alarm fires on a staged single half-year sample past the
+   |sample − f| bound, and NOT on a merely-low sample inside it; the archive
+   round-trip test reproduces the stamped table from one capture.
 
 ## 12. Related
 
@@ -413,7 +424,7 @@ rank-correlated with exactly the under-fielded routes).
 - **Spec 55** — the fold-into-the-rate precedent, and the F2 gap (declared
   vs fielded) that must NOT be laundered through calibration: F2 breach means
   the spawn didn't field the plan — fix the seam, don't reprice around it
-  (an f-step on a quarter with F2 breach is measuring the spawn, not the
+  (an f-step on a half with F2 breach is measuring the spawn, not the
   route; consider F2-clean as an evidence gate, owner's call).
 - **Spec 13** — the R1 swap protocol, this loop's manual prototype.
 - **Spec 32** — graceful backoff prices the SPAWN side of a surplus mouth;
