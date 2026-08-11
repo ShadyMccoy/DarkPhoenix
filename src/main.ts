@@ -62,6 +62,7 @@ import {
   runSpawnScheduling,
   runSpawningCorps,
   runTowers,
+  shouldKickSweep,
   snapshotCorpVariance,
   startSpawnPlacement,
   trackRoadUsage
@@ -309,11 +310,15 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
     // Fine-grained spawn placement: sweep the top nodes' territories for the best
     // spawn tile, spread across ticks under a CPU budget (like the analysis above).
-    // Kick a fresh sweep on the planning cadence once node ROI is available; the
-    // results land in Memory.spawnPlacements for expansion/build planning to use.
+    // Kick a fresh sweep on the planning cadence once node ROI is available - plus
+    // ONE catch-up kick per global (shouldKickSweep): Memory.spawnPlacements
+    // outlives a reset while the sweep's job state does not, so every deploy left
+    // the placements stale until the next cadence boundary (under the fiscal-month
+    // term, up to a month - measured live 2026-08-11). Results land in
+    // Memory.spawnPlacements for expansion/build planning to use.
     if (isSpawnPlacementInProgress()) {
       runSpawnPlacementStep();
-    } else if (shouldRunPlanning(Game.time) && !isAnalysisInProgress()) {
+    } else if (shouldKickSweep(shouldRunPlanning(Game.time)) && !isAnalysisInProgress()) {
       const cache = getAnalysisCache();
       if (cache && colony!.getNodes().length > 0) {
         startSpawnPlacement(colony!.getNodes(), cache.result.territories);

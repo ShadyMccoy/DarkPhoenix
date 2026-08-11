@@ -61,6 +61,7 @@ export { trackRoadUsage, roadCandidateTiles, renderRoadScores } from "./roadTrac
 export {
   isSpawnPlacementInProgress,
   resetSpawnPlacement,
+  shouldKickSweep,
   startSpawnPlacement,
   runSpawnPlacementStep
 } from "./SpawnPlacementScheduler";

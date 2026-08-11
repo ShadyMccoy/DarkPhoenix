@@ -2,6 +2,7 @@ import { expect } from "chai";
 import {
   isSpawnPlacementInProgress,
   resetSpawnPlacement,
+  shouldKickSweep,
   startSpawnPlacement,
   runSpawnPlacementStep,
 } from "../../../src/execution/SpawnPlacementScheduler";
@@ -80,6 +81,35 @@ describe("SpawnPlacementScheduler", () => {
     expect(placement).to.not.equal(undefined);
     expect(placement.value).to.be.greaterThan(0);
     expect(placement.roomName).to.equal(ROOM);
+  });
+
+  it("kicks ONE catch-up sweep per global, then follows the planning cadence (the stale-placements deploy gap)", () => {
+    // Memory.spawnPlacements outlives a global reset; the sweep's job state
+    // does not. Before this rule, a deploy left the placements stale until the
+    // next cadence boundary - under the fiscal-month term, up to a month
+    // (measured live 2026-08-11: ONE stale home entry while a forced pass
+    // evaluated expansion candidates against it and found none).
+    resetSpawnPlacement(); // fresh global: catch-up armed
+    (global as any).Memory = { spawnPlacements: { "node-A": { x: 1, y: 1, roomName: "W0N0", value: 1 } } };
+    expect(shouldKickSweep(false), "reset with STORED placements kicks even off-cadence").to.equal(true);
+    expect(shouldKickSweep(true), "cadence kicks regardless").to.equal(true);
+
+    const { node, territories } = nodeWithManyTiles();
+    startSpawnPlacement([node], territories, 5); // any kick consumes the catch-up
+    expect(shouldKickSweep(false), "after one kick, only the cadence kicks").to.equal(false);
+    expect(shouldKickSweep(true)).to.equal(true);
+
+    resetSpawnPlacement(); // respawn/reset re-arms the catch-up
+    expect(shouldKickSweep(false)).to.equal(true);
+
+    // A COLD world (no placements ever) has nothing stale to refresh: the
+    // catch-up must NOT front-run the cadence there - the early sweep's CPU
+    // competes with the cold start (runt-economy went red on the
+    // unconditional version).
+    resetSpawnPlacement();
+    (global as any).Memory = {};
+    expect(shouldKickSweep(false), "cold world waits for the cadence").to.equal(false);
+    expect(shouldKickSweep(true), "the cadence still kicks a cold world").to.equal(true);
   });
 
   it("defers the sweep when the CPU bucket is low", () => {
