@@ -1234,6 +1234,18 @@ export const LINK_FIRE_THRESHOLD = 100;
 export const LINK_CAPACITY = 800;
 
 /**
+ * Engine: a LEVEL-8 controller absorbs at most this much energy per tick
+ * (CONTROLLER_MAX_UPGRADE_PER_TICK), mirrored like SPAWN_LIMITS/TOWER_LIMITS
+ * (ground truth, pinned by test). A hard throttle no fleet size lifts -
+ * found live t72918307, the colony's first RCL8 window: the plan allocated
+ * 100 e/t against this 15 e/t pipe, delivery pinned at exactly 15.00, and
+ * the un-absorbable remainder defaulted to the bank (+33.10 e/t - the E4
+ * idle-capital mountain's mechanical cause at RCL8). Boosts can raise the
+ * engine limit; the plan models the unboosted floor until labs exist.
+ */
+export const RCL8_UPGRADE_CAP = 15;
+
+/**
  * CARRY parts that clear one FULL link volley in a single parked
  * withdraw+transfer cycle (spec 45, owner sizing doctrine 2026-08-05): the
  * feeder is a SERVICE creep - its metric is drain LATENCY, not throughput

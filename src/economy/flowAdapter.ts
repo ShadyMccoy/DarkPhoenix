@@ -61,6 +61,7 @@ import {
   WARTIME_BACKLOG_THRESHOLD,
   ANTI_DOWNGRADE_RESERVE,
   depositPortHeadroom,
+  RCL8_UPGRADE_CAP,
   SOURCE_RATE
 } from "./primitives";
 import { detectRoomStocks, SCAVENGE_RATE_FLOOR, stockToTransientSource } from "./scavenge";
@@ -416,6 +417,14 @@ export function controllerUpgradeCap(roomName: string): number {
   if (typeof Game === "undefined" || !Game.rooms) return Infinity;
   const controller = Game.rooms[roomName]?.controller;
   if (!controller) return Infinity;
+  // THE ENGINE'S LEVEL-8 THROTTLE (t72918307, the first RCL8 audit window):
+  // CONTROLLER_MAX_UPGRADE_PER_TICK caps a level-8 controller at 15 e/t no
+  // matter the fleet - the parking-x-WORK estimate below is the physics of
+  // OUR side, this is the physics of the ENGINE's. Applied even on the
+  // defensive catch path: the level read has already succeeded by here, and
+  // "fall back to uncapped" at RCL8 is how a 100 e/t allocation stood
+  // against a 15 e/t pipe while the difference banked (+33.10 e/t measured).
+  const engineCap = controller.level >= 8 ? RCL8_UPGRADE_CAP : Infinity;
   try {
     // Best-effort physical estimate: any incomplete Game state (partial test
     // mock, room we cannot fully resolve) falls back to the uncapped default
@@ -425,9 +434,9 @@ export function controllerUpgradeCap(roomName: string): number {
     const spots = Math.min(parking || CONTROLLER_UPGRADER_CAP, CONTROLLER_UPGRADER_CAP);
     const capacity = Game.rooms[roomName]?.energyCapacityAvailable ?? 300;
     const affordableWork = Math.max(1, buildUpgraderBody(capacity, 99, "containerFed").workParts);
-    return spots * affordableWork * UPGRADE_ENERGY_PER_WORK;
+    return Math.min(engineCap, spots * affordableWork * UPGRADE_ENERGY_PER_WORK);
   } catch {
-    return Infinity;
+    return engineCap;
   }
 }
 

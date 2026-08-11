@@ -13378,3 +13378,54 @@ link, mouths as approaches, ownSourceRate pricing, tender debit. Gates: unit
 4. **Zero live placement delta from unification itself** (both mouths
    linked): the unified and old models elect identically in W43N23 today —
    its live value begins with the NEXT room, and the model being one lens.
+
+## Audit cycle t72918307 (2026-08-11) — deploy-2 verified 4/4, and the colony's first RCL8 window exposes the engine throttle the plan never modeled
+
+**Deploy-2 verification, 4/4 confirmed** (window 221t): core v39 live with the
+per-link split, and it paid for itself in its first read — 8f08 fires 693e
+average volleys with **clampShare 0.706** vs 4a83's 0.312: the core-side clamp
+concentrates on the heavy sender, a read the room aggregate (0.548) could
+never give. Both relief sites persist (1,275/10,000 built), no third
+placement, no swap, X5 0.01, heartbeat clean.
+
+**THE CYCLE'S FIND — delivery pinned at exactly 15.00 e/t.** The account's
+controller line (GCL-based) read 15.00 while P7 (rclProgress-based) read 0.0:
+a two-gauge disagreement, and both were telling the truth. A level-8
+controller freezes rclProgress (P7's blindness) and the engine hard-caps
+upgrading at **CONTROLLER_MAX_UPGRADE_PER_TICK = 15 e/t** (the 15.00). The
+plan does not model the throttle anywhere: it allocated 100 e/t (relegated
+wartime floor 50) against a 15 e/t pipe, the un-absorbable flow defaulted to
+the bank (**+33.10 e/t** — E4's idle-capital mountain now has its mechanical
+cause at RCL8), and a **66-part upgrader fleet** stood against a pipe ~3
+bodies serve. The owner's morning framing names the class exactly: a planning
+problem — allocation above physical throughput — this time at the controller
+instead of a link.
+
+**Fixes shipped (one seam each):**
+- `RCL8_UPGRADE_CAP = 15` mirrored in primitives (engine ground truth,
+  pinned); applied inside `controllerUpgradeCap` — the ONE physical-cap lens
+  the sink capacity, wartime relegated floor, valve, feeder target and fleet
+  sizing all already read, so every consumer reprices from one edit. Applied
+  on the defensive catch path too (the level read precedes the parking lens).
+- **P7 reads the GCL delta** — the same always-sighted colony-wide delivery
+  meter the ENERGY ACCOUNT and G1 use (1 GCL point IS 1 upgrade energy, every
+  room, every level). Its wartime-starvation pin re-staged on that lens.
+
+**Transition-window caveat recorded:** this window (263t) straddles the
+deploy-2 global reset AND the wartime-build flip our own link sites triggered
+— S5 0.93 (rebuild wave), defense/reservation lumps, controller depression
+are multi-cause; no level claims from this window beyond the engine-pinned
+15.00. The sweep runs at handicap 10%, cycle 3 (FY4861-M02 closed at 52%).
+
+**Predictions for the post-deploy capture:**
+1. `controllerAllocations[W43N23]` ≤ 15 within one solve; upgrader
+   `sizing.allocated`/`planAllocated` ≤ 15; the wartime relegated floor reads
+   ≤ 15, so **P7 → ok at ~1.0x** with delivery 15.0.
+2. No NEW upgrader purchase sized beyond the capped allocation (standing 66
+   parts shrink by attrition, never revocation).
+3. E4 stays FAIL and the bank keeps climbing — the fix makes the plan HONEST
+   about the throttle; it does not spend the freed ~35-85 e/t. The real
+   absorber is EXPANSION (GCL 32 at 96.2%; W45N23 founding already has a
+   site) — spec 53's decision, the owner's call, now with its number named.
+4. Link relief unaffected: both sites keep building; next cycle reads the new
+   ports' rho and 8f08's clampShare/waits off the v39 split.
