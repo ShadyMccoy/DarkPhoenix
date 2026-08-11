@@ -89,7 +89,13 @@ async function main(): Promise<void> {
   args.forEach((a, i) => {
     if (a === "--own" && args[i + 1]) own.push(args[i + 1]);
   });
-  const gcl = parseInt(getArg("gcl", String(1 + own.length)), 10);
+  // --gcl is a LEVEL (matching the usage above: "--gcl 2" = a 2nd room is
+  // claimable), but addBot's gcl field is POINTS (CLAUDE.md trap list: 1e6 =
+  // GCL 2). Convert with the engine's curve - points(L) = 1e6 * (L-1)^2.4 -
+  // plus 1 so the floor lands inside the level. Before this the flag silently
+  // staged 2 POINTS = level 1 and shouldExpand could never fire in a sim.
+  const gclLevel = parseInt(getArg("gcl", String(1 + own.length)), 10);
+  const gcl = Math.ceil(1_000_000 * Math.pow(Math.max(0, gclLevel - 1), 2.4)) + 1;
   const ticks = parseInt(getArg("ticks", "1500"), 10);
   const debug = args.includes("--debug");
   const spawnOverride = getArg("spawn", "");
@@ -150,7 +156,7 @@ async function main(): Promise<void> {
 
   console.log(
     `world: ${loaded.map(fx => fx.room).join(", ")} | colony: ${colonyRooms.join("+")} ` +
-      `| spawn ${home}@${homeSpot.x},${homeSpot.y} | gcl ${gcl} | ${ticks} ticks`
+      `| spawn ${home}@${homeSpot.x},${homeSpot.y} | gcl L${gclLevel} (${gcl} pts) | ${ticks} ticks`
   );
 
   await server.start();
@@ -290,6 +296,29 @@ async function main(): Promise<void> {
     }
   }
   console.log(`paved receipts: ${JSON.stringify(receipts)}`);
+
+  // ------ report: the expansion trigger's whole input, from final Memory ------
+  // (spec 06's never-fired live trigger: candidates need score >= 50 AND a
+  // priced placement AND claimable intel. Print each leg so a silent
+  // shouldExpand=false is attributable from the report alone.)
+  const nodes = Object.values((mem.nodes ?? {}) as Record<string, any>);
+  const placements = (mem.spawnPlacements ?? {}) as Record<string, any>;
+  const intel = (mem.roomIntel ?? {}) as Record<string, any>;
+  const unowned = nodes
+    .filter(n => n.roi && !n.roi.isOwned && (n.roi.expansionScore ?? 0) > 0)
+    .sort((a, b) => (b.roi.expansionScore ?? 0) - (a.roi.expansionScore ?? 0))
+    .slice(0, 8);
+  console.log(`\nexpansion trigger: campaign=${JSON.stringify(mem.expansion ?? null)}`);
+  console.log("top unowned nodes: id | score | placed | intel(ctrl/owner/resv)");
+  for (const n of unowned) {
+    const p = placements[n.id];
+    const ri = intel[n.roomName];
+    console.log(
+      `  ${String(n.id).padEnd(18)} ${(n.roi.expansionScore ?? 0).toFixed(0).padStart(4)} | ` +
+        `${p ? `${p.x},${p.y}@${p.roomName}` : "NO PLACEMENT"} | ` +
+        `${ri?.controllerPos ? "ctrl" : "no-ctrl"}/${ri?.controllerOwner ?? "-"}/${ri?.controllerReservation ?? "-"}`
+    );
+  }
 
   if (args.includes("--dump")) {
     console.log(`\neconomyPlan: ${JSON.stringify(mem.economyPlan ?? null)}`);

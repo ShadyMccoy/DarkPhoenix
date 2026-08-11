@@ -107,6 +107,23 @@ export const GOAL_PROFILES: { [name: string]: SinkValuation } = {
   }
 };
 
+/**
+ * The value of ONE construction-site instance under a valuation: a new
+ * SPAWN's site prices at the founding rung (newSpawnSite), everything else
+ * at ordinary construction. THE shared rule for both readers of that fact -
+ * the adapter's per-instance sink pricing (flowAdapter, from the live site)
+ * and the build pool's room ordering (corps/constructionLedger, from the
+ * project ledger's structureType) - so the crew's dispatch can never again
+ * disagree with the plan's pricing (the exp-t5-founding red: the solver
+ * funded a founding site at 85 while the pool sorted home-first and the
+ * crew starved it for 1800t). Literal "spawn" matches the ledger's and the
+ * engine's structureType strings (STRUCTURE_SPAWN may be undefined in pure
+ * harnesses).
+ */
+export function constructionSiteValue(structureType: string, val: SinkValuation = DEFAULT_VALUATION): number {
+  return structureType === "spawn" ? val.newSpawnSite : val.construction;
+}
+
 /** A goal: a weighted blend of named profiles (weights need not sum to 1). */
 export interface Goal {
   blend: { [profileName: string]: number };

@@ -45,10 +45,22 @@ describe("plan triggers (spec 36 item 1: durable transitions force a replan)", (
       expect(planTriggerReason(base(), base({ rclByRoom: { W1N1: 5 } }))).to.equal("rcl-up:W1N1:4->5");
     });
 
-    it("a NEW owned room appearing is not an rcl-up (no prior level to compare)", () => {
-      // Founding rooms enter through the expansion/spawn triggers, not a
-      // phantom 0->1 rcl edge on a room the baseline never had.
-      expect(planTriggerReason(base(), base({ rclByRoom: { W1N1: 4, W9N9: 1 } }))).to.equal(null);
+    it("a NEW owned room fires its OWN trigger (the claim moment), never a phantom rcl-up", () => {
+      // The docblock always promised "claim placed" as a trigger, but nothing
+      // carried it: the expansion trigger keys on Memory.expansion.roomName
+      // (unchanged by the claim) and spawnCount moves only when the founding
+      // spawn STANDS - so the claim fired no replan at all. Under the 50/150t
+      // cadence that cost up to a cadence of delay; under the fiscal-month
+      // term (spec 46 phase A, live since #152) it cost the WHOLE MONTH:
+      // exp-t5-claimer-claims-and-founds measured ONE planning pass in 500
+      // ticks, claim @~t35, founding site never placed (first red at #152,
+      // bisected 2026-08-11). Ownership is the durable world transition the
+      // campaign's claim produces - key on it directly.
+      expect(planTriggerReason(base(), base({ rclByRoom: { W1N1: 4, W9N9: 1 } }))).to.equal("owned-room:W9N9");
+    });
+
+    it("a LOST owned room fires too (unclaim/downgrade-out - the plan must stop pricing it)", () => {
+      expect(planTriggerReason(base({ rclByRoom: { W1N1: 4, W9N9: 1 } }), base())).to.equal("owned-room-lost:W9N9");
     });
 
     it("a spawn joining or leaving the census fires", () => {

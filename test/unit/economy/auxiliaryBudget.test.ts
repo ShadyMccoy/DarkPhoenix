@@ -5,7 +5,9 @@ import { reservationKind } from "../../../src/corps/kinds/reservationKind";
 import { extensionTenderKind } from "../../../src/corps/kinds/extensionTenderKind";
 import { linkKind } from "../../../src/corps/kinds/linkKind";
 import { raidGuardKind } from "../../../src/corps/kinds/raidGuardKind";
+import { claimKind } from "../../../src/corps/kinds/claimKind";
 import {
+  claimerSpawnLoad,
   feederSpawnLoad,
   hubTenderSpawnLoad,
   infraSpawnLoad,
@@ -64,7 +66,8 @@ function auxiliaryBudget(problem: ColonyProblem, draft: Commission[]): { total: 
     ...reservationKind.propose(problem, draft),
     ...extensionTenderKind.propose(problem, draft),
     ...linkKind.propose(problem, draft),
-    ...raidGuardKind.propose(problem, draft)
+    ...raidGuardKind.propose(problem, draft),
+    ...claimKind.propose(problem, draft)
   ];
   const byKind = new Map<string, number>();
   let total = 0;
@@ -221,6 +224,27 @@ describe("spec 39 phase 4: auxiliary corps carry their own budget", () => {
     const p = world({ depot: true, linkFed: true, guarded: ["W40N40"] });
     const { byKind } = auxiliaryBudget(p, draft);
     expect(byKind.get("raidGuard") ?? 0).to.equal(0);
+  });
+
+  // SPEC 39 PHASE 4 TAIL (2026-08-11) - the claim campaign joins the invariant.
+  // The claimer was the last never-booked auxiliary with a live trigger: a
+  // campaign fields one CLAIM+MOVE body continuously until the room is claimed
+  // (~0.0033 p/t), and the commission declared `spawnPartsPerTick: 0` -
+  // "off-budget CAPEX" - so the campaign's spawn time was invisible to both the
+  // parts ledger and spec 51's Sigma(corps). Conditional like the guard: priced
+  // off the SAME campaign fact the kind proposes from (problem.expansion), so a
+  // quiet colony pays nothing.
+  it("a LIVE expansion campaign prices its claimer on both sides", () => {
+    const p: ColonyProblem = { ...world({ depot: true, linkFed: true }), expansion: { roomName: "W2N2" } };
+    const { total, byKind } = auxiliaryBudget(p, draft);
+    expect(byKind.get("claim")).to.be.closeTo(claimerSpawnLoad(), 1e-12);
+    expect(total).to.be.closeTo(infraSpawnLoad(RELAY, 1, REMOTES.length, 1, 1, 0, 0, 0, 1), 1e-12);
+  });
+
+  it("no campaign, no claim charge - and the aggregate's default agrees", () => {
+    const p = world({ depot: true, linkFed: true });
+    const { byKind } = auxiliaryBudget(p, draft);
+    expect(byKind.get("claim") ?? 0, "quiet colony pays nothing for claiming").to.equal(0);
   });
 
   it("the feeder follows the PLAN's relay, not a constant", () => {

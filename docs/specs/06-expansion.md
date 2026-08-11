@@ -13,6 +13,86 @@ strategy: losing rooms is fine, spreading is the win condition.
 **Priority:** P2 (after the economy specs; an expansion that out-runs its
 economy just starves two rooms instead of one).
 
+## UN-PARKED AND FIXED 2026-08-11 (owner: "It's time to claim a room... I want the full fix")
+
+The founding cell had been red since the refactor era and PARKED 2026-07-28;
+the live trigger had NEVER fired (GCL 32, 554k banked, zero campaigns ever
+opened at t72918307). Both were reader-pair deadlocks in the spec 56 D2 shape —
+each side locally defensible, jointly a starvation — and the plan layer was
+verified INNOCENT by direct probe before either fix (site admitted, priced 85,
+funded, build commission published; the funnel existed on paper the whole
+time):
+
+1. **The funnel (the red cell): crew dispatch never read the plan's pricing.**
+   The build-pool consolidation (2026-07-20/22, "one crew marches wherever the
+   work is") sends the whole crew to the pool's HEAD room, and the pool sorted
+   home-first-then-distance — so the solver's 85-valued founding site waited
+   behind home's self-refilling 70-valued site queue forever (measured: six
+   home sites placed across the red run's 1800t window, zero energy east).
+   Fix: `buildPool` ranks rooms by the SAME goal valuation the adapter prices
+   sinks with (`goals.constructionSiteValue`, one shared rule) applied to the
+   ledger's own `structureType`; ties keep home-first-then-nearest, so worlds
+   without a founding-class site order byte-identically. Cell green: progress
+   climbs @136, spawn stands @531 (vs never; historical pre-refactor green was
+   ~790 — the crew now goes STRAIGHT to the founding site), campaign closes
+   @532.
+2. **The trigger: the placement sweep never priced a candidate.**
+   `expansionCandidates` drops any node without a placement, but the sweep
+   selected top-5 nodes by ECONOMIC value — owned territory always wins that
+   ranking, so `Memory.spawnPlacements` never held an unowned node and
+   `shouldExpand` starved at `candidates=[]` regardless of GCL or bank. Fix:
+   `buildPlacementContexts` runs a second lane — top-N unowned nodes by
+   `expansionScore`, the same score the trigger ranks with — deduped into one
+   sweep job.
+3. **The claim commission joins the books** (spec 39 phase 4 tail): the
+   standing claimer priced at `claimerSpawnLoad()` (CLAIM+MOVE over
+   CLAIM_LIFETIME, ~0.0033 p/t) on both sides — the kind's declaration and
+   `infraSpawnLoad`/`infraSpawnEnergy`'s new campaign term — extending the
+   `Σ(auxiliary) === infraSpawnLoad` identity to claiming. Campaign CAPEX
+   (founding spawn 15k, seed bodies) stays financed by the `shouldExpand`
+   bank gate; only the standing body is priced.
+
+Also fixed in passing: `sim:real`'s `--gcl` flag fed a LEVEL straight into
+`addBot`'s POINTS field (the CLAUDE.md grid-staging trap), so no real-map sim
+could ever reach the trigger; and the sim's report now prints the trigger's
+whole input (top unowned scores | placement | intel) so a silent
+`shouldExpand=false` is attributable from the report alone.
+
+### Same-day follow-up: the CLAIM was never a replan trigger, and the monthly cadence turned that gap into a month
+
+Running the full grid for the ratchet surfaced `exp-t5-claimer-claims-and-founds`
+red - and the bisect put its first red at **#152 (6ce940f)**, BEFORE this
+tranche (this branch's parent 82ff82b red; #151 green 4/4). Mechanism, measured
+from the cell's own console: **ONE planning pass in 500 ticks** - the claim
+landed @~t35 and `updateExpansionCampaign` (which places the founding site)
+never ran again. `planTriggers`' docblock always promised *"claim placed"* as a
+trigger, but the snapshot carried only `Memory.expansion?.roomName` - which the
+claim does not change - and `spawnCount` moves only when the founding spawn
+STANDS. Under the old 50/150t cadence the un-wired trigger cost at most a
+cadence and no cell ever noticed; under the fiscal-month term (spec 46 phase A,
+live in #152) the same gap parked the founding for the month.
+
+Fix (this branch): **ownership is the durable transition** - `planTriggerReason`
+fires `owned-room:<name>` when a room appears in the owned-room snapshot
+(`rclByRoom`) and `owned-room-lost:<name>` when one vanishes, exactly the
+claim's world effect and future-proof for any room gain/loss. Cell green:
+claim @t47, founding site placed **@t48** - the forced replan lands the next
+tick. Live consequence: the claim -> founding handoff is immediate instead of
+waiting out the month's frozen plan.
+
+**Filed, deliberately NOT fixed here: `cons-recycle-pad-mature-room` red on
+master, first red at #158 (dbad248).** That commit's RCL8 build-out added
+`wantsAnotherTower` (tower target 2, was hard-silenced at one forever) plus a
+~70-line ConstructionCorp reorder, and the new tower want now competes in the
+one-rung-per-pass ladder ahead of the recycle pad - the spec 58(b)
+rung-starvation class (measured: master's first placement pass takes the pad;
+#158+ takes the tower/extensions and the pad misses its 80t window). Whether
+the pad should outrank a wanted tower is a LADDER-ORDER ruling on a
+deliberate owner change - the bandaid doctrine says interrogate the mechanism,
+not patch its symptom from a side branch. The cell's baseline `pass` claim is
+KEPT so the ratchet stays visible (the same treatment this spec's founding red
+got in July).
+
 ## What already exists
 
 - Node ROI with expansion candidates: `global.showNodes()` ranks

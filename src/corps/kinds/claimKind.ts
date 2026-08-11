@@ -16,6 +16,7 @@ import { ColonyProblem } from "../../economy/CorpPlanner";
 import { SerializedCorp } from "../Corp";
 import { ClaimCorp, SerializedClaimCorp } from "../ClaimCorp";
 import { buildReserverBody } from "../../spawn/BodyBuilder";
+import { claimerSpawnLoad } from "../../economy/primitives";
 import { nearestSpawnTo } from "../../economy/proposeHelpers";
 
 /** The claim commission's binding: which target room, which home spawn. */
@@ -42,9 +43,12 @@ export const claimKind: CorpKind<ClaimCorp> = {
         corpId: corpIdFor("claim", target),
         kind: "claim",
         shape: "auxiliary",
-        // Off-budget: the claimer is CAPEX, priced by the SpawnDirector's
-        // value ranking (held-funded 650), not the flow planner.
-        consumes: { spawnPartsPerTick: 0 },
+        // ON the books (spec 39 phase 4 tail): the standing claimer's own
+        // primitive, the same term infraSpawnLoad deducts for a live campaign
+        // - Sigma(auxiliary) === infraSpawnLoad extends to claiming. The
+        // campaign's one-shot CAPEX (founding spawn, seed bodies) stays
+        // financed by the shouldExpand bank gate; the BODY is standing spend.
+        consumes: { spawnPartsPerTick: claimerSpawnLoad() },
         produces: { valuePerTick: 0 },
         assignment: { roomName: target, spawnId: best.id } as ClaimAssignment
       }

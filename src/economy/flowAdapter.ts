@@ -78,7 +78,7 @@ import {
 } from "./CorpPlanner";
 import { Commission, FieldedFleet } from "./Commission";
 import { bankRoomFromId, isBankSourceId, isMinedIncomeId, stripSourcePrefix, stripSpawnPrefix } from "./ids";
-import { DEFAULT_VALUATION, Goal, SinkValuation, compileGoal } from "./goals";
+import { DEFAULT_VALUATION, Goal, SinkValuation, compileGoal, constructionSiteValue } from "./goals";
 import { searchStructure } from "./strategy";
 import { commissionsFromPlan, consumerSpawnLoad } from "./commissionPlan";
 
@@ -592,7 +592,9 @@ function perInstanceSinkValue(
   }
   if (kind === "construction" && typeof Game !== "undefined" && Game.getObjectById && sink.gameId) {
     const site = Game.getObjectById(sink.gameId as Id<ConstructionSite>);
-    if (site && site.structureType === "spawn") return val.newSpawnSite;
+    // ONE rule with the build pool's room ordering (goals.constructionSiteValue)
+    // so plan pricing and crew dispatch cannot drift apart.
+    if (site) return constructionSiteValue(site.structureType, val);
   }
   if (kind === "controller" && typeof Game !== "undefined" && Game.rooms) {
     const controller = Game.rooms[sink.position.roomName]?.controller;
@@ -1607,6 +1609,11 @@ export function buildColonyProblem(
   // transfer edge AND prices its standing hub tender - one read for both, so
   // the plan can never emit a transfer it did not pay to staff.
   const terminalRooms = detectTerminalRooms();
+  // LIVE EXPANSION CAMPAIGN (spec 39 phase 4 tail): one standing claimer
+  // while Memory.expansion is open - the SAME campaign fact claimKind
+  // proposes from (via ColonyProblem.expansion), so the deduction and the
+  // corp's declaration are one fact in two shapes. Quiet colonies read 0.
+  const expansionCampaigns = typeof Memory !== "undefined" && Memory.expansion ? 1 : 0;
   const infraPartsPerTick = infraSpawnLoad(
     pricedRelay,
     roomsWithStorage.size,
@@ -1615,7 +1622,8 @@ export function buildColonyProblem(
     1,
     guardedRooms.size,
     portRooms.size,
-    terminalRooms.length
+    terminalRooms.length,
+    expansionCampaigns
   );
   // Same details, priced in ENERGY - the second currency the spawn sink
   // needs (see the two-pass solve in solveColony).
@@ -1627,7 +1635,8 @@ export function buildColonyProblem(
     1,
     guardedRooms.size,
     portRooms.size,
-    terminalRooms.length
+    terminalRooms.length,
+    expansionCampaigns
   );
   const infraInputs = {
     pricedRelay,
@@ -1635,7 +1644,8 @@ export function buildColonyProblem(
     remoteRooms: remoteRooms.size,
     linkFedRooms,
     guardedRooms: guardedRooms.size,
-    portRooms: portRooms.size
+    portRooms: portRooms.size,
+    expansionCampaigns
   };
 
   return {

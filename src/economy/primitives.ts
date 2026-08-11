@@ -975,6 +975,31 @@ export function roomReserverSpawnLoad(): number {
   return reserverSpawnLoad(RESERVER_PARTS_PER_ROOM);
 }
 
+/** Body of the expansion claimer: CLAIM + MOVE (650e, spec 06). */
+export const CLAIMER_PARTS = 2;
+
+/**
+ * ONE live expansion campaign's standing claimer, parts/tick - the claim term
+ * of {@link infraSpawnLoad} (spec 39 phase 4 tail, 2026-08-11).
+ *
+ * The claimer was the last never-booked auxiliary with a live trigger: while
+ * `Memory.expansion` is open and the room unclaimed, ClaimCorp fields ONE
+ * CLAIM+MOVE body continuously (replacement on death via its own demand), and
+ * the commission declared `spawnPartsPerTick: 0` as "off-budget CAPEX" - so
+ * the campaign's spawn time was invisible to the parts ledger and to spec 51's
+ * Sigma(corps) === colony budget identity alike.
+ *
+ * Priced like the guard: the full body over the lifetime the spawn rebuilds it
+ * on - CLAIM bodies live CLAIM_LIFETIME (600), and the walk IS the duty here
+ * (the claim lands at arrival), so no duty factor and no walk deduction. The
+ * campaign's other outlays (the founding spawn's 15k, seed bodies) are real
+ * CAPEX and stay financed by the shouldExpand bank gate - this prices only the
+ * STANDING body the spawn keeps rebuilding while the campaign runs.
+ */
+export function claimerSpawnLoad(): number {
+  return CLAIMER_PARTS / CLAIM_LIFETIME;
+}
+
 /**
  * CARRY parts a PORT TENDER is built with. It is PARKED between a deposit
  * port's buffer container and the port link, so it is sized for the link's
@@ -1056,7 +1081,11 @@ export function infraSpawnLoad(
   /** Rooms holding an owned TERMINAL - one standing hub tender each (the
    * storage<->terminal post, spec 58 phase 3). Defaults to 0: a caller that
    * does not know the terminal topology prices exactly as before. */
-  terminalRoomCount = 0
+  terminalRoomCount = 0,
+  /** LIVE expansion campaigns - one standing claimer each until the room is
+   * claimed (spec 06). Defaults to 0: a caller that does not know the
+   * campaign state prices exactly as it did while claiming was off-book. */
+  expansionCampaignCount = 0
 ): number {
   // Feeder + tender are DEPOT movers: they exist only in rooms with a built
   // storage (`depotRoomCount`). Charging them unconditionally taxed early
@@ -1085,7 +1114,8 @@ export function infraSpawnLoad(
   const guards = guardedRoomCount * roomGuardSpawnLoad();
   const portTenders = portedRoomCount * portTenderSpawnLoad();
   const hubTenders = terminalRoomCount * hubTenderSpawnLoad();
-  return feeder + tender + reservers + guards + portTenders + hubTenders;
+  const claimers = expansionCampaignCount * claimerSpawnLoad();
+  return feeder + tender + reservers + guards + portTenders + hubTenders + claimers;
 }
 
 /**
@@ -1123,7 +1153,9 @@ export function infraSpawnEnergy(
    * before the port tender existed. */
   portedRoomCount = 0,
   /** Rooms holding an owned TERMINAL - the parts twin's term, in energy. */
-  terminalRoomCount = 0
+  terminalRoomCount = 0,
+  /** LIVE expansion campaigns - the parts twin's claim term, in energy. */
+  expansionCampaignCount = 0
 ): number {
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
   // Spec 45 volley-service floor - the SAME line as the parts twin above.
@@ -1140,7 +1172,9 @@ export function infraSpawnEnergy(
   const guards = guardedRoomCount * roomGuardSpawnLoad() * ATTACK_MOVE_PER_PART;
   const portTenders = portedRoomCount * portTenderSpawnLoad() * CARRY_MOVE_PER_PART;
   const hubTenders = terminalRoomCount * hubTenderSpawnLoad() * CARRY_MOVE_PER_PART;
-  return feeder + tender + reservers + guards + portTenders + hubTenders;
+  // Claimer bodies are the reserver's class mix (CLAIM+MOVE, 325 e/part).
+  const claimers = expansionCampaignCount * claimerSpawnLoad() * CLAIM_MOVE_PER_PART;
+  return feeder + tender + reservers + guards + portTenders + hubTenders + claimers;
 }
 
 /**
