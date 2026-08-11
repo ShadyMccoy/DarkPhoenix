@@ -13673,3 +13673,49 @@ fleet-walk window); (3) W43N24's controller allocation drops toward its
 real local inflow (~21) and upgrader dryShare falls from 0.559; (4) F1's
 over-statement shrinks by the embargoed classes; (5) W45N23 reservation
 stops renewing while its source is unworkable.
+
+### Post-deploy verification t72940325 (+~1400t, deploy mid-window): FIXED
+
+The five predictions, against the fresh solve (flow tick 72940326):
+
+1. **CONFIRMED, the sharp one**: cd8a "embargoed", d017 "embargoed" -
+   stamped, never phantom-funded - and **ca05 "funded" from 00a7
+   (W43N23's Spawn3, d 130)**: rerouted AROUND the marked corridor onto a
+   spawn that can build its bodies. "Funded at db0f" did not occur.
+2. **CONFIRMED beyond the target**: forgone mining 40.28 -> **0.00**
+   against an honest capacity of 100 (six sources adjudicated out, priced
+   at zero). The clamp note is doing its job: raw mining 117.29 e/t runs
+   17.29 ABOVE funded capacity - embargoed incumbents keep their routes
+   (doctrine) while the plan claims only what it funds. Controller
+   delivery rose 19.86 -> 27.36 pts/t. E6 deferred ops 4 -> 1; cd8e
+   heldFrac 1.00 -> 0.26, buffer 3321 -> 2761.
+3. **CONFIRMED on the allocation**: W43N24 controller 28 -> 20.63
+   (predicted ~21), fielded WORK 28 -> 21 and shrinking. dryShare 0.605
+   NOT yet down (meter spans 4327t of mostly pre-deploy starvation; the
+   oversized fleet must age out) - converges over the next generation or
+   it is a new finding.
+4. **INCONCLUSIVE - transition window**: F1 inverted 0.82x -> 1.39x on a
+   684t post-reset ring while the admission set changed under it (bodies
+   bought for sources that then flipped verdict; off-plan incumbents).
+   The gauge measured the transition, as the X5 deploy caveat predicts.
+   Real signal inside it: ca05's first rerouted body 2200e dead at 204t
+   (remote churn) - the corridor kill-tax is real, R1 already prints it
+   13x under-priced. If ca05 churns again next window, the fix is the
+   INVADER TAX calibration, not the reroute.
+5. **RESOLVED BETTER THAN PREDICTED**: the stale W45N23 reservation
+   lapsed (reservedUntil gone from intel) and the corp now maintains it
+   CORRECTLY - ca05 is funded again via the reroute, so the 2.10 e/t buys
+   uplift for a worked source instead of nothing.
+
+P12 held room-matched (relay 20 >= published 15, no phantom fault). P1
+prints 6 flips - the embargo transitions themselves, now named. E4
+worsened (bank slope +25.26 e/t, 827k above reserve) - the standing
+spend-path complaint, unchanged in kind, larger in degree while
+construction pool drains; still the doctrine's next target after L1.
+
+**Cycle verdict: FIXED, predictions confirmed (1-3, 5), one gauge
+inconclusive by construction (4).** The plan and the runtime read the same
+danger lens; disagreement is now a stamped verdict, not a silent 30 e/t.
+Named for next cycle, in order: L1 remainder (backlog drain term +
+scavenge sizing - drain 3.03 vs decay 14 e/t), R1 raid-tax calibration
+(ca05 churn watch), E4 spend path (bank slope +25).
