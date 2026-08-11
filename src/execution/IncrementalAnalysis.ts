@@ -149,6 +149,21 @@ export function restoreVisualizationCache(colony: Colony): void {
  * Returns true if analysis is complete, false if still in progress.
  */
 export function runIncrementalAnalysis(colony: Colony): boolean {
+  // ANALYSIS IS OPT-IN (2026-08-11 crash-loop incident, INVERTED DEFAULT):
+  // with two owned rooms, the post-reset analysis restart hard-killed the
+  // global (Memory unpersisted from t72933848, losses windowTicks 6,
+  // blackbox ring ~1KB, twelve console/API flag writes never landing, fleet
+  // 44 -> 3 over ~1,800t). A dead bot can execute NO console flag, so the
+  // only workable kill switch is one the DEPLOY itself arms: the analysis
+  // runs only when Memory.analysisGo === 1 is set from a healthy console.
+  // Post-hold the colony stabilized in one global (13 creeps and climbing,
+  // 173 reset-free ticks at first read). The colony runs fine on persisted
+  // nodes + stale territories; do not set analysisGo until the batch step
+  // is instrumented (heap/CPU stamps) and the kill understood.
+  if ((Memory as { analysisGo?: number }).analysisGo !== 1) {
+    incrementalState = null;
+    return true;
+  }
   // Check if we should start a new analysis
   if (!incrementalState) {
     // Check cache first

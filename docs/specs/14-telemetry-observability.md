@@ -13535,3 +13535,41 @@ with contexts >= 2 within ~20 ticks of the reset (empty attempt, rebuild,
 re-kick), a completion, and `Memory.spawnPlacements` grows past one entry
 with candidate-room placements - the expansion trigger's pipeline finally
 primed for the AUTO path.
+
+## INCIDENT t72933848 (2026-08-11, same session): the two-room analysis restart hard-killed the global; emergency inverted-default hold; colony recovered
+
+**Timeline (all reads on file as fixtures):** healthy at t72931992 (44
+creeps, funnel 9,060/15,000 at ~19.6 e/t) -> #163 deploy -> fleet bled to 3
+by t72933856 with `losses.windowTicks 6` (a reset ~every 6 ticks), blackbox
+ring ~1KB, spawn util 0.889 building into orphaned newborns (countMismatch:
+every mining corp claimed 1 / counted 0; untracked == all creeps) -> Memory
+FROZE at t72933848: agenda stamp static across minutes, `Memory.probe` never
+landing from console, twelve memory-API flag writes never executing (the
+"API write" is a queued console op - it needs a completing tick; a dead bot
+can execute NO flag). Bucket full throughout = heap-class VM kill, not CPU.
+
+**Emergency action (instrument-protection doctrine):** the only lever a dead
+bot leaves is the code deploy, so the analysis default INVERTED -
+`runIncrementalAnalysis` and the post-reset territory-rebuild guard both run
+only when `Memory.analysisGo === 1`. Deployed; the next global survived:
+console streaming (websocket instrument - new this cycle), a 2,600e builder
+spawned at t72934299, and by t72934373 **13 creeps (harvest 8/tender/feeder),
+173 reset-free ticks, bucket 10,000, founding site intact at 9,080/15,000**.
+
+**Corrections logged:** (1) the earlier "advancing then frozen again"
+read was a cadence misread - the agenda stamp updates when the QUEUE
+changes, not per tick; the pre-deploy freeze was real (three independent
+instruments), the post-deploy one was not. (2) The #163-cycle attribution
+("the catch-up consumed itself") was correct but INCOMPLETE - the deeper
+fault was the analysis restart being fatal at two-room scale; the catch-up
+fix is moot until analysis runs at all.
+
+**Standing state and the path back:** `analysisGo` UNSET - analysis held
+colony-wide; territories stay stale; the placement sweep and therefore the
+AUTO-expansion candidate pipeline stay parked (hand-staged campaigns remain
+the proven interim lever - today's claim ran claim->trigger->site->funnel
+end to end). NEXT: instrument the batch step (per-batch heap/CPU stamps to
+Memory) on the healthy colony, read one guarded batch, and only then design
+the re-enable (smaller batches / heap ceiling / room cap). Watch item until
+then: W43N24's founding completes on the recovering crew; the campaign
+closes on spawn-stand (the spawnCount trigger fires regardless of the hold).
