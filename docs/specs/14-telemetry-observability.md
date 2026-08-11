@@ -13608,3 +13608,68 @@ planned executor-less (self-healing physically; F1 pollution).
 **Cycle verdict: FIXED, prediction-confirmed.** The full organism chain -
 claim, founding funnel, local supply, the climb - is now measured working
 at production scale.
+
+## Audit cycle t72936194 -> t72938848 (2026-08-11): the transit-embargo split - 30 e/t funded that no corp would staff
+
+**The account's headline:** forgone mining 40.28 e/t (25% of capacity, the
+largest line in the account), pile decay 23.97 vs budget 0 (L1 top line),
+controller 12% of capacity vs >=50% target, bank +9.37 e/t above a reserve
+already 7x over target.
+
+**The attribution walk (stamps over inference, and the stamps first
+mislead):** the account's own decoration blamed the pile gates ("stamps
+explain 24.79 e/t (heldFrac)") and E6 blamed hauling. Differencing each
+harvest corp's cumulative `produced` across the two captures falsified both
+readings: every pile-gated source mined 9.5-10.0 e/t (the de-pricing gate
+holds PRIORITY, not the pick - its heldFrac is not a mining contra), and the
+forgone 40 is almost exactly **four sources fielding nothing at all**: cd8a
+(W43N25), ca05 (W45N23), d017 (W41N25) all stamped `gate:
+"transit-embargo"`, plus cd99 ramping after its P1 flip. Three embargoed
+sources = ~30 e/t, stamped "funded" in the same capture's candidates[].
+
+**The seam (the trap list called it):** the planner's danger lens is the
+source ROOM only (flowAdapter `defunded`, t72793209) while the corps'
+purchase gates read `routeIsDangerous` over the WHOLE transit
+(HarvestCorp:586, CarryCorp:1504). Active marks at capture - W45N24 and
+W44N25 (hostileUntil ~t72940123), the raided corridor NW of the new W43N24
+spawn - made routes dangerous whose endpoints were clear. Plan funds, corps
+refuse: 30 e/t of phantom capacity, a 7.2 e/t cd8a flow into
+controller-cd8c sizing W43N24's upgraders (28 WORK fielded, dryShare 0.559,
+stock 0), reservation still bought for W45N23 (2.10 e/t for a room mining
+nothing), F1 over-stating 0.186 p/t.
+
+**Fix (red-first, `transit-embargo admission` suite in
+CorpPlanner.test.ts):** `ColonyProblem.routeDangerous` carries the corps'
+lens as a closure exactly like `dist`; `selectProducers` prefers the
+nearest spawn with a SAFE route (reroute before forgoing - cd8a/ca05 remain
+fundable via W43N23's spawns whose corridor is clear), embargoes with its
+own stamped verdict only when no spawn qualifies, exempts spawn-room
+sources (the t72793209 polarity), and never silently reroutes a spec-18
+pin. flowAdapter passes the live `routeIsDangerous`; absent lens =
+fail-open (every harness unchanged).
+
+**Also fixed:** P12's `.find(first controller sink)` broke when W43N24's
+local-fed controller joined the plan - it compared the NEW room's
+allocation (28) against W43N23's feeder relay (20) and printed a phantom
+"RUNTIME FAULT". Room-matched now (feeder's room end-to-end): relay 20 >=
+published 15, ONE VALVE holds; the row keeps failing honestly on the
+solver gap (0.15x the law's cap, wartime relegation + spawn-sink claims).
+
+**Sidebar measured, not fixed (named for the next cycle):** the Spawn4
+"hold" rows (miner 650 / reserver 1300 vs a 550-cap bank) are benign - the
+auction is global and big bodies wait for big spawns. The REAL standing
+leaks behind L1: inflow-sized carry has no backlog drain term (H1: haulers
+BUSY while 6.4k sits piled; d01f delivered 4.94 of 9.60 mined) and the
+scavenge fleet loses to decay on 3 of 3 stocks (drain 3.03 vs decay 14.00
+e/t - we collect 18%). cd8e's squad shows duty 0.561 / idleSink 0.426
+against a SATURATED deposit link (8f08 rho 0.96) - the port leg is the
+suspect if the pile survives this deploy.
+
+**Predictions for the post-deploy capture:** (1) candidates[] shows
+cd8a/ca05 funded with a W43N23-side spawnId (or "embargoed" while marks
+stand - either is coherent; "funded at db0f" is the failure); (2) forgone
+mining falls toward ~15 e/t as rerouted fleets field (full effect needs a
+fleet-walk window); (3) W43N24's controller allocation drops toward its
+real local inflow (~21) and upgrader dryShare falls from 0.559; (4) F1's
+over-statement shrinks by the embargoed classes; (5) W45N23 reservation
+stops renewing while its source is unworkable.

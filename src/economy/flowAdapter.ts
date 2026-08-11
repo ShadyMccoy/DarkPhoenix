@@ -18,7 +18,7 @@
  */
 
 import "../types/Memory"; // RoomMemory.roadRoutes augmentation (paved receipts)
-import { hostileRooms, isSourceKeeperRoom, roomLinearDistance } from "../utils/RoomDiscovery";
+import { hostileRooms, isSourceKeeperRoom, roomLinearDistance, routeIsDangerous } from "../utils/RoomDiscovery";
 import { portPosts } from "../corps/nodeEnergy";
 import { guardTargetsFor } from "../utils/raidMeter";
 import {
@@ -1640,6 +1640,12 @@ export function buildColonyProblem(
     assembly,
     spawns,
     sources, sinks, dist, infraPartsPerTick, infraEnergyPerTick, infraInputs, depositPorts,
+    // The corps' transit lens, carried like `dist` (audit t72938848): the
+    // ROUTE half of the same-lens defund above - a mark on a corridor room
+    // must un-fund at admission exactly where it un-staffs at the purchase
+    // gate, or the plan prices capacity no corp will field. routeIsDangerous
+    // fails open without Game (harness), matching the field's contract.
+    routeDangerous: routeIsDangerous,
     // The transfer edge's gate + its fee input (spec 58 phase 3). Present
     // even when empty: the CONTRACT is continuous wrap-around distance, and
     // an always-present roomDist means canTransfer's double gate reduces to

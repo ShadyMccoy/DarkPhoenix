@@ -204,6 +204,17 @@ export interface ColonyProblem {
   /** Real walking distance between two positions (e.g. cached pathDistance). */
   dist: (a: Position, b: Position) => number;
   /**
+   * The corps' transit-danger lens (utils/RoomDiscovery.routeIsDangerous),
+   * carried as a closure exactly like `dist`: is any room on the haul route
+   * between the two rooms currently hostile? HarvestCorp/CarryCorp buy no
+   * bodies over a dangerous transit, so admission must read the SAME lens or
+   * it funds capacity no corp will staff (audit t72938848: three sources,
+   * 30 e/t of the forgone line, stamped `transit-embargo` at the corps while
+   * "funded" in the plan). Absent = fail-open (no route is dangerous) - the
+   * t72793209 polarity, and every harness's default.
+   */
+  routeDangerous?: (fromRoom: string, toRoom: string) => boolean;
+  /**
    * Deposit ports (spec 26): links a mined deposit may turn around at instead of
    * walking to its storage hub. Priced as a shorter delivery leg into the STORAGE
    * sink; empty/absent = today's behaviour (haul the full hub leg). Assembled by
@@ -446,6 +457,7 @@ export interface SourceVerdict {
     | "no-sink"
     | "unrouted"
     | "defunded"
+    | "embargoed"
     | "prospect";
 }
 
@@ -566,11 +578,52 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
       verdicts.push({ sourceId: source.id, rate: source.rate, distance: 0, net: 0, tax: 0, parts: 0, verdict: "defunded" });
       continue;
     }
+    // TRANSIT-EMBARGO ADMISSION (audit t72938848 - the ROUTE half of the
+    // t72793209 same-lens defund). The corps' purchase gates read
+    // routeIsDangerous(spawn room, source room) - ANY transit room hostile -
+    // while admission read only the source room's own `defunded` stamp, so a
+    // mark on a corridor room left sources "funded" that no corp would
+    // staff: three sources = 30 e/t of the 40.28 forgone line, a 7.2 e/t
+    // phantom flow sizing W43N24's upgraders, reservation bought for a room
+    // mining nothing. Same lens, corps' polarity: prefer the nearest spawn
+    // with a SAFE route (reroute before forgoing - production over
+    // consumption); only when no spawn offers one does the source leave the
+    // plan, stamped "embargoed", re-funded automatically when the mark
+    // expires. Spawn-room sources are exempt exactly like the defunded
+    // stamp: home defense is towers + guards, and un-funding the home
+    // economy mid-raid would be the death spiral - the corps' own gate
+    // already pauses purchases for the mark's short horizon.
+    const routeSafe = (sp: PlannerSpawn): boolean =>
+      spawnRoomNames.has(source.pos.roomName) ||
+      problem.routeDangerous === undefined ||
+      !problem.routeDangerous(sp.pos.roomName, source.pos.roomName);
     // The searcher's pin overrides the nearest-spawn default (spec 18).
     const pinned = source.assignedSpawnId ? spawns.find(s => s.id === source.assignedSpawnId) : undefined;
+    if (pinned && !routeSafe(pinned)) {
+      // The pin is the searcher's - embargo it rather than silently
+      // rerouting a placement another system owns.
+      const d = dist(pinned.pos, source.pos);
+      verdicts.push({
+        sourceId: source.id,
+        rate: source.rate,
+        distance: Number.isFinite(d) ? d : 0,
+        net: 0,
+        tax: 0,
+        parts: 0,
+        verdict: "embargoed"
+      });
+      continue;
+    }
     const near = pinned
       ? { spawn: pinned, distance: dist(pinned.pos, source.pos) }
-      : nearestSpawn(source.pos, spawns, dist);
+      : nearestSpawn(source.pos, spawns.filter(routeSafe), dist);
+    if (!near && nearestSpawn(source.pos, spawns, dist)) {
+      // Spawns are reachable - every route to them is dangerous. This is the
+      // embargo, not a path-lens failure; the distinction keeps "unreachable"
+      // meaning what it has always meant.
+      verdicts.push({ sourceId: source.id, rate: source.rate, distance: 0, net: 0, tax: 0, parts: 0, verdict: "embargoed" });
+      continue;
+    }
     if (!near) {
       // The formerly verdict-LESS skip (spec 14: no invisible decisions).
       // Spawns exist but none is reachable: the path lens failed for this

@@ -247,6 +247,92 @@ describe("economy/CorpPlanner", () => {
         expect(v("seed").verdict).to.equal("funded");
       });
 
+      describe("transit-embargo admission (audit t72938848: the ROUTE half of the same-lens defund)", () => {
+        // Live: cd8a/ca05/d017 stood "funded" - 30 e/t of the 40.28 forgone
+        // line - while their corps stamped `transit-embargo` and fielded
+        // nothing. The planner's danger lens was the source ROOM only
+        // (defunded, t72793209); the corps' lens is routeIsDangerous over
+        // the whole transit (HarvestCorp:586, CarryCorp:1504). A mark on a
+        // corridor room (W45N24/W44N25) split the two: phantom capacity, a
+        // 7.2 e/t flow sizing W43N24's upgraders that could never arrive,
+        // reservation bought for a room mining nothing. Admission now reads
+        // the SAME lens, preferring the nearest spawn with a safe route
+        // (reroute before forgoing); only with no safe route anywhere does
+        // the source leave the plan, stamped "embargoed".
+        const roomSpawn = (id: string, x: number, roomName: string): PlannerSpawn => ({ id, pos: { x, y: 0, roomName } });
+        const remoteSource = (id: string, x: number, roomName: string): PlannerSource => ({
+          ...source(id, x),
+          pos: { x, y: 0, roomName }
+        });
+
+        it("funds from the nearest spawn whose route is SAFE, not the nearest outright", () => {
+          const plan = planColony(
+            problem({
+              spawns: [roomSpawn("near", 0, "W1N0"), roomSpawn("far", 30, "W2N0")],
+              sources: [remoteSource("rmt", 10, "W5N0")],
+              sinks: [sink("store", "storage", 0, 1, 1000)],
+              routeDangerous: from => from === "W1N0"
+            })
+          );
+          const v = plan.sourceVerdicts.find(x => x.sourceId === "rmt")!;
+          expect(v.verdict).to.equal("funded");
+          const miner = plan.miners.find(m => m.sourceId === "rmt")!;
+          expect(miner.spawnId, "assigned around the danger, not through it").to.equal("far");
+          expect(miner.distance, "priced at the SAFE route's distance").to.equal(20);
+        });
+
+        it("with NO safe route the source leaves the plan with verdict 'embargoed' - never phantom-funded", () => {
+          const plan = planColony(
+            problem({
+              spawns: [roomSpawn("near", 0, "W1N0"), roomSpawn("far", 30, "W2N0")],
+              sources: [remoteSource("rmt", 10, "W5N0"), remoteSource("clear", 40, "W6N0")],
+              sinks: [sink("store", "storage", 0, 1, 1000)],
+              routeDangerous: (_from, to) => to === "W5N0"
+            })
+          );
+          const v = (id: string) => plan.sourceVerdicts.find(x => x.sourceId === id)!;
+          expect(v("rmt").verdict).to.equal("embargoed");
+          expect(plan.miners.some(m => m.sourceId === "rmt"), "no capacity priced for it").to.equal(false);
+          expect(v("clear").verdict, "the safe twin is untouched").to.equal("funded");
+        });
+
+        it("a PINNED spawn whose route is dangerous embargoes - the pin is the searcher's, never silently rerouted (spec 18)", () => {
+          const plan = planColony(
+            problem({
+              spawns: [roomSpawn("pinned", 0, "W1N0"), roomSpawn("safe", 5, "W2N0")],
+              sources: [{ ...remoteSource("rmt", 10, "W5N0"), assignedSpawnId: "pinned" }],
+              sinks: [sink("store", "storage", 0, 1, 1000)],
+              routeDangerous: from => from === "W1N0"
+            })
+          );
+          expect(plan.sourceVerdicts.find(x => x.sourceId === "rmt")!.verdict).to.equal("embargoed");
+          expect(plan.miners.length).to.equal(0);
+        });
+
+        it("a spawn-room source is NEVER route-embargoed (home defense is towers + guards, not defunding)", () => {
+          const plan = planColony(
+            problem({
+              spawns: [roomSpawn("home", 0, "W1N0")],
+              sources: [remoteSource("own", 5, "W1N0")],
+              sinks: [sink("store", "storage", 0, 1, 1000)],
+              routeDangerous: () => true
+            })
+          );
+          expect(plan.sourceVerdicts.find(x => x.sourceId === "own")!.verdict).to.equal("funded");
+        });
+
+        it("absent lens = today's behaviour (fail-open, nearest spawn)", () => {
+          const plan = planColony(
+            problem({
+              spawns: [roomSpawn("near", 0, "W1N0"), roomSpawn("far", 30, "W2N0")],
+              sources: [remoteSource("rmt", 10, "W5N0")],
+              sinks: [sink("store", "storage", 0, 1, 1000)]
+            })
+          );
+          expect(plan.miners.find(m => m.sourceId === "rmt")!.spawnId).to.equal("near");
+        });
+      });
+
       it("prices a PAVED candidate with the same model its own route edges use (cycle t72786811)", () => {
         // The live seam: cee2's candidate read d 82 / net 5.93 (raw 1:1)
         // in the same plan whose route edge for the same source was 2:1 at

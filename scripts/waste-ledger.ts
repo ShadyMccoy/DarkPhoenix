@@ -2455,10 +2455,20 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   // the feeder relay rides in the detail (relay < published would be a
   // RUNTIME fault - none seen since phase B).
   {
-    const banked = ((core.rooms ?? []) as any[]).reduce((n, r) => n + (r.storageEnergy ?? 0), 0);
-    const feeder = corps.find((c: any) => c.kind === "controllerFeeder");
+    // ROOM-MATCHED since t72938848: `.find(first controller sink)` broke the
+    // moment a second controller joined the plan - it picked W43N24's
+    // LOCAL-fed sink (28, spec 25 exception, no feeder involved) and compared
+    // it against W43N23's feeder relay (20), printing a phantom "RUNTIME
+    // FAULT". The published allocation is stamped room-resolvable on the
+    // upgrading corp (sizing.planAllocated reads Memory.controllerAllocations
+    // for ITS room), so the gauge now compares the feeder's OWN room
+    // end-to-end: published(room) vs law(room bank) vs relay(room feeder).
+    const feeder = corps.find((c: any) => c.kind === "controllerFeeder" && c.sizing?.relayRate !== undefined);
+    const feederRoom = feeder?.roomName;
+    const upg = corps.find((c: any) => c.kind === "upgrade" && c.roomName === feederRoom);
+    const banked = +(((core.rooms ?? []) as any[]).find(r => r.name === feederRoom)?.storageEnergy ?? 0);
     const relay = feeder?.sizing?.relayRate;
-    const ctrlSink = ((flow?.sinks ?? []) as any[]).find(x => x.type === "controller");
+    const ctrlSink = upg?.sizing?.planAllocated !== undefined ? { allocated: +upg.sizing.planAllocated } : undefined;
     if (ctrlSink && banked > 0) {
       const alloc = +ctrlSink.allocated || 0;
       const lawCap = bankFedControllerRate(banked, resolveReserve(cap));
@@ -2473,6 +2483,7 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         unit: `x of the law's cap (published ${alloc.toFixed(2)} vs bankFedControllerRate ${lawCap.toFixed(2)})`,
         verdict: ratio < 0.5 || ratio > 2 ? "FAIL" : ratio < 0.8 || ratio > 1.25 ? "WARN" : "ok",
         detail:
+          `${feederRoom} (the bank-fed room; local-fed controllers are spec 25's business, not this gauge's); ` +
           `ONE law both sides since spec-38 phase D; the remaining gap is the SOLVER's - it routes ` +
           `${spawnClaim.toFixed(2)} e/t to spawn sink claims (physical ceiling caps the claim since t72773737), ` +
           `and the published allocation gets the residual` +
