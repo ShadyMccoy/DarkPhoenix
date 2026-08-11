@@ -64,7 +64,7 @@
     "def-t5-core-buster-reclaims-remote": "pass",
     "def-t5-invader-reservation-defunds-remote": "pass",
     "exp-t5-claimer-claims-and-founds": "pass",
-    "exp-t5-founding-funnels-to-completion": "timeout",
+    "exp-t5-founding-funnels-to-completion": "pass",
     "fid-t4-preramped-steady-state": "pass",
     "fid-t4-synthetic-steady-state": "pass",
     "fid-t5-real-maze-steady-state": "pass",

@@ -58,6 +58,41 @@ could ever reach the trigger; and the sim's report now prints the trigger's
 whole input (top unowned scores | placement | intel) so a silent
 `shouldExpand=false` is attributable from the report alone.
 
+### Same-day follow-up: the CLAIM was never a replan trigger, and the monthly cadence turned that gap into a month
+
+Running the full grid for the ratchet surfaced `exp-t5-claimer-claims-and-founds`
+red - and the bisect put its first red at **#152 (6ce940f)**, BEFORE this
+tranche (this branch's parent 82ff82b red; #151 green 4/4). Mechanism, measured
+from the cell's own console: **ONE planning pass in 500 ticks** - the claim
+landed @~t35 and `updateExpansionCampaign` (which places the founding site)
+never ran again. `planTriggers`' docblock always promised *"claim placed"* as a
+trigger, but the snapshot carried only `Memory.expansion?.roomName` - which the
+claim does not change - and `spawnCount` moves only when the founding spawn
+STANDS. Under the old 50/150t cadence the un-wired trigger cost at most a
+cadence and no cell ever noticed; under the fiscal-month term (spec 46 phase A,
+live in #152) the same gap parked the founding for the month.
+
+Fix (this branch): **ownership is the durable transition** - `planTriggerReason`
+fires `owned-room:<name>` when a room appears in the owned-room snapshot
+(`rclByRoom`) and `owned-room-lost:<name>` when one vanishes, exactly the
+claim's world effect and future-proof for any room gain/loss. Cell green:
+claim @t47, founding site placed **@t48** - the forced replan lands the next
+tick. Live consequence: the claim -> founding handoff is immediate instead of
+waiting out the month's frozen plan.
+
+**Filed, deliberately NOT fixed here: `cons-recycle-pad-mature-room` red on
+master, first red at #158 (dbad248).** That commit's RCL8 build-out added
+`wantsAnotherTower` (tower target 2, was hard-silenced at one forever) plus a
+~70-line ConstructionCorp reorder, and the new tower want now competes in the
+one-rung-per-pass ladder ahead of the recycle pad - the spec 58(b)
+rung-starvation class (measured: master's first placement pass takes the pad;
+#158+ takes the tower/extensions and the pad misses its 80t window). Whether
+the pad should outrank a wanted tower is a LADDER-ORDER ruling on a
+deliberate owner change - the bandaid doctrine says interrogate the mechanism,
+not patch its symptom from a side branch. The cell's baseline `pass` claim is
+KEPT so the ratchet stays visible (the same treatment this spec's founding red
+got in July).
+
 ## What already exists
 
 - Node ROI with expansion candidates: `global.showNodes()` ranks

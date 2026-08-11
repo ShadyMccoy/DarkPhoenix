@@ -60,6 +60,22 @@ export function planTriggerReason(prev: PlanTriggerSnapshot, curr: PlanTriggerSn
   for (const r of prevHostile) if (!currHostile.has(r)) return `hostile-off:${r}`;
   if ((prev.expansionState ?? "") !== (curr.expansionState ?? ""))
     return `expansion:${prev.expansionState ?? "none"}->${curr.expansionState ?? "none"}`;
+  // OWNERSHIP transitions (the claim moment / a room lost). The docblock
+  // always promised "claim placed" as a trigger, but nothing carried it: the
+  // expansion trigger above keys on the campaign's roomName (unchanged by
+  // the claim) and spawnCount moves only when the founding spawn STANDS.
+  // Under the 50/150t cadence the gap cost up to a cadence; under the
+  // fiscal-month term (spec 46 phase A) it cost the MONTH - the
+  // exp-t5-claimer cell measured ONE planning pass in 500 ticks, claim
+  // @~t35, founding site never placed (first red at #152, bisected
+  // 2026-08-11). rclByRoom is already the owned-room lens, so ownership
+  // appearing/vanishing is readable from the same durable snapshot.
+  for (const room in curr.rclByRoom) {
+    if (prev.rclByRoom[room] === undefined) return `owned-room:${room}`;
+  }
+  for (const room in prev.rclByRoom) {
+    if (curr.rclByRoom[room] === undefined) return `owned-room-lost:${room}`;
+  }
   for (const room in curr.rclByRoom) {
     const was = prev.rclByRoom[room];
     if (was !== undefined && curr.rclByRoom[room] > was) return `rcl-up:${room}:${was}->${curr.rclByRoom[room]}`;

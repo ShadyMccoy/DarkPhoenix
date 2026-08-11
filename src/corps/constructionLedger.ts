@@ -149,6 +149,22 @@ export function buildPool(homeRoomName: string): BuildPoolEntry[] {
   // the spec-46 tranche-boundary class, and are the wrong key for dispatch).
   // Ties keep home-first-then-nearest, so any world without a founding-class
   // site orders byte-identically to before.
+  const value = poolRoomValue();
+  const rank = (name: string): number => (name === homeRoomName ? -1 : roomLinearDistance(homeRoomName, name));
+  entries.sort((a, b) => value(b.roomName) - value(a.roomName) || rank(a.roomName) - rank(b.roomName));
+  return entries;
+}
+
+/** Tick-memo for the pool's per-room value map: buildPool has several readers
+ * per tick per bot (crew dispatch, absorb sizing, the consumers' clamp), and
+ * the ledger scan + goal compile behind the ordering are pure within a tick -
+ * same {tick, ...} pattern as CommissionHost's depot lens. Game-less harness
+ * calls (unit tests mutate Memory mid-"tick") recompute every time. */
+let poolValueCache: { tick: number; value: (roomName: string) => number } | null = null;
+
+function poolRoomValue(): (roomName: string) => number {
+  const now = typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : null;
+  if (now !== null && poolValueCache && poolValueCache.tick === now) return poolValueCache.value;
   const valuation = compileGoal(typeof Memory !== "undefined" ? Memory.goal : undefined);
   const roomValue = new Map<string, number>();
   for (const rec of constructionProjectLedger()) {
@@ -156,9 +172,8 @@ export function buildPool(homeRoomName: string): BuildPoolEntry[] {
     roomValue.set(rec.roomName, Math.max(roomValue.get(rec.roomName) ?? 0, v));
   }
   const value = (name: string): number => roomValue.get(name) ?? valuation.construction;
-  const rank = (name: string): number => (name === homeRoomName ? -1 : roomLinearDistance(homeRoomName, name));
-  entries.sort((a, b) => value(b.roomName) - value(a.roomName) || rank(a.roomName) - rank(b.roomName));
-  return entries;
+  if (now !== null) poolValueCache = { tick: now, value };
+  return value;
 }
 
 /**
