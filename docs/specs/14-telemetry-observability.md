@@ -13573,3 +13573,38 @@ Memory) on the healthy colony, read one guarded batch, and only then design
 the re-enable (smaller batches / heap ceiling / room cap). Watch item until
 then: W43N24's founding completes on the recovering crew; the campaign
 closes on spawn-stand (the spawnCount trigger fires regardless of the hold).
+
+## Audit cycle t72935153 -> t72936194 (2026-08-11): the ORGANISM cycle - the founding room joins the colony's economy
+
+Owner's lens for the cycle: *"supply from nearby nodes gets hauled to this
+new room... The nodes all work together, not just each room for itself."*
+
+**Arc milestones measured first:** founding spawn STOOD (spawns 3->4),
+campaign closed itself (Memory.expansion -> null), fleet 60, and the
+already-working organism halves confirmed: bank->new-spawn route planned,
+nearby sources feeding construction, a home-spawned 7W upgrader walked to
+the new controller, both new-room corps reading the shared colony bank.
+
+**The gap, measured then fixed (PR #165):** W43N24's controller planned 14
+e/t from bank-W43N23 over 55 tiles (publishRoster skips bank routes; the
+depot movers' reach is the feeder's link) while cd8e hauled home past it -
+plan 14, actual 0.01 e/t over a 186t window. Fix: storage-less rooms'
+controllers join spec 25's local exception (deposit sources nearer than
+their hub feed them; the bank is refused - honest shortfall over phantom
+flow) and the local pre-pass (after construction, before the deposit
+fill). Depot reach derives from storage sinks AND bank sources (the
+full-bank case emits no storage sink - caught by the spec-38 healthy-
+ledger pin going red on the first cut).
+
+**Post-deploy, predictions vs measured:** the route flipped exactly as
+registered - controller-cd8c now draws source-cd8d @10 (d=6!), scavenge
+@2, cd8e @2; home's controller keeps its bank/feeder leg. cd8d is nearer
+to the NEW room's controller than to its own hub - the organism thesis in
+one route. First energy landed within ~350t of the deploy: **RCL 1 -> 2**
+(progress 50 -> 200 -> 3, ~1.1 e/t and ramping as the 16C hauler squad
+fields). Named follow-up: bank->spawn edges to depot-less rooms are still
+planned executor-less (self-healing physically; F1 pollution).
+
+**Cycle verdict: FIXED, prediction-confirmed.** The full organism chain -
+claim, founding funnel, local supply, the climb - is now measured working
+at production scale.
