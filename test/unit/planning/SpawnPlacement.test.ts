@@ -101,7 +101,7 @@ describe("SpawnPlacement", () => {
   });
 
   describe("buildPlacementContexts", () => {
-    const roi = (economicValue: number): NodeROI => ({
+    const roi = (economicValue: number, overrides: Partial<NodeROI> = {}): NodeROI => ({
       score: economicValue,
       expansionScore: economicValue,
       economicValue,
@@ -111,12 +111,18 @@ describe("SpawnPlacement", () => {
       isOwned: true,
       sourceCount: 1,
       hasController: true,
+      ...overrides,
     });
 
-    function nodeWith(id: string, economicValue: number, resources: NodeResource[]): Node {
+    function nodeWith(
+      id: string,
+      economicValue: number,
+      resources: NodeResource[],
+      overrides: Partial<NodeROI> = {}
+    ): Node {
       const n = createNode(id, ROOM, at(25, 25), 100, [ROOM], 0);
       n.resources = resources;
-      n.roi = roi(economicValue);
+      n.roi = roi(economicValue, overrides);
       return n;
     }
 
@@ -137,6 +143,61 @@ describe("SpawnPlacement", () => {
 
       const contexts = buildPlacementContexts(nodes, territories, 2);
       expect(contexts.map((c) => c.nodeId)).to.deep.equal(["high", "low"]);
+    });
+
+    // -------------------------------------------------------------------------
+    // THE EXPANSION LANE (spec 06's never-fired trigger, diagnosed 2026-08-11):
+    // expansionCandidates drops any node without a priced placement, but the
+    // sweep selected top-N by ECONOMIC value only - and owned territory always
+    // outranks unowned rooms on that axis, so no expansion candidate ever got a
+    // placement and shouldExpand starved at candidates=[] forever (live: GCL 32,
+    // bank 554k, zero campaigns ever opened). The sweep now runs a second lane:
+    // top-N unowned nodes by expansionScore, deduped into the same job.
+    // -------------------------------------------------------------------------
+
+    it("prices EXPANSION candidates: top unowned nodes by expansionScore join the sweep", () => {
+      const nodes = [
+        // The owned lane still wins its slots on economic value.
+        nodeWith("home", 50, [source("s1", at(25, 30)), controller(at(25, 20))]),
+        // The live starvation shape: marginal economicValue ~0, real
+        // expansionScore - invisible to the old selection.
+        nodeWith("candidate", 0, [source("s2", at(25, 30)), controller(at(25, 20))], {
+          isOwned: false,
+          expansionScore: 60,
+        }),
+        nodeWith("weaker-candidate", 0, [source("s3", at(25, 30)), controller(at(25, 20))], {
+          isOwned: false,
+          expansionScore: 40,
+        }),
+      ];
+      const territories = new Map<string, Position[]>([
+        ["home", [at(25, 25)]],
+        ["candidate", [at(25, 25)]],
+        ["weaker-candidate", [at(25, 25)]],
+      ]);
+
+      const contexts = buildPlacementContexts(nodes, territories, 1);
+      expect(contexts.map((c) => c.nodeId), "one slot per lane: best owned + best candidate").to.deep.equal([
+        "home",
+        "candidate",
+      ]);
+    });
+
+    it("the expansion lane skips controller-less nodes (highway/SK) and never duplicates the owned lane", () => {
+      const nodes = [
+        nodeWith("both-lanes", 50, [source("s1", at(25, 30)), controller(at(25, 20))], {
+          isOwned: false,
+          expansionScore: 90,
+        }),
+        nodeWith("highway", 0, [source("s2", at(25, 30))], { isOwned: false, expansionScore: 80 }),
+      ];
+      const territories = new Map<string, Position[]>([
+        ["both-lanes", [at(25, 25)]],
+        ["highway", [at(25, 25)]],
+      ]);
+
+      const contexts = buildPlacementContexts(nodes, territories, 2);
+      expect(contexts.map((c) => c.nodeId)).to.deep.equal(["both-lanes"]);
     });
 
     it("excludes resource tiles and caps the candidate count", () => {

@@ -13,6 +13,51 @@ strategy: losing rooms is fine, spreading is the win condition.
 **Priority:** P2 (after the economy specs; an expansion that out-runs its
 economy just starves two rooms instead of one).
 
+## UN-PARKED AND FIXED 2026-08-11 (owner: "It's time to claim a room... I want the full fix")
+
+The founding cell had been red since the refactor era and PARKED 2026-07-28;
+the live trigger had NEVER fired (GCL 32, 554k banked, zero campaigns ever
+opened at t72918307). Both were reader-pair deadlocks in the spec 56 D2 shape —
+each side locally defensible, jointly a starvation — and the plan layer was
+verified INNOCENT by direct probe before either fix (site admitted, priced 85,
+funded, build commission published; the funnel existed on paper the whole
+time):
+
+1. **The funnel (the red cell): crew dispatch never read the plan's pricing.**
+   The build-pool consolidation (2026-07-20/22, "one crew marches wherever the
+   work is") sends the whole crew to the pool's HEAD room, and the pool sorted
+   home-first-then-distance — so the solver's 85-valued founding site waited
+   behind home's self-refilling 70-valued site queue forever (measured: six
+   home sites placed across the red run's 1800t window, zero energy east).
+   Fix: `buildPool` ranks rooms by the SAME goal valuation the adapter prices
+   sinks with (`goals.constructionSiteValue`, one shared rule) applied to the
+   ledger's own `structureType`; ties keep home-first-then-nearest, so worlds
+   without a founding-class site order byte-identically. Cell green: progress
+   climbs @136, spawn stands @531 (vs never; historical pre-refactor green was
+   ~790 — the crew now goes STRAIGHT to the founding site), campaign closes
+   @532.
+2. **The trigger: the placement sweep never priced a candidate.**
+   `expansionCandidates` drops any node without a placement, but the sweep
+   selected top-5 nodes by ECONOMIC value — owned territory always wins that
+   ranking, so `Memory.spawnPlacements` never held an unowned node and
+   `shouldExpand` starved at `candidates=[]` regardless of GCL or bank. Fix:
+   `buildPlacementContexts` runs a second lane — top-N unowned nodes by
+   `expansionScore`, the same score the trigger ranks with — deduped into one
+   sweep job.
+3. **The claim commission joins the books** (spec 39 phase 4 tail): the
+   standing claimer priced at `claimerSpawnLoad()` (CLAIM+MOVE over
+   CLAIM_LIFETIME, ~0.0033 p/t) on both sides — the kind's declaration and
+   `infraSpawnLoad`/`infraSpawnEnergy`'s new campaign term — extending the
+   `Σ(auxiliary) === infraSpawnLoad` identity to claiming. Campaign CAPEX
+   (founding spawn 15k, seed bodies) stays financed by the `shouldExpand`
+   bank gate; only the standing body is priced.
+
+Also fixed in passing: `sim:real`'s `--gcl` flag fed a LEVEL straight into
+`addBot`'s POINTS field (the CLAUDE.md grid-staging trap), so no real-map sim
+could ever reach the trigger; and the sim's report now prints the trigger's
+whole input (top unowned scores | placement | intel) so a silent
+`shouldExpand=false` is attributable from the report alone.
+
 ## What already exists
 
 - Node ROI with expansion candidates: `global.showNodes()` ranks

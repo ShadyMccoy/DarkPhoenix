@@ -23,6 +23,7 @@ import {
   projectAbsorbRate
 } from "../economy/primitives";
 import { spendableBankSurplus, resolveReserveTarget } from "../economy/bank";
+import { compileGoal, constructionSiteValue } from "../economy/goals";
 import { ROAD_BUILD_COST } from "../economy/roadEconomics";
 import { roomLinearDistance } from "../utils/RoomDiscovery";
 
@@ -137,8 +138,26 @@ export function buildPool(homeRoomName: string): BuildPoolEntry[] {
       if (work > 0) entries.push({ roomName, work });
     }
   }
+  // PLAN-LADDER ORDERING (the exp-t5-founding red, diagnosed 2026-08-11): the
+  // crew works the pool's HEAD room, so the head must be chosen by the SAME
+  // valuation the solver prices sinks with - a funded founding SPAWN site
+  // (newSpawnSite, 85) outranks ordinary construction (70), which the old
+  // home-first-distance sort never read: the solver funded the founding site
+  // while home's self-refilling site queue held the head for the whole 1800t
+  // window. Value comes from the goal ladder applied to the LEDGER's own
+  // structureType (durable, solve-stable - allocation RATES flap with solves,
+  // the spec-46 tranche-boundary class, and are the wrong key for dispatch).
+  // Ties keep home-first-then-nearest, so any world without a founding-class
+  // site orders byte-identically to before.
+  const valuation = compileGoal(typeof Memory !== "undefined" ? Memory.goal : undefined);
+  const roomValue = new Map<string, number>();
+  for (const rec of constructionProjectLedger()) {
+    const v = constructionSiteValue(rec.structureType, valuation);
+    roomValue.set(rec.roomName, Math.max(roomValue.get(rec.roomName) ?? 0, v));
+  }
+  const value = (name: string): number => roomValue.get(name) ?? valuation.construction;
   const rank = (name: string): number => (name === homeRoomName ? -1 : roomLinearDistance(homeRoomName, name));
-  entries.sort((a, b) => rank(a.roomName) - rank(b.roomName));
+  entries.sort((a, b) => value(b.roomName) - value(a.roomName) || rank(a.roomName) - rank(b.roomName));
   return entries;
 }
 

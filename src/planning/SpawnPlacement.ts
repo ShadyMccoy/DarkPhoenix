@@ -124,9 +124,20 @@ export function placementResults(job: PlacementJob): SpawnPlacement[] {
 }
 
 /**
- * Build sweep contexts for the top `topN` nodes by economic value. Each context
- * draws its candidate tiles from the node's territory (resource tiles excluded,
- * large territories evenly subsampled to MAX_CANDIDATES_PER_NODE).
+ * Build sweep contexts for the top `topN` nodes by economic value, PLUS the
+ * top `topN` unowned nodes by expansionScore (the EXPANSION LANE). Each
+ * context draws its candidate tiles from the node's territory (resource tiles
+ * excluded, large territories evenly subsampled to MAX_CANDIDATES_PER_NODE).
+ *
+ * TWO LANES, one job (spec 06's never-fired trigger, diagnosed 2026-08-11):
+ * expansionCandidates admits only nodes with a priced placement, but this
+ * selection ranked by ECONOMIC value alone - and owned territory always
+ * outranks an unowned room's marginal value, so no expansion candidate was
+ * ever swept, Memory.spawnPlacements never held one, and shouldExpand
+ * starved at candidates=[] regardless of GCL or bank (live: GCL 32, 554k
+ * banked, zero campaigns ever opened). The expansion lane ranks unowned
+ * nodes by the score the trigger itself uses, so the sweep prices exactly
+ * the placements the trigger will ask for.
  *
  * The fine sweep scores the spawn over the node's OWN sources and controller -
  * the inter-node reachable sources that decide WHICH node to expand to barely
@@ -141,9 +152,19 @@ export function buildPlacementContexts(
     .filter((n) => (n.roi?.economicValue ?? 0) > 0)
     .sort((a, b) => (b.roi!.economicValue ?? 0) - (a.roi!.economicValue ?? 0))
     .slice(0, topN);
+  // The expansion lane: unowned, scored, claim-shaped (the controller guard
+  // below drops highway/SK nodes for both lanes). Ranked by the SAME
+  // expansionScore economy/expansion.ts ranks candidates with.
+  const expansionLane = nodes
+    .filter((n) => n.roi && !n.roi.isOwned && (n.roi.expansionScore ?? 0) > 0)
+    .sort((a, b) => (b.roi!.expansionScore ?? 0) - (a.roi!.expansionScore ?? 0))
+    .slice(0, topN);
 
   const contexts: SpawnCandidateContext[] = [];
-  for (const node of ranked) {
+  const selected = new Set<string>();
+  for (const node of [...ranked, ...expansionLane]) {
+    if (selected.has(node.id)) continue;
+    selected.add(node.id);
     const controller = node.resources.find((r) => r.type === "controller");
     if (!controller) continue;
 
