@@ -38,6 +38,7 @@ export function setSpawningCorpResolver(fn: (spawnId: string) => SpawningCorp | 
 
 export const scoutKind: CorpKind<ScoutCorp> = {
   kind: "scout",
+  account: "infra", // intel is overhead: 50e bodies, below the noise floor but named (spec 60 B)
   roles: { scout: { workType: "scout" } },
   runOrder: 40,
 

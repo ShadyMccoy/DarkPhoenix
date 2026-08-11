@@ -43,6 +43,18 @@ export const BODY_COSTS = {
   TOUGH: 10
 } as const;
 
+/**
+ * Energy cost of a built body: the sum over the ONE cost table above. Keyed by
+ * the runtime's lower-case part strings (the engine's BodyPartConstant), so
+ * callers never need the BODYPART_COST global - harness-safe in the mockup and
+ * under mocha. This is the debit the spawn ledger books at the contract door
+ * (corps/spawnContract), so every reader of "what did that body cost" shares
+ * one formula.
+ */
+export function bodyEnergyCost(body: readonly string[]): number {
+  return body.reduce((sum, part) => sum + BODY_COSTS[part.toUpperCase() as keyof typeof BODY_COSTS], 0);
+}
+
 /** Creep lifetime in ticks */
 export const CREEP_LIFETIME = 1500;
 

@@ -1,9 +1,48 @@
 # Spec 60 — Measurement at the door: guardrails that make the corp books inherent
 
-**Status: BACKLOG (owner 2026-08-11).** Proposed in the cleanup session that
-landed the spawn contract (`corps/spawnContract.ts` + the runtime guard +
-the one-file spawn-authority allowlist). This spec is the program that
-generalizes it.
+**Status: PHASES A + B + C-COP LANDED 2026-08-11** (the follow-on cleanup
+session); **D, E, F and phase C's migration slices remain open.** Proposed in
+the cleanup session that landed the spawn contract
+(`corps/spawnContract.ts` + the runtime guard + the one-file spawn-authority
+allowlist). This spec is the program that generalizes it.
+
+What landed, by phase:
+
+- **A (SHIPPED)** — `contractSpawn` takes a `PurchaseContext` and books the
+  purchase itself on `OK`: spend-ledger accrual + the forensic BlackBox
+  `"spawn"` row, from the body actually bought (`bodyEnergyCost` joined
+  primitives as the ONE cost formula). The buyer corp is read from the
+  enforced `opts.memory.corpId` — one input, never two that can disagree.
+  Memory contract at the same door: missing `corpId`/`workType` throws before
+  the engine is reached. The director's agenda receipt
+  (declared/want/grant/fill/pri/rank/why) is built BEFORE the buy and rides
+  down via `PurchaseContext.receipt` into the ONE row the door files; hand
+  booking is deleted from SpawningCorp and BootstrapCorp (both sites). Cops:
+  `accrueSpawnSpend(` pinned to {spawnLedger.ts, spawnContract.ts},
+  `"spawn"`-row authorship pinned to the door (spawnAuthority.test.ts).
+  Acceptance green including the bootstrap integration run — jack purchases
+  now appear in BOTH the ledger and the ring.
+- **B (SHIPPED)** — `CorpKind.account: AccountCategory` is required;
+  `RoleSpec.account?` covers the split-line cases (harvest's hauler →
+  evacuation, construction's tanker → infra). `accountCategory.ts` keeps the
+  TYPE (`ACCOUNT_CATEGORIES` const array) and the DERIVATIONS
+  (`categoryOfKind`, `accountClassOfRole`, `accountDeclarationErrors`) and
+  no parallel table — the deleted kind map had already drifted (it named a
+  `build` kind and an `extensionTender` kind, neither registered).
+  `bootstrap`/`spawning` (+ role `jack`) are pinned in explicit LEGACY maps
+  until phase C migrates them. Conformance now refuses a kind without a
+  line; the registration-only proof (lantern) covers both directions; the
+  waste-ledger script table survives as a CACHE pinned byte-identical to the
+  derivation (kind modules are not loadable outside the engine).
+- **C (cop SHIPPED, migration open)** — `legacyBoundary.test.ts` pins the 19
+  main.ts bulkhead buckets and the legacy-registry roster
+  ({bootstrapCorps, spawningCorps}) shrink-only with the
+  integrate-as-a-kind pointer. The towers/links/terminals migration slices
+  and the bootstrap/spawning close-out have not started.
+- **D, E, F (OPEN)** — the double-buy conformance probe needs per-kind
+  staffing fixtures (a spawning incumbent world per demand-exposing kind);
+  E's differing-input/two-depot identity restaging and the waste-ledger
+  second-book deletion, and F's shared window meter, are untouched.
 
 **The owner's ask (verbatim, 2026-08-11):** *"We want to create guard rails
 for future developers. I want Corp measurement and the income statement to

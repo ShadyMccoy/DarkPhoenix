@@ -51,6 +51,7 @@ function legacyNodeId(roomName: string): string {
 
 export const upgradeKind: CorpKind<UpgradingCorp> = {
   kind: "upgrade",
+  account: "consumers", // the controller burn - consumption of banked margin (spec 60 B)
   runOrder: 30, // consume, after produce (10) and transport (20)
   roles: { upgrader: { workType: "upgrade" } },
 

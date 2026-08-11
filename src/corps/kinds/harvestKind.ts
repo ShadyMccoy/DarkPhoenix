@@ -57,12 +57,21 @@ function legacyNodeId(roomName: string, sourceId: string): string {
 
 export const harvestKind: CorpKind<HarvestCorp> = {
   kind: "harvest",
+  // The KIND reports extraction even though its envelope is the all-in MINER
+  // OPERATION (node + routed evacuation, spec 34 D5) - the one place a
+  // category is coarser than the fleet beneath it. The statement can split
+  // the lines from `fleet.miner`/`fleet.hauler`, and the ROLE-grained spend
+  // ledger splits them here: the hauler role overrides to evacuation.
+  account: "extraction",
   runOrder: 10, // produce before transport (20), consume (30), auxiliary (40)
   // The MINER OPERATION (spec 34 D5): the node's miner AND the evacuation
   // vector's haulers, one kind. The hauler role moved here from the carry
   // kind (which keeps only the minerless scavenge stocks) - haulers deliver
   // income, so the scheduler's is-it-safe-to-wait signal counts them.
-  roles: { miner: { workType: "harvest" }, hauler: { workType: "haul", deliversEnergy: true } },
+  roles: {
+    miner: { workType: "harvest" },
+    hauler: { workType: "haul", deliversEnergy: true, account: "evacuation" }
+  },
 
   // Solver-backed: planColony emits harvest commissions, so the kind proposes none.
   propose(_problem: ColonyProblem): Commission[] {

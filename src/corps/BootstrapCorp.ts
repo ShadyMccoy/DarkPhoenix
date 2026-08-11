@@ -27,7 +27,6 @@ import { Corp, SerializedCorp } from "./Corp";
 import { contractSpawn } from "./spawnContract";
 import { driveRecycle } from "./recycle";
 import { Position } from "../types/Position";
-import { accrueSpawnSpend } from "../telemetry/spawnLedger";
 
 /**
  * Ticks the spawn must be stuck (no creeps, low energy) before bootstrap activates.
@@ -270,19 +269,22 @@ export class BootstrapCorp extends Corp {
       spawn.room.energyAvailable >= JACK_COST
     ) {
       const name = `antidowngrade-${this.id.slice(-6)}-${tick}`;
-      const result = contractSpawn(spawn, JACK_BODY, name, {
-        memory: { corpId: this.id, workType: "upgrade" as const, working: false }
-      });
+      // Bootstrap bypasses the SpawningCorp executor, but the BOOKS ride the
+      // contract door itself (spec 60 phase A): the door accrues the ledger
+      // AND files the forensic ring row, so cold-start bodies can no longer
+      // vanish from the account - nor from the ring, which hand-booking here
+      // used to skip (the population gap). "jack" reports on the `bootstrap`
+      // account line (spec 51); it carries no BUDGET, because the flow
+      // planner does not price a pre-economy body - which is the honest part.
+      const result = contractSpawn(
+        spawn,
+        JACK_BODY,
+        name,
+        { memory: { corpId: this.id, workType: "upgrade" as const, working: false } },
+        { role: "jack" }
+      );
       this.lastEmergencyAttempt = tick;
       if (result === OK) {
-        // Bootstrap bypasses the SpawningCorp executor, so it must feed the
-        // cumulative spend ledger itself or cold-start bodies vanish from the
-        // account. "jack" reports on the `bootstrap` account line (spec 51);
-        // it carries no BUDGET, because the flow planner does not price a
-        // pre-economy body - which is the honest part. It used to carry no NAME
-        // either, printing as UNCLASSIFIED; a named line keeps the absent budget
-        // and drops the anonymity.
-        accrueSpawnSpend("jack", JACK_COST, JACK_BODY.length);
         this.emergencyJackNames.push(name);
       }
     }
@@ -362,19 +364,25 @@ export class BootstrapCorp extends Corp {
     // Generate unique name
     const name = `jack-${this.id.slice(-6)}-${tick}`;
 
-    // Attempt spawn
-    const result = contractSpawn(spawn, body, name, {
-      memory: {
-        corpId: this.id,
-        workType: "harvest" as const,
-        working: false
-      }
-    });
+    // Attempt spawn. The contract door books the purchase (ledger + forensic
+    // ring row) itself - spec 60 phase A; see runAntiDowngrade for the why.
+    const result = contractSpawn(
+      spawn,
+      body,
+      name,
+      {
+        memory: {
+          corpId: this.id,
+          workType: "harvest" as const,
+          working: false
+        }
+      },
+      { role: "jack" }
+    );
 
     this.lastSpawnAttempt = tick;
 
     if (result === OK) {
-      accrueSpawnSpend("jack", cost, body.length);
       this.creepNames.push(name);
       console.log(`[Bootstrap] Spawned ${name} (${body.length} parts, commute ${commute})`);
     }

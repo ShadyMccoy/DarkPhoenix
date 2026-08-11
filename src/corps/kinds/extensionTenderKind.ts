@@ -33,6 +33,7 @@ export interface ExtensionTenderAssignment {
 
 export const extensionTenderKind: CorpKind<ExtensionTenderCorp> = {
   kind: "tender",
+  account: "infra", // the spawn network's own logistics (spec 60 B)
   roles: { tanker: { workType: "tank" } },
   runOrder: 40,
 

@@ -33,6 +33,7 @@ export interface RaidGuardAssignment {
 
 export const raidGuardKind: CorpKind<RaidGuardCorp> = {
   kind: "raidGuard",
+  account: "defense", // bought on threat, operating overhead (spec 60 B)
   roles: { guard: { workType: "guard" } },
   runOrder: 40,
 

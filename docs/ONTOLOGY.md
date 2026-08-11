@@ -282,7 +282,23 @@ storage 1. `DEFAULT_SINK_VALUE` (CorpPlanner) holds the defaults;
   enforced at runtime by a prototype guard installed at module load
   (`installSpawnContractGuard`, main.ts): a naked `spawn.spawnCreep` throws
   with directions to the contract, `createCreep` always throws, and operator
-  break-glass goes through `global.spawnContractBypass(n)`.
+  break-glass goes through `global.spawnContractBypass(n)`. **The purchase
+  books itself at this door** (spec 60 A): on `OK` the seam accrues the spend
+  ledger and files the forensic BlackBox `spawn` row from the body actually
+  bought — callers cannot hand-book (ratcheted), so the ring and the account
+  cover the same population by construction — and `opts.memory` missing
+  `corpId`/`workType` throws before the engine is reached, so every creep is
+  census-accountable from birth.
+- **Registration-only accounting** (spec 60 B): every `CorpKind` declares
+  `account` — the income-statement line its corps report on (per-role
+  override on `RoleSpec` where roles split lines). `categoryOfKind` /
+  `accountClassOfRole` (economy/accountCategory) DERIVE from the registry;
+  conformance refuses a kind without a line, so UNCLASSIFIED is
+  unrepresentable for registered kinds. The legacy actors outside the
+  framework (bootstrap, spawning + role `jack`) are pinned in explicit
+  LEGACY maps, and the whole outside-the-framework surface (legacy registry
+  roster + main.ts bulkhead buckets) is pinned shrink-only
+  (`test/unit/framework/legacyBoundary.test.ts`, spec 60 C).
 - **Registration-only proof** (`test/unit/execution/registrationOnly.test.ts`
   + `test/unit/framework/newCorp.test.ts`): a toy kind flows through plan,
   dispatch, demands, orphan registry, census with zero core edits.

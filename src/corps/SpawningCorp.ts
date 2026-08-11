@@ -7,14 +7,13 @@
  * @module corps/SpawningCorp
  */
 
-import { BODY_COSTS, CREEP_LIFETIME } from "../economy/primitives";
+import { CREEP_LIFETIME, bodyEnergyCost } from "../economy/primitives";
 import { Corp, SerializedCorp } from "./Corp";
 import { contractSpawn } from "./spawnContract";
 import { drawOrder } from "./refillCircuit";
 import { HaulerRatio } from "../framework/EdgeVariant";
 import { getCorpKind } from "../economy/CorpKind";
 import { Position } from "../types/Position";
-import { accrueSpawnSpend } from "../telemetry/spawnLedger";
 
 /**
  * All 8 spawn exit directions ordered so the tile FACING `to` comes FIRST, then
@@ -132,7 +131,8 @@ export class SpawningCorp extends Corp {
     bodyParam?: number,
     haulerRatio?: HaulerRatio,
     bodyStrategy?: string,
-    bufferCarry?: number
+    bufferCarry?: number,
+    receipt?: Record<string, unknown>
   ): SpawnPurchase | null {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn || spawn.spawning) return null;
@@ -149,7 +149,7 @@ export class SpawningCorp extends Corp {
     const body = corpKind.body(role, bodyParam, energyBudget, { haulerRatio, bodyStrategy, bufferCarry });
     if (body.length === 0) return null;
 
-    const bodyCost = this.calculateBodyCost(body);
+    const bodyCost = bodyEnergyCost(body);
     if (spawn.room.energyAvailable < bodyCost) return null;
 
     const name = `${role}-${buyerCorpId.slice(-6)}-${tick}`;
@@ -161,46 +161,42 @@ export class SpawningCorp extends Corp {
     // feeder's parked relay post), so it emerges on-post instead of walking in.
     const target = corpKind.spawnTarget?.(role, spawn);
     const directions = target ? spawnDirectionsToward(spawn.pos, target) : undefined;
-    const result = contractSpawn(spawn, body, name, {
-      memory: { corpId: buyerCorpId, workType: roleSpec.workType, spawnedBy: this.id },
-      ...(energyStructures.length > 0 ? { energyStructures } : {}),
-      ...(directions ? { directions } : {})
-    });
+    // The purchase BOOKS ITSELF at the contract door (spec 60 phase A): the
+    // spend ledger accrual and the forensic "spawn" row happen inside
+    // contractSpawn, from the exact body bought, for EVERY buyer that crosses
+    // it - the director, direct buyers like the scout corp, and bootstrap. A
+    // hauler bought for a standalone scavenge corp ("hauling-" corp id prefix,
+    // the same class the ring analyses read) flags the RECOVERY sub-counter -
+    // the cure's cost, named (methodology #10). `receipt` is the director's
+    // agenda context, merged into the row the door files.
+    const result = contractSpawn(
+      spawn,
+      body,
+      name,
+      {
+        memory: { corpId: buyerCorpId, workType: roleSpec.workType, spawnedBy: this.id },
+        ...(energyStructures.length > 0 ? { energyStructures } : {}),
+        ...(directions ? { directions } : {})
+      },
+      {
+        role,
+        scavenge: role === "hauler" && buyerCorpId.startsWith("hauling-"),
+        receipt
+      }
+    );
 
     if (result === OK) {
       const workParts = body.filter(p => p === WORK).length;
       this.recordProduction(workParts * CREEP_LIFETIME);
-      // Cumulative spend ledger, at the executor: EVERY purchase crosses this
-      // seam (the director AND direct buyers like the scout corp), and
-      // `bodyCost` is the energy actually debited - the grant rounds high
-      // whenever the built body lands under it. The account differences these
-      // totals between captures, so its window is never bounded by a deploy.
-      // A hauler bought for a standalone scavenge corp ("hauling-" corp id
-      // prefix, the same class the ring analyses read) accrues the RECOVERY
-      // sub-counter beside its role total - the cure's cost, named
-      // (methodology #10, owner 2026-08-04).
-      accrueSpawnSpend(role, bodyCost, body.length, {
-        scavenge: role === "hauler" && buyerCorpId.startsWith("hauling-")
-      });
       const carryParts = body.filter(p => p === CARRY).length;
       const partsInfo = role === "hauler" ? `${carryParts}C` : `${workParts}W`;
       console.log(`[Spawning] Spawned ${name} (${partsInfo}, ${bodyCost} energy)`);
       // The purchase record IS the receipt's source of truth (methodology #8):
-      // parts AND the debit, so the director's blackbox row books what was
-      // paid, never the budget it happened to grant.
+      // parts AND the debit, so the caller's books record what was paid, never
+      // the budget it happened to grant.
       return { parts: body.length, cost: bodyCost };
     }
     return null;
-  }
-
-  /**
-   * Calculate energy cost of a body. Sums over the ONE cost table
-   * (primitives.BODY_COSTS, keyed by upper-case part name; the runtime part
-   * constants are the lower-case strings). Kept as a method: it is the
-   * harness-safe seam - no BODYPART_COST global needed in the mockup.
-   */
-  private calculateBodyCost(body: BodyPartConstant[]): number {
-    return body.reduce((sum, part) => sum + BODY_COSTS[part.toUpperCase() as keyof typeof BODY_COSTS], 0);
   }
 
   /**
