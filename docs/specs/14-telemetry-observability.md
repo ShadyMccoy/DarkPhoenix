@@ -13484,3 +13484,19 @@ entry within a global of the kick-fix deploy (expansion lane entries appear);
 surplus; (4) when the spawn stands: campaign closes (Memory.expansion
 cleared), spawnCount trigger fires, W43N24 starts its own economy with zero
 new code — the spec-06 bet's last unverified clause.
+
+**Post-deploy addendum (same cycle, +~300t): the kick-fix prediction is
+PENDING-FALSIFIED, and the attribution found the deeper mechanism.**
+`spawnPlacements` still reads ONE stale entry at ~250t after the #162 deploy —
+and the decisive read: **all 480 nodes carry `createdAt: 71517058`**, ~1.4M
+ticks ago. The live terrain analysis has not COMPLETED since then: every
+deploy's reset-rebuild path (main.ts "Territory cache empty after reset")
+either restarts a crawl that the next deploy resets again, or dies silently -
+so the analysis cache the sweep kick needs has been absent for weeks, and
+`refreshNodeResourcesFromCache` has been a no-op the whole time (its own
+docblock: "remote mining silently stops" - the economy runs on PERSISTED node
+resources). The sim exhibited the same crawl signature (batch 1/6 alone >250t
+on real rooms). The kick fix is correct but gated on this broken precondition.
+**NEXT CYCLE'S TOP ITEM: why the live analysis never completes** — instrument
+first (a progress stamp on the incremental job: batch index + evaluated count
+into Memory each step), then read whether it crawls, restarts, or throws.
