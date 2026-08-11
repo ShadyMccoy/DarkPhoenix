@@ -1,4 +1,4 @@
-# Spec 61 — The test estate: inventory, initial review, and the cull list
+# Spec 64 — The test estate: inventory, initial review, and the cull list
 
 **Status: BACKLOG (review COMPLETE 2026-08-11; cull awaiting owner ruling).**
 The owner's ask (verbatim, 2026-08-11): *"Review our unit and scenario tests.
@@ -15,10 +15,10 @@ items, not review side-effects.
 
 ## The headline
 
-**The estate is healthy.** Of 235 mocha test files (2,568 passing / 19
-pending, ~16s for the whole unit suite), the review sustains a cull case
-against **5 test files, 2 never-run relic scripts, 1 relic library, and 3
-orphaned fixtures** — about 1,300 LOC of test code plus ~195KB of fixture
+**The estate is healthy.** Of 236 mocha test files (2,595 passing / 19
+pending, ~22s for the whole unit suite), the review sustains a cull case
+against **4 test files, 2 never-run relic scripts, 1 relic library, and 3
+orphaned fixtures** — about 1,100 LOC of test code plus ~195KB of fixture
 JSON — and a **trim** case against fake-coverage blocks inside 4 more. Every
 other suspicion the review chased (retired-mechanism pins, duplicate seams,
 unplugged meters, over-mocked tests, "legacy" SpawnScheduler) came back
@@ -37,12 +37,12 @@ suite too.
 
 | tier | files | tests (static `it(`) | LOC | runs via |
 |---|---|---|---|---|
-| unit (`test/unit/`) | 223 | 2,423 | 44,818 | `npm run test-unit`, ~16s mocha / ~39s wall |
-| integration (`test/integration/`) | 12 | 18 | 1,444 | one file at a time, minutes each |
+| unit (`test/unit/`) | 224 | 2,438 | 45,147 | `npm run test-unit`, ~22s mocha |
+| integration (`test/integration/`) | 12 | 18 | 1,464 | one file at a time, minutes each |
 | grid cells (`test/grid/cells/`) | 19 cell files (~130 cells) | — | — | `npm run grid` — the ratchet, **out of cull scope** |
 | never-run relics (`test/*.js`) | 2 (+1 lib) | 15 | 706 | **nothing** — no glob matches them |
 
-Runtime test count (2,568) exceeds the static count because
+Runtime test count (2,595) exceeds the static count because
 `describeCorpKindConformance` and shared behavior suites generate tests.
 19 pending = the deliberate `it.skip` idiom (fixture-gated tests whose
 fixtures ARE present run for real; the skips are aspirational seams in
@@ -52,11 +52,11 @@ Per-directory rollup:
 
 | dir | files | tests | LOC | | dir | files | tests | LOC |
 |---|---|---|---|---|---|---|---|---|
-| corps | 77 | 784 | 14,310 | | spawn | 11 | 117 | 2,141 |
-| economy | 47 | 643 | 10,515 | | harness | 4 | 23 | 319 |
+| corps | 77 | 791 | 14,419 | | spawn | 11 | 117 | 2,141 |
+| economy | 47 | 643 | 10,539 | | harness | 4 | 23 | 319 |
 | telemetry | 23 | 190 | 3,430 | | spatial | 6 | 87 | 2,326 |
-| framework | 19 | 106 | 3,448 | | audit | 4 | 208 | 3,560 |
-| execution | 17 | 152 | 2,560 | | others | 15 | 113 | 2,209 |
+| framework | 20 | 111 | 3,596 | | audit | 4 | 209 | 3,584 |
+| execution | 17 | 154 | 2,584 | | others | 15 | 113 | 2,209 |
 
 ## 2. Method (and its epistemics)
 
@@ -108,18 +108,22 @@ referenced by any doc. Deleting it cannot change a single test result:
   fixture nothing else uses. Optional: fold ONE precise regression pin into
   `peakDetection.test.ts` if the historical zero-peaks bug deserves a guard.
 
-### Phase B — integration-tier rationalization (class C). 181 LOC deleted, 2 reclassified.
+### Phase B — integration-tier rationalization (class C). 123 LOC deleted, 2 reclassified.
 
 The grid (spec 08) superseded the pre-grid integration tests selectively; the
 gate trio (`flow-handoff`, `runt-economy`, `storage-depot`) plus the two
 gap-fillers (`remote-mining`, `tower-defense`, see §4.6) stay untouched.
 
-- **CULL `test/integration/bootstrap.test.ts`** (58 LOC): boots on a
-  degenerate ALL-PLAIN 50×50 room — the exact terrain
-  `docs/TESTING_THE_ECONOMY.md` warns produces zero nodes — while
-  `test/grid/cells/resilience.ts` runs the true RCL1 cold start on three REAL
-  captured rooms across a difficulty ladder (open/plain/maze), ratcheted in
-  the baseline. Strictly dominated; zero references anywhere.
+- **`test/integration/bootstrap.test.ts` — verdict FLIPPED to KEEP by #168
+  (post-review drift, §6).** The review's original finding stands for its
+  viability assertions: it boots a degenerate ALL-PLAIN 50×50 room — the
+  exact terrain `docs/TESTING_THE_ECONOMY.md` warns produces zero nodes —
+  strictly dominated by `test/grid/cells/resilience.ts`'s real-terrain
+  cold-start ladder. But #168 (spec 60 phase A, merged mid-review) repurposed
+  the file as its acceptance vehicle: cold-start jack purchases must land in
+  BOTH the spawn ledger and the forensic BlackBox ring — population-parity
+  coverage no grid cell has. If that assertion later moves into a resilience
+  cell, the cull re-opens.
 - **CULL `test/integration/integration.test.ts`** (25 LOC): asserts the
   mockup server ticks and Memory round-trips — harness liveness, which
   `npm run probe:mockup` (the documented sandbox smoke check, CLAUDE.md) and
@@ -314,7 +318,17 @@ Every suspicion below was chased to evidence and came back negative. The next
    CLAUDE.md mandates the setup script "before any grid/integration run" —
    in practice it is required before ANY suite run on a fresh sandbox.
 
-## 6. Review limits
+## 6. Review limits — and the mid-review drift (#168)
+
+The review swept the tree at `d2497fd`; commit #168 (spec 60 phases A+B+C-cop)
+merged onto master DURING the review and touched 12 test files. All numbers in
+this spec are updated to the merged tree. Material effects: `bootstrap.test.ts`
+repurposed as spec 60-A acceptance (verdict flipped, §3-B);
+`test/unit/framework/legacyBoundary.test.ts` is NEW (97 LOC — it IS spec 60's
+C-cop, shrink-only boundary pin: KEEP); `describeCorpKindConformance` grew the
+account-declaration probe (spec 60-B) — which does NOT close the claimKind
+stale-fixture hole in §3-E (the fixture-vs-propose() mechanism is untouched).
+
 
 - Grid cells and `baseline.json` were treated as out of scope (the ratchet is
   the success metric, spec 08 owns its own hygiene).
@@ -333,11 +347,12 @@ Verdict key: KEEP (default) · CULL/ARCHIVE/RECLASSIFY/TRIM/FIX/MERGE per §3
 (letter = cullable class). Files not listed in §3 are KEEP. LOC and static
 test counts measured 2026-08-11.
 
+
 **test/integration/**
 
 | file | LOC | tests | last touched | verdict |
 |---|---|---|---|---|
-| bootstrap.test.ts | 58 | 1 | 2026-07-22 | CULL (C) |
+| bootstrap.test.ts | 78 | 1 | 2026-07-22 | KEEP (flipped by #168) |
 | corp-cop.test.ts | 34 | 1 | 2026-07-22 | KEEP+trim |
 | flow-handoff.test.ts | 111 | 1 | 2026-07-22 | KEEP |
 | game-physics.test.ts | 341 | 3 | 2026-07-22 | RECLASSIFY (C) |
@@ -357,7 +372,7 @@ test counts measured 2026-08-11.
 | fiscal.test.ts | 134 | 16 | 2026-08-03 | KEEP |
 | scavengeDecaySplit.test.ts | 63 | 5 | 2026-08-08 | KEEP |
 | scriptLoadability.test.ts | 59 | 2 | 2026-08-07 | KEEP |
-| wasteLedger.test.ts | 3304 | 185 | 2026-08-10 | KEEP |
+| wasteLedger.test.ts | 3328 | 186 | 2026-08-10 | KEEP |
 
 **test/unit/corps/**
 
@@ -425,7 +440,7 @@ test counts measured 2026-08-11.
 | sourceHarvestSpot.test.ts | 380 | 24 | 2026-07-23 | KEEP |
 | sourcePickupSpot.test.ts | 176 | 7 | 2026-07-27 | KEEP |
 | sourcePileupStamp.test.ts | 98 | 5 | 2026-07-27 | KEEP |
-| spawnContract.test.ts | 115 | 8 | 2026-08-11 | KEEP |
+| spawnContract.test.ts | 224 | 15 | 2026-08-11 | KEEP |
 | spawnDirections.test.ts | 67 | 6 | 2026-08-08 | KEEP |
 | spawnNetworkCritical.test.ts | 43 | 5 | 2026-07-27 | KEEP |
 | spawnRefillStock.test.ts | 59 | 4 | 2026-08-03 | KEEP |
@@ -464,7 +479,7 @@ test counts measured 2026-08-11.
 | commissionFleet.test.ts | 218 | 8 | 2026-08-08 | KEEP |
 | commissionPlanLinkServed.test.ts | 79 | 5 | 2026-08-08 | KEEP |
 | constructionCommissionPrice.test.ts | 87 | 3 | 2026-08-08 | KEEP |
-| corpBudget.test.ts | 358 | 10 | 2026-08-08 | KEEP |
+| corpBudget.test.ts | 379 | 10 | 2026-08-08 | KEEP |
 | corpBudgetRollup.test.ts | 124 | 7 | 2026-08-07 | KEEP |
 | crossHubTransfer.test.ts | 330 | 14 | 2026-08-10 | KEEP |
 | depositPortHeadroom.test.ts | 88 | 8 | 2026-08-06 | KEEP |
@@ -487,7 +502,7 @@ test counts measured 2026-08-11.
 | planHeadroom.test.ts | 66 | 5 | 2026-08-06 | KEEP |
 | planningAssembly.test.ts | 110 | 2 | 2026-08-03 | KEEP |
 | primitives.test.ts | 550 | 67 | 2026-08-10 | KEEP |
-| purity.test.ts | 267 | 13 | 2026-08-11 | KEEP |
+| purity.test.ts | 270 | 13 | 2026-08-11 | KEEP |
 | replacementSchedule.test.ts | 94 | 12 | 2026-08-07 | KEEP |
 | roadEconomics.test.ts | 411 | 39 | 2026-08-05 | KEEP |
 | roadScoring.test.ts | 132 | 14 | 2026-07-22 | KEEP |
@@ -519,7 +534,7 @@ test counts measured 2026-08-11.
 | orphanAction.test.ts | 80 | 8 | 2026-07-28 | KEEP |
 | planTriggers.test.ts | 154 | 17 | 2026-08-11 | KEEP |
 | refreshNodeResources.test.ts | 368 | 11 | 2026-08-10 | KEEP |
-| registrationOnly.test.ts | 127 | 3 | 2026-07-22 | KEEP |
+| registrationOnly.test.ts | 151 | 5 | 2026-07-22 | KEEP |
 | roadTracker.test.ts | 165 | 9 | 2026-07-22 | KEEP |
 | spawnDirectorPool.test.ts | 266 | 5 | 2026-08-03 | KEEP |
 | spawnReceipt.test.ts | 70 | 5 | 2026-08-07 | KEEP+trim |
@@ -541,21 +556,22 @@ test counts measured 2026-08-11.
 | bodyEquivalence.test.ts | 183 | 2 | 2026-08-10 | KEEP |
 | carryKind.test.ts | 240 | 8 | 2026-07-28 | KEEP |
 | claimKind.test.ts | 60 | 2 | 2026-07-22 | FIX (E) |
-| commissionHost.test.ts | 133 | 5 | 2026-07-22 | KEEP |
+| commissionHost.test.ts | 134 | 5 | 2026-07-22 | KEEP |
 | constructionKind.test.ts | 458 | 19 | 2026-07-27 | KEEP |
 | controllerFeederKind.test.ts | 341 | 10 | 2026-08-08 | KEEP |
 | coreBusterKind.test.ts | 103 | 3 | 2026-07-22 | KEEP |
-| corpCpuMeter.test.ts | 94 | 2 | 2026-07-22 | KEEP |
+| corpCpuMeter.test.ts | 95 | 2 | 2026-07-22 | KEEP |
 | extensionTenderKind.test.ts | 206 | 5 | 2026-07-27 | KEEP |
 | harvestKind.test.ts | 215 | 6 | 2026-07-28 | KEEP |
-| newCorp.test.ts | 200 | 7 | 2026-07-28 | KEEP |
+| legacyBoundary.test.ts | 97 | 2 | 2026-08-11 | KEEP |
+| newCorp.test.ts | 201 | 7 | 2026-07-28 | KEEP |
 | planCadence.test.ts | 100 | 1 | 2026-07-28 | KEEP |
 | planEquivalence.test.ts | 34 | 1 | 2026-07-22 | KEEP |
 | raidGuardKind.test.ts | 106 | 3 | 2026-07-22 | KEEP |
 | reservationKind.test.ts | 298 | 12 | 2026-07-27 | KEEP |
 | scoutKind.test.ts | 205 | 6 | 2026-07-27 | KEEP |
 | solverBridge.test.ts | 139 | 4 | 2026-08-03 | KEEP |
-| spawnAuthority.test.ts | 121 | 4 | 2026-08-11 | KEEP |
+| spawnAuthority.test.ts | 169 | 7 | 2026-08-11 | KEEP |
 | upgradeKind.test.ts | 212 | 6 | 2026-07-28 | KEEP |
 
 **test/unit/grid/**
@@ -667,7 +683,6 @@ test counts measured 2026-08-11.
 |---|---|---|---|---|
 | raidMeter.test.ts | 76 | 6 | 2026-07-22 | KEEP |
 | roomDiscovery.test.ts | 497 | 28 | 2026-08-05 | KEEP |
-
 Never-run relics (phase A, outside the mocha roster):
 `test/economic-analysis.test.js` (154 LOC), `test/find-best-node.js` (315),
 `test/lib/economic-analysis.js` (237), `test/fixtures/econ-network.json`,

@@ -134,13 +134,15 @@ terrain ─▶ Nodes ─▶ FlowGraph ─▶ ColonyProblem ─▶ ColonyPlan ─
    entry gate-annotated) AND the buy decision (= the `buy`-gated entry). The
    director executes it via `SpawningCorp.executeSpawn`, which dispatches body
    + workType through the buyer kind's declarations (`kind.body`,
-   `kind.roles`), and files the execution receipt. Doctrine (tier ladder,
-   holds, starvation, miner precedence) lives in `SpawnScheduler` alone.
-   The physical `spawnCreep` call is the spawn CONTRACT's one site
-   (`corps/spawnContract.ts` → `contractSpawn`; executeSpawn and the
-   bootstrap cold-start path both buy through it) — pinned statically by the
-   spawn-authority ratchet and at runtime by a prototype guard that makes any
-   naked `spawn.spawnCreep` throw (ONTOLOGY §8).
+   `kind.roles`). Doctrine (tier ladder, holds, starvation, miner precedence)
+   lives in `SpawnScheduler` alone. The physical `spawnCreep` call is the
+   spawn CONTRACT's one site (`corps/spawnContract.ts` → `contractSpawn`;
+   executeSpawn and the bootstrap cold-start path both buy through it) —
+   pinned statically by the spawn-authority ratchet and at runtime by a
+   prototype guard that makes any naked `spawn.spawnCreep` throw (ONTOLOGY
+   §8) — and the purchase BOOKS ITSELF there (spec 60 A): the spend-ledger
+   accrual + the one forensic `spawn` row per buy, with the director's agenda
+   context riding down via `PurchaseContext.receipt`.
 
 After the corps run, `execution/OrphanRescue.ts` re-adopts or recycles any
 creep no live corp claims — live ids from the census, rescue targets from the

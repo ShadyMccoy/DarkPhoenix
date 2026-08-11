@@ -201,6 +201,45 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
     publishSpawnAgenda(winner.id, best.plan, ctxOf(winner).energyAvailable);
 
     const spawningCorp = registry.spawningCorps[winner.id];
+    // THE PURCHASE RECEIPT (spec 39 phase 3, owner 2026-08-07: "what
+    // instrumenting do we need to get to the bottom of body to plan
+    // mismatches"). Everything measured before this was a SNAPSHOT AT REST -
+    // F2, the corp statement, the parts BOM all say "the fleet is wrong" and
+    // none can say how it got that way, because the mismatch is created at
+    // ONE instant, here, and nothing recorded it. Every open body question
+    // that session ended in the same place: three plausible mechanisms and no
+    // way to separate them.
+    //
+    // The fields are the decision's own inputs, already in scope - built
+    // BEFORE the buy and handed down through executeSpawn, because the
+    // forensic "spawn" row is filed AT THE CONTRACT DOOR (spec 60 phase A)
+    // where cost/parts - the F1 actual side, in parts because cost is biased
+    // across classes (600e/CLAIM vs 50e/CARRY read reservers at 21% of spend
+    // against 4% of parts) - join it from the body actually bought:
+    //   declared   what the PLAN priced this corp (spec 39 phase 3 lens)
+    //   want/min   what the corp asked for / would settle for
+    //   grant      what the scheduler funded, before the body rounded
+    //   fill/cap   the room AT THIS TICK - the runt-at-purchase signal
+    //   pri/rank   where it ranked, and against how many rivals
+    //   why        the transition label (replacement / upsize / new-unit / infra)
+    //
+    // `grant / declared` is F1's question asked at the moment it is decided
+    // instead of a thousand ticks later, and `grant / want` against `fill`
+    // separates "lost the slot" from "won it small".
+    const st = roomState.get(winner.pos.roomName)!;
+    const rank = best.plan.agenda.findIndex(e => e.corp === chosen.buyerCorpId && e.role === chosen.role);
+    const receipt: Record<string, unknown> = {
+      declared: Math.round(declaredStandingParts(consumesOf(chosen.buyerCorpId)) * 100) / 100,
+      want: chosen.desiredCost,
+      min: chosen.minCost,
+      grant: result.energyBudget,
+      fill: st.energyLeft, // the room BEFORE this purchase debits it
+      cap: ctxOf(winner).energyCapacity,
+      pri: Math.round(best.pri),
+      rank: rank >= 0 ? rank : undefined,
+      rivals: best.plan.agenda.length,
+      why: agendaWhy(chosen)
+    };
     const spawned = spawningCorp
       ? spawningCorp.executeSpawn(
           chosen.kind ?? "",
@@ -211,64 +250,19 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
           chosen.bodyParam,
           chosen.haulerRatio,
           chosen.bodyStrategy,
-          chosen.bufferCarry
+          chosen.bufferCarry,
+          receipt
         )
       : false;
     // Execution receipt (actual-vs-NOW): what THIS spawn actually bought,
     // appended beside the published queue for fidelity cells and telemetry.
     if (spawned) {
       boughtAnything = true;
-      const st = roomState.get(winner.pos.roomName)!;
       // Debit what was actually PAID (methodology #8). Debiting the grant
       // suppressed same-tick purchases further down the agenda whenever the
       // built body rounded under it.
       st.energyLeft = Math.max(0, st.energyLeft - spawned.cost);
       recordAgendaExecution(winner.id, chosen.role, chosen.buyerCorpId, result.energyBudget);
-      // `parts` (not just cost) is F1's actual side: the fidelity comparison is
-      // in parts/tick, and cost is biased across classes (600e/CLAIM part vs
-      // 50e/CARRY part read reservers at 21% of spend against 4% of parts).
-      // `cost` is the energy DEBITED for the body (methodology #8) - the
-      // granted budget rounds high, and booking it put +3.99 e/t of phantom
-      // spend on the evacuation line (49% of the t72734018 variance).
-      // THE PURCHASE RECEIPT (spec 39 phase 3, owner 2026-08-07: "what
-      // instrumenting do we need to get to the bottom of body to plan
-      // mismatches"). Everything measured before this was a SNAPSHOT AT REST -
-      // F2, the corp statement, the parts BOM all say "the fleet is wrong" and
-      // none can say how it got that way, because the mismatch is created at
-      // ONE instant, here, and nothing recorded it. Every open body question
-      // this session ended in the same place: three plausible mechanisms and no
-      // way to separate them.
-      //
-      // The fields below are the decision's own inputs, already in scope:
-      //   declared   what the PLAN priced this corp (spec 39 phase 3 lens)
-      //   want/min   what the corp asked for / would settle for
-      //   grant      what the scheduler funded, before the body rounded
-      //   cost/parts what was actually built (the pre-existing F1 actual side)
-      //   fill/cap   the room AT THIS TICK - the runt-at-purchase signal
-      //   pri/rank   where it ranked, and against how many rivals
-      //   why        the transition label (replacement / upsize / new-unit / infra)
-      //
-      // `grant / declared` is F1's question asked at the moment it is decided
-      // instead of a thousand ticks later, and `grant / want` against `fill`
-      // separates "lost the slot" from "won it small".
-      const rank = best.plan.agenda.findIndex(e => e.corp === chosen.buyerCorpId && e.role === chosen.role);
-      blackBox("spawn", {
-        spawn: winner.id,
-        role: chosen.role,
-        corp: chosen.buyerCorpId,
-        cost: spawned.cost,
-        parts: spawned.parts,
-        declared: Math.round(declaredStandingParts(consumesOf(chosen.buyerCorpId)) * 100) / 100,
-        want: chosen.desiredCost,
-        min: chosen.minCost,
-        grant: result.energyBudget,
-        fill: st.energyLeft + spawned.cost, // the room BEFORE this purchase debited it
-        cap: ctxOf(winner).energyCapacity,
-        pri: Math.round(best.pri),
-        rank: rank >= 0 ? rank : undefined,
-        rivals: best.plan.agenda.length,
-        why: agendaWhy(chosen)
-      });
       resetDemandClock(firstSeen, chosen.buyerCorpId, chosen.role);
     }
     // A failed build (lost the intra-tick energy race) leaves the demand claimed

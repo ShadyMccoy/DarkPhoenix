@@ -13,7 +13,8 @@ import {
   formatSourcePnL,
   planSpawnLoad
 } from "../../../scripts/waste-ledger";
-import { ALL_CORP_KINDS, ALL_SPAWN_ROLES } from "../../../src/execution/CommissionHost";
+import { ALL_CORP_KINDS, ALL_SPAWN_ROLES, KINDS } from "../../../src/execution/CommissionHost";
+import { getCorpKind, registerCorpKind } from "../../../src/economy/CorpKind";
 import {
   ATTACK_MOVE_PER_PART,
   CARRY_MOVE_PER_PART,
@@ -26,7 +27,7 @@ import {
   tenderSpawnLoad
 } from "../../../src/economy/primitives";
 import { BASE_RESERVE, bankFedControllerRate } from "../../../src/economy/bank";
-import { categoryOfKind, classifiedKinds } from "../../../src/economy/accountCategory";
+import { accountClassOfRole, categoryOfKind, classifiedKinds } from "../../../src/economy/accountCategory";
 
 const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
@@ -1522,6 +1523,13 @@ describe("F1 class map covers every registered corp kind", () => {
  * A chart of accounts with an anonymous bucket is not a chart of accounts.
  */
 describe("energy account: every spawnable role has an account", () => {
+  // The derivation reads the live registry (spec 60 B) - register the roster
+  // deterministically rather than riding whatever earlier test files left
+  // behind (files that exercise the registry reset it between cases).
+  beforeEach(() => {
+    for (const k of KINDS) if (!getCorpKind(k.kind)) registerCorpKind(k);
+  });
+
   /**
    * Roles the bot really buys from OUTSIDE the kind registry, so `ALL_SPAWN_ROLES`
    * (derived from the kinds' own `roles` declarations) cannot see them. Each
@@ -1530,14 +1538,30 @@ describe("energy account: every spawnable role has an account", () => {
    */
   const BOUGHT_OUTSIDE_THE_REGISTRY = new Set([
     // BootstrapCorp spawns jacks directly, bypassing the SpawningCorp executor
-    // (it accrues to the ledger itself). There is no bootstrapKind to declare
-    // the role, but the spend is real and lands in the account.
+    // (the contract door books the purchase either way - spec 60 A). There is
+    // no bootstrapKind to declare the role, but the spend is real and lands in
+    // the account (LEGACY_ACCOUNT_OF_ROLE pins it until spec 20 phase 3).
     "jack"
   ]);
 
   it("classifies every role any registered kind can buy", () => {
     const unclassified = ALL_SPAWN_ROLES.filter(r => !ACCOUNT_CLASS_OF_ROLE[r]);
     expect(unclassified, `roles with no account: ${unclassified.join(", ")}`).to.deep.equal([]);
+  });
+
+  /**
+   * THE DERIVATION IDENTITY (spec 60 phase B). The kinds' own `account`
+   * declarations are the AUTHORITY; the script-side table exists only because
+   * kind modules are not loadable outside the engine (CorpConstants evaluates
+   * body literals at import). This pin makes the cache exactly that - a cache:
+   * byte-identical to the registry derivation, so a kind declaring a new line
+   * (or a new role) fails HERE until the script table follows, and the two
+   * can never drift the way the old hand-written mirrors did (the retired
+   * kind table still named a `build` kind and an `extensionTender` kind,
+   * neither registered).
+   */
+  it("IS the registry derivation: the script table matches accountClassOfRole() exactly", () => {
+    expect(ACCOUNT_CLASS_OF_ROLE).to.deep.equal(accountClassOfRole());
   });
 
   it("maps no role that no kind declares (the ghost-key check)", () => {

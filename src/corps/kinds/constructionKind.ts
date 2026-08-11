@@ -91,10 +91,19 @@ function constructionAllocation(k: CommissionedSink): SinkAllocation {
 
 export const constructionKind: CorpKind<ConstructionCorp> = {
   kind: "construction",
+  account: "consumers", // builders burn banked margin (spec 60 B)
   // Tankers are NOT re-adopted by anyone (spec 34 D6): readopt:false keeps
   // this kind out of the rescue map, and the tender kind's claimsOrphan
   // declines foreign tanks - a released vector rides grace -> recycle refund.
-  roles: { builder: { workType: "build" }, tanker: { workType: "tank", readopt: false } },
+  // The tanker OVERRIDES the kind's line: the role is bought by TWO kinds -
+  // the tender (spawn-network refill: infra) and construction (crew haulage) -
+  // and the spend ledger is role-grained, so both must name ONE line. Infra,
+  // per the pre-spec-60 role table: the line slightly over-states infra during
+  // a build campaign, stated rather than inferred from a corp-id prefix.
+  roles: {
+    builder: { workType: "build" },
+    tanker: { workType: "tank", readopt: false, account: "infra" }
+  },
   runOrder: 30, // consume tier, alongside upgrade
 
   /**

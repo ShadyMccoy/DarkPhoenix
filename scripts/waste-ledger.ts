@@ -2607,22 +2607,19 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
  *    of an income asset, not running cost.
  *  - `scout` IS operating cost - intel is continuous, and the bodies are ~50e.
  *
- * Ratcheted by test against ALL_SPAWN_ROLES (the kinds' own `roles`
- * declarations), so a new kind's role fails the audit until someone decides
- * its account, rather than vanishing into a bucket. Any role that still slips
- * through prints as UNCLASSIFIED with its name, never as anonymous "other".
- *
- * TYPED to `AccountCategory` (2026-08-08, spec 51): this table and
- * `economy/accountCategory`'s `CATEGORY_OF_KIND` are the SAME vocabulary
- * projected two ways - the plan side keys by KIND, this side keys by ROLE
- * because role is all `Memory.spawnLedger` carries (deliberately: a small
- * closed set that cannot grow unboundedly as commissions churn - see the
- * ledger's own header). Sharing the type makes a class-name typo a compile
- * error instead of a silent "other" bucket, and it means the two sides cannot
- * drift into naming the same line differently.
- *
- * They stay two TABLES until per-corp spawn accounting lands (spec 40 Part A),
- * because role genuinely cannot resolve the two ambiguities noted below.
+ * A CACHE OF THE KINDS' OWN DECLARATIONS since spec 60 phase B - not a second
+ * judgement. Every kind declares `account` on its CorpKind object (with a
+ * per-role override where roles split lines: harvest's hauler, construction's
+ * tanker), and `economy/accountCategory.accountClassOfRole()` derives the
+ * role -> line join from the registry. This literal exists ONLY because kind
+ * modules are not loadable outside the engine (CorpConstants evaluates body
+ * literals at import time), so the script cannot run the derivation itself.
+ * The unit suite pins it BYTE-IDENTICAL to the derivation
+ * (wasteLedger.test.ts "IS the registry derivation") and still ratchets it
+ * against ALL_SPAWN_ROLES, so a kind declaring a new role or line fails the
+ * suite until this cache follows - the mirror can lag a commit, never drift.
+ * Any role that still slips through prints as UNCLASSIFIED with its name,
+ * never as anonymous "other".
  */
 /**
  * Split a ground pile's ONE outflow between what a scavenger collects and what
@@ -2657,33 +2654,17 @@ export function scavengeOutflowSplit(
 }
 
 export const ACCOUNT_CLASS_OF_ROLE: Record<string, AccountCategory> = {
-  // DIRECT COST OF MINING - the three roles whose spend is attributable to the
-  // gross-mining revenue line, so the statement can show a NET MINING MARGIN
-  // (owner 2026-08-01: "reserving is an overhead applied to the gross mining").
-  //
-  // Reservation belongs here on a verifiable dependency, not a vibe: the plan
-  // prices EVERY source at rate 10 = SOURCE_ENERGY_CAPACITY(3000)/
-  // SOURCE_REGEN_TIME(300), which is the RESERVED yield. An unreserved remote
-  // regenerates 1500 per 300t, i.e. 5 e/t. So on 8 remote sources the
-  // reservation fleet is buying ~40 e/t of the 100 e/t revenue line - it is
-  // cost of goods, not general overhead, and burying it in infra hid both the
-  // cost AND the return.
+  // Direct cost of mining: miner + hauler from harvestKind's declarations
+  // (the kind is `extraction`, its hauler role overrides to `evacuation`);
+  // reservation's cost-of-goods rationale lives at reservationKind.account.
   miner: "extraction",
   hauler: "evacuation",
   reserver: "reservation",
-  // `tanker` is bought by TWO kinds - extensionTender (refills the spawn
-  // network: infra) and construction (crew haulage: really a build cost). The
-  // role alone cannot separate them, so both land in infra and the line
-  // slightly OVER-states infra during a build campaign. Stated rather than
-  // inferred from a corp-id prefix; a corp->kind join would fix it but cannot
-  // resolve a corp that died inside the window.
+  // `tanker` is bought by TWO kinds; both declare infra (the derivation
+  // throws if declaring kinds ever disagree) - see constructionKind.roles.
   tanker: "infra",
   feeder: "infra",
-  // The deposit port's drain (PortTenderCorp). Infra like the depot movers
-  // beside it - the spawn network's own logistics.
   porttender: "infra",
-  // The storage<->terminal post (spec 58 phase 3) - the hub's own logistics,
-  // same family as the feeder and port tender it parks beside.
   hubmanager: "infra",
   scout: "infra",
   guard: "defense",
@@ -2692,14 +2673,9 @@ export const ACCOUNT_CLASS_OF_ROLE: Record<string, AccountCategory> = {
   claimer: "expansion",
   buster: "incursion",
   striker: "incursion",
-  // `jack` is the BOOTSTRAP body - the cold-start generalist that mines, hauls
-  // and upgrades before any corp exists to own it. It had no class at all and
-  // printed as a dangling `UNCLASSIFIED [jack]` line (spec 51 names it as one
-  // of the three role-keying defects). The plan's vocabulary already had its
-  // home - `CATEGORY_OF_KIND.bootstrap`, whose type comment reads "cold-start
-  // bodies, before the economy exists to classify them" - so this is the two
-  // tables agreeing, not a new judgement. It stays inside OVERHEAD, where the
-  // unclassified bucket already carried it, so no total moves.
+  // The cold-start body: no kind declares it (BootstrapCorp is the legacy
+  // registry), pinned in accountCategory's LEGACY_ACCOUNT_OF_ROLE until spec
+  // 20 phase 3 migrates bootstrap to a kind.
   jack: "bootstrap"
 };
 

@@ -17,6 +17,7 @@ import {
 } from "../../../src/economy/primitives";
 import { Commission } from "../../../src/economy/Commission";
 import { AccountCategory, categoryOfKind } from "../../../src/economy/accountCategory";
+import { getCorpKind, registerCorpKind } from "../../../src/economy/CorpKind";
 import { Position } from "../../../src/types/Position";
 // The kind roster, imported DIRECTLY (bodyEquivalence.test.ts's convention).
 // `listCorpKinds()` reads the live registry, which CommissionHost populates at
@@ -325,6 +326,26 @@ describe("spec 51: the colony budget is the sum of the corp budgets", () => {
   });
 
   describe("the reporting category is a KIND declaration (spec 17 registration-only)", () => {
+    // categoryOfKind reads each kind's own `account` declaration off the live
+    // registry (spec 60 B) - register the imported roster deterministically.
+    beforeEach(() => {
+      for (const k of [
+        harvestKind,
+        carryKind,
+        upgradeKind,
+        constructionKind,
+        scoutKind,
+        reservationKind,
+        extensionTenderKind,
+        linkKind,
+        raidGuardKind,
+        coreBusterKind,
+        claimKind
+      ]) {
+        if (!getCorpKind(k.kind)) registerCorpKind(k as unknown as Parameters<typeof registerCorpKind>[0]);
+      }
+    });
+
     it("every corp kind in the tree declares an account category", () => {
       // The `jack`/`tanker`/`hauler` defects all came from classifying by ROLE.
       // Keyed by kind, an unclassified corp is impossible to miss: this fails.

@@ -20,6 +20,11 @@ import { Corp, SerializedCorp } from "../../../src/corps/Corp";
 import { Position } from "../../../src/types/Position";
 import { Commission, corpIdFor } from "../../../src/economy/Commission";
 import { CorpKind, registerCorpKind, resetCorpKinds } from "../../../src/economy/CorpKind";
+import {
+  accountClassOfRole,
+  accountDeclarationErrors,
+  categoryOfKind
+} from "../../../src/economy/accountCategory";
 import { SpawnDemand, SpawnDemandContext } from "../../../src/spawn/SpawnScheduler";
 import { collectDemands } from "../../../src/execution/SpawnDirector";
 import { readoptKindsFor } from "../../../src/execution/OrphanRescue";
@@ -65,6 +70,10 @@ class LanternCorp extends Corp {
 describe("registration-only integration: a new kind needs ONE file and ONE registration (spec 17)", () => {
   const lanternKind: CorpKind<LanternCorp> = {
     kind: "lantern",
+    // The statement line is a REGISTRATION fact (spec 60 B): declaring it here
+    // is all it takes for the aggregation to pick the kind up - see the
+    // STATEMENT case below.
+    account: "infra",
     runOrder: 40,
     roles: { lanternkeeper: { workType: "tend-lantern" } },
     propose(): Commission[] {
@@ -123,5 +132,20 @@ describe("registration-only integration: a new kind needs ONE file and ONE regis
     const entries = allCommissionedCorps().filter(e => e.kind === "lantern");
     expect(entries).to.have.length(1);
     expect(entries[0].corp.id).to.equal("lantern-W7N7");
+  });
+
+  it("STATEMENT: its declared line resolves through the account derivations with zero core edits (spec 60 B)", () => {
+    // The kind declared `account: "infra"` at registration; the statement's two
+    // joins - kind -> line and role -> line - both pick it up from the registry
+    // with no accountCategory edit, no waste-ledger edit, no second table.
+    expect(categoryOfKind("lantern")).to.equal("infra");
+    expect(accountClassOfRole().lanternkeeper).to.equal("infra");
+  });
+
+  it("STATEMENT: a kind WITHOUT a line fails the conformance predicate, naming spec 60", () => {
+    const { account: _dropped, ...anonymous } = lanternKind;
+    const errors = accountDeclarationErrors(anonymous as { kind: string; roles?: {} });
+    expect(errors).to.have.length(1);
+    expect(errors[0]).to.include("60-measurement-at-the-door");
   });
 });

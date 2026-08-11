@@ -39,6 +39,7 @@ let clock = 0;
 
 const tickerKind: CorpKind<TickerCorp> = {
   kind: "ticker",
+  account: "infra", // every kind declares its statement line at registration (spec 60 B)
   runOrder: 10,
   roles: {},
   propose: () => [],

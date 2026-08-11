@@ -20,6 +20,7 @@
 import { Corp, SerializedCorp } from "../corps/Corp";
 import { Commission } from "./Commission";
 import { ColonyProblem } from "./CorpPlanner";
+import type { AccountCategory } from "./accountCategory";
 
 // =============================================================================
 // THE KIND CONTRACT
@@ -35,6 +36,14 @@ import { ColonyProblem } from "./CorpPlanner";
 export interface RoleSpec {
   /** The CreepMemory.workType this role's creeps carry. */
   workType: string;
+  /**
+   * The statement line THIS role's spend reports on, when it splits from the
+   * kind's own `account` (spec 60 phase B): harvest is `extraction` but its
+   * hauler role evacuates. Absent = the kind's line. The spend ledger is
+   * role-grained, so two kinds buying the same role must agree
+   * (economy/accountCategory.accountClassOfRole throws on a conflict).
+   */
+  account?: AccountCategory;
   /**
    * Whether an orphaned creep of this role may be re-adopted into a same-room
    * corp of this kind (the default rescue rule). Default true. Set false when
@@ -82,6 +91,15 @@ export interface DemandWorld {
 export interface CorpKind<C extends Corp = Corp> {
   /** Unique kind name; commission.kind values reference this. */
   kind: string;
+  /**
+   * The income-statement line this kind's corps report on (spec 60 phase B,
+   * registration-only accounting): declared HERE, exactly as the kind
+   * declares its roles and body, so the statement gains its line the moment
+   * the KINDS entry lands and an unclassified kind is unrepresentable -
+   * conformance (accountDeclarationErrors) refuses a kind without one.
+   * Roles that split from this line override it on their RoleSpec.
+   */
+  account: AccountCategory;
   /**
    * The spawnable roles of this kind's creeps, keyed by SpawnDemand.role.
    * Drives the executor's workType stamp, body dispatch, and orphan

@@ -27,6 +27,7 @@ export interface ClaimAssignment {
 
 export const claimKind: CorpKind<ClaimCorp> = {
   kind: "claim",
+  account: "expansion", // CAPEX from the reserve - never charged to operating margin (spec 60 B)
   roles: { claimer: { workType: "claim" } },
   runOrder: 45,
 

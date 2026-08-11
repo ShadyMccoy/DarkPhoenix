@@ -38,8 +38,17 @@ describe("colony bootstrap", () => {
       await helper.addBot({ room: "W0N0", x: 25, y: 25 });
     });
 
+    // The population-gap check (spec 60 phase A) samples the reset-surviving
+    // ring tail DURING the run: the tail keeps only the last ~40 rows, so by
+    // t400 the flow economy's purchases may have evicted the cold-start rows.
+    let jackRowSeen = false;
     for (let t = 1; t <= 400; t += 1) {
       await helper.server.tick();
+      if (t % 100 === 0 && !jackRowSeen) {
+        const mem = JSON.parse((await helper.player.memory) || "{}");
+        const tail: any[] = mem.blackBoxTail ?? [];
+        jackRowSeen = tail.some((r: any) => r.k === "spawn" && r.d?.role === "jack");
+      }
     }
 
     const objects = await helper.server.world.roomObjects("W0N0");
@@ -54,5 +63,16 @@ describe("colony bootstrap", () => {
       level > 1 || progress > 0,
       `controller should make upgrade progress (level=${level}, progress=${progress})`
     );
+
+    // SPEC 60 PHASE A - the purchase books itself at the contract door, so
+    // bootstrap's cold-start jacks appear in BOTH books: the cumulative spend
+    // ledger (the account's spend side) and the forensic BlackBox ring (read
+    // here via its Memory tail). Before the door booked purchases itself,
+    // BootstrapCorp hand-fed the ledger and filed no ring row, so the two
+    // covered different creep populations.
+    const mem = JSON.parse((await helper.player.memory) || "{}");
+    const jackSpend = mem.spawnLedger?.energyByRole?.jack ?? 0;
+    assert.isAbove(jackSpend, 0, "bootstrap jack purchases must accrue the spawn ledger");
+    assert.isTrue(jackRowSeen, 'bootstrap jack purchases must file a forensic "spawn" ring row');
   });
 });
