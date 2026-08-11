@@ -16,6 +16,7 @@
  */
 
 import { GridCell, always, eventually } from "../GridCell";
+import { gclPoints } from "../stage";
 import { RoomBuilder } from "../../integration/scenario/RoomBuilder";
 
 /** Home room with an east exit slot at (49, 24..26). */
@@ -108,8 +109,8 @@ export function buildExpansionT5Cells(): GridCell[] {
         east: eastRoom((b) => b.controller(15, 25).source(35, 35)),
       },
       adjacency: { east: "E" },
-      // users.gcl is POINTS, not level: 1e6 points = GCL 2 (a 2nd room is claimable).
-      bot: { x: 25, y: 25, gcl: 1_000_000 },
+      bot: { x: 25, y: 25, gcl: gclPoints(2) }, // GCL 2: a 2nd room is claimable
+
       controller: { level: 3 },
       // 8 staged-full extensions + spawn 300 = 700 capacity: the indivisible
       // CLAIM+MOVE (650) is affordable once banked.
@@ -162,8 +163,8 @@ export function buildExpansionT5Cells(): GridCell[] {
         east: eastRoom((b) => b.controller(15, 25)),
       },
       adjacency: { east: "E" },
-      // users.gcl is POINTS, not level: 1e6 points = GCL 2 (a 2nd room is claimable).
-      bot: { x: 25, y: 25, gcl: 1_000_000 },
+      bot: { x: 25, y: 25, gcl: gclPoints(2) }, // GCL 2: a 2nd room is claimable
+
       controller: { level: 3 },
       structures: EXT_8.map((p) => ({ type: "extension", x: p.x, y: p.y, energy: 50 })),
       creeps: [...homeIncome(25, 40, 24, 39, "exf"), ...homeIncome(40, 25, 39, 24, "exf2")],

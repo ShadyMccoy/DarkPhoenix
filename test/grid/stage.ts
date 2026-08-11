@@ -22,6 +22,120 @@ import { GridCell } from "./GridCell";
 
 const ID_TOKEN = /\$id\(([^,)]+),([^,)]+),(\d+),(\d+)\)/g;
 
+// =============================================================================
+// THE STAGING VOCABULARY (spec 61 row 5) - the mockup-db traps, made unwritable
+// =============================================================================
+// Three staging mistakes have each cost a debugging session (CLAUDE.md trap
+// list, "Grid staging"): the mockup db's $set with dotted paths silently
+// NO-OPS, staged storage needs the OWNED schema, and addBot's `gcl` is POINTS
+// not level. Each gets a helper here that makes the mistake a thrown error or
+// an unwritable unit mismatch; test/unit/grid/stage.test.ts pins the helpers
+// AND cops the cell sources for raw dotted-$set payloads.
+
+/** Engine GCL curve constants (screeps: level = floor((points/MULT)^(1/POW)) + 1). */
+const GCL_POW = 2.4;
+const GCL_MULTIPLY = 1_000_000;
+
+/**
+ * The POINTS addBot's `gcl` field needs for a bot to sit at GCL `level` -
+ * the minimal such value, so `gcl: gclPoints(2)` reads as the level it means
+ * and the points-vs-level unit mismatch (1e6 = GCL 2, not "level 1e6") is
+ * unwritable.
+ */
+export function gclPoints(level: number): number {
+  if (!Number.isInteger(level) || level < 1) {
+    throw new Error(`gclPoints: GCL level must be a positive integer, got ${level}`);
+  }
+  return Math.ceil(Math.pow(level - 1, GCL_POW) * GCL_MULTIPLY);
+}
+
+/**
+ * Refuse a $set patch whose top-level keys are mongo dotted paths: the mockup
+ * db layer silently NO-OPS them ("store.energy" updates nothing, no error),
+ * which has produced false-red cells staged against state that never landed.
+ * Write whole objects ({ store: { energy: N } }); nested keys are literal keys
+ * and stay legal.
+ */
+export function assertWholeObjectPatch(patch: Record<string, unknown>): void {
+  for (const key of Object.keys(patch)) {
+    if (key.includes(".")) {
+      throw new Error(
+        `grid stage: $set key "${key}" is a dotted path - the mockup db silently no-ops these. ` +
+          `Write the whole object instead (e.g. { store: { energy: N } }); see CLAUDE.md "Grid staging".`
+      );
+    }
+  }
+}
+
+/**
+ * The one sanctioned spelling of a staged db update: $set with a
+ * whole-object patch, dotted paths refused before they can no-op.
+ * `query` is a rooms.objects filter (or an _id string).
+ */
+export async function dbPatch(
+  db: any,
+  query: string | Record<string, unknown>,
+  patch: Record<string, unknown>,
+  collection = "rooms.objects"
+): Promise<void> {
+  assertWholeObjectPatch(patch);
+  await db[collection].update(typeof query === "string" ? { _id: query } : query, { $set: patch });
+}
+
+/**
+ * A staged storage document in the OWNED schema, complete - user id plus the
+ * flat storeCapacity the engine's transfer paths read (a neutral or
+ * partially-schema'd storage stages fine and then breaks link-haul pricing /
+ * deposit paths invisibly). Spread extra fields onto the result if a cell
+ * needs overrides; the schema core cannot be mis-assembled.
+ */
+export function stagedStorage(
+  room: string,
+  energy: number,
+  user: string
+): {
+  room: string;
+  type: "storage";
+  x?: number;
+  y?: number;
+  user: string;
+  store: { energy: number };
+  storeCapacity: number;
+  hits: number;
+  hitsMax: number;
+  notifyWhenAttacked: boolean;
+} {
+  return {
+    room,
+    type: "storage",
+    user,
+    store: { energy },
+    storeCapacity: structureCapacity("storage"),
+    hits: structureHits("storage"),
+    hitsMax: structureHits("storage"),
+    notifyWhenAttacked: true,
+  };
+}
+
+/**
+ * Harness refusal (spec 61 row 6): a cell staging an ARMED CpuGovernor
+ * couples its verdict to HOST load - the mockup meters real CPU against a
+ * real bucket, so one full grid run drained heavy worlds' buckets, paused
+ * construction colony-wide, and failed six baseline-green cells. A governor
+ * test that means it declares `expectsGovernor: true`; anything else is
+ * refused at staging, before a tick runs.
+ */
+export function armedGovernorError(cell: GridCell): string | null {
+  const armed = (cell.memory as { cpuGovernor?: unknown } | undefined)?.cpuGovernor === "on";
+  if (!armed || cell.expectsGovernor) return null;
+  return (
+    `cell ${cell.id} stages Memory.cpuGovernor = "on" without expectsGovernor: true - an armed ` +
+    `governor couples the cell's verdict to HOST load (a full grid run drained heavy worlds' ` +
+    `buckets and failed six baseline-green cells). Declare expectsGovernor: true only if the ` +
+    `governor itself is under test; see CLAUDE.md "CPU governor is DRY-RUN by default".`
+  );
+}
+
 /** Full hits for common structures (so the engine doesn't read them as destroyed). */
 function structureHits(type: string): number {
   switch (type) {
@@ -78,6 +192,9 @@ export async function stageCell(
   rooms: Record<string, string>,
   userId: string
 ): Promise<void> {
+  const governorError = armedGovernorError(cell);
+  if (governorError) throw new Error(governorError);
+
   const { C, db } = await server.world.load();
   const room = (handle?: string): string => {
     const name = rooms[handle ?? "home"];

@@ -167,6 +167,15 @@ export interface GridCell {
   /** Engine mod paths; cells only batch with identical mod signatures. */
   mods?: string[];
   /**
+   * This cell deliberately stages an ARMED CpuGovernor (Memory.cpuGovernor =
+   * "on") because the governor itself is under test. Without this flag the
+   * harness REFUSES the cell at staging: the mockup meters real CPU against a
+   * real bucket, so an armed governor couples the verdict to host load (one
+   * full grid run drained heavy worlds' buckets and failed six baseline-green
+   * cells). See stage.armedGovernorError.
+   */
+  expectsGovernor?: boolean;
+  /**
    * Run this cell alone in its own world. Needed when staged state cannot
    * share a db with siblings - e.g. journey snapshots, which restore objects
    * with their ORIGINAL ids and room names (two snapshots of one capture run
