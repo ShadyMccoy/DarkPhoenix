@@ -13429,3 +13429,58 @@ are multi-cause; no level claims from this window beyond the engine-pinned
    site) — spec 53's decision, the owner's call, now with its number named.
 4. Link relief unaffected: both sites keep building; next cycle reads the new
    ports' rho and 8f08's clampShare/waits off the v39 split.
+
+## Audit cycle t72931338 → t72931657 (2026-08-11): THE FIRST CLAIM — the expansion tranche verified end to end in production
+
+**Context:** PR #161 (spec 06 full fix: plan-ordered build pool, expansion
+placement lane, claim on the books, owned-room replan trigger) deployed from
+this session at ~t72929800; this cycle is its post-deploy verification AND the
+first live claim in the colony's history.
+
+**ENERGY ACCOUNT (window 1182t, methodology #19):** gross mining 40.00
+(spec-58 taper: bank 948k, remoteRooms 2), controller 15.00 (the RCL8 engine
+cap exactly), NET MINING MARGIN +0.54 F. Overhead −8.79 U — dominated by the
+deploy reset's bootstrap wave (jacks −5.33 unbudgeted; 77% of recycle
+tombstones = jack-retire). FAILs: F1 2.08× (deploy-window churn class, re-read
+next cycle), E4 idle capital 920,844 above reserve, L1 44× (pile decay 11.02 —
+spec 59's standing program), P12 0.15× (the RCL8 cap is the binding fact).
+E4+P12+G1 all named the same cure: open the claim.
+
+**Live Memory reads (new instrument this cycle — the memory API):**
+`Memory.expansion` null, `Memory.spawnPlacements` = ONE stale home entry —
+the placement sweep's job state is heap, a deploy wipes it, and the kick sat
+behind the fiscal-month gate: **every deploy left the trigger's candidate
+pipeline stale for up to a month.** Filed + fixed this cycle
+(`shouldKickSweep`: one catch-up kick per global, re-armed by
+resetSpawnPlacement; red-first unit test).
+
+**The claim (campaign staged W43N24 by console per spec 46's sanctioned
+console-force lever; spawnPos (35,27) computed by the bot's own picker):**
+
+| t (rel) | event | evidence |
+|---|---|---|
+| t72931407 | campaign staged | Memory.expansion confirmed via API |
+| +~15t | claim corp commissioned + claimer fielded | corps seg: `claim-W43N24-claim`; byKind claim 1 |
+| same solve | **campaign PRICED** | flow stamp `expansionCampaigns: 1` (fix 3 live) |
+| ~t72931520 | **W43N24 CLAIMED** | rooms[] gains W43N24 rcl 1 |
+| t72931529 | **owned-room trigger fires** | planTriggerState.lastForced = 72931529 |
+| same pass | **founding site placed at (35,27)** | rooms[W43N24] siteCount 1, siteTotal 15000 |
+| +by t72931657 | claimer demobilized; fleet re-expands 30→35 | byKind claim 0; creep total |
+
+Every deployed mechanism fired in order, on the first live run. The funnel
+(siteProgress > 0, then the spawn standing and the campaign closing) is the
+next cycle's checkpoint; the crew sizes off buildPoolAbsorbRate with the 911k
+surplus accelerator.
+
+**Cycle verdict: FIXED + INSTRUMENTED.** Fixed: the sweep catch-up kick
+(deployed after verification). Instrumented: the memory-API read joins the
+audit toolkit (trigger inputs are now readable without a console round-trip).
+Fiscal archive closed FY4861-M03..M10 at 100% (handicap 10→17%).
+
+**Predictions for the next capture:** (1) W43N24 siteProgress > 0 and rising
+(the 85-valued pool head owns the crew); (2) `spawnPlacements` grows past one
+entry within a global of the kick-fix deploy (expansion lane entries appear);
+(3) E4's slope flattens as the founding + re-expanded mining absorb the
+surplus; (4) when the spawn stands: campaign closes (Memory.expansion
+cleared), spawnCount trigger fires, W43N24 starts its own economy with zero
+new code — the spec-06 bet's last unverified clause.

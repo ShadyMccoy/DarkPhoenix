@@ -38,14 +38,44 @@ const MIN_BUCKET = 2000;
 /** The sweep in progress, or null when idle. */
 let job: PlacementJob | null = null;
 
+/** Whether a sweep has been KICKED since this global (heap lifetime). */
+let kickedThisGlobal = false;
+
 /** Whether a placement sweep is currently running. */
 export function isSpawnPlacementInProgress(): boolean {
   return job !== null;
 }
 
-/** Abandon any in-progress sweep (e.g. on respawn / forced replan). */
+/**
+ * Should the caller kick a fresh sweep this tick? The planning cadence is the
+ * normal beat - but `Memory.spawnPlacements` outlives a global reset while
+ * this module's job state does not, so after every DEPLOY the placements went
+ * stale until the next cadence boundary opened (under the fiscal-month term,
+ * up to a month: measured live 2026-08-11 post-deploy, placements at ONE
+ * stale home entry while a forced pass evaluated expansion candidates against
+ * it and found none). One catch-up kick per global closes that: the first
+ * eligible tick after a reset REFRESHES what the reset staled, then the
+ * cadence owns it again.
+ *
+ * The catch-up fires only when stored placements EXIST: a cold world (no
+ * placements ever) has nothing stale to refresh and waits for the cadence
+ * exactly as before - the early sweep's CPU otherwise competes with the cold
+ * start it used to leave alone (runt-economy went red on the unconditional
+ * version, first gate run).
+ */
+export function shouldKickSweep(planningDue: boolean): boolean {
+  if (planningDue) return true;
+  if (kickedThisGlobal) return false;
+  const stored =
+    typeof Memory !== "undefined" && Memory.spawnPlacements && Object.keys(Memory.spawnPlacements).length > 0;
+  return !!stored;
+}
+
+/** Abandon any in-progress sweep (e.g. on respawn / forced replan) and re-arm
+ * the per-global catch-up kick - a reset world deserves fresh placements. */
 export function resetSpawnPlacement(): void {
   job = null;
+  kickedThisGlobal = false;
 }
 
 /**
@@ -57,6 +87,7 @@ export function startSpawnPlacement(
   territoriesByNode: Map<string, Position[]>,
   topN = 5
 ): boolean {
+  kickedThisGlobal = true; // even an empty-context kick counts: the world was consulted
   const contexts = buildPlacementContexts(nodes, territoriesByNode, topN);
   if (contexts.length === 0) {
     job = null;
