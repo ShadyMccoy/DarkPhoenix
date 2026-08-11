@@ -38,6 +38,7 @@ whose operators are corps. Read order for architecture truth:
 - **Multi-draw rule**: identical-code 3000-tick draws vary ±20-30% (measured).
   Any tempo/throughput claim under ~30% needs multiple draws (`npm run
   sim:variance`). Grid-pinned deterministic behaviors are exempt.
+  (enforced: nothing — prose)
 - **Plan-vs-actual**: always report the planner's budget NEXT TO the measured
   actual (`npm run sim:real -- --metrics`; fid-* grid cells). On synthetic
   worlds the plan should be achievable — a fidelity gap there is a bug signal
@@ -61,7 +62,8 @@ whose operators are corps. Read order for architecture truth:
 - **THE TENDER IS A HEARTBEAT — assume it works** (owner 2026-08-06: *"We have
   to assume the tender is working. It's a heart beat. It's non negotiable. The
   body dies slowly if there's issues there."*). The tender/feeder drain is an
-  AXIOM every other rule builds on, not a variable to hedge against. Two
+  AXIOM every other rule builds on, not a variable to hedge against
+  (enforced: nothing — prose). Two
   consequences, and the second is the one that keeps being missed:
   1. Never design around the possibility that it is failing. If a measurement
      suggests it is, that is a **P0 bug in the tender itself** — fix it there;
@@ -102,11 +104,18 @@ whose operators are corps. Read order for architecture truth:
 - ALL economic formulas live in `economy/primitives.ts`. No module reimplements
   them (the kind-conformance suite enforces this to 1e-9).
 - Sink values are a strict ladder (spawn 100 > new-spawn-site 85 >
-  controller ≤80 > construction 70 > controller floor 40 > storage 1).
-  Ordering inversions have zeroed colony-wide construction before (the
-  90-vs-85 founding incident) — never nudge one value in isolation.
+  controller ≤80 > construction 70 > controller floor 40 > storage 1) — never
+  nudge one value in isolation (enforced: `test/unit/economy/goals.test.ts`
+  rung-by-rung chain pin + `assertValuationInvariants` at compile; incident
+  detail lives in the pin's docblock).
 
 ## Trap list (each of these has burned a session)
+
+Spec 61 converts traps into DOORS (a cop, probe, or throwing helper at the one
+seam the mistake passes through); a landed door's entry shrinks to a pointer,
+and the incident detail lives in the enforcing test's docblock. **A new trap
+entry ships with its door in the same PR, or carries an explicit
+`(enforced: nothing — debt, spec 61)` marker.**
 
 - **Bandaid rules: question the mechanism, not just its failure** (owner
   2026-07-20): a rule whose distress response is REVOCATION — retire
@@ -119,25 +128,27 @@ whose operators are corps. Read order for architecture truth:
   route) before the rule itself was questioned. If you are writing the SECOND
   patch on the same mechanism, the mechanism is the bug — stop and interrogate
   it. (Correct-class contrast already in-tree: the hostile-route rule spawns
-  no new haulers but strands nobody.)
-- **Recycling counts as staffing**: do NOT exclude `recycling` creeps from
-  staffing counts — the pounce-recycle path orders its own successor;
-  excluding them double-orders (measured collapse to a 7-runt fleet).
-- **staffsPost symmetry**: every consumer of "how many creeps does this post
-  have" must use the SAME `staffsPost` lens as the demand side, or newborns
-  get recycled at the spawn door (~25t churn loop, measured).
-- **Room state from intel, never creep positions or vision**: a trigger keyed
-  to "one of our creeps is standing there" flaps on every death AND goes blind
-  with the vision the dead creep provided (stranded-reserver incident: target
-  revoked mid-route, the 1300-energy reserver idled out its CLAIM lifetime, 10
-  reserver spawns in 2400 ticks). Durable signals only: the draft plan's
-  commissions (`CorpKind.propose(problem, draft)`) for "do we work this room",
-  the shared `RoomDiscovery` lenses (`isReservableRoom`, `hostileRooms`) for
-  room state — and work()/getSpawnDemand() must read the SAME lens.
-- **Grid staging**: `addBot`'s `gcl` is POINTS, not level (1e6 = GCL 2). The
-  mockup db's `$set` with dotted paths (`"store.energy"`) silently NO-OPS —
-  write whole objects. Staged storage needs the OWNED schema
-  (user + storeCapacityResource).
+  no new haulers but strands nobody.) (enforced: nothing — prose)
+- **Recycling counts as staffing** — a recycling incumbent still staffs its
+  post; the pounce orders its own successor (enforced:
+  `test/unit/framework/conformance.ts` recycling-lifecycle probe, per kind via
+  its staffing fixture; unfixtured kinds are visible on `UNSTAFFED_KINDS`).
+- **staffsPost symmetry** — demand and work sides must count a post through
+  ONE lens (enforced, symptom-level: conformance live-at-post probe — no
+  replacement demanded, no newborn churned; the two-lens root dies with spec
+  39 phases 4–5).
+- **Room state from intel, never creep positions or vision**: durable signals
+  only — the draft plan's commissions (`CorpKind.propose(problem, draft)`) for
+  "do we work this room", the shared `RoomDiscovery` lenses
+  (`isReservableRoom`, `hostileRooms`) for room state (enforced: conformance
+  propose-purity probe deletes Game/Memory — the stranded-reserver class fails
+  there; the "work()/getSpawnDemand read the SAME lens" half is prose until it
+  dies with spec 39 phases 4–5).
+- **Grid staging**: stage through the vocabulary in `test/grid/stage.ts` —
+  `gclPoints` (addBot's `gcl` is POINTS), `dbPatch` (dotted `$set` silently
+  no-ops), `stagedStorage` (the OWNED schema) (enforced:
+  `test/unit/grid/stage.test.ts` helper pins + the dotted-`$set` source cop
+  over `test/grid/`).
 - **New corp kinds** integrate by REGISTRATION ONLY (spec 17): one kind file +
   one `KINDS` entry in CommissionHost. Demand policy, body building, orphan
   rescue, and the census all derive from the kind's declarations (`roles`,
@@ -149,7 +160,9 @@ whose operators are corps. Read order for architecture truth:
   spawn's id forever — conformance test enforces).
 - **Corp id prefixes**: planner ids are pure (`harvest-{flowSourceId}`); kinds
   strip flow prefixes (`"source-"`, `"spawn-"`). A rename silently orphans
-  live creeps.
+  live creeps (enforced: conformance corp-id round-trip probe drives the live
+  `resolveReadoption` per kind — spec 63's regression net; claimsOrphan kinds
+  enroll as their staffing fixtures land, visible on `UNSTAFFED_KINDS`).
 - **Sim blind spots**: sims never churn spawn ids, never lose room vision,
   never generate NPC raids, and STAGE NO roadRoutes receipts - a code path
   gated on them (paved repricing, trunk dedication) never executes in the
@@ -158,12 +171,12 @@ whose operators are corps. Read order for architecture truth:
   grid cell for any receipts-gated behavior (raid generation is a backend wall-clock cron
   the mockup doesn't run — invader noise is a LIVE-ONLY effect class; grid
   cells stage their raids by db insert). Don't claim live-readiness from
-  sims alone.
+  sims alone. (enforced: nothing — prose)
 - **CPU governor is DRY-RUN by default** (`Memory.cpuGovernor = "on"` arms it,
-  live console only). The mockup meters real CPU against a real bucket, so an
-  armed governor couples cell behavior to HOST LOAD — a full grid run drained
-  heavy worlds' buckets, paused construction colony-wide, and failed six
-  baseline-green cells before this was caught.
+  live console only); an armed governor couples cell verdicts to HOST load
+  (enforced: the grid harness refuses a cell staging it armed unless the cell
+  declares `expectsGovernor: true` — `test/grid/stage.ts armedGovernorError`,
+  pinned in `test/unit/grid/stage.test.ts`).
 
 ## Commands
 

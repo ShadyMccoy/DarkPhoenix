@@ -109,13 +109,22 @@ export function readoptKindsFor(workType: string): CorpKind[] {
  * rule (harvest: the source under the creep's feet; carry: the corp routing
  * its assigned source); the default is any same-room corp of a kind that
  * declared the creep's workType.
+ *
+ * THE resolution rule, with the corp roster injected (`corpsOf`) so the
+ * conformance round-trip probe (spec 61 row 4) drives the IDENTICAL function
+ * the live rescue runs - the id the commission mints, the id the corp answers
+ * to, the id the newborn carries, and the id rescue resolves must be ONE id,
+ * and a probe running a private re-implementation would be a second book.
  */
-function readoptTarget(creep: Creep): string | null {
+export function resolveReadoption(
+  creep: Creep,
+  corpsOf: (kindName: string) => { [corpId: string]: Corp }
+): string | null {
   const workType = creep.memory.workType;
   if (!workType) return null;
 
   for (const kind of readoptKindsFor(workType)) {
-    const corps = commissionedCorpsOfKind<Corp>(kind.kind);
+    const corps = corpsOf(kind.kind);
     if (kind.claimsOrphan) {
       const claimed = (kind.claimsOrphan as (c: Creep, cs: { [id: string]: Corp }) => string | null)(creep, corps);
       if (claimed) return claimed;
@@ -126,6 +135,10 @@ function readoptTarget(creep: Creep): string | null {
     }
   }
   return null;
+}
+
+function readoptTarget(creep: Creep): string | null {
+  return resolveReadoption(creep, kindName => commissionedCorpsOfKind<Corp>(kindName));
 }
 
 /** The nearest spawn to recycle an abandoned creep at: same room first, else any. */

@@ -283,16 +283,48 @@ describe("reservation kind: one corp per NODE (controller), not one per home (20
 
 describe("reservation kind rung 1", () => {
   beforeEach(resetWorld);
+  const conformanceCommission: Commission = {
+    corpId: "reservation-W1N2",
+    kind: "reservation",
+    shape: "auxiliary",
+    consumes: { spawnPartsPerTick: 0 },
+    produces: { valuePerTick: 0 },
+    assignment: { roomName: HOME, spawnId: "spawn1", targetRoom: REMOTE }
+  };
   describeCorpKindConformance(reservationKind as never, {
     problem: world,
-    commission: {
-      corpId: "reservation-W1N2",
-      kind: "reservation",
-      shape: "auxiliary",
-      consumes: { spawnPartsPerTick: 0 },
-      produces: { valuePerTick: 0 },
-      assignment: { roomName: HOME, spawnId: "spawn1", targetRoom: REMOTE }
-    },
-    expectedSpawnPartsPerTick: 0
+    commission: conformanceCommission,
+    expectedSpawnPartsPerTick: 0,
+    // Staffing world (specs 60 D + 61 rows 1-4): home spawn RESOLVABLE (the
+    // live world's normal state - the round-trip probe must never green on
+    // the no-vision fallback), the remote's reservation bank at 0 (below the
+    // refresh floor, so an unstaffed corp WOULD demand), and one reserver
+    // latched to the remote. One latched body covers the one needy room, so
+    // no further demand is correct in every lifecycle state.
+    staffing: {
+      role: "reserver",
+      stage(state) {
+        resetWorld();
+        installHomeSpawn();
+        intel(REMOTE); // unowned, controllered, no reservation banked -> needy
+        const corp = reservationKind.materialize(conformanceCommission, undefined);
+        Game.creeps.res1 = {
+          name: "res1",
+          spawning: state === "spawning",
+          ticksToLive: state === "spawning" ? undefined : 550,
+          room: { name: REMOTE, controller: { pos: { x: 5, y: 5, roomName: REMOTE } } },
+          pos: { x: 6, y: 5, roomName: REMOTE, isNearTo: () => true },
+          reserveController: () => 0,
+          moveTo: () => 0,
+          memory: {
+            corpId: corp.id,
+            workType: "reserve",
+            targetRoom: REMOTE,
+            ...(state === "recycling" ? { recycling: true } : {})
+          }
+        } as never;
+        return corp;
+      }
+    }
   });
 });

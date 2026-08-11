@@ -9,7 +9,7 @@
 
 import { expect } from "chai";
 import "../../../src/types/Memory";
-import { setupGlobals } from "../mock";
+import { Game, Memory, setupGlobals } from "../mock";
 import { Commission } from "../../../src/economy/Commission";
 import { CorpKind } from "../../../src/economy/CorpKind";
 import { ColonyProblem } from "../../../src/economy/CorpPlanner";
@@ -51,10 +51,63 @@ describe("claimKind propose (campaign-gated, pure)", () => {
   });
 });
 
+const TARGET = "W3N3";
+
+/** Campaign live, target unclaimed, home spawn resolvable - the demand world. */
+function stageClaimWorld(): void {
+  setupGlobals();
+  Game.creeps = {};
+  Game.rooms = {}; // target invisible: `Game.rooms[target]?.controller?.my` stays falsy
+  Game.time = 34567;
+  (Memory as Record<string, unknown>).creeps = {};
+  (Memory as Record<string, unknown>).expansion = { roomName: TARGET };
+  const spawn: Record<string, unknown> = {
+    id: "spawn1",
+    pos: { x: 5, y: 0, roomName: ROOM },
+    owner: { username: "me" }
+  };
+  spawn.room = { name: ROOM, find: () => [] };
+  Game.getObjectById = ((id: string) => (id === "spawn1" ? spawn : null)) as never;
+}
+
 // Rung 1: the standard conformance suite, with the campaign live on the
 // problem so propose() has something to do.
 describeCorpKindConformance(claimKind as CorpKind, {
   problem: { ...world, expansion: { roomName: "W3N3" } },
   commission,
-  expectedSpawnPartsPerTick: 0
+  expectedSpawnPartsPerTick: 0,
+  // Staffing world (specs 60 D + 61 rows 1-3): campaign live and unclaimed
+  // (so a claimer-less corp WOULD demand), one claimer already bought. The
+  // corp fields exactly ONE claimer per campaign, so no further demand is
+  // correct in every lifecycle state - the count must include spawning
+  // newborns and recycling incumbents alike.
+  staffing: {
+    role: "claimer",
+    stage(state) {
+      stageClaimWorld();
+      const corp = claimKind.materialize(commission, undefined);
+      Game.creeps.claimer1 = {
+        name: "claimer1",
+        spawning: state === "spawning",
+        ticksToLive: state === "spawning" ? undefined : 580,
+        room: { name: TARGET, controller: { my: false, pos: { x: 25, y: 25, roomName: TARGET } } },
+        pos: { x: 20, y: 20, roomName: TARGET, isNearTo: () => false },
+        moveTo: () => 0,
+        claimController: () => 0,
+        reserveController: () => 0,
+        memory: {
+          corpId: corp.id,
+          workType: "claim",
+          ...(state === "recycling" ? { recycling: true } : {})
+        }
+      } as never;
+      return corp;
+    }
+  }
+});
+
+// The campaign key is file-global state on the shared Memory mock: clear it so
+// a later suite in the same mocha process never inherits a live campaign.
+after(() => {
+  delete (Memory as Record<string, unknown>).expansion;
 });

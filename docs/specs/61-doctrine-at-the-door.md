@@ -1,13 +1,25 @@
 # Spec 61 — Doctrine at the door: the trap list becomes enforcement
 
-**Status: BACKLOG (2026-08-11, session follow-up to spec 60).** Same owner
-mandate as spec 60 (*"We want to create guard rails for future developers"*),
-applied beyond the books: the CLAUDE.md **trap list** is institutional memory
-encoded as prose — every entry is a real incident a future developer must
-read, remember, and re-apply under pressure. This spec converts each trap
-into a DOOR where that is possible, names the successor spec where the trap
-dies by deletion instead, and leaves the genuinely-prose residue explicitly
-marked — so the reading burden shrinks to what enforcement cannot carry.
+**Status: ROWS 1–7 LANDED 2026-08-11 (same-day implementation); rows 2/8
+tracked by their owning specs; fixture roll-out continues on the UNSTAFFED
+ratchet.** Landed: the staffing-fixture instrument + all three lifecycle
+probes (rows 1–3, with spec 60 D) enrolled for the first batch
+{link/controllerFeeder, claim, reservation} with the seven remaining
+demand-exposing kinds on the shrink-only `UNSTAFFED_KINDS` debt list; the
+corp-id round-trip probe (row 4 — **which found and fixed a live defect on
+its first enrollment**, see Journal); the grid staging vocabulary + cop
+(row 5); the armed-governor harness refusal (row 6); the sink-ladder chain
+pin (row 7). CLAUDE.md is now an index of doors (pointers landed, prose
+residue marked). Original charter follows.
+
+Same owner mandate as spec 60 (*"We want to create guard rails for future
+developers"*), applied beyond the books: the CLAUDE.md **trap list** is
+institutional memory encoded as prose — every entry is a real incident a
+future developer must read, remember, and re-apply under pressure. This spec
+converts each trap into a DOOR where that is possible, names the successor
+spec where the trap dies by deletion instead, and leaves the genuinely-prose
+residue explicitly marked — so the reading burden shrinks to what enforcement
+cannot carry.
 
 **Doctrine:** a rule a test enforces is a rule nobody has to be told. The
 spawn contract proved it (a naked `spawnCreep` throws with directions); spec
@@ -201,3 +213,63 @@ CLAUDE.md pointer edits ride each landing PR.
 - Not re-litigating trap content: where a trap's rule and current code
   disagree, that is a bug under the EXISTING rule (CLAUDE.md: fix the code,
   don't drift the doc) — file it, don't absorb it here.
+
+## Journal
+
+**2026-08-11 (implementation session, same day as filing).** Rows landed in
+the spec's own sequencing; every door mutation-checked red before landing.
+
+- **Rows 5+6** (`test/grid/stage.ts` + `test/unit/grid/stage.test.ts`):
+  `gclPoints`/`dbPatch`/`assertWholeObjectPatch`/`stagedStorage` +
+  `armedGovernorError` wired into `stageCell` (refusal lands through
+  runBatch's existing staging-error path). The dotted-`$set` cop scans all of
+  `test/grid/` (comment-stripped, balanced-brace payload extraction) — zero
+  live offenders existed; both `gcl: 1_000_000` sites migrated to
+  `gclPoints(2)`. Mutation checks: dotted key into churn.ts → cop names file
+  + key; rung swap in goals.ts → chain pin recites the incident.
+- **Row 7**: the chain pin is DISTINCT from goals.test's byte-for-byte
+  constant pin — a retune legally updates that pin's expectation, and the
+  chain pin is what catches the retune that inverts a rung (`--bail` hides
+  this in a naive mutation run: mutate constants alone and the constant pin
+  fails first; the chain pin's red was verified in isolation via `--grep`).
+- **Rows 1–3 + spec 60 D** (one instrument): `KindFixtures.staffing` with
+  three lifecycle states; `UNSTAFFED_KINDS` shrink-only debt list; the
+  enrollment-honesty conformance case refuses a demand-exposing kind that is
+  neither fixtured nor listed (and a listed kind that got a fixture, and a
+  listed kind with no demand path). First batch: **controllerFeeder (role
+  porttender — the class's third strike), claim (claimer), reservation
+  (reserver)**; debt: harvest, carry, upgrade, construction, tender,
+  raidGuard, coreBuster. Mutation checks: `staffedPortTenders` reverted to
+  `includeSpawning: false` → spawning probe red (the spec-60-D acceptance
+  check); a `memory.recycling` filter injected into claim's count → recycling
+  probe red.
+- **Row 4**: `resolveReadoption` extracted from OrphanRescue (corp roster
+  injected; live `readoptTarget` delegates — the probe drives the IDENTICAL
+  function, never a re-implementation). Generic template for kinds on the
+  default rescue rule (every declared `readopt !== false` role); claimsOrphan
+  kinds enroll through their staffing fixture (the staged live incumbent IS
+  the probe creep) — unfixtured claimsOrphan kinds are covered by the
+  UNSTAFFED visibility until their batch lands.
+- **Row 4's first catch — a live defect, fixed:**
+  `reservationKind.claimsOrphan` matched on `getPosition().roomName ==
+  targetRoom`, believing nodeId `${targetRoom}-reservation` drives position;
+  but `SpawnAnchoredCorp.getPosition` prefers the RESOLVABLE home spawn's
+  room, so live (spawn always visible) every latched orphan resolved null
+  and recycled — the docblock's promised re-adoption never fired. The
+  pre-existing unit pin passed only because its staging left
+  `Game.getObjectById → null` (the no-vision fallback). Fixed: match on
+  `getTargetRooms().includes(room)` — the commission-owned latch materialize
+  refreshes. The probe stages the spawn RESOLVABLE precisely so the
+  fallback can never mask this class again. Regression gate run (unit +
+  flow-handoff/runt-economy/storage-depot).
+- **Filed, not absorbed (probe-pending):** raidGuard's coverage lens
+  (`getActiveCreeps`, `includeSpawning: false` → per-`targetRoom` coverage)
+  and coreBuster's (`creepsOf`, same) count only LIVE bodies on their DEMAND
+  side — structurally the t72811290 double-buy shape. Whether a demand
+  actually re-arms while a guard/buster builds depends on their mission
+  gates; their staffing fixtures (UNSTAFFED batch) will decide, and a fix
+  belongs with that enrollment, not here.
+- Row 9's prose markers landed in CLAUDE.md (bandaid rules, multi-draw,
+  tender heartbeat, sim blind spots); the going-forward rule (a new trap
+  ships with its door or an explicit debt marker) is in the trap-list
+  intro.

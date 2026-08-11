@@ -1,8 +1,8 @@
 # Spec 60 — Measurement at the door: guardrails that make the corp books inherent
 
-**Status: PHASES A + B + C-COP LANDED 2026-08-11** (the follow-on cleanup
-session); **D, E, F and phase C's migration slices remain open.** Proposed in
-the cleanup session that landed the spawn contract
+**Status: PHASES A + B + C-COP LANDED 2026-08-11; D LANDED same day (probe +
+first fixture batch); E, F and phase C's migration slices remain open.**
+Proposed in the cleanup session that landed the spawn contract
 (`corps/spawnContract.ts` + the runtime guard + the one-file spawn-authority
 allowlist). This spec is the program that generalizes it.
 
@@ -39,10 +39,20 @@ What landed, by phase:
   ({bootstrapCorps, spawningCorps}) shrink-only with the
   integrate-as-a-kind pointer. The towers/links/terminals migration slices
   and the bootstrap/spawning close-out have not started.
-- **D, E, F (OPEN)** — the double-buy conformance probe needs per-kind
-  staffing fixtures (a spawning incumbent world per demand-exposing kind);
-  E's differing-input/two-depot identity restaging and the waste-ledger
-  second-book deletion, and F's shared window meter, are untouched.
+- **D (SHIPPED 2026-08-11, with spec 61 rows 1–3)** — the shared staffing
+  instrument (`KindFixtures.staffing`, three lifecycle states) landed in
+  conformance with the double-buy probe enrolled per fixtured kind; first
+  batch {controllerFeeder porttender, claim, reservation}, the remaining
+  seven demand-exposing kinds on the shrink-only `UNSTAFFED_KINDS` debt
+  list (enrollment-honesty case refuses silent gaps). The acceptance
+  mutation check ran red: `staffedPortTenders` reverted to
+  `includeSpawning: false` fails the spawning-lifecycle probe with the
+  t72811290 message. Fixture roll-out continues batch-by-batch on the debt
+  ratchet (raidGuard/coreBuster carry a filed includeSpawning question —
+  spec 61 Journal).
+- **E, F (OPEN)** — E's differing-input/two-depot identity restaging and
+  the waste-ledger second-book deletion, and F's shared window meter, are
+  untouched.
 
 **The owner's ask (verbatim, 2026-08-11):** *"We want to create guard rails
 for future developers. I want Corp measurement and the income statement to

@@ -324,18 +324,105 @@ describe("controller-feeder kind on the corp framework (rungs 2-4)", () => {
   });
 });
 
+/**
+ * A room with ONE deposit-port link + its buffer container and nothing else
+ * that demands (no storage -> the feeder gate stays closed; no terminal -> no
+ * hub duty). One port post is the whole ask, so ONE tender fully staffs it.
+ */
+function installPortRoom(): { spawn: Record<string, unknown> } {
+  Game.creeps = {};
+  const bufferContainer = {
+    structureType: "container",
+    pos: { x: 11, y: 25, roomName: HOME },
+    store: { energy: 500, getUsedCapacity: () => 500, getFreeCapacity: () => 1500 }
+  };
+  const portLink: Record<string, unknown> = {
+    id: "portlink1",
+    structureType: "link",
+    cooldown: 0,
+    pos: {
+      x: 10,
+      y: 25,
+      roomName: HOME,
+      findInRange: (type: number) => (type === 107 ? [bufferContainer] : [])
+    },
+    store: { energy: 0, getUsedCapacity: () => 0, getFreeCapacity: () => 800 }
+  };
+  const spawn: Record<string, unknown> = {
+    id: "spawn1",
+    pos: { x: 25, y: 25, roomName: HOME, findInRange: () => [] }
+  };
+  const room: Record<string, unknown> = {
+    name: HOME,
+    controller: { my: true, level: 6, pos: { x: 40, y: 25, roomName: HOME, findInRange: () => [] } },
+    storage: undefined,
+    terminal: undefined,
+    memory: {},
+    getTerrain: () => ({ get: () => 0 }),
+    lookForAt: () => [],
+    find: (type: number, opts?: { filter?: (s: unknown) => boolean }) => {
+      const all = type === 108 ? [portLink] : type === 112 ? [spawn] : [];
+      return opts?.filter ? all.filter(opts.filter) : all;
+    }
+  };
+  spawn.room = room;
+  portLink.room = room;
+  Game.rooms[HOME] = room as never;
+  Game.getObjectById = ((id: string) => (id === "spawn1" ? spawn : id === "portlink1" ? portLink : null)) as never;
+  return { spawn };
+}
+
 describe("controller-feeder kind rung 1", () => {
   beforeEach(resetWorld);
+  const conformanceCommission = {
+    corpId: "controllerFeeder-W1N1",
+    kind: "controllerFeeder",
+    shape: "auxiliary",
+    consumes: { spawnPartsPerTick: 0 },
+    produces: { valuePerTick: 0 },
+    assignment: { roomName: HOME, spawnId: "spawn1" }
+  };
   describeCorpKindConformance(linkKind as never, {
     problem: world,
-    commission: {
-      corpId: "controllerFeeder-W1N1",
-      kind: "controllerFeeder",
-      shape: "auxiliary",
-      consumes: { spawnPartsPerTick: 0 },
-      produces: { valuePerTick: 0 },
-      assignment: { roomName: HOME, spawnId: "spawn1" }
-    },
-    expectedSpawnPartsPerTick: 0
+    commission: conformanceCommission as never,
+    expectedSpawnPartsPerTick: 0,
+    // Staffing world (specs 60 D + 61 rows 1-3): one port post, one tender.
+    // The PORT TENDER is this program's third strike of the double-buy class
+    // (spec 60 D: feeder t72811290, hub tender, port tender) - the demand
+    // lens (staffedPortTenders) counts includeSpawning: true, and reverting
+    // it to false is the landing PR's mutation check.
+    staffing: {
+      role: "porttender",
+      stage(state) {
+        resetWorld();
+        installPortRoom();
+        const corp = linkKind.materialize(conformanceCommission as never, undefined);
+        Game.creeps.pt1 = {
+          name: "pt1",
+          spawning: state === "spawning",
+          ticksToLive: state === "spawning" ? undefined : 1480,
+          room: { name: HOME },
+          pos: {
+            x: 10,
+            y: 26,
+            roomName: HOME,
+            getRangeTo: () => 1,
+            isNearTo: () => true,
+            isEqualTo: () => false
+          },
+          store: { energy: 0, getFreeCapacity: () => 100, getUsedCapacity: () => 0 },
+          withdraw: () => 0,
+          transfer: () => 0,
+          drop: () => 0,
+          moveTo: () => 0,
+          memory: {
+            corpId: corp.id,
+            workType: "porttend",
+            ...(state === "recycling" ? { recycling: true } : {})
+          }
+        } as never;
+        return corp;
+      }
+    }
   });
 });
