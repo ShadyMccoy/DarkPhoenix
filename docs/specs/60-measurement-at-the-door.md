@@ -210,6 +210,13 @@ and assert the kind does not demand a second body. Kinds without demand
 paths skip. Every current and future kind inherits the t72811290 lesson by
 registration alone.
 
+**Shared instrument (2026-08-11):** the staffing fixture this needs
+(`KindFixtures.staffing` — stage ONE incumbent in a given lifecycle state)
+is specified in **spec 61**, which reuses it for the recycling-counts-as-
+staffing and staffsPost-symmetry probes. Build the fixture once; land this
+phase and spec 61 rows 1–3 together, with the shrink-only UNSTAFFED debt
+list making per-kind fixture coverage visible.
+
 **Acceptance tests.**
 - The probe, enrolled for all kinds via the conformance describe-block.
 - Mutation check (one-off, in the PR that lands it): reverting the port
