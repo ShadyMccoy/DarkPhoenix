@@ -797,6 +797,32 @@ function routeToSinks(
   // nothing is a deposit and mined feeds consumers directly (old model).
   const hasStorageSink = sinks.some(s => s.kind === "storage");
   const isDeposit = (id: string): boolean => hasStorageSink && !isBankSourceId(id);
+  // FOUNDING-ROOM CONTROLLERS (owner 2026-08-11: "supply from nearby nodes
+  // gets hauled to this new room... the nodes all work together, not just
+  // each room for itself"): the bank-spends-to-consumers half of the rule
+  // silently assumed every consumer is EXECUTOR-REACHABLE - the depot movers
+  // (feeder/link) execute bank flows, and their reach is the storage room.
+  // The first live claim broke the assumption (t72935339): W43N24's
+  // controller was planned 14 e/t from bank-W43N23 over 55 tiles - a route
+  // publishRoster skips and nothing fields - while the room's own source
+  // hauled home past it; measured delivery 0.01 e/t. A controller in a room
+  // with NO storage of its own is therefore a LOCAL consumer: deposit
+  // sources nearer to it than their hub may feed it (spec 25's construction
+  // exception, extended), and the bank may NOT (an honest shortfall beats
+  // phantom flow - the F1 objective). Hub-room controllers keep the
+  // bank-fed inversion; their feeder link IS the executor.
+  // "Where the depot movers reach" = rooms holding the storage sink OR a bank
+  // SOURCE: at a FULL bank the storage sink's absorb is ~0 and the adapter may
+  // emit no storage sink at all (spec 58), but the bank source still names its
+  // room - and the feeder lives where the bank lives (the spec-38 healthy-
+  // ledger pin stages exactly that shape: a full bank, no storage sink, and
+  // the whole surplus drain must still flow through the plan).
+  const depotReachRooms = new Set<string>(sinks.filter(s => s.kind === "storage").map(s => s.pos.roomName));
+  for (const s of problem.sources) {
+    if (isBankSourceId(s.id)) depotReachRooms.add(s.pos.roomName);
+  }
+  const isLocalConsumerSink = (s: { kind: string; pos: Position }): boolean =>
+    s.kind === "construction" || (s.kind === "controller" && !depotReachRooms.has(s.pos.roomName));
 
   // CROSS-HUB TRANSFER (spec 58 phase 2, owner 2026-08-05: "model the energy
   // in the storage as a source and the ullage as a sink"). Once both halves
@@ -930,15 +956,27 @@ function routeToSinks(
         // value-pass turn, so bank-funded construction stays BEHIND the
         // deposit fill in the parts ledger - t72445337's order preserved).
         if (localDepositsOnly) return isDeposit(id) && d < (hubDist.get(id) ?? Infinity);
-        return sink.kind === "storage"
-          ? // Deposits haul home as always; a FOREIGN hub's bank may also land
-            // here when the terminal edge exists and this hub is hungry
-            // (canTransfer). Its own bank never can - banksOwnStore.
-            isDeposit(id) || canTransfer(id, sink)
-          : !isDeposit(id) ||
-              // Spec 25 exception: deposit-class sources build LOCALLY - a
-              // construction sink nearer than the source's hub may draw it.
-              (sink.kind === "construction" && d < (hubDist.get(id) ?? Infinity));
+        if (sink.kind === "storage") {
+          // Deposits haul home as always; a FOREIGN hub's bank may also land
+          // here when the terminal edge exists and this hub is hungry
+          // (canTransfer). Its own bank never can - banksOwnStore.
+          return isDeposit(id) || canTransfer(id, sink);
+        }
+        if (isBankSourceId(id)) {
+          // The bank spends only where its depot movers reach: a controller
+          // OUTSIDE every storage room has no executor for a bank flow
+          // (publishRoster skips bank routes by design), so the edge is
+          // refused rather than planned-and-never-fielded (t72935339).
+          return !(sink.kind === "controller" && !depotReachRooms.has(sink.pos.roomName));
+        }
+        return (
+          !isDeposit(id) ||
+          // Spec 25 exception, extended (owner 2026-08-11): deposit-class
+          // sources serve LOCAL consumers - a construction sink, or a
+          // storage-less room's controller, nearer than the source's hub
+          // may draw it. The residual still deposits home.
+          (isLocalConsumerSink(sink) && d < (hubDist.get(id) ?? Infinity))
+        );
       })
       .sort((a, b) => {
         // Terminal transfers fill LAST at a storage sink, whatever their tile
@@ -1127,6 +1165,20 @@ function routeToSinks(
   // (production-first, t72445337). With no construction sinks this is a
   // no-op and the fill order is byte-identical to before.
   for (const sink of [...sinks].filter(s => s.kind === "construction").sort(byValueThenId)) {
+    fill(sink, sink.capacity, true);
+  }
+  // FOUNDING-ROOM CONTROLLERS join the same local pre-pass (owner 2026-08-11:
+  // "supply from nearby nodes gets hauled to this new room... the nodes all
+  // work together"): a storage-less room's controller has no bank executor
+  // (see the admission filter), so its ONLY supply is nearby deposit sources
+  // - which the deposit fill below would bank first. Runs after construction
+  // (build-first holds) and before the deposit fill, so the new room's climb
+  // is funded from the energy already next to it (t72935339: plan 14 via a
+  // 55-tile bank edge nothing fields, actual 0.01 e/t). Rooms with storage
+  // match nothing here - order byte-identical for the single-hub colony.
+  for (const sink of [...sinks].filter(
+    s => s.kind === "controller" && !depotReachRooms.has(s.pos.roomName)
+  ).sort(byValueThenId)) {
     fill(sink, sink.capacity, true);
   }
   for (const sink of [...sinks].filter(s => s.kind === "storage").sort(byValueThenId)) {

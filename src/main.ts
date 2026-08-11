@@ -331,7 +331,10 @@ export const loop = ErrorMapper.wrapLoop(() => {
     // rebuild them (it also re-claims resources from current vision/intel).
     const analysisCache = getAnalysisCache();
     const haveTerritories = !!analysisCache && analysisCache.result.territories.size > 0;
-    if (!hasNoNodes && !haveTerritories && !isAnalysisInProgress()) {
+    // The emergency hold gates the RESTART here too, or the guard would
+    // resetAnalysis() every tick against a hold that instantly returns
+    // (2026-08-11 crash-loop incident - see runIncrementalAnalysis).
+    if ((Memory as { analysisGo?: number }).analysisGo === 1 && !hasNoNodes && !haveTerritories && !isAnalysisInProgress()) {
       console.log(`[Respawn] Territory cache empty after reset - rebuilding for resource refresh`);
       resetAnalysis();
       runIncrementalAnalysis(colony!);
