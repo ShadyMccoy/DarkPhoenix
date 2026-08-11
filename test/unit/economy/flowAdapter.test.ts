@@ -661,6 +661,52 @@ describe("economy/flowAdapter - consumption-constrained sinks (spec 58)", () => 
     expect(store.capacity).to.be.closeTo(Math.min(20, pressure.sink), 1e-9);
   });
 
+  it("detectTerminalRooms reads owned terminals; buildColonyProblem arms the gate and the contract distance", async () => {
+    const { detectTerminalRooms, buildColonyProblem } = await import("../../../src/economy/flowAdapter");
+    g.Game.rooms = {
+      W0N0: { ...stagedRoom("W0N0", 10_000, 500_000), terminal: { my: true } },
+      W1N0: { terminal: { my: false } }, // someone else's - never ours to send from
+      W2N0: {} // no terminal
+    };
+    expect(detectTerminalRooms()).to.deep.equal(["W0N0"]);
+    // ...and the problem carries the lens + the CONTINUOUS distance function
+    let sawContinuous: boolean | undefined;
+    g.Game.map = {
+      getRoomLinearDistance: (_a: string, _b: string, continuous?: boolean) => {
+        sawContinuous = continuous;
+        return 3;
+      }
+    };
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15)]);
+    const problem = buildColonyProblem(graph, manhattan, [], new Map(), new Map(), []);
+    expect(problem.terminalRooms).to.deep.equal(["W0N0"]);
+    expect(problem.roomDist!("W0N0", "W3N0")).to.equal(3);
+    expect(sawContinuous, "the roomDist CONTRACT is the wrap-around form").to.equal(true);
+  });
+
+  it("publishTerminalTransfers writes the plan's transfer routes by SENDING room - and CLEARS when none", async () => {
+    const { publishTerminalTransfers } = await import("../../../src/economy/flowAdapter");
+    const sinks = [
+      { id: "store-B", kind: "storage" as const, pos: { x: 20, y: 20, roomName: "W5N0" }, value: 1, capacity: 40 }
+    ];
+    publishTerminalTransfers(
+      {
+        haulers: [
+          // the transfer route - published
+          { sourceId: "bank-W0N0", sinkId: "store-B", spawnId: "", distance: 50, flowRate: 31, carryParts: 0, spawnParts: 0, transfer: true },
+          // an ordinary walking haul - never published here
+          { sourceId: "src-1", sinkId: "store-B", spawnId: "", distance: 10, flowRate: 10, carryParts: 4, spawnParts: 0.005 }
+        ]
+      },
+      { sinks }
+    );
+    expect(g.Memory.terminalTransfers).to.deep.equal({ W0N0: [{ to: "W5N0", rate: 31 }] });
+    // A later solve with NO transfers must clear the entry - a stale route
+    // would send forever (the always-write rule controllerAllocations follows).
+    publishTerminalTransfers({ haulers: [] }, { sinks });
+    expect(g.Memory.terminalTransfers).to.deep.equal({});
+  });
+
   it("END-TO-END: RCL8 + full storage assembles the consumption-constrained problem", async () => {
     const { buildColonyProblem } = await import("../../../src/economy/flowAdapter");
     // Full storage, brimming warchest (way above the 30k target -> fat bank

@@ -28,6 +28,7 @@ import {
   serializeStore
 } from "../economy/CorpKind";
 import { Commission, FieldedFleet } from "../economy/Commission";
+import { detectTerminalRooms } from "../economy/flowAdapter";
 import { ColonyProblem } from "../economy/CorpPlanner";
 import { CREEP_LIFETIME } from "../economy/primitives";
 import { Corp } from "../corps/Corp";
@@ -201,6 +202,10 @@ function liveProblem(): ColonyProblem {
   return {
     guardedRooms: guardedRoomsLens(spawns),
     portRooms: portRoomsLens(),
+    // The SAME terminal lens the adapter's pricing reads (spec 58 phase 3),
+    // so linkKind's per-room hub-tender declaration and the colony's
+    // deduction stay one fact. Cheap (a rooms loop, no find) - no cache.
+    terminalRooms: detectTerminalRooms(),
     spawns,
     sources: [],
     sinks: [],

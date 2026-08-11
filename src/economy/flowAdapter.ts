@@ -77,7 +77,7 @@ import {
   planColony
 } from "./CorpPlanner";
 import { Commission, FieldedFleet } from "./Commission";
-import { isBankSourceId, isMinedIncomeId, stripSourcePrefix, stripSpawnPrefix } from "./ids";
+import { bankRoomFromId, isBankSourceId, isMinedIncomeId, stripSourcePrefix, stripSpawnPrefix } from "./ids";
 import { DEFAULT_VALUATION, Goal, SinkValuation, compileGoal } from "./goals";
 import { searchStructure } from "./strategy";
 import { commissionsFromPlan, consumerSpawnLoad } from "./commissionPlan";
@@ -842,6 +842,40 @@ export function storageBankPressure(roomName: string): BankPressure | undefined 
   );
 }
 
+/**
+ * Rooms holding a live OWNED terminal (spec 58 phase 3) - THE lens that arms
+ * the cross-hub transfer edge. One home, three readers with one answer: the
+ * planner's gate (ColonyProblem.terminalRooms via buildColonyProblem), the
+ * infra pricing (one hub tender per terminal room), and the host's propose
+ * context (CommissionHost.liveProblem) - so "which rooms can send" and "what
+ * we pay to staff their hubs" can never disagree. Empty in a harness and in
+ * every live colony until ConstructionCorp learns to place terminals, which
+ * keeps the whole executor dark until a terminal actually stands.
+ */
+export function detectTerminalRooms(): string[] {
+  if (typeof Game === "undefined" || !Game.rooms) return [];
+  const rooms: string[] = [];
+  for (const roomName in Game.rooms) {
+    if (Game.rooms[roomName].terminal?.my) rooms.push(roomName);
+  }
+  return rooms.sort();
+}
+
+/**
+ * The CONTINUOUS (wrap-around) linear room distance - the exact distance the
+ * engine's calcTransactionCost charges (Game.map.getRoomLinearDistance with
+ * `continuous: true`), which is the ColonyProblem.roomDist CONTRACT. Falls
+ * back to the non-continuous RoomDiscovery lens only where Game.map is absent
+ * (harness); on a private mockup world the two agree everywhere anyway
+ * because there is no seam to wrap.
+ */
+export function continuousRoomDistance(a: string, b: string): number {
+  if (typeof Game !== "undefined" && Game.map?.getRoomLinearDistance) {
+    return Game.map.getRoomLinearDistance(a, b, true);
+  }
+  return roomLinearDistance(a, b);
+}
+
 /** Energy standing in a room's storage (0 without one; harness-safe 0). */
 export function storageRoomStock(roomName: string): number {
   if (typeof Game === "undefined" || !Game.rooms) return 0;
@@ -1544,6 +1578,10 @@ export function buildColonyProblem(
     const room = Game.rooms[roomName];
     if (room && portPosts(room).length > 0) portRooms.add(roomName);
   }
+  // TERMINAL ROOMS (spec 58 phase 3): the lens that arms the cross-hub
+  // transfer edge AND prices its standing hub tender - one read for both, so
+  // the plan can never emit a transfer it did not pay to staff.
+  const terminalRooms = detectTerminalRooms();
   const infraPartsPerTick = infraSpawnLoad(
     pricedRelay,
     roomsWithStorage.size,
@@ -1551,7 +1589,8 @@ export function buildColonyProblem(
     linkFedRooms,
     1,
     guardedRooms.size,
-    portRooms.size
+    portRooms.size,
+    terminalRooms.length
   );
   // Same details, priced in ENERGY - the second currency the spawn sink
   // needs (see the two-pass solve in solveColony).
@@ -1562,7 +1601,8 @@ export function buildColonyProblem(
     linkFedRooms,
     1,
     guardedRooms.size,
-    portRooms.size
+    portRooms.size,
+    terminalRooms.length
   );
   const infraInputs = {
     pricedRelay,
@@ -1577,6 +1617,12 @@ export function buildColonyProblem(
     assembly,
     spawns,
     sources, sinks, dist, infraPartsPerTick, infraEnergyPerTick, infraInputs, depositPorts,
+    // The transfer edge's gate + its fee input (spec 58 phase 3). Present
+    // even when empty: the CONTRACT is continuous wrap-around distance, and
+    // an always-present roomDist means canTransfer's double gate reduces to
+    // the terminalRooms test alone on live worlds.
+    terminalRooms,
+    roomDist: continuousRoomDistance,
     ...(fielded ? { fielded } : {}) };
 }
 
@@ -1592,6 +1638,37 @@ export function buildColonyProblem(
  * primitives *_ENERGY_PER_WORK constants (one formula home), floored at 1 so
  * every published corp fields at least one body.
  */
+/**
+ * Publish the plan's CROSS-HUB TERMINAL TRANSFERS (spec 58 phase 3):
+ * Memory.terminalTransfers, keyed by sending room, each route the destination
+ * room + the SPEND rate at the source (the fee is inside it - what leaves the
+ * bank). Written EVERY solve, including as {} when no transfers are planned,
+ * so a dropped transfer clears its entry instead of a stale route sending
+ * forever (the same always-write rule controllerAllocations follows).
+ *
+ * The destination room comes from the sink's POSITION on the problem - the
+ * plan's own sink accumulator carries no room, and parsing it from the sink
+ * id would be an id-space crime (ONTOLOGY §5). Exported for direct unit
+ * testing; pure but for the Memory write, which no-ops in a harness without
+ * Memory staged.
+ */
+export function publishTerminalTransfers(
+  plan: Pick<ReturnType<typeof planColony>, "haulers">,
+  problem: Pick<ColonyProblem, "sinks">
+): void {
+  if (typeof Memory === "undefined") return;
+  const sinkRoomById = new Map(problem.sinks.map(s => [s.id, s.pos.roomName]));
+  const byFrom: Record<string, { to: string; rate: number }[]> = {};
+  for (const h of plan.haulers) {
+    if (!h.transfer) continue;
+    const from = bankRoomFromId(h.sourceId);
+    const to = sinkRoomById.get(h.sinkId);
+    if (!to || h.flowRate <= 1e-9) continue;
+    (byFrom[from] ??= []).push({ to, rate: h.flowRate });
+  }
+  Memory.terminalTransfers = byFrom;
+}
+
 function publishRoster(plan: ReturnType<typeof planColony>, linkServedIds: ReadonlySet<string> = new Set()): void {
   if (typeof Memory === "undefined") return;
   const corps: Record<string, unknown>[] = [];
@@ -1862,6 +1939,7 @@ export function solveColony(
   // plan-vs-fielded roster so the gauge sees no phantom walking haulers.
   const linkServedIds = new Set(problem.sources.filter(s => s.haulPos).map(s => s.id));
   publishRoster(plan, linkServedIds);
+  publishTerminalTransfers(plan, problem);
   const commissions = commissionsFromPlan(problem, plan);
 
   const miners: MinerAssignment[] = plan.miners.map(m => ({

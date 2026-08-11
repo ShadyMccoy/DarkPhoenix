@@ -24,6 +24,7 @@ import { FEEDER, FEEDER_DRAINED, FEEDER_LINCHPIN } from "../spawn/demandLadder";
 import { Position } from "../types/Position";
 import {
   CoreDepot,
+  HUB_TENDER_WORK_TYPE,
   PORT_TENDER_WORK_TYPE,
   PortPost,
   portPosts,
@@ -44,11 +45,13 @@ import { buildTankerBody } from "../spawn/BodyBuilder";
 import { stampControllerFeederRegime } from "./regimes";
 import {
   CARRY_MOVE_PAIR_COST,
+  HUB_TENDER_CARRY,
   SOURCE_RATE,
   carryPartsFor,
   depositPortHeadroom,
   maxCarryPairs,
   parkedRelayCarry,
+  terminalStageTarget,
   volleyServiceCarry
 } from "../economy/primitives";
 import { bankFedControllerRate, resolveReserveTarget } from "../economy/bank";
@@ -209,6 +212,9 @@ export class LinkCorp extends SpawnAnchoredCorp {
     // it must not sit behind the feeder's own gates (a room with no controller
     // or no bank still has ports to drain).
     this.runPortPosts(room);
+    // The HUB post likewise (spec 58 phase 3): storage<->terminal, gated only
+    // by its own duty - a room with no controller still completes transfers.
+    this.runHubPost(room);
     const controller = room.controller;
     if (!controller) return;
 
@@ -487,7 +493,7 @@ export class LinkCorp extends SpawnAnchoredCorp {
    * from growing - one owner, one demand site, two roles.
    */
   public getSpawnDemand(ctx: SpawnDemandContext): SpawnDemand[] {
-    return [...this.feederDemands(ctx), ...this.portDemands(ctx)];
+    return [...this.feederDemands(ctx), ...this.portDemands(ctx), ...this.hubDemands(ctx)];
   }
 
   private feederDemands(ctx: SpawnDemandContext): SpawnDemand[] {
@@ -718,6 +724,105 @@ export class LinkCorp extends SpawnAnchoredCorp {
         creep.withdraw(post.buffer, RESOURCE_ENERGY, Math.min(free, buffered));
       }
     });
+  }
+
+  private getHubTenders(): Creep[] {
+    // HUB_TENDER_WORK_TYPE, not a literal - the one-spelling rule the port
+    // tender established (spec 57): declaration, demand and dispatch match on
+    // the same string or newborns are invisible to their own corp.
+    return this.creepsOfWorkType(HUB_TENDER_WORK_TYPE, { includeSpawning: false });
+  }
+
+  /** Planned outbound transfer rate FROM this room (e/t, spend-side) - the
+   *  published plan, the same read the TerminalRunner sends from. */
+  private outboundTransferRate(room: Room): number {
+    const routes = typeof Memory !== "undefined" ? Memory.terminalTransfers?.[room.name] : undefined;
+    return (routes ?? []).reduce((s, r) => s + r.rate, 0);
+  }
+
+  /**
+   * The storage<->terminal post (spec 58 phase 3): ONE signed law, no mode
+   * flag. deficit = terminalStageTarget(plannedOutbound) - terminalEnergy;
+   * positive -> load the terminal from storage (keep the sender stocked),
+   * negative -> drain the terminal to storage (arrivals land in the bank -
+   * leg 3, the one that COMPLETES a transfer). A pure destination hub has
+   * target 0 and drains everything; a relay holds exactly its outbound stage.
+   * The tender is parked adjacent to both when the layout allows and shuttles
+   * otherwise - correctness never depends on the adjacency, only efficiency.
+   */
+  private runHubPost(room: Room): void {
+    const term = room.terminal;
+    const storage = room.storage;
+    if (!term || !term.my || !storage || !storage.my) return;
+    const tenders = this.getHubTenders();
+    if (tenders.length === 0) return;
+    const target = terminalStageTarget(this.outboundTransferRate(room));
+    const deficit = target - (term.store[RESOURCE_ENERGY] ?? 0);
+    // Load direction on a positive deficit, drain on a negative one; a zero
+    // deficit parks (nothing to move is the steady state of a staged sender).
+    const [from, to]: [Structure & { store: StoreDefinition }, Structure & { store: StoreDefinition }] =
+      deficit > 0 ? [storage as never, term as never] : [term as never, storage as never];
+    const want = Math.abs(deficit);
+    if (want < 1) return;
+    for (const creep of tenders) {
+      if (creep.spawning) continue;
+      const carrying = creep.store[RESOURCE_ENERGY] ?? 0;
+      // TRANSFER FIRST, then top up - the port tender's rule, same reason: a
+      // full creep with nowhere to put its load is parked capacity.
+      if (carrying > 0) {
+        if (creep.pos.getRangeTo(to.pos) <= 1) {
+          creep.transfer(to, RESOURCE_ENERGY, Math.min(carrying, to.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0));
+        } else {
+          travelToLane(creep, to.pos, { range: 1, visualizePathStyle: { stroke: "#00aaff" } });
+        }
+        continue;
+      }
+      const avail = from.store[RESOURCE_ENERGY] ?? 0;
+      if (avail <= 0) continue;
+      if (creep.pos.getRangeTo(from.pos) <= 1) {
+        creep.withdraw(from, RESOURCE_ENERGY, Math.min(creep.store.getFreeCapacity(RESOURCE_ENERGY) ?? 0, avail, want));
+      } else {
+        travelToLane(creep, from.pos, { range: 1, visualizePathStyle: { stroke: "#00aaff" } });
+      }
+    }
+  }
+
+  /**
+   * One hub tender wherever a terminal AND a storage stand and there is duty:
+   * a planned outbound transfer to stage, or standing terminal energy to land
+   * in the bank. Appended to the feeder's demand like the port tender's - one
+   * owner, one demand site, three roles. Costs are NOT optional (t72865978).
+   */
+  private hubDemands(ctx: SpawnDemandContext): SpawnDemand[] {
+    const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
+    if (!spawn) return [];
+    const room = spawn.room;
+    const term = room.terminal;
+    if (!term || !term.my || !room.storage || !room.storage.my) return [];
+    const duty =
+      terminalStageTarget(this.outboundTransferRate(room)) > 0 || (term.store[RESOURCE_ENERGY] ?? 0) > 0;
+    // Demand-side count INCLUDES spawning (the staffsPost trap, and this
+    // corp's own feeder lesson at F1): one body in the pipe IS one body, or
+    // the ~35 build ticks re-arm the demand and buy a second tender.
+    const staffed = this.creepsOfWorkType(HUB_TENDER_WORK_TYPE, { includeSpawning: true }).length;
+    if (!duty || staffed >= 1) return [];
+    const desired = buildTankerBody(HUB_TENDER_CARRY, ctx.energyCapacity, false);
+    if (desired.cost <= 0) return [];
+    return [
+      {
+        buyerCorpId: this.id,
+        role: "hubmanager",
+        why: "infra",
+        value: 78,
+        blocking: false,
+        infrastructure: true,
+        producesIncome: false,
+        desiredCost: desired.cost,
+        minCost: Math.min(desired.cost, 2 * CARRY_MOVE_PAIR_COST),
+        since: 0,
+        bodyParam: HUB_TENDER_CARRY
+      }
+    ];
   }
 
   /** One tender per deposit port that HAS a buffer. Appended to the feeder's own

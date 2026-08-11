@@ -201,77 +201,64 @@ when A's own hub is full, as an ordinary priced CarryCorp. What phase 2 adds
 is moving **banked** energy, which no hauler executes. Pinned as its own test
 so the two are never conflated.
 
-**Phase 3 — the executor (open, and it is bigger than it looks).** The obvious
-parts are easy: adapter detection feeding `terminalRooms`/`roomDist` (the
-`roomLinearDistance` lens already exists), publishing the plan's transfer
-routes to Memory beside `controllerAllocations`, and a `runTerminals()` on the
-LinkRunner precedent — `send` sized to the plan's rate over one cooldown,
-bounded by `terminalDeliveredFraction × held` so the fee is always affordable.
+**Phase 3 — the executor (LANDED 2026-08-10, all three legs).** The
+three-leg shape held, and the seam decision came out where the merged spec 54
+pointed: the hub duty is the **LinkCorp's third role** (`hubmanager`,
+workType `hubtend`), not a new kind — the terminal is one more port on the
+same hub, and one owner per room's link network was already the corp's
+charter. What landed, in dependency order:
 
-**The blocker is that a transfer needs THREE legs, not one**, and only the
-middle one is the engine's:
+1. **The direction law** (`primitives.terminalStageTarget`): one signed
+   number, no mode flag. `deficit = stageTarget(plannedOutbound) −
+   terminalEnergy`; positive → load (leg 1, keep the sender stocked at one
+   solve cadence of flow), negative → drain (leg 3, arrivals land in the
+   bank). A pure destination has target 0 and drains everything; a relay
+   holds exactly its outbound stage.
+2. **The publication** (`Memory.terminalTransfers`, written every solve
+   beside `controllerAllocations` by `publishTerminalTransfers` — always
+   written, `{}` when none, so a dropped transfer clears rather than sending
+   forever). Rates are SPEND-side (fee inside), so the runner and the tender
+   size from what actually leaves the bank.
+3. **The runner** (`execution/TerminalRunner.runTerminals`, LinkRunner's
+   shape, every tick, no-op without published transfers): sends the largest
+   amount whose own fee fits the stock (`stock × terminalDeliveredFraction`),
+   capped by the destination terminal's live free space, floored at
+   `TERMINAL_MIN_SEND`, one send per cooldown, largest-rate route first with
+   full-destination fallthrough. Distance is the engine's own
+   `getRoomLinearDistance(a, b, true)` — the continuous form, per the
+   `roomDist` contract.
+4. **The lens that arms it all** (`detectTerminalRooms`, landed LAST as
+   specced): feeds `ColonyProblem.terminalRooms`, the infra pricing
+   (`infraSpawnLoad`'s `terminalRoomCount` — the Σ(auxiliary)==aggregate
+   identity extended and pinned to 1e-12), and the host's propose context.
+   Live colonies have no terminals until ConstructionCorp learns to place
+   them, so everything stays dark in production — by construction, not by
+   flag.
 
-1. `storage → terminal` at the source. The tender is the natural owner (it is
-   the depot mover and a terminal is a depot structure); this is a fill-target
-   addition, gated on a planned outflow and ranked LAST so a transfer can
-   never outrank keeping spawn and extensions fed.
-2. `terminal → terminal`. `runTerminals()`. Free of creeps.
-3. `terminal → storage` at the DESTINATION. **This one has no owner.** The
-   tender FILLS structures from `coreDepot`; it does not drain a structure
-   into the depot, and `coreDepot` is a shared lens many corps read, so
-   widening it is not a local change. Without leg 3 the energy lands in B's
-   terminal and stops — a new fidelity gap of exactly the kind the phasing
-   exists to prevent, so detection stays UNWIRED until it has an answer.
+**Pinned end-to-end in the real engine**:
+`term-t8-surplus-crosses-hubs` (T8, two owned rooms, home RCL8 with a 995k
+bank, east RCL6 with an empty one) asserts each leg by its observable — the
+published plan (t~10), energy physically arriving in east's TERMINAL (t~46,
+the engine's word: the mockup fully processes `terminal.send`, probed with
+fee/cooldown/arrival all real), and east's tender landing the arrivals in its
+STORAGE (t~320). Ratcheted into `baseline.json` after three consecutive
+greens. Two mockup facts the cell banked for future travellers: a staged
+terminal needs the FLAT `storeCapacity` (the market transfer computes
+destination free space from the scalar; a `storeCapacityResource`-only
+terminal NaNs and every inbound send silently no-ops), and `.border()` rooms
+need a punched exit slot or cross-room walkers bounce forever.
 
-**Leg 3's answer, settled 2026-08-06 by the merged transport analysis: a new
-CORP KIND, not surgery on the tender.** All three options I had listed
-(a tender drain mode, widening `coreDepot`, counting terminal stock as hub
-bank) share a defect — they make an existing corp cover a job that is not
-its job, which the accountability doctrine (ONTOLOGY §4) rejects outright:
-"each corp needs to do their job, not cover for each other." The tender's job
-is extensions and spawn from the depot. The depot⇄terminal pair is a
-different job.
-
-TRANSPORT_NETWORK §11.1 specifies the operator almost exactly:
-
-> "with storage adjacent the fill is a stationary creep at 2 intents per 800.
-> An RCL8 room can export its entire surplus for ~0.03 CPU/tick."
-
-That is a **parked bidirectional operator** — and the colony already has one
-of those to copy: the corp behind `linkKind` (`corps/LinkCorp.ts`, spec 54 —
-which absorbed the old `ControllerFeederCorp`, the original "sole
-bidirectional core-link operator"): parked, spawn-direction-biased onto its
-post, sized from a published plan rate. A `hubManager` kind is the same shape
-one structure over: parked between storage and terminal, moving energy OUT on
-a planned outbound transfer and IN on arrival, sole operator of that pair so
-nothing races it. (Worth checking when building: spec 54's LinkCorp may
-already be the right HOME for this duty rather than a new kind — the terminal
-is one more port on the same hub, and one operator per hub beats two parked
-creeps sharing a tile radius. Decide at the seam, not here.)
-
-Why this is cheap rather than daunting: spec 17 makes kinds
-**registration-only** — one kind file plus one `KINDS` entry, with demand
-policy, body building, orphan rescue and the census all derived from the
-kind's own declarations. If it appears to need an edit anywhere else, that is
-a framework regression to fix at the seam, not hand-wiring to add here.
-
-Sizing falls out of primitives that exist: `parkedRelayCarry` /
-`bufferCarryParts` against the published transfer rate, exactly as the feeder
-sizes against `Memory.controllerAllocations`. The remaining phase-3 work is
-then: the kind, the `Memory.terminalTransfers` publication beside
-`controllerAllocations`, `runTerminals()` on the LinkRunner precedent, and the
-adapter detection that finally arms `terminalRooms` — in that order, because
-detection is the switch and must land last.
-
-One refinement to fold in when it does (spec 58 §6.1): the destination test
-should become the far end's **controller headroom** rather than its bank
-hunger, because TRANSPORT_NETWORK §11.4 ranks "export to another RCL8 room"
-dead last — it moves the problem — while a sub-RCL8 controller is uncapped and
-converts surplus straight into GCL.
-
-Until leg 3 is settled the plan emits no transfers at all: phases 1–2 are a
-strict no-op with `terminalRooms` empty, which is precisely what made them
-safe to land first.
+Still open after phase 3:
+- **Terminal placement.** ConstructionCorp does not place terminals, so the
+  executor is live-dark until it does. Deliberate: the machinery is complete
+  and grid-pinned; placement is a small, separately-testable follow-up
+  (beside the storage, RCL6+, the `cons-capguard` pattern).
+- **The §6.1 destination refinement** (controller headroom over bank
+  hunger) — still deferred; the lender→borrower guard covers the wash-trade
+  case and the sharper test wants per-room controller levels on the problem.
+- **The stocking legs' spawn-parts price** rides the hub tender's declared
+  body (`hubTenderSpawnLoad`), not the routed flow — an accepted, F2-visible
+  approximation, same acceptance the port tender made.
 
 ## 3. The equilibrium (what "react appropriately" looks like)
 

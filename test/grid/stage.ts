@@ -33,6 +33,8 @@ function structureHits(type: string): number {
       return 250000;
     case "storage":
       return 10000;
+    case "terminal":
+      return 3000;
     case "tower":
       return 3000;
     case "link":
@@ -55,6 +57,8 @@ function structureCapacity(type: string): number {
       return 2000;
     case "storage":
       return 1000000;
+    case "terminal":
+      return 300000; // TERMINAL_CAPACITY
     case "tower":
       return 1000;
     case "link":
@@ -115,7 +119,11 @@ export async function stageCell(
     if (!neutral) doc.user = userId;
     if (s.energy != null) {
       doc.store = { energy: s.energy };
-      if (s.type === "container" || s.type === "storage") {
+      // Terminals join the FLAT-capacity branch: the engine's market transfer
+      // reads the scalar `storeCapacity` for destination free space (probe
+      // 2026-08-06: a storeCapacityResource-only terminal computes NaN free
+      // space and every inbound send silently no-ops).
+      if (s.type === "container" || s.type === "storage" || s.type === "terminal") {
         doc.storeCapacity = structureCapacity(s.type);
       } else {
         doc.storeCapacityResource = { energy: structureCapacity(s.type) };

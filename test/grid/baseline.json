@@ -131,6 +131,7 @@
     "spawnexec-miner-runt-immortal-at-cap": "pass",
     "spawnexec-miner-runt-recycle-affordable": "pass",
     "spawnexec-reserver-body-multiroom": "pass",
-    "spawnexec-road-hauler-2to1": "pass"
+    "spawnexec-road-hauler-2to1": "pass",
+    "term-t8-surplus-crosses-hubs": "pass"
   }
 }

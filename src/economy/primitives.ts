@@ -660,6 +660,63 @@ export function terminalThroughput(sendAmount: number = TERMINAL_CAPACITY): numb
 }
 
 /**
+ * Ticks of planned outbound flow the hub tender keeps STAGED in the terminal
+ * (spec 58 phase 3). One solve cadence: the plan re-publishes every ~50 ticks,
+ * so staging one cadence of flow means the terminal never runs dry between
+ * solves while never holding more than the plan has actually committed to
+ * sending. Five cooldowns' worth of margin over the per-send need (rate x 10)
+ * also covers the engine's fee at any realistic empire radius (<= 28% out to
+ * 10 rooms) without the stage law needing to know the distance.
+ */
+export const TERMINAL_STAGE_TICKS = 50;
+
+/**
+ * Energy the hub tender holds staged in the terminal for a planned OUTBOUND
+ * transfer rate (spec 58 phase 3) - the ONE direction law for the
+ * storage<->terminal post:
+ *
+ *   deficit = terminalStageTarget(outboundRate) - terminalEnergy
+ *   deficit > 0 -> load  (storage -> terminal: keep the sender stocked)
+ *   deficit < 0 -> drain (terminal -> storage: arrivals land in the bank)
+ *
+ * With no outbound plan the target is 0, so a pure DESTINATION hub drains
+ * everything that arrives - leg 3 of the transfer, the leg that completes it -
+ * and a RELAY hub holds exactly its outbound stage while draining the excess
+ * arrivals. One signed number instead of a mode flag. Floored at one
+ * engine-minimum send so a tiny planned rate still stages something sendable.
+ */
+export function terminalStageTarget(outboundRate: number): number {
+  if (outboundRate <= 0) return 0;
+  return Math.max(TERMINAL_MIN_SEND, outboundRate * TERMINAL_STAGE_TICKS);
+}
+
+/**
+ * CARRY parts of the parked hub tender - the storage<->terminal post (spec 58
+ * phase 3). Same sizing argument as the port tender: a PARKED shuttle
+ * transfers its whole store every tick, so 8 CARRY (400/tick) covers the
+ * maximum surplus draw (MAX_SURPLUS_DRAW, 100 e/t) four times over and any
+ * realistic arrival rate besides.
+ */
+export const HUB_TENDER_CARRY = 8;
+
+/** Standing body of one hub tender: CARRY plus its MOVE share at the tanker
+ *  gait (travels to post empty - same shape law as PORT_TENDER_PARTS). */
+export const HUB_TENDER_PARTS = HUB_TENDER_CARRY + Math.ceil(HUB_TENDER_CARRY / TANKER_CARRY_PER_MOVE_PLAIN);
+
+/**
+ * ONE terminal room's standing hub tender, parts/tick - the terminal term of
+ * {@link infraSpawnLoad}. Priced like the port tender: the full-budget body
+ * over the lifetime the spawn rebuilds it on, declared where the plan says a
+ * terminal exists (the `terminalRooms` lens) so the per-corp declaration and
+ * the aggregate stay one fact. An idle-terminal room prices a body its demand
+ * side may not buy (the runtime gate is duty, not existence) - an accepted,
+ * F2-visible residual, the same acceptance the port tender made.
+ */
+export function hubTenderSpawnLoad(): number {
+  return HUB_TENDER_PARTS / CREEP_LIFETIME;
+}
+
+/**
  * Fraction of a crew's EFFECTIVE life (lifetime minus travel) a project
  * should complete within (owner 2026-07-20: "limit the builders to the size
  * that would complete the whole construction project during their lifetime
@@ -975,7 +1032,11 @@ export function infraSpawnLoad(
    * tender each (the drain that keeps the port's mouth open). Defaults to 0, so
    * a caller that does not know the link topology prices exactly as it did
    * before the port tender existed. */
-  portedRoomCount = 0
+  portedRoomCount = 0,
+  /** Rooms holding an owned TERMINAL - one standing hub tender each (the
+   * storage<->terminal post, spec 58 phase 3). Defaults to 0: a caller that
+   * does not know the terminal topology prices exactly as before. */
+  terminalRoomCount = 0
 ): number {
   // Feeder + tender are DEPOT movers: they exist only in rooms with a built
   // storage (`depotRoomCount`). Charging them unconditionally taxed early
@@ -1003,7 +1064,8 @@ export function infraSpawnLoad(
   // colony pays for defense it never fields.
   const guards = guardedRoomCount * roomGuardSpawnLoad();
   const portTenders = portedRoomCount * portTenderSpawnLoad();
-  return feeder + tender + reservers + guards + portTenders;
+  const hubTenders = terminalRoomCount * hubTenderSpawnLoad();
+  return feeder + tender + reservers + guards + portTenders + hubTenders;
 }
 
 /**
@@ -1039,7 +1101,9 @@ export function infraSpawnEnergy(
    * tender each (the drain that keeps the port's mouth open). Defaults to 0, so
    * a caller that does not know the link topology prices exactly as it did
    * before the port tender existed. */
-  portedRoomCount = 0
+  portedRoomCount = 0,
+  /** Rooms holding an owned TERMINAL - the parts twin's term, in energy. */
+  terminalRoomCount = 0
 ): number {
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
   // Spec 45 volley-service floor - the SAME line as the parts twin above.
@@ -1055,7 +1119,8 @@ export function infraSpawnEnergy(
   const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
   const guards = guardedRoomCount * roomGuardSpawnLoad() * ATTACK_MOVE_PER_PART;
   const portTenders = portedRoomCount * portTenderSpawnLoad() * CARRY_MOVE_PER_PART;
-  return feeder + tender + reservers + guards + portTenders;
+  const hubTenders = terminalRoomCount * hubTenderSpawnLoad() * CARRY_MOVE_PER_PART;
+  return feeder + tender + reservers + guards + portTenders + hubTenders;
 }
 
 /**
