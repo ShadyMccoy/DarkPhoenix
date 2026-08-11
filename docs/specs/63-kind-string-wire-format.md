@@ -13,7 +13,11 @@ the longer it stands the more code quotes the frozen literal.
 **Prerequisite: spec 61 row 4** (the corp-id round-trip conformance probe)
 lands FIRST and stays green through every stage below. It is the instrument
 that detects exactly the failure class this migration risks; migrating
-without it is flying the incident blind.
+without it is flying the incident blind. **DISCHARGED 2026-08-11**: the probe
+is landed and green for controllerFeeder (all three roles, generic
+default-rule path; it drives the live `resolveReadoption`, staged with the
+spawn resolvable). This spec is UNBLOCKED — the migration itself remains its
+own deliberately-sequenced deploy program (stages below).
 
 ## Why a naive rename breaks (the wire inventory, from code)
 

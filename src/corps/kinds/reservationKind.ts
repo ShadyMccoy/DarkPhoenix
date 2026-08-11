@@ -153,14 +153,20 @@ export const reservationKind: CorpKind<ReservationCorp> = {
   // Re-adopt an orphaned reserver into the per-node corp for the room it is
   // LATCHED to (its one-way targetRoom), not the room it happens to stand in -
   // an in-flight reserver mid-route to its remote is in a transit room, and the
-  // default same-physical-room rule would recycle it. Matches on the corp's node
-  // (getPosition().roomName == targetRoom). An unassigned wildcard (no
-  // targetRoom) has no node to belong to yet - defer to the default rule/recycle.
+  // default same-physical-room rule would recycle it. Matches on the corp's
+  // DECLARED node (getTargetRooms, commission-owned and refreshed every
+  // materialize), NOT getPosition(): position prefers the resolvable home
+  // SPAWN's room, so the old getPosition match only ever worked in harnesses
+  // with no spawn vision - live, every latched orphan resolved null and
+  // recycled. Caught by the conformance round-trip probe (spec 61 row 4),
+  // which stages the spawn RESOLVABLE the way the live world always is. An
+  // unassigned wildcard (no targetRoom) has no node to belong to yet - defer
+  // to the default rule/recycle.
   claimsOrphan(creep: Creep, corps: { [corpId: string]: ReservationCorp }): string | null {
     const room = creep.memory.targetRoom;
     if (!room) return null;
     for (const id in corps) {
-      if (corps[id].getPosition().roomName === room) return corps[id].id;
+      if (corps[id].getTargetRooms().includes(room)) return corps[id].id;
     }
     return null;
   }

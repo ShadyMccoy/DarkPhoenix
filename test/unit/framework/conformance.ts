@@ -8,9 +8,62 @@
 
 import { expect } from "chai";
 import { Commission } from "../../../src/economy/Commission";
-import { CorpKind, runCorpTick } from "../../../src/economy/CorpKind";
+import { CorpKind, listCorpKinds, registerCorpKind, resetCorpKinds, runCorpTick } from "../../../src/economy/CorpKind";
 import { ColonyProblem } from "../../../src/economy/CorpPlanner";
 import { accountDeclarationErrors } from "../../../src/economy/accountCategory";
+import { resolveReadoption } from "../../../src/execution/OrphanRescue";
+import { Corp } from "../../../src/corps/Corp";
+
+/**
+ * THE STAFFING FIXTURE (specs 60 D + 61 rows 1-3, one shared instrument).
+ *
+ * Stages the kind's world with EXACTLY ONE incumbent of `role`, in a given
+ * lifecycle state, owned by the fixture commission's corp - AND such that one
+ * incumbent FULLY STAFFS the kind's ask (the probes assert "no further demand
+ * for the role", so a fixture whose world wants two bodies enrolls a broken
+ * probe). Returns the materialized corp ready for the demand path.
+ *
+ * Lifecycle states the probes exercise:
+ *  - "spawning":  the incumbent is still IN the spawn (creep.spawning true,
+ *                 ticksToLive undefined - the engine's shape). The kind must
+ *                 not re-buy while its replacement builds (spec 60 phase D,
+ *                 the t72811290 double-buy class - three strikes: feeder, hub
+ *                 tender, port tender).
+ *  - "recycling": the incumbent is live with memory.recycling set. It still
+ *                 COUNTS as staffing - the pounce-recycle path orders its own
+ *                 successor, so a lens excluding it double-orders (measured
+ *                 collapse to a 7-runt fleet; spec 61 row 1).
+ *  - "live":      the incumbent is on-post, the tick after arrival, full TTL.
+ *                 The kind must neither demand a replacement nor churn the
+ *                 newborn back into the spawn (~25t churn loop; spec 61 row 3
+ *                 - symptom-level: the two-lens root dies with spec 39 4-5).
+ */
+export interface StaffingFixture {
+  /** The demand role (a `kind.roles` key) whose staffing lens the probes exercise. */
+  role: string;
+  /** Demand context override (default { energyCapacity: 1300, tick: 12360 }). */
+  ctx?: unknown;
+  /** Stage globals + ONE incumbent of `role` in `state`; return the corp. */
+  stage(state: "spawning" | "recycling" | "live"): Corp;
+}
+
+/**
+ * Demand-exposing kinds NOT yet carrying a staffing fixture - the purity
+ * ratchet's debt idiom (spec 61): fixture cost is real (each kind's demand
+ * lens reads different world state), so un-probed kinds are VISIBLE debt with
+ * this pointer, never silently unprobed coverage. SHRINK ONLY: enrolling a
+ * kind's fixture removes its entry; a new demand-exposing kind ships with a
+ * fixture or takes an entry here in the same PR.
+ */
+export const UNSTAFFED_KINDS = new Set([
+  "harvest",
+  "carry",
+  "upgrade",
+  "construction",
+  "tender",
+  "raidGuard",
+  "coreBuster"
+]);
 
 export interface KindFixtures {
   /** A world in which the kind has something to do (auxiliaries: propose > 0). */
@@ -23,6 +76,8 @@ export interface KindFixtures {
    * formula). Omit only for kinds that genuinely consume no build-time.
    */
   expectedSpawnPartsPerTick?: number;
+  /** Staffing world for the lifecycle probes (specs 60 D + 61 rows 1-3). */
+  staffing?: StaffingFixture;
 }
 
 export function describeCorpKindConformance(kind: CorpKind, fx: KindFixtures): void {
@@ -107,6 +162,149 @@ export function describeCorpKindConformance(kind: CorpKind, fx: KindFixtures): v
       // cannot fail to exist, because a kind cannot pass conformance without
       // naming the line it (and each of its roles) reports on.
       expect(accountDeclarationErrors(kind)).to.deep.equal([]);
+    });
+
+    it("staffing-fixture enrollment is HONEST: a demand-exposing kind carries a fixture or a visible debt entry (specs 60 D / 61)", () => {
+      const corp = kind.materialize(fx.commission, undefined) as unknown as Record<string, unknown>;
+      const demanding = typeof corp.getSpawnDemand === "function" && typeof corp.getSpawnId === "function";
+      if (fx.staffing) {
+        expect(demanding, "a staffing fixture on a kind with no demand path probes nothing").to.equal(true);
+        expect(
+          UNSTAFFED_KINDS.has(kind.kind),
+          `${kind.kind} carries a staffing fixture - remove it from UNSTAFFED_KINDS so the debt list stays a ratchet`
+        ).to.equal(false);
+      } else if (demanding) {
+        expect(
+          UNSTAFFED_KINDS.has(kind.kind),
+          `${kind.kind} exposes spawn demands but has no staffing fixture - add one (KindFixtures.staffing) or ` +
+            `take a visible debt entry in UNSTAFFED_KINDS (test/unit/framework/conformance.ts, specs 60 D / 61)`
+        ).to.equal(true);
+      } else {
+        expect(
+          UNSTAFFED_KINDS.has(kind.kind),
+          `${kind.kind} has no demand path - it does not belong on the UNSTAFFED_KINDS debt list`
+        ).to.equal(false);
+      }
+    });
+
+    const staffing = fx.staffing;
+    if (staffing) {
+      const demandCtx = staffing.ctx ?? { energyCapacity: 1300, tick: 12360 };
+      const demandsForRole = (corp: Corp): unknown[] => {
+        const demands = (corp as unknown as { getSpawnDemand(c: unknown): Array<{ role: string }> }).getSpawnDemand(
+          demandCtx
+        );
+        return demands.filter(d => d.role === staffing.role);
+      };
+      /** The staged lone incumbent (by the role's declared workType). */
+      const incumbent = (): Creep => {
+        const workType = kind.roles[staffing.role]?.workType;
+        expect(workType, `staffing.role "${staffing.role}" must be a declared role of ${kind.kind}`).to.be.a("string");
+        const matches = Object.keys(Game.creeps).filter(n => Game.creeps[n].memory?.workType === workType);
+        expect(matches, `the staffing fixture must stage EXACTLY ONE ${workType} incumbent`).to.have.length(1);
+        return Game.creeps[matches[0]];
+      };
+
+      it(`no double-buy while the ${staffing.role} replacement is IN THE SPAWN (spec 60 D - the t72811290 class)`, () => {
+        // Three strikes of one class: the feeder (two 1600e feeders 48t apart,
+        // F1 feeder line 12x plan), the hub tender (pre-empted), the port
+        // tender (fixed in the 2026-08-11 cleanup). A demand lens that counts
+        // only LIVE bodies re-arms while its own purchase builds - one body in
+        // the pipe IS one body staffed.
+        const corp = staffing.stage("spawning");
+        expect(incumbent().spawning, "fixture must stage the incumbent IN the spawn").to.equal(true);
+        expect(
+          demandsForRole(corp),
+          `${kind.kind} re-buys "${staffing.role}" while its only incumbent is still in the spawn - ` +
+            `the demand lens must count spawning newborns (includeSpawning: true)`
+        ).to.deep.equal([]);
+      });
+
+      it(`a recycling ${staffing.role} still COUNTS as staffing (spec 61 row 1 - the double-order trap)`, () => {
+        // The pounce-recycle path orders its own successor; a lens excluding
+        // `recycling` creeps double-orders (measured collapse to a 7-runt
+        // fleet, CLAUDE.md "Recycling counts as staffing").
+        const corp = staffing.stage("recycling");
+        expect(incumbent().memory.recycling, "fixture must stage a recycling incumbent").to.equal(true);
+        expect(
+          demandsForRole(corp),
+          `${kind.kind} re-buys "${staffing.role}" while its recycling incumbent stands - ` +
+            `the recycle path owns the successor order; never filter memory.recycling out of a staffing count`
+        ).to.deep.equal([]);
+      });
+
+      it(`a ${staffing.role} newborn AT ITS POST is neither replaced nor churned (spec 61 row 3 - the ~25t churn signature)`, () => {
+        // staffsPost symmetry, symptom-level: a consumer of "how many creeps
+        // does this post have" using a different lens than the demand side
+        // recycles newborns at the spawn door. The root (two lenses existing
+        // at all) dies with spec 39 phases 4-5; this fence holds until then.
+        const corp = staffing.stage("live");
+        const creep = incumbent();
+        expect(creep.spawning, "fixture must stage the incumbent LIVE").to.equal(false);
+        expect(demandsForRole(corp), `${kind.kind} demands a replacement for its just-arrived "${staffing.role}"`).to.deep.equal(
+          []
+        );
+        expect(() => runCorpTick(kind, corp as never, 12361)).to.not.throw();
+        expect(
+          creep.memory.recycling,
+          `${kind.kind} marked its just-arrived "${staffing.role}" recyclable - the churn half of the trap`
+        ).to.not.equal(true);
+      });
+    }
+
+    it("corp-id ROUND-TRIP: the id the commission mints, the corp answers to, the newborn carries and rescue resolves is ONE id (spec 61 row 4)", () => {
+      // The rename-orphans door, and spec 63's regression net: planner ids are
+      // pure ("harvest-{flowSourceId}"), kinds strip flow prefixes, and a
+      // rename anywhere on that chain silently orphans live creeps (CLAUDE.md
+      // "Corp id prefixes"). The probe drives the LIVE resolution rule
+      // (resolveReadoption - never a re-implementation) over each declared
+      // readoptable role.
+      //
+      // Kinds with a custom claimsOrphan need real world staging (assignment
+      // ids, latch rooms), which the staffing fixture provides - a
+      // claimsOrphan kind without one is skipped here and already visible on
+      // UNSTAFFED_KINDS; its round-trip enrolls with its fixture.
+      const probeRole = (corp: Corp, creep: Creep, role: string): void => {
+        const prior = listCorpKinds();
+        resetCorpKinds();
+        registerCorpKind(kind as CorpKind);
+        try {
+          const resolved = resolveReadoption(creep, kindName =>
+            kindName === kind.kind ? { [fx.commission.corpId]: corp } : {}
+          );
+          expect(
+            resolved,
+            `role "${role}": rescue resolved "${resolved}" for a creep stamped corpId="${creep.memory.corpId}" - ` +
+              `the commission id, the corp id, the newborn's stamp and the rescue target must round-trip to ONE id`
+          ).to.equal(corp.id);
+        } finally {
+          resetCorpKinds();
+          for (const k of prior) registerCorpKind(k);
+        }
+      };
+
+      if (kind.claimsOrphan) {
+        if (!staffing) return; // visible on UNSTAFFED_KINDS - enrolls with the fixture
+        const corp = staffing.stage("live");
+        const workType = kind.roles[staffing.role]?.workType;
+        const name = Object.keys(Game.creeps).find(n => Game.creeps[n].memory?.workType === workType);
+        expect(name, "staffing fixture staged no incumbent").to.be.a("string");
+        probeRole(corp, Game.creeps[name as string], staffing.role);
+        return;
+      }
+
+      const corp = kind.materialize(fx.commission, undefined);
+      for (const role of Object.keys(kind.roles)) {
+        if (kind.roles[role].readopt === false) continue; // rescue ceded to another kind
+        const creep = {
+          name: `roundtrip-${role}`,
+          spawning: false,
+          ticksToLive: 1400,
+          pos: { x: 25, y: 25, roomName: corp.getPosition().roomName },
+          memory: { corpId: corp.id, workType: kind.roles[role].workType }
+        } as unknown as Creep;
+        probeRole(corp, creep, role);
+      }
     });
   });
 }

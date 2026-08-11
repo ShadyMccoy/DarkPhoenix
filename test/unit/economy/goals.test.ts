@@ -45,6 +45,36 @@ describe("economy/goals - the objective as input (spec 18 P1)", () => {
     }
   });
 
+  it("the DEFAULT ladder's rungs are STRICTLY ordered, rung by rung (spec 61 row 7 - the founding-incident door)", () => {
+    // The trap (CLAUDE.md "Economics rules"): sink values are a strict ladder -
+    // spawn > new-spawn-site > controller ceiling > construction > controller
+    // static > controller floor > storage. Nudging ONE value past a neighbour
+    // in isolation zeroed colony-wide construction (the 90-vs-85 founding
+    // incident: new-spawn-site briefly priced ABOVE where the ladder put it,
+    // and every ordinary site starved). This pin asserts the INEQUALITIES, not
+    // the constants - retuning a value is legal, inverting the ladder is not.
+    // Named profiles may legally reorder middle rungs (foundRoom lifts
+    // construction past the controller ceiling); the DEFAULT ladder may not.
+    const v = DEFAULT_VALUATION;
+    const incident =
+      "the 90-vs-85 founding incident: one nudged sink value inverted a rung and zeroed " +
+      "colony-wide construction - never retune one value in isolation (CLAUDE.md, Economics rules)";
+    const ladder: [string, number][] = [
+      ["spawn", v.spawn],
+      ["newSpawnSite", v.newSpawnSite],
+      ["controllerMax", v.controllerMax],
+      ["construction", v.construction],
+      ["controllerStatic", v.controllerStatic],
+      ["controllerMin", v.controllerMin],
+      ["storage", v.storage]
+    ];
+    for (let i = 1; i < ladder.length; i++) {
+      const [upper, upperVal] = ladder[i - 1];
+      const [lower, lowerVal] = ladder[i];
+      expect(upperVal, `${upper} (${upperVal}) must STRICTLY outrank ${lower} (${lowerVal}) - ${incident}`).to.be.greaterThan(lowerVal);
+    }
+  });
+
   it("unknown profile names are ignored (falls back to default, never throws)", () => {
     expect(compileGoal({ blend: { doesNotExist: 1 } })).to.deep.equal(DEFAULT_VALUATION);
     expect(compileGoal({ blend: { doesNotExist: 3, growController: 0 } })).to.deep.equal(DEFAULT_VALUATION);
