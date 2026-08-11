@@ -112,6 +112,24 @@ describe("SpawnPlacementScheduler", () => {
     expect(shouldKickSweep(true), "the cadence still kicks a cold world").to.equal(true);
   });
 
+  it("an EMPTY-context start does not consume the catch-up (the territory-less restore, live-falsified t72931992)", () => {
+    // Post-reset sequence live: restoreVisualizationCache rebuilds a
+    // TERRITORY-LESS analysis cache first, the catch-up kick fired against
+    // it, buildPlacementContexts got an empty territories map -> zero
+    // contexts -> no job - and the kick was consumed anyway ("even an
+    // empty-context kick counts"), so when the real rebuild landed
+    // territories ~9 ticks later no catch-up remained and placements stayed
+    // stale until the monthly gate. Measured: spawnPlacements at ONE stale
+    // entry through two post-#162 reads (+250t). A start that opens no job
+    // consulted nothing - the catch-up must survive it.
+    resetSpawnPlacement();
+    (global as any).Memory = { spawnPlacements: { "node-A": { x: 1, y: 1, roomName: "W0N0", value: 1 } } };
+    const { node } = nodeWithManyTiles();
+    startSpawnPlacement([node], new Map(), 5); // territory-less: zero contexts
+    expect(isSpawnPlacementInProgress(), "no job opened").to.equal(false);
+    expect(shouldKickSweep(false), "catch-up still armed after an empty start").to.equal(true);
+  });
+
   it("defers the sweep when the CPU bucket is low", () => {
     const { node, territories } = nodeWithManyTiles();
     startSpawnPlacement([node], territories, 5);

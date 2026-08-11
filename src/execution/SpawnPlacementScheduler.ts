@@ -87,14 +87,40 @@ export function startSpawnPlacement(
   territoriesByNode: Map<string, Position[]>,
   topN = 5
 ): boolean {
-  kickedThisGlobal = true; // even an empty-context kick counts: the world was consulted
   const contexts = buildPlacementContexts(nodes, territoriesByNode, topN);
   if (contexts.length === 0) {
+    // A start that opens no job consulted NOTHING - keep the catch-up armed.
+    // Post-reset the viz restore rebuilds a TERRITORY-LESS analysis cache
+    // first; the catch-up fired against it, got zero contexts, and was
+    // consumed - so when the real rebuild landed territories ~9 ticks later
+    // no kick remained and placements stayed stale until the monthly gate
+    // (live-falsified twice at +250t post-#162, t72931992 cycle).
     job = null;
+    stampSweep({ kickedAt: now(), contexts: 0 });
     return false;
   }
+  kickedThisGlobal = true; // a real job opened: the catch-up is spent
   job = createPlacementJob(contexts);
+  stampSweep({ kickedAt: now(), contexts: contexts.length, completedAt: undefined, entries: undefined });
   return true;
+}
+
+/** Current tick, or -1 in a Game-less harness. */
+function now(): number {
+  return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : -1;
+}
+
+/**
+ * Sweep progress stamp (spec 14 pattern: decision-site record, exported
+ * verbatim) - Memory-readable so a stale-placements read diagnoses itself:
+ * kickedAt/contexts says whether the kick fired and against WHAT (0 contexts
+ * = the territory-less restore), completedAt/entries says whether a sweep
+ * finished and how much it persisted. Telemetry-only; nothing reads it.
+ */
+function stampSweep(patch: { [k: string]: number | undefined }): void {
+  if (typeof Memory === "undefined") return;
+  const m = Memory as { sweepProgress?: { [k: string]: number | undefined } };
+  m.sweepProgress = { ...(m.sweepProgress ?? {}), ...patch };
 }
 
 /** Current CPU used this tick (0 when no Game/cpu, e.g. in pure tests). */
@@ -141,6 +167,7 @@ export function runSpawnPlacementStep(): SpawnPlacement[] | null {
 
   const results = placementResults(job);
   persist(results);
+  stampSweep({ completedAt: now(), entries: results.filter(r => r.pos).length });
   job = null;
   return results;
 }

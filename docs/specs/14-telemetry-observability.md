@@ -13484,3 +13484,54 @@ entry within a global of the kick-fix deploy (expansion lane entries appear);
 surplus; (4) when the spawn stands: campaign closes (Memory.expansion
 cleared), spawnCount trigger fires, W43N24 starts its own economy with zero
 new code — the spec-06 bet's last unverified clause.
+
+**Post-deploy addendum (same cycle, +~300t): the kick-fix prediction is
+PENDING-FALSIFIED, and the attribution found the deeper mechanism.**
+`spawnPlacements` still reads ONE stale entry at ~250t after the #162 deploy —
+and the decisive read: **all 480 nodes carry `createdAt: 71517058`**, ~1.4M
+ticks ago. The live terrain analysis has not COMPLETED since then: every
+deploy's reset-rebuild path (main.ts "Territory cache empty after reset")
+either restarts a crawl that the next deploy resets again, or dies silently -
+so the analysis cache the sweep kick needs has been absent for weeks, and
+`refreshNodeResourcesFromCache` has been a no-op the whole time (its own
+docblock: "remote mining silently stops" - the economy runs on PERSISTED node
+resources). The sim exhibited the same crawl signature (batch 1/6 alone >250t
+on real rooms). The kick fix is correct but gated on this broken precondition.
+**NEXT CYCLE'S TOP ITEM: why the live analysis never completes** — instrument
+first (a progress stamp on the incremental job: batch index + evaluated count
+into Memory each step), then read whether it crawls, restarts, or throws.
+
+## Audit cycle t72931992 (2026-08-11, same session): the funnel measured, the kick's self-consume found IN CODE, and a correction
+
+**CORRECTION of the previous addendum (methodology #8/#9 class - a claim
+about an instrument made from inference, not a code read):** "the terrain
+analysis has not completed in 1.4M ticks" was WRONG. `createdAt` is a node's
+MINT date, preserved across re-analyses - the analysis pass UPDATES existing
+nodes in place (`colony.getNode(peak.peakId)` + roi refresh), so a stable
+node set keeps its original stamps forever. All 480 nodes reading 71517058
+means the node SET has been stable since first analysis, nothing more. The
+staleness evidence stands on the placements read alone.
+
+**The funnel, measured live:** W43N24 founding spawn at **9,060/15,000
+(60%)** ~463t after site placement - **~19.6 e/t of cross-room founding
+flow** through the plan-ordered pool. Fleet 44 (re-expansion continuing:
+26->30->35->44), home bank draining into the founding, CPU bucket 10,000.
+Spec 06's funnel prediction CONFIRMED at production scale.
+
+**The stale-placements mechanism, code-proven this time:** post-reset,
+`restoreVisualizationCache` rebuilds a TERRITORY-LESS analysis cache first;
+the #162 catch-up kick fired against it, `buildPlacementContexts` got an
+empty territories map -> zero contexts -> no job - and `startSpawnPlacement`
+consumed the catch-up anyway ("even an empty-context kick counts", its own
+comment). The real rebuild lands territories ~9 ticks later (one batch/tick,
+6 batches) with no kick left. Fix: an empty-context start keeps the catch-up
+armed (red-first pinned); and the sweep gains a Memory stamp
+(`Memory.sweepProgress`: kickedAt/contexts/completedAt/entries) so the next
+stale-placements read diagnoses itself in one pull - contexts:0 = the
+territory-less restore, missing completedAt = a sweep that never finished.
+
+**Prediction for the post-deploy read:** `Memory.sweepProgress` shows a kick
+with contexts >= 2 within ~20 ticks of the reset (empty attempt, rebuild,
+re-kick), a completion, and `Memory.spawnPlacements` grows past one entry
+with candidate-room placements - the expansion trigger's pipeline finally
+primed for the AUTO path.
