@@ -275,7 +275,11 @@ describe("waste ledger (spec 15 phase 1)", () => {
     const capB: any = JSON.parse(JSON.stringify(fixture("shard1-t72599499.json")));
     const capA: any = JSON.parse(JSON.stringify(fixture("shard1-t72599790.json")));
     // Force near-zero delivery while the relegated floor is 2 and stock stands.
-    capA.data.core.rooms[0].rclProgress = capB.data.core.rooms[0].rclProgress + 1; // ~0 e/t
+    // P7 reads the GCL delta since the RCL8 fix (a level-8 controller freezes
+    // rclProgress, so gcl.progress is the one always-sighted delivery lens) -
+    // the starvation must be staged on THAT lens.
+    capA.data.core.gcl = { ...(capA.data.core.gcl ?? {}), progress: (capB.data.core.gcl?.progress ?? 0) + 1 }; // ~0 e/t
+    capA.data.core.rooms[0].rclProgress = capB.data.core.rooms[0].rclProgress + 1;
     capA.data.core.rooms[0].controllerStock = 800;
     capB.data.core.rooms[0].controllerStock = 800;
     const p7 = computeLedger(capA, capB).find(r => r.id === "P7")!;

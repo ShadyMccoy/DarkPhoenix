@@ -670,7 +670,9 @@ export function updateCoreTelemetry(
     // v36 sourceDropped ACTUALLY EMITTED (declared v19, never returned - zero data points until now)
     // v37 sourceMouth - the container census at each mouth (there? at cap? dying?), because container energy 0 is three different worlds
     // v38 creepCargo - the balance sheet's last NAMED gap, and the leading candidate for the residual's -21.50 sign flip at t72875067
-    version: 38,
+    // v39: links[] rows gain `perLink` - per-sender fires/sentRate/volleyAvg/
+    // clampShare (the owner's per-link P&L split, 2026-08-10).
+    version: 39,
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {

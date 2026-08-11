@@ -43,6 +43,18 @@ export const LINK_LOSS_RATIO = LINK_TRANSFER_LOSS;
  */
 const SAMPLE_THRESHOLD = LINK_FIRE_THRESHOLD;
 
+/** Per-SENDER accumulator - the split the owner's link P&L asked for
+ *  (2026-08-10: *"Can you show me a link income statement ... per each
+ *  link"*). The room aggregate could not say which port carried what; the
+ *  capture answered waits per ROUTE but throughput only per room. */
+interface LinkMeterSender {
+  fires: number;
+  /** Energy actually moved (pre-tax) - the throughput column. */
+  sent: number;
+  /** Fires clamped by the receiver's free room (moved < held). */
+  clamped: number;
+}
+
 /** Rolling per-room accumulator (energy, since a tick). */
 export interface LinkMeterRoom {
   /** Energy fired INTO the core/hub relay-source. */
@@ -71,6 +83,10 @@ export interface LinkMeterRoom {
   coreCongested: number;
   /** Window start (re-inits on a global reset). */
   sinceTick: number;
+  /** Per-sender split, keyed by the sender link id's last 4 (the id form every
+   *  spec and console read already uses). Bounded by the engine's 6-link cap
+   *  per room, so it can never grow past a handful of keys. */
+  perSender: Map<string, LinkMeterSender>;
 }
 
 const meter = new Map<string, LinkMeterRoom>();
@@ -89,7 +105,8 @@ function ensure(room: string, tick: number): LinkMeterRoom {
       coreFillSum: 0,
       coreEmpty: 0,
       coreCongested: 0,
-      sinceTick: tick
+      sinceTick: tick,
+      perSender: new Map()
     };
     meter.set(room, m);
   }
@@ -100,25 +117,41 @@ function ensure(room: string, tick: number): LinkMeterRoom {
  * Record one fire's intended volley. `amount` is the energy moved (pre-tax);
  * `wanted` (hub fires only) is what the source link held BEFORE the fire, so a
  * volley clamped by the core's free room (moved < wanted) is counted.
+ * `senderId` (the firing link's id, any length - stored as its last 4)
+ * attributes the fire to ITS link for the per-link P&L split; omitted by
+ * legacy/harness callers, whose energy still lands in the room aggregate.
  */
 export function recordLinkFire(
   room: string,
   target: LinkFireTarget,
   amount: number,
   tick: number,
-  wanted?: number
+  wanted?: number,
+  senderId?: string
 ): void {
   if (amount <= 0) return;
   const m = ensure(room, tick);
+  const clamped = wanted !== undefined && wanted > amount;
   if (target === "hub") {
     m.toHub += amount;
     m.hubFires += 1;
-    if (wanted !== undefined && wanted > amount) m.hubClamped += 1;
+    if (clamped) m.hubClamped += 1;
   } else {
     m.toController += amount;
     if (target === "controllerDirect") m.direct += amount;
   }
   m.fires += 1;
+  if (senderId) {
+    const key = senderId.slice(-4);
+    let s = m.perSender.get(key);
+    if (!s) {
+      s = { fires: 0, sent: 0, clamped: 0 };
+      m.perSender.set(key, s);
+    }
+    s.fires += 1;
+    s.sent += amount;
+    if (clamped) s.clamped += 1;
+  }
 }
 
 /**
@@ -159,6 +192,17 @@ export interface LinkLedgerRoom {
   coreEmptyShare: number;
   /** Fraction of ticks the core had no room for a source volley (congested). */
   coreCongestedShare: number;
+  /** Per-SENDER split (id = link id last-4): each firing link's own
+   *  throughput, volley shape and clamp share - the owner's per-link P&L
+   *  column the room aggregate could not give. Present from core v39; absent
+   *  entries mean a legacy caller recorded without a sender id. */
+  perLink: {
+    id: string;
+    fires: number;
+    sentRate: number;
+    volleyAvg: number;
+    clampShare: number;
+  }[];
 }
 
 /** Snapshot every room's link ledger as rates. Pure over the accumulated meter. */
@@ -178,7 +222,18 @@ export function linkLedger(now: number): LinkLedgerRoom[] {
       hubClampShare: m.hubFires > 0 ? m.hubClamped / m.hubFires : 0,
       coreFillAvg: m.coreSamples > 0 ? m.coreFillSum / m.coreSamples : 0,
       coreEmptyShare: m.coreSamples > 0 ? m.coreEmpty / m.coreSamples : 0,
-      coreCongestedShare: m.coreSamples > 0 ? m.coreCongested / m.coreSamples : 0
+      coreCongestedShare: m.coreSamples > 0 ? m.coreCongested / m.coreSamples : 0,
+      // Sorted by throughput so the heaviest carrier reads first - the same
+      // ordering every ranked ledger row uses.
+      perLink: [...m.perSender.entries()]
+        .map(([id, s]) => ({
+          id,
+          fires: s.fires,
+          sentRate: s.sent / w,
+          volleyAvg: s.fires > 0 ? s.sent / s.fires : 0,
+          clampShare: s.fires > 0 ? s.clamped / s.fires : 0
+        }))
+        .sort((a, b) => b.sentRate - a.sentRate || (a.id < b.id ? -1 : 1))
     });
   }
   return out;

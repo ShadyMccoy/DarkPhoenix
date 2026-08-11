@@ -414,6 +414,15 @@ export interface FlowSolution {
    */
   fundedRemoteRooms?: string[];
 
+  /**
+   * Funded mined e/t per remote room - the SAME walk as fundedRemoteRooms
+   * (its keys, sorted, ARE that set), summing the funded miners' rates.
+   * Persisted as Memory.fundedRemoteFlows so siting reads REAL flow weights
+   * (owner 2026-08-10: the edge link is placed to offset the whole fleet,
+   * constrained by the total throughput of the sources that will drop there).
+   */
+  fundedRemoteFlows?: Record<string, number>;
+
   /** Net energy available for sinks */
   netEnergy: number;
 

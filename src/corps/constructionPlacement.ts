@@ -17,6 +17,7 @@
  */
 
 import { UNMAINTAINED_ROAD_LIFE } from "../economy/roadEconomics";
+import { SOURCE_RATE, depositPortHeadroom, portTenderHaulEquivalent } from "../economy/primitives";
 import { ContainerCensus } from "../telemetry/containerCensus";
 import { Position } from "../types/Position";
 import { controllerInputSpot, coreDepot, PORT_BUFFER_RANGE } from "./nodeEnergy";
@@ -170,12 +171,6 @@ export const TOWER_MIN_RCL = 3;
 
 /** Links allowed per RCL (game rule). The network anchors on the storage. */
 export const LINK_LIMITS: { [rcl: number]: number } = { 5: 2, 6: 3, 7: 4, 8: 6 };
-
-/**
- * Don't spend a link on a source this close to the storage: the saved haul is
- * shorter than the link's build cost + 3% transfer fee are worth.
- */
-export const LINK_MIN_SOURCE_RANGE = 8;
 
 /**
  * Dropped energy (within range 1 of a source) that signals a source container is
@@ -583,6 +578,202 @@ export function bestPortContainerTile(
     }
   }
   return best ? { x: best.x, y: best.y } : null;
+}
+
+/**
+ * Minimum ONE-WAY tiles a haul link must save its best approach to be worth a
+ * link-table slot plus its 5000e build. This bar ABSORBED the retired
+ * `LINK_MIN_SOURCE_RANGE = 8` when the source-link rung merged into the
+ * unified election (owner 2026-08-10): a source inside 8 of storage was
+ * refused a link because 8 tiles x SOURCE_RATE = 80 tile-e/t is the same
+ * threshold this bar states per-approach - one number wearing one name now.
+ * Below it the slot stays free for geometry that earns it.
+ */
+export const HAUL_LINK_MIN_SAVING = 8;
+
+/**
+ * Ticks a NULL haul-link election holds before re-scanning. The election runs
+ * on `findMissingLink`'s path, which the placement gate's `wantsLink` term
+ * evaluates EVERY tick - and a mature room with a free slot but no viable tile
+ * would otherwise pay the full-room scan forever. Room geometry moves on the
+ * placement cadence, not per tick, so a bounded-stale "nothing viable" is
+ * honest; an elected TILE is re-verified cheaply every tick (it must see its
+ * own site land, or a container claim its tile).
+ */
+export const HAUL_LINK_SCAN_INTERVAL = 25;
+
+/**
+ * Flow assumed for a funded remote whose per-room rate is not yet published
+ * (Memory.fundedRemoteFlows absent: legacy memory, i.e. at most one solve
+ * after deploy): two standing sources. Deliberately errs HIGH - overstating a
+ * room's flow TIGHTENS the 800/F reach ring, which places the link closer to
+ * the core than optimal (a saving left on the table) rather than beyond the
+ * fire rate its catchment needs (a backlog by construction, spec 47's
+ * rho >= 1 band where no buffer helps).
+ */
+export const APPROACH_FALLBACK_FLOW = 2 * SOURCE_RATE;
+
+/** The world a haul-link election scores over - positions and lenses only,
+ *  no Game/Memory (this module's purity ratchet). */
+export interface HaulLinkSiting {
+  /** The core link the new port would FIRE to - range to it sets the fire rate. */
+  corePos: { x: number; y: number };
+  /** The storage hub - every approach's default deposit walk, the baseline. */
+  storagePos: { x: number; y: number };
+  /** Where haul traffic originates: funded remotes' entry exits AND unlinked
+   *  home-source mouths, flow-weighted - the SAME lens
+   *  `bestPortContainerTile` sites against, plus the mouths (owner
+   *  2026-08-10: one election for every non-structural link). */
+  approaches: readonly PortApproach[];
+  /** Existing deposit ports, BUILT or pending as sites (never the core or the
+   *  controller link): the marginal-value baseline, so a served approach is
+   *  never served twice. */
+  existingPorts: readonly { x: number; y: number }[];
+  /** Classification guard: a link within 3 of the controller IS the controller
+   *  link (`controllerLink` lens) - a haul link must never land there. */
+  controllerPos?: { x: number; y: number };
+  /** Source tiles. THREE duties, none of them an exclusion zone any more:
+   *  the exact tile can never hold a structure; a source within 2 of a
+   *  candidate feeds the SAME link, so its rate comes off the fire rate as
+   *  `ownSourceRate` (the detector's own law); and a mouth approach standing
+   *  within 2 of the candidate supplies through the miner, so its flow leaves
+   *  the ROUTED catchment. */
+  sourcePositions?: readonly { x: number; y: number }[];
+  /** Standing miners' posts (harvest spots). A candidate within range 1 of one
+   *  is tended FREE - the miner transfers without stepping; anywhere else the
+   *  fleet buys a port tender, and that body is debited from the score
+   *  (`portTenderHaulEquivalent`). The one real distinction the old
+   *  source-vs-edge rung split encoded, kept as a PRICE instead. */
+  minerPosts?: readonly { x: number; y: number }[];
+}
+
+/**
+ * Elect the tile for a HAUL LINK - ANY link that is not the core (the
+ * receiver) or the controller link (the consumer feed). Born as the RCL8
+ * "edge link" rung (owner 2026-08-06: *"Let's build the edge links then"*)
+ * and UNIFIED 2026-08-10 (owner: *"Do we have to distinguish between 'edge'
+ * links? Besides core and upgrader seems like placing links in general where
+ * they most efficiently replace haul fleet size is ideal."*) - the former
+ * source-link rung is this election's degenerate case, not a category.
+ *
+ * The objective is the FLEET (owner 2026-08-10: *"we want the link to be
+ * placed to reduce or offset the whole fleet as much as possible"*): maximize
+ * `SIGMA flow_a x max(0, baseline_a - dist(a, P))` in tile-e/t - spec 26
+ * stage 5's `L`, proportional to the CARRY parts freed since `carryPartsFor`
+ * is linear in rate x distance - where an approach (a funded remote's entry
+ * exit OR an unlinked home-source mouth) is baselined at its walk to the
+ * CURRENT best deposit (storage or an existing port), so a served approach is
+ * never served twice and elections are marginal by construction.
+ *
+ * The constraint is ENDOGENOUS (owner, same session: the sources that will
+ * drop off at the link set the total throughput, and the link's own
+ * throughput must EXCEED the incoming hauling): the tile's ROUTED catchment
+ * is the flow of every approach that would divert to it (saving > 0), and
+ * `depositPortHeadroom(range, ownSourceRate) > catchment` must hold strictly
+ * - the same law the router prices with. A source within 2 of the candidate
+ * feeds the SAME link through its miner, so its rate moves to the
+ * `ownSourceRate` side of that law rather than the routed side (counting it
+ * in both would double-book the mouth). Moving the tile changes who diverts,
+ * which changes F, which changes the allowed range; per-tile evaluation
+ * resolves the loop exactly. Distances are chebyshev, the road-agnostic proxy
+ * the container siting and the stage-5 survey use.
+ *
+ * THE TENDER IS A PRICE, NOT A CATEGORY - the one real thing the old
+ * source-vs-edge split encoded. A candidate within range 1 of a standing
+ * miner's post is tended free; anywhere else the fleet buys a port tender
+ * body, debited from the score at `portTenderHaulEquivalent()` (the tender's
+ * parts exchanged through the same carry law the saving is measured in). A
+ * debited score must stay POSITIVE - a link whose tender eats its saving
+ * shrinks no fleet.
+ *
+ * Classification stays identity for the STRUCTURAL lenses: tiles inside the
+ * core lens (range 2 of storage) or the controller lens (range 3) are
+ * excluded - a link there would change owners the moment it stood. The
+ * source lens is NOT an exclusion any more: a link within 2 of a mouth is
+ * simply a haul link whose tender is free and whose fire rate carries its
+ * source. Only the source's exact tile is barred (nothing builds on a
+ * source).
+ *
+ * The election must clear `HAUL_LINK_MIN_SAVING` on its best approach or
+ * return null: a link-table slot is scarce (six, ever) and a marginal tile
+ * spends one for walk the fleet barely notices.
+ *
+ * Occupancy is checked LAZILY on the ranked winners (usually one call): the
+ * caller's `isOccupied` costs a lookForAt pair per tile, and the arithmetic
+ * pass alone decides almost every candidate. Deterministic tie-break: score,
+ * then range to core (a closer tile fires faster - free headroom), then y,
+ * then x.
+ *
+ * Pure: positions and lenses in, tile out - unit-pinned red-first.
+ */
+export function bestHaulLinkTile(
+  input: HaulLinkSiting,
+  isBlocked: (x: number, y: number) => boolean,
+  isOccupied: (x: number, y: number) => boolean
+): { x: number; y: number } | null {
+  if (input.approaches.length === 0) return null;
+  const cheb = (a: { x: number; y: number }, b: { x: number; y: number }): number =>
+    Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+  // Each approach's CURRENT best deposit walk - what a candidate must beat.
+  const baselines = input.approaches.map(a => {
+    let d = cheb(a.from, input.storagePos);
+    for (const p of input.existingPorts) d = Math.min(d, cheb(a.from, p));
+    return d;
+  });
+  const tenderDebit = portTenderHaulEquivalent();
+  const candidates: { x: number; y: number; score: number; range: number }[] = [];
+  for (let y = 1; y <= 48; y++) {
+    for (let x = 1; x <= 48; x++) {
+      if (isBlocked(x, y)) continue;
+      const tile = { x, y };
+      // Structural identity guards - the lens ranges are the lenses', not ours.
+      if (cheb(tile, input.storagePos) <= 2) continue;
+      if (input.controllerPos && cheb(tile, input.controllerPos) <= 3) continue;
+      // A source's own tile can never hold a structure; its NEIGHBOURHOOD is
+      // fair game (that is what a source link is). A miner's POST is likewise
+      // barred outright - a link there would evict the standing miner the
+      // whole design leans on for free tending.
+      if (input.sourcePositions?.some(s => s.x === x && s.y === y)) continue;
+      if (input.minerPosts?.some(p => p.x === x && p.y === y)) continue;
+      const range = cheb(tile, input.corePos);
+      if (range < 1) continue;
+      // An adjacent-ish source lands its harvest in this same link: its rate
+      // comes off the fire rate (the detector's ownSourceRate law), and its
+      // mouth-approach flow must NOT also count as routed catchment.
+      const ownMouth = input.sourcePositions?.find(s => cheb(tile, s) <= 2);
+      // Score and ROUTED catchment together: an approach with positive saving
+      // is one that would divert here - its flow earns value, and loads the
+      // link unless it IS the adjacent mouth (miner-fed, not hauled in).
+      let score = 0;
+      let bestSaving = -Infinity;
+      let catchment = 0;
+      for (let i = 0; i < input.approaches.length; i++) {
+        const a = input.approaches[i];
+        const saving = baselines[i] - cheb(a.from, tile);
+        if (saving > bestSaving) bestSaving = saving;
+        if (saving > 0) {
+          score += a.flowRate * saving;
+          if (!(ownMouth && a.from.x === ownMouth.x && a.from.y === ownMouth.y)) catchment += a.flowRate;
+        }
+      }
+      if (bestSaving < HAUL_LINK_MIN_SAVING) continue;
+      // Reach rule through the ONE headroom law the router prices with, F from
+      // this tile's own catchment - the fire rate must strictly EXCEED the
+      // incoming hauling (owner 2026-08-10), or the port backs up by
+      // construction (spec 47's rho >= 1 band, where no buffer helps).
+      if (depositPortHeadroom(range, ownMouth ? SOURCE_RATE : 0) <= catchment) continue;
+      // The tender is fleet: a candidate no standing miner can feed pays its
+      // body out of the saving before it may outbid a free-tended one.
+      if (!input.minerPosts?.some(p => cheb(tile, p) <= 1)) score -= tenderDebit;
+      if (score <= 0) continue;
+      candidates.push({ x, y, score, range });
+    }
+  }
+  candidates.sort((a, b) => b.score - a.score || a.range - b.range || a.y - b.y || a.x - b.x);
+  for (const c of candidates) {
+    if (!isOccupied(c.x, c.y)) return { x: c.x, y: c.y };
+  }
+  return null;
 }
 
 /**

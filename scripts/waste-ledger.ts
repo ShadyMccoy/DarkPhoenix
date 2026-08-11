@@ -1733,9 +1733,13 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     const allocOf = (f: any): number =>
       (f?.sinks ?? []).filter((s: any) => s.type === "controller").reduce((a: number, s: any) => a + (+s.allocated || 0), 0);
     const sinkAlloc = Math.min(allocOf(base.data.flow), allocOf(flow));
-    const prog1 = (bcore.rooms ?? []).reduce((a: number, r: any) => a + (r.rclProgress ?? 0), 0);
-    const prog2 = (core.rooms ?? []).reduce((a: number, r: any) => a + (r.rclProgress ?? 0), 0);
-    const actual = dt > 0 ? (prog2 - prog1) / dt : 0;
+    // GCL delta, NOT Σ rclProgress: a level-8 controller's rclProgress is
+    // FROZEN (t72918307 - the gauge read 0.0 while the account's gcl-based
+    // controller line read exactly 15.00, the engine's RCL8 throttle). GCL
+    // accrues 1 point per upgrade energy across EVERY room, so it is the same
+    // colony-wide delivery meter the ENERGY ACCOUNT and G1 already read - one
+    // lens, and P7 stays sighted at every controller level.
+    const actual = dt > 0 ? ((core.gcl?.progress ?? 0) - (bcore.gcl?.progress ?? 0)) / dt : 0;
     const stock1 = (bcore.rooms ?? []).reduce((a: number, r: any) => a + (r.controllerStock ?? 0), 0);
     const stock2 = (core.rooms ?? []).reduce((a: number, r: any) => a + (r.controllerStock ?? 0), 0);
     const stocked = stock1 > 500 && stock2 > 500;

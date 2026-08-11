@@ -845,6 +845,98 @@ today.
 
 ### What remains before an edge link can be turned on
 
+> **ALL THREE CLEARED — the placement rung SHIPPED 2026-08-10 (LIVE-UNVERIFIED).**
+> Status of each blocker as written below:
+>
+> - **RCL 8** — arrived. The six-link table stands while rungs 1-2 of
+>   `findMissingLink` (core, controller, one per far home source) top out at
+>   four in the live room: the two remaining slots were unreachable by
+>   construction until a rung existed for them.
+> - **The relay** — solved by [spec 54](54-link-corp.md), not by
+>   `PortRelayCorp`: the LinkCorp owns every port and fields a parked
+>   `porttender` per buffered post (`portDemands`/`runPortPosts`), chain
+>   confirmed working on the (44,12) post at t72869702. An edge link that
+>   stands gets its buffer from the container rung (spec 56's one lens) and
+>   its tender from the LinkCorp with zero new code.
+> - **Siting** — this ships it: `bestEdgeLinkTile`
+>   (`corps/constructionPlacement`, pure, red-first-pinned) elects the tile
+>   against the SAME approach lens the port container uses
+>   (`portApproaches` — funded remotes' entry exits). **Corrected same-day by
+>   the owner** (2026-08-10: *"we want the link to be placed to reduce or
+>   offset the whole fleet as much as possible... subject to... the number of
+>   sources that will drop off at the link for the total throughput, and
+>   based on that has to be within a certain range of the core link that it
+>   will fire to so the throughput of the link exceeds the throughput of
+>   incoming hauling"*), which replaced two approximations in the first cut:
+>   1. **The weights are REAL flows, published by the plan.** The solve now
+>      writes `Memory.fundedRemoteFlows` (funded miners' rates summed per
+>      remote room — ONE walk with `fundedRemoteRooms`, whose keys it is, so
+>      the two cannot disagree) and `portApproaches` weights every entry exit
+>      by it. The objective is fleet offset in tile·e/t — spec 26 stage 5's
+>      `L`, proportional to CARRY parts freed — over each approach's current
+>      best deposit (storage or an existing port, so a served approach is
+>      never served twice). The first cut's equal weights and its "awaits the
+>      plan publishing per-room flow" known limit are retired; the fallback
+>      (`EDGE_APPROACH_FALLBACK_FLOW` = two standing sources) covers only
+>      pre-publication memory and errs HIGH, the direction that tightens.
+>   2. **The reach ring is ENDOGENOUS, not an assumed constant.** A tile's
+>      CATCHMENT is the flow of every approach that would actually divert to
+>      it (positive marginal saving), and the election requires the link's
+>      fire rate to strictly EXCEED that catchment —
+>      `depositPortHeadroom(range, 0) > Σ flow(catchment)`, spec 26 stage 5's
+>      `range* <= 800/F` with F measured per tile instead of the first cut's
+>      flat `DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK`. Moving the tile changes
+>      who diverts, which changes F, which changes the allowed range;
+>      per-tile evaluation resolves that loop exactly.
+>
+>   `EDGE_LINK_MIN_SAVING = 8` one-way tiles on the best approach —
+>   `LINK_MIN_SOURCE_RANGE`'s "worth a link" bar — or the slot stays free.
+>   `findMissingLink` rung 3 places it; classification guards keep the tile
+>   out of the core (range 2 of storage), controller (range 3) and source
+>   (range 2) lens bands so the link stays an edge port the moment it stands.
+>   Acceptance: `test/unit/corps/edgeLinkPlacement.test.ts` +
+>   `test/unit/economy/fundedRemoteFlows.test.ts`.
+>
+> **UNIFIED, same day** (owner: *"Do we have to distinguish between 'edge'
+> links? Besides core and upgrader seems like placing links in general where
+> they most efficiently replace haul fleet size is ideal."* then *"Yes clear
+> up these 3 vestiges and generalize it"*). "Edge link" was the feature's
+> birth story, not a category — the election above IS the general
+> fleet-offset optimizer, and three vestiges of the old source-vs-edge split
+> were dissolved into it (`bestHaulLinkTile`, the renamed election):
+>
+> 1. **Home-source mouths joined the approach set** at `SOURCE_RATE`. The
+>    source-link rung (rung 2) is DELETED — an unlinked far mouth is the
+>    election's degenerate case, and `LINK_MIN_SOURCE_RANGE = 8` retired
+>    into `HAUL_LINK_MIN_SAVING` (8 tiles × SOURCE_RATE = 80 tile·e/t: the
+>    same bar, one name).
+> 2. **The source lens stopped being an exclusion zone.** A link within 2 of
+>    a mouth is a haul link whose fire rate carries its source — the
+>    election prices that through the detector's own law,
+>    `depositPortHeadroom(range, ownSourceRate)`, with the mouth's flow on
+>    the ownSource side and NEVER double-booked into the routed catchment.
+>    Only the source's exact tile and the miner's post stay barred (nothing
+>    builds on a source; a link on the post evicts the miner).
+> 3. **Rung priority dissolved into the one L-ranking** — a heavy remote
+>    confluence now outbids a marginal home mouth for a scarce slot, and the
+>    optimizer may legitimately elect ONE tile serving both a lane and a
+>    mouth where the geometry allows (pinned in the acceptance suite).
+>
+> The single surviving distinction is a PRICE, not a category: a candidate
+> no standing miner can feed debits the port tender's body from its score
+> (`portTenderHaulEquivalent()` = PORT_TENDER_PARTS × CARRY_CAPACITY/4 =
+> 100 tile·e/t, the tender's parts exchanged through the same carry law the
+> saving is measured in), and a debited score must stay positive — a link
+> whose tender eats its saving shrinks no fleet. Core and controller remain
+> the two structural rungs; the LINK SWAP stays controller-only (revocation
+> of standing capital stays exceptional). Acceptance:
+> `test/unit/corps/haulLinkPlacement.test.ts` (renamed, +5 unification
+> pins); `cons-link-core-first` and `cons-link-farthest-source` grid cells
+> pass 1/1 under the unified election — the deleted rung's placements
+> reproduce exactly.
+
+The original blocker list, kept for the record:
+
 - **RCL 8** (the hard wall above).
 - **The relay.** An edge link has no miner beside it, so the parked tender is
   mandatory there rather than optional — and it is still blocked on spec 39's
@@ -854,6 +946,15 @@ today.
 - **Siting.** `bestPortContainerTile` already sites a container against
   weighted approaches; an edge LINK wants the same treatment against the same
   approach lens, minus the range-2 constraint. Not built.
+
+**Known residual (stated, not hidden):** the planner's stage-4 drain pricing
+(`CorpPlanner` deposit-drain loop) attributes the core→storage drain leg to a
+port's OWNING source and therefore skips a source-less edge port
+(`!port.drainSourceId → continue`). The physical drain is the LinkCorp
+feeder's normal core duty either way; the unpriced leg is ~1 tile
+(`carryPartsFor(30, 1)` over a creep life ≈ 0.002 spawn-parts/t), below F1's
+resolution. If edge-port flow ever grows the drain leg past noise, price it
+against the feeder's charge rather than inventing a phantom source.
 
 ## Owner questions answered from live structures (2026-08-06)
 

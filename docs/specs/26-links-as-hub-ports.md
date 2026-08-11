@@ -232,6 +232,33 @@ with the source's own mining flow; one eligibility lens for pricing + delivery.
 
 ## Stage 5 (BACKLOG) — link placement as an optimization (owner 2026-07-24)
 
+> **UPDATE 2026-08-10 — the first cut SHIPPED as the RCL8 edge-link rung
+> (LIVE-UNVERIFIED), owner-corrected the same day to the full stage-5 form.**
+> Greedy-by-marginal-value under the reach rule, exactly the shape this
+> section proposes: `bestEdgeLinkTile` maximizes `SIGMA flow·(baseline −
+> linkDist)` — `L` in tile·e/t, ∝ CARRY parts freed — where baseline is each
+> approach's current best deposit (storage or an existing port, so successive
+> elections are marginal by construction) and **flow is the plan's PUBLISHED
+> per-room funded rate** (`Memory.fundedRemoteFlows`, one walk with
+> `fundedRemoteRooms`), constrained by the reach rule with **F measured per
+> tile as the catchment** — the flow of the approaches that would divert
+> there — requiring `depositPortHeadroom(range, 0) > F` (owner: the link's
+> throughput must EXCEED the incoming hauling). `findMissingLink` rung 3
+> places the winner; `EDGE_LINK_MIN_SAVING` refuses a slot-spend below 8
+> saved tiles. **Unified same day into ONE election for every non-structural
+> link** (owner: *"placing links in general where they most efficiently
+> replace haul fleet size is ideal"*): the source-link rung deleted (mouths
+> are approaches at SOURCE_RATE), the source lens de-zoned (ownSourceRate
+> prices it), rung priority dissolved into the L-ranking, and the tender
+> body debited from miner-less candidates (`portTenderHaulEquivalent`) —
+> the naive "one link per home source" convention this section calls out is
+> now structurally impossible to over-serve: a mouth wins a slot only when
+> its L beats every rival's. Full trail: spec 47 §"What remains before
+> an edge link can be turned on". Still open from the list below: the
+> DEP-ledger candidate-ranking instrument, per-cluster `L`/`U` reporting, and
+> the source-less drain ATTRIBUTION (the physical drain is the feeder's core
+> duty and works today; only its plan-side pricing is the residual — spec 47).
+
 Once ports work (stage 4 shipped), the open question is WHERE the links go. The
 common Screeps convention — one link next to each home source — is a **naive
 default**: it privileges a placement that only maximizes value by luck. A link

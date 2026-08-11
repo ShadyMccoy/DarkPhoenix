@@ -553,6 +553,17 @@ declare global {
     fundedRemoteRooms?: string[];
 
     /**
+     * Funded mined e/t per remote room (FlowSolution.fundedRemoteFlows; keys
+     * = fundedRemoteRooms). The plan's durable flow signal for siting -
+     * portApproaches weights each entry exit by it, so edge-link and
+     * port-container elections price the fleet they actually offset instead
+     * of equal-weighting every funded room. Same writer and lifetime as
+     * fundedRemoteRooms; absent only on pre-publication memory (one solve
+     * after deploy), where readers fall back conservatively.
+     */
+    fundedRemoteFlows?: { [roomName: string]: number };
+
+    /**
      * Per-corp CPU ledger (spec 20): the corp is the accounting boundary, so
      * CPU joins energy and spawn build-time as a metered, pullable resource.
      * `corpsTotal` is the sum over every commissioned corp this tick -

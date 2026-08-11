@@ -423,6 +423,12 @@ export function controllerUpgradeCap(roomName: string): number {
   if (typeof Game === "undefined" || !Game.rooms) return Infinity;
   const controller = Game.rooms[roomName]?.controller;
   if (!controller) return Infinity;
+  // The engine's level-8 throttle, via spec 58's one lens (this session's
+  // audit found it live the same day #159 modeled it: t72918307, delivery
+  // pinned at exactly 15.00 against a 100 e/t allocation, +33.10 e/t
+  // banking - two independent implementations converged and merged to this
+  // one). Read before the try: the level read has already succeeded, so the
+  // cap survives partial Game state that fails the parking lens below.
   const gameCap = controllerMaxUpgradeRate(controller.level);
   try {
     // Best-effort physical estimate: any incomplete Game state (partial test
@@ -1014,20 +1020,39 @@ export function convergeFleetCharge<T>(
 const REMOTE_SET_MAX_PASSES = 2;
 
 /**
+ * Funded mined e/t per REMOTE room: the funded miners' rates, summed by the
+ * room their source sits in, spawn rooms excluded (persisted as
+ * Memory.fundedRemoteFlows). This is the flow weight siting reads (owner
+ * 2026-08-10: the edge link is placed to offset the WHOLE FLEET, subject to
+ * the total throughput of the sources that will drop off at it) - published
+ * by the plan so placement never infers flow from creeps or vision.
+ *
+ * ONE walk for both publications: `fundedRemoteRoomsOf` is these keys,
+ * sorted, so "which rooms are funded" and "at what rate" cannot disagree.
+ */
+export function fundedRemoteFlowsOf(
+  problem: Pick<ColonyProblem, "spawns" | "sources">,
+  plan: { miners: { sourceId: string; rate: number }[] }
+): Record<string, number> {
+  const spawnRoomSet = new Set(problem.spawns.map(s => s.pos.roomName));
+  const srcById = new Map(problem.sources.map(s => [s.id, s]));
+  const flows: Record<string, number> = {};
+  for (const m of plan.miners) {
+    const rn = srcById.get(m.sourceId)?.pos.roomName;
+    if (rn && !spawnRoomSet.has(rn)) flows[rn] = (flows[rn] ?? 0) + m.rate;
+  }
+  return flows;
+}
+
+/**
  * The remote rooms a solved plan actually funds a miner in - the reserver set
  * the reservation corps will be proposed for, and the set the NEXT solve prices
  * its infra from (persisted as Memory.fundedRemoteRooms). Sorted, so two solves'
- * sets compare and serialise identically.
+ * sets compare and serialise identically. Derived from the flow walk above -
+ * one lens, two views.
  */
-function fundedRemoteRoomsOf(problem: ColonyProblem, plan: { miners: { sourceId: string }[] }): string[] {
-  const spawnRoomSet = new Set(problem.spawns.map(s => s.pos.roomName));
-  const srcById = new Map(problem.sources.map(s => [s.id, s]));
-  const rooms = new Set<string>();
-  for (const m of plan.miners) {
-    const rn = srcById.get(m.sourceId)?.pos.roomName;
-    if (rn && !spawnRoomSet.has(rn)) rooms.add(rn);
-  }
-  return [...rooms].sort();
+function fundedRemoteRoomsOf(problem: ColonyProblem, plan: { miners: { sourceId: string; rate: number }[] }): string[] {
+  return Object.keys(fundedRemoteFlowsOf(problem, plan)).sort();
 }
 
 export function buildColonyProblem(
@@ -2028,6 +2053,10 @@ export function solveColony(
     // computed above, where the corrective reserver pass converged it against
     // the priced set; recomputing here would risk the two drifting apart.
     fundedRemoteRooms: fundedRemotes,
+    // Its flow view, from the SAME searched problem/plan pair (the loop broke
+    // with fundedRemotes computed from `searched`, and problem/plan ARE
+    // searched's) - the per-room weights siting reads via Memory.
+    fundedRemoteFlows: fundedRemoteFlowsOf(problem, plan),
     netEnergy: netEnergyTotal,
     efficiency: totalHarvest > 0 ? (netEnergyTotal / totalHarvest) * 100 : 0,
     unmetDemand,
@@ -2124,6 +2153,7 @@ export class FlowEconomy {
         result.solution.partsLedger
       );
       Memory.fundedRemoteRooms = result.solution.fundedRemoteRooms;
+      Memory.fundedRemoteFlows = result.solution.fundedRemoteFlows;
       Memory.lastBankDraw = result.solution.sinkAllocations
         .filter(a => a.sinkType === "controller" || a.sinkType === "construction")
         .reduce((sum, a) => sum + a.allocated, 0);

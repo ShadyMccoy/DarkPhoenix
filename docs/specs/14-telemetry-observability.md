@@ -13255,3 +13255,177 @@ DEPLOYED to shard1 master.
    task is the named follow-up).
 4. Grid: the three #149 cells stay green from here; the ratchet's
    construction avenue is trustworthy again.
+
+## Audit cycle t72917269 (2026-08-10, edge-link session) — the 41,934-tick window: pile decay is the top line, port 8f08 reads SATURATED, and the RCL8 edge-link rung ships as the intervention
+
+The window since t72875335 ran unattended under the ramping sweep (fiscal
+archive closed FY4860-M05..FY4861-M01 at 100%, handicap stepping 3%→8%).
+Account headlines (methodology #19):
+
+- **Forgone mining 67.17 e/t (45% of capacity)** — the miners' pile-gate
+  stamps explain 33.78 of it (heldFrac). Controller 40.89 of 150 capacity
+  (27%, target ≥50%) — MISS both.
+- **TOP LINE: L1 pile decay 15.46 e/t vs budget 0.00** (ceil floor 5.80
+  across ~9.5 standing piles). E4 also FAIL: 413,038 above reserve, slope
+  +8.42/t, projected equilibrium past the absorbable knee. P1 flap: 4
+  sources (d017/d019/d01f/cd99 flipping funded↔over-budget). P7 FAIL on the
+  stock read (controllerStock 657→1433 — the energy stood).
+- **E6 chronic:** cd8e (buffered 3,552) and cee2 (2,312) held 100% of their
+  windows — "the leak is HAULING", says the row, and SCAV agrees: we collect
+  21% of pile outflow, the engine takes 79%, LOSING on 3 of 3 stocks.
+- **DEP names the mechanism candidate:** per-link deposit demand 4a83
+  40.0 e/t (rho 0.85) and **8f08 60.0 e/t against 51.5 absorbable — rho
+  1.16, SATURATED**, with 10 routes still wanting a port (savings 19/16/13/
+  13/13/12 tiles). Spec 47's own band table: rho ≥ 1.0 is the regime where
+  no buffer helps — the routed load has to come down.
+
+**The cycle's hypothesis (one, labeled):** the saturated port throttles
+evacuation on the routes that want it; their mouths back up; the pile-gate
+holds the miners (E6) and the standing piles rot (L1). The intervention is
+the one the owner directed this session (*"Let's take a look at adding links
+since we're rcl8"*): the RCL8 edge-link placement rung — spec 47's third
+blocker, shipped as `bestEdgeLinkTile` + `findMissingLink` rung 3, corrected
+same-day to the owner's model (real published `Memory.fundedRemoteFlows`
+weights; the 800/F ring measured per tile from each candidate's own
+catchment, fire rate strictly exceeding it). Full design trail: spec 47
+§edge links, spec 26 stage 5 UPDATE. Gates: unit 2,463 (23 pinning the
+feature), lint at baseline, trio green on the final bundle.
+
+### Methodology note #10 — the grid cannot ratchet on the sandbox host
+
+The full grid on this session's remote container fails 21 baseline-green
+cells (bot level 4→0) **identically on the branch and on its base commit
+dbad248** — failure sets byte-equal, while the same cells pass run SOLO on
+the same bundles. The full run's 12-bot worlds overrun this host's real
+per-tick CPU (the mockup meters real CPU — the armed-governor trap's
+mechanism, minus the governor). Consequence: on a slower host, single-cell
+runs and A/B attribution remain valid; the RATCHET verdict does not.
+`baseline.json` was left untouched; ratcheting it on a host-invalid run
+would corrupt the metric. Attribution method when a full-run cell reds on
+foreign hardware: solo rerun first, then base-commit A/B — identical
+failure pre/post acquits the change (the standing attribution rule, now
+with a measured host-scale instance).
+
+### Deployed t~72917600, predictions registered
+
+Branch = deployed master (dbad248) + exactly two commits (2a4ca61 rung,
+d04ab81 owner-model correction). Predictions:
+
+1. `Memory.fundedRemoteFlows` publishes within ~2 solves: ~10 remote rooms,
+   Σ ≈ 130 e/t (the P&L's funded set).
+2. A STRUCTURE_LINK site places in W43N23 within a placement cooldown of
+   the first publishing solve: range ≤ 26 of the core (35,25), outside the
+   core/controller/source lens bands, on the unserved S/SW/W arc — and NO
+   twin beside 8f08/4a83 (their approaches' marginal saving is ~0).
+3. The site builds at builder pace (P8 read 1.65 e/t → ~3,000t for 5,000e),
+   so buffer/tender/rho relief are NEXT-cycle observables — this window
+   verifies placement + publication + heartbeat only.
+4. Heartbeat unharmed: feederActive true, no X5 spike, no placeResult error
+   spam from the new rung.
+
+Verdict: PENDING post-deploy verification (below, after recapture).
+
+### Post-deploy verification t72918044 (+ live room read t72918xxx) — 4/4 confirmed, BOTH slots placed
+
+1. **CONFIRMED (indirect)** — the election ran with real approach weights: two
+   sites in two elections, the second treating the first as an existing port
+   (marginal baseline working). `fundedRemoteFlows` itself is not
+   capture-visible (Memory only; the flow segment does not emit it — named
+   gap, harmless: the plan's own consumers read Memory).
+2. **CONFIRMED, twice** — link sites at **(23,38)** (range 13 → ceiling 61.5,
+   the SW arc: the relief lane for 8f08, which this read caught at 800/800
+   FULL) and **(31,6)** (range 19 → ceiling 42.1, the N arc). Both inside
+   their rings, outside core/controller/source lenses, no twins by existing
+   ports (cheb 20 and 15 to the nearest).
+3. **IN PROGRESS as predicted** — both 0/5000; builder-pace observable next
+   cycle (with two sites the widening gate funded 10k of board at once,
+   surplus 545k).
+4. **CONFIRMED** — feederActive true, bucket 10,000, controllerStock
+   1,433→2,676, no churn spike, no placeResult error stamps.
+
+Cycle t72917269 verdict so far: **FIXED (placement) + INSTRUMENTED (flows
+publication)**; the L1/rho-relief half stays open until the sites BUILD and
+the next capture reads the new ports' rho and 8f08's wait shares.
+
+### Same session, owner-directed: the link P&L question and its instrument
+
+Owner: *"Can you show me a link income statement PnL chart or something about
+their distance, throughput any creep waits or transfer waits or transfer
+amounts per each link"* — answered from t72917269 (per-route portWaits joined
+to ports via the plan's hauler `port` field): 4a83 at rho 0.85 runs a
+ZERO-wait book on 5 routes; 8f08 at rho 1.16 makes 40-62% of arrivals hold,
+and cd99 (the best-saving route, 19 tiles) is the one squeezed out entirely
+(waitFrac 0.846, 11 fallbacks, demoted to the long haul). Named gaps became
+core v39: `links[].perLink` — per-SENDER fires / sentRate / volleyAvg /
+clampShare (LinkMeter split, sender id threaded through every
+recordLinkFire). Deposit VOLUME per port (events are counted, energy is not)
+remains open.
+
+### Deploy 2 (same cycle, t~72918100): the unified election + core v39, predictions registered
+
+Owner-directed unification shipped (*"Yes clear up these 3 vestiges and
+generalize it"* — spec 47 §UNIFIED): one election for every non-structural
+link, mouths as approaches, ownSourceRate pricing, tender debit. Gates: unit
+2,469; trio green (4m/3m/7s); cons-link-core-first + cons-link-farthest-source
+1/1 (the deleted source rung's placements reproduce). Predictions:
+
+1. **No churn from the model swap**: both standing sites persist; table at
+   6/6 keeps the election silent — no third site, no swap fires.
+2. **Core v39 next capture**: `links[].perLink` rows for 4a83/8f08/0ebf;
+   8f08's own clampShare lands near the room's 0.586 (it is the heavy
+   sender), 4a83's below it.
+3. **Heartbeat unchanged**; X5 read with the global-reset caveat.
+4. **Zero live placement delta from unification itself** (both mouths
+   linked): the unified and old models elect identically in W43N23 today —
+   its live value begins with the NEXT room, and the model being one lens.
+
+## Audit cycle t72918307 (2026-08-11) — deploy-2 verified 4/4, and the colony's first RCL8 window exposes the engine throttle the plan never modeled
+
+**Deploy-2 verification, 4/4 confirmed** (window 221t): core v39 live with the
+per-link split, and it paid for itself in its first read — 8f08 fires 693e
+average volleys with **clampShare 0.706** vs 4a83's 0.312: the core-side clamp
+concentrates on the heavy sender, a read the room aggregate (0.548) could
+never give. Both relief sites persist (1,275/10,000 built), no third
+placement, no swap, X5 0.01, heartbeat clean.
+
+**THE CYCLE'S FIND — delivery pinned at exactly 15.00 e/t.** The account's
+controller line (GCL-based) read 15.00 while P7 (rclProgress-based) read 0.0:
+a two-gauge disagreement, and both were telling the truth. A level-8
+controller freezes rclProgress (P7's blindness) and the engine hard-caps
+upgrading at **CONTROLLER_MAX_UPGRADE_PER_TICK = 15 e/t** (the 15.00). The
+plan does not model the throttle anywhere: it allocated 100 e/t (relegated
+wartime floor 50) against a 15 e/t pipe, the un-absorbable flow defaulted to
+the bank (**+33.10 e/t** — E4's idle-capital mountain now has its mechanical
+cause at RCL8), and a **66-part upgrader fleet** stood against a pipe ~3
+bodies serve. The owner's morning framing names the class exactly: a planning
+problem — allocation above physical throughput — this time at the controller
+instead of a link.
+
+**Fixes shipped (one seam each):**
+- `RCL8_UPGRADE_CAP = 15` mirrored in primitives (engine ground truth,
+  pinned); applied inside `controllerUpgradeCap` — the ONE physical-cap lens
+  the sink capacity, wartime relegated floor, valve, feeder target and fleet
+  sizing all already read, so every consumer reprices from one edit. Applied
+  on the defensive catch path too (the level read precedes the parking lens).
+- **P7 reads the GCL delta** — the same always-sighted colony-wide delivery
+  meter the ENERGY ACCOUNT and G1 use (1 GCL point IS 1 upgrade energy, every
+  room, every level). Its wartime-starvation pin re-staged on that lens.
+
+**Transition-window caveat recorded:** this window (263t) straddles the
+deploy-2 global reset AND the wartime-build flip our own link sites triggered
+— S5 0.93 (rebuild wave), defense/reservation lumps, controller depression
+are multi-cause; no level claims from this window beyond the engine-pinned
+15.00. The sweep runs at handicap 10%, cycle 3 (FY4861-M02 closed at 52%).
+
+**Predictions for the post-deploy capture:**
+1. `controllerAllocations[W43N23]` ≤ 15 within one solve; upgrader
+   `sizing.allocated`/`planAllocated` ≤ 15; the wartime relegated floor reads
+   ≤ 15, so **P7 → ok at ~1.0x** with delivery 15.0.
+2. No NEW upgrader purchase sized beyond the capped allocation (standing 66
+   parts shrink by attrition, never revocation).
+3. E4 stays FAIL and the bank keeps climbing — the fix makes the plan HONEST
+   about the throttle; it does not spend the freed ~35-85 e/t. The real
+   absorber is EXPANSION (GCL 32 at 96.2%; W45N23 founding already has a
+   site) — spec 53's decision, the owner's call, now with its number named.
+4. Link relief unaffected: both sites keep building; next cycle reads the new
+   ports' rho and 8f08's clampShare/waits off the v39 split.
