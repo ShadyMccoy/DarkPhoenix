@@ -7,6 +7,7 @@ import { linkKind } from "../../../src/corps/kinds/linkKind";
 import { raidGuardKind } from "../../../src/corps/kinds/raidGuardKind";
 import {
   feederSpawnLoad,
+  hubTenderSpawnLoad,
   infraSpawnLoad,
   roomGuardSpawnLoad,
   roomReserverSpawnLoad,
@@ -81,14 +82,15 @@ describe("spec 39 phase 4: auxiliary corps carry their own budget", () => {
   const RELAY = 40;
 
   /** One home with a link-fed depot, three mined remotes - the live shape. */
-  const world = (opts: { depot: boolean; linkFed: boolean; guarded?: string[] }): ColonyProblem => ({
+  const world = (opts: { depot: boolean; linkFed: boolean; guarded?: string[]; terminal?: boolean }): ColonyProblem => ({
     spawns: [spawn("s1", HOME)],
     sources: [],
     sinks: [],
     dist: (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y),
     depotRooms: opts.depot ? [HOME] : [],
     linkFedRooms: opts.linkFed ? [HOME] : [],
-    ...(opts.guarded ? { guardedRooms: opts.guarded } : {})
+    ...(opts.guarded ? { guardedRooms: opts.guarded } : {}),
+    ...(opts.terminal ? { terminalRooms: [HOME] } : {})
   });
   const draft = [...REMOTES.map((r, i) => harvestIn(r, `src${i}`)), upgradeIn(HOME, RELAY)];
 
@@ -99,6 +101,22 @@ describe("spec 39 phase 4: auxiliary corps carry their own budget", () => {
     const { total } = auxiliaryBudget(p, draft);
     const aggregate = infraSpawnLoad(RELAY, 1, REMOTES.length, 1);
     expect(total).to.be.closeTo(aggregate, 1e-12);
+  });
+
+  it("a TERMINAL room prices its hub tender on both sides - the spec 58 phase 3 term", () => {
+    // Same identity, one more term: the hub tender is declared by linkKind
+    // from the terminalRooms lens and deducted by infraSpawnLoad's
+    // terminalRoomCount - one fact, two shapes, exact to 1e-12.
+    const p = world({ depot: true, linkFed: true, terminal: true });
+    const { total, byKind } = auxiliaryBudget(p, draft);
+    const aggregate = infraSpawnLoad(RELAY, 1, REMOTES.length, 1, 1, 0, 0, 1);
+    expect(total).to.be.closeTo(aggregate, 1e-12);
+    // and the term is the link corp's own declaration, not a side pocket
+    const withoutTerminal = auxiliaryBudget(world({ depot: true, linkFed: true }), draft);
+    expect(byKind.get("controllerFeeder")! - withoutTerminal.byKind.get("controllerFeeder")!).to.be.closeTo(
+      hubTenderSpawnLoad(),
+      1e-12
+    );
   });
 
   it("holds for an UNLINKED depot too (the feeder leg is 6, not 1)", () => {

@@ -52,6 +52,7 @@ import {
   HARVEST_ENERGY_PER_WORK,
   raidGuardTaxPerEnergy,
   UPGRADE_ENERGY_PER_WORK,
+  controllerMaxUpgradeRate,
   infraSpawnEnergy,
   infraSpawnLoad,
   minerOverhead,
@@ -61,7 +62,6 @@ import {
   WARTIME_BACKLOG_THRESHOLD,
   ANTI_DOWNGRADE_RESERVE,
   depositPortHeadroom,
-  RCL8_UPGRADE_CAP,
   SOURCE_RATE
 } from "./primitives";
 import { detectRoomStocks, SCAVENGE_RATE_FLOOR, stockToTransientSource } from "./scavenge";
@@ -77,7 +77,7 @@ import {
   planColony
 } from "./CorpPlanner";
 import { Commission, FieldedFleet } from "./Commission";
-import { isBankSourceId, isMinedIncomeId, stripSourcePrefix, stripSpawnPrefix } from "./ids";
+import { bankRoomFromId, isBankSourceId, isMinedIncomeId, stripSourcePrefix, stripSpawnPrefix } from "./ids";
 import { DEFAULT_VALUATION, Goal, SinkValuation, compileGoal } from "./goals";
 import { searchStructure } from "./strategy";
 import { commissionsFromPlan, consumerSpawnLoad } from "./commissionPlan";
@@ -92,7 +92,9 @@ export { ANTI_DOWNGRADE_RESERVE };
  * module); re-exported here for the existing import sites.
  */
 import {
+  BankPressure,
   bankFedControllerRate,
+  bankPressure,
   bankToTransientSource,
   bankSourceId,
   controllerFloorRate,
@@ -409,34 +411,38 @@ const CONTROLLER_UPGRADER_CAP = 8;
  * cap: how much the upgrader fleet can actually burn, bounded by the parking
  * tiles ringing the controller input spot and each body's affordable WORK at
  * the room's energy capacity (mirrors UpgradingCorp.upgraderTargetCount's
- * parking bound so the sink and the fleet agree). Infinity when Game or the
- * controller is unavailable, so unit/harness paths keep the uncapped default
- * unless a cap is passed explicitly.
+ * parking bound so the sink and the fleet agree) - AND by the game's own RCL8
+ * throttle (primitives.controllerMaxUpgradeRate: a level-8 controller accepts
+ * 15 e/t, period - spec 58's consumption constraint). The game cap reads only
+ * `controller.level`, so it survives partial Game state that fails the
+ * parking lens. Infinity when Game or the controller is unavailable, so
+ * unit/harness paths keep the uncapped default unless a cap is passed
+ * explicitly.
  */
 export function controllerUpgradeCap(roomName: string): number {
   if (typeof Game === "undefined" || !Game.rooms) return Infinity;
   const controller = Game.rooms[roomName]?.controller;
   if (!controller) return Infinity;
-  // THE ENGINE'S LEVEL-8 THROTTLE (t72918307, the first RCL8 audit window):
-  // CONTROLLER_MAX_UPGRADE_PER_TICK caps a level-8 controller at 15 e/t no
-  // matter the fleet - the parking-x-WORK estimate below is the physics of
-  // OUR side, this is the physics of the ENGINE's. Applied even on the
-  // defensive catch path: the level read has already succeeded by here, and
-  // "fall back to uncapped" at RCL8 is how a 100 e/t allocation stood
-  // against a 15 e/t pipe while the difference banked (+33.10 e/t measured).
-  const engineCap = controller.level >= 8 ? RCL8_UPGRADE_CAP : Infinity;
+  // The engine's level-8 throttle, via spec 58's one lens (this session's
+  // audit found it live the same day #159 modeled it: t72918307, delivery
+  // pinned at exactly 15.00 against a 100 e/t allocation, +33.10 e/t
+  // banking - two independent implementations converged and merged to this
+  // one). Read before the try: the level read has already succeeded, so the
+  // cap survives partial Game state that fails the parking lens below.
+  const gameCap = controllerMaxUpgradeRate(controller.level);
   try {
     // Best-effort physical estimate: any incomplete Game state (partial test
-    // mock, room we cannot fully resolve) falls back to the uncapped default
-    // rather than throwing - a missing cap is safe, it only reverts to old
-    // behavior; the parking lens needs the live pos/room lookForAt API.
+    // mock, room we cannot fully resolve) falls back to the game-rule cap
+    // alone rather than throwing - a missing physical read is safe, it only
+    // reverts to old behavior; the parking lens needs the live pos/room
+    // lookForAt API.
     const parking = controllerParkingTiles(controller, controllerInputSpot(controller).pos).length;
     const spots = Math.min(parking || CONTROLLER_UPGRADER_CAP, CONTROLLER_UPGRADER_CAP);
     const capacity = Game.rooms[roomName]?.energyCapacityAvailable ?? 300;
     const affordableWork = Math.max(1, buildUpgraderBody(capacity, 99, "containerFed").workParts);
-    return Math.min(engineCap, spots * affordableWork * UPGRADE_ENERGY_PER_WORK);
+    return Math.min(spots * affordableWork * UPGRADE_ENERGY_PER_WORK, gameCap);
   } catch {
-    return engineCap;
+    return gameCap;
   }
 }
 
@@ -806,20 +812,74 @@ export function detectBankSources(): PlannerSource[] {
 }
 
 /**
- * Physical energy room remaining in a room's storage bank. Infinity when there
- * is no live storage to read (harness/unit paths keep the old "soak totalSupply"
- * behavior unchanged). This is the storage sink's true ceiling: while the bank
- * has room it can soak any remote surplus (storage is the hub - owner 2026-07-19
- * "consumption takes from the storage, so it IS a viable sink for remotes");
- * once it reaches ~0 the warchest is topped out and mining beyond the other
- * sinks' capacity has no home, which is exactly the owner's storage-full defund
- * trigger (selectProducers drops whole corps when mining > total sink capacity).
+ * THE BANK'S TWO-SIDED PRESSURE for a room, off ONE live storage read (owner
+ * 2026-08-05: "model the energy in the storage as a source and the ullage as
+ * a sink"). `bank.bankPressure` is the law; this is its world lens - the
+ * stock becomes the surplus draw the bank OFFERS and the ullage becomes the
+ * rate it can ACCEPT, from the same store at the same instant, so a room's
+ * two halves can never be read a tick or a formula apart.
+ *
+ * The SINK half is the absorb law over the ullage (ullage/1500): while the
+ * bank has real room the rate dwarfs supply and it soaks any remote surplus
+ * (storage is the hub - owner 2026-07-19 "consumption takes from the storage,
+ * so it IS a viable sink for remotes"); as it tops out the rate tapers to ~0
+ * and mining beyond the other sinks' capacity has no home, which is exactly
+ * the storage-full defund trigger (selectProducers drops whole corps when
+ * mining > total sink capacity; routeToSinks demotes the unrouted tail).
+ *
+ * Undefined without a live storage to read (harness/unit paths), which the
+ * sink call site resolves to Infinity - the uncapped soak, unchanged. Not
+ * gated on `storage.my`, matching the `storageRoomRemaining` read it replaced
+ * on the sink side; detectBankSources keeps its own `.my` gate on the source
+ * side. That asymmetry is PRE-EXISTING and deliberate to preserve here (a
+ * foreign storage presenting sink capacity is its own question - we cannot
+ * transfer into one, so it arguably should present zero, but changing it is a
+ * behavior change and belongs with the evidence that motivates it).
  */
-export function storageRoomRemaining(roomName: string): number {
-  if (typeof Game === "undefined" || !Game.rooms) return Infinity;
+export function storageBankPressure(roomName: string): BankPressure | undefined {
+  if (typeof Game === "undefined" || !Game.rooms) return undefined;
   const storage = Game.rooms[roomName]?.storage;
-  if (!storage) return Infinity;
-  return storage.store.getFreeCapacity(RESOURCE_ENERGY) ?? Infinity;
+  if (!storage) return undefined;
+  const reserveTarget = resolveReserveTarget(typeof Memory !== "undefined" ? Memory.warchestTarget : undefined);
+  return bankPressure(
+    storage.store?.[RESOURCE_ENERGY] ?? 0,
+    storage.store?.getFreeCapacity?.(RESOURCE_ENERGY) ?? Infinity,
+    reserveTarget
+  );
+}
+
+/**
+ * Rooms holding a live OWNED terminal (spec 58 phase 3) - THE lens that arms
+ * the cross-hub transfer edge. One home, three readers with one answer: the
+ * planner's gate (ColonyProblem.terminalRooms via buildColonyProblem), the
+ * infra pricing (one hub tender per terminal room), and the host's propose
+ * context (CommissionHost.liveProblem) - so "which rooms can send" and "what
+ * we pay to staff their hubs" can never disagree. Empty in a harness and in
+ * every live colony until ConstructionCorp learns to place terminals, which
+ * keeps the whole executor dark until a terminal actually stands.
+ */
+export function detectTerminalRooms(): string[] {
+  if (typeof Game === "undefined" || !Game.rooms) return [];
+  const rooms: string[] = [];
+  for (const roomName in Game.rooms) {
+    if (Game.rooms[roomName].terminal?.my) rooms.push(roomName);
+  }
+  return rooms.sort();
+}
+
+/**
+ * The CONTINUOUS (wrap-around) linear room distance - the exact distance the
+ * engine's calcTransactionCost charges (Game.map.getRoomLinearDistance with
+ * `continuous: true`), which is the ColonyProblem.roomDist CONTRACT. Falls
+ * back to the non-continuous RoomDiscovery lens only where Game.map is absent
+ * (harness); on a private mockup world the two agree everywhere anyway
+ * because there is no seam to wrap.
+ */
+export function continuousRoomDistance(a: string, b: string): number {
+  if (typeof Game !== "undefined" && Game.map?.getRoomLinearDistance) {
+    return Game.map.getRoomLinearDistance(a, b, true);
+  }
+  return roomLinearDistance(a, b);
 }
 
 /** Energy standing in a room's storage (0 without one; harness-safe 0). */
@@ -1181,8 +1241,9 @@ export function buildColonyProblem(
   // withdraw the warchest AND deposit to it - and the refill claim
   // (storageRefillReserve) is nonzero only BELOW the target, where no bank
   // source exists, so claim-and-drain can never coexist either. The storage
-  // sink's capacity is its physical room remaining, so a topped-out bank
-  // presents zero room and the surplus mining is defunded rather than rotted.
+  // sink's capacity is the absorb law over its physical room remaining
+  // (storageAbsorbRate, spec 58), so a topping-out bank tapers to zero rate
+  // and the surplus mining is defunded rather than rotted.
   const roomsWithStorage = new Set<string>();
   for (const sink of graph.getSinks()) {
     if (sink.type === "storage") roomsWithStorage.add(sink.position.roomName);
@@ -1431,12 +1492,22 @@ export function buildColonyProblem(
                 : Number.POSITIVE_INFINITY
             )
           : kind === "storage"
-          ? // Soak the surplus, but only up to the bank's PHYSICAL room remaining:
-            // a topped-out storage presents zero capacity, which is the owner's
-            // defund trigger (mining beyond total sink capacity has no home).
-            // While it has room this is min(totalSupply, huge) = totalSupply, so
-            // the old "soak excess" behavior is unchanged until the bank fills.
-            Math.max(0, Math.min(totalSupply, storageRoomRemaining(sink.position.roomName)))
+          ? // Soak the surplus, but only as fast as the bank's remaining room
+            // can absorb it: the SINK half of the storage's two-sided pressure
+            // (spec 58 + the 2026-08-05 pair - bank.bankPressure over
+            // primitives.storageAbsorbRate = ullage/1500, the mirror of the
+            // stock/1500 the SOURCE half drains by). The same read also yields
+            // the bank source's rate (detectBankSources), so a room's give and
+            // take can never be a formula apart. Far from full the absorb rate
+            // dwarfs supply, so min(totalSupply, huge) = totalSupply and the
+            // old "soak excess" behavior is unchanged; over the last
+            // ~1500xSupply energy of room the sink RATE tapers linearly to
+            // zero, so mining is defunded source by source (dependency chain)
+            // instead of cliffing whole-fleet on the last joule. A topped-out
+            // storage presents zero capacity - the owner's defund trigger
+            // (mining beyond total sink capacity has no home). No live
+            // storage to read (harness) stays Infinity -> unchanged.
+            Math.max(0, Math.min(totalSupply, storageBankPressure(sink.position.roomName)?.sink ?? Infinity))
           : controllerRoutingCapacity(
               sink,
               totalSupply,
@@ -1532,6 +1603,10 @@ export function buildColonyProblem(
     const room = Game.rooms[roomName];
     if (room && portPosts(room).length > 0) portRooms.add(roomName);
   }
+  // TERMINAL ROOMS (spec 58 phase 3): the lens that arms the cross-hub
+  // transfer edge AND prices its standing hub tender - one read for both, so
+  // the plan can never emit a transfer it did not pay to staff.
+  const terminalRooms = detectTerminalRooms();
   const infraPartsPerTick = infraSpawnLoad(
     pricedRelay,
     roomsWithStorage.size,
@@ -1539,7 +1614,8 @@ export function buildColonyProblem(
     linkFedRooms,
     1,
     guardedRooms.size,
-    portRooms.size
+    portRooms.size,
+    terminalRooms.length
   );
   // Same details, priced in ENERGY - the second currency the spawn sink
   // needs (see the two-pass solve in solveColony).
@@ -1550,7 +1626,8 @@ export function buildColonyProblem(
     linkFedRooms,
     1,
     guardedRooms.size,
-    portRooms.size
+    portRooms.size,
+    terminalRooms.length
   );
   const infraInputs = {
     pricedRelay,
@@ -1565,6 +1642,12 @@ export function buildColonyProblem(
     assembly,
     spawns,
     sources, sinks, dist, infraPartsPerTick, infraEnergyPerTick, infraInputs, depositPorts,
+    // The transfer edge's gate + its fee input (spec 58 phase 3). Present
+    // even when empty: the CONTRACT is continuous wrap-around distance, and
+    // an always-present roomDist means canTransfer's double gate reduces to
+    // the terminalRooms test alone on live worlds.
+    terminalRooms,
+    roomDist: continuousRoomDistance,
     ...(fielded ? { fielded } : {}) };
 }
 
@@ -1580,6 +1663,37 @@ export function buildColonyProblem(
  * primitives *_ENERGY_PER_WORK constants (one formula home), floored at 1 so
  * every published corp fields at least one body.
  */
+/**
+ * Publish the plan's CROSS-HUB TERMINAL TRANSFERS (spec 58 phase 3):
+ * Memory.terminalTransfers, keyed by sending room, each route the destination
+ * room + the SPEND rate at the source (the fee is inside it - what leaves the
+ * bank). Written EVERY solve, including as {} when no transfers are planned,
+ * so a dropped transfer clears its entry instead of a stale route sending
+ * forever (the same always-write rule controllerAllocations follows).
+ *
+ * The destination room comes from the sink's POSITION on the problem - the
+ * plan's own sink accumulator carries no room, and parsing it from the sink
+ * id would be an id-space crime (ONTOLOGY §5). Exported for direct unit
+ * testing; pure but for the Memory write, which no-ops in a harness without
+ * Memory staged.
+ */
+export function publishTerminalTransfers(
+  plan: Pick<ReturnType<typeof planColony>, "haulers">,
+  problem: Pick<ColonyProblem, "sinks">
+): void {
+  if (typeof Memory === "undefined") return;
+  const sinkRoomById = new Map(problem.sinks.map(s => [s.id, s.pos.roomName]));
+  const byFrom: Record<string, { to: string; rate: number }[]> = {};
+  for (const h of plan.haulers) {
+    if (!h.transfer) continue;
+    const from = bankRoomFromId(h.sourceId);
+    const to = sinkRoomById.get(h.sinkId);
+    if (!to || h.flowRate <= 1e-9) continue;
+    (byFrom[from] ??= []).push({ to, rate: h.flowRate });
+  }
+  Memory.terminalTransfers = byFrom;
+}
+
 function publishRoster(plan: ReturnType<typeof planColony>, linkServedIds: ReadonlySet<string> = new Set()): void {
   if (typeof Memory === "undefined") return;
   const corps: Record<string, unknown>[] = [];
@@ -1850,6 +1964,7 @@ export function solveColony(
   // plan-vs-fielded roster so the gauge sees no phantom walking haulers.
   const linkServedIds = new Set(problem.sources.filter(s => s.haulPos).map(s => s.id));
   publishRoster(plan, linkServedIds);
+  publishTerminalTransfers(plan, problem);
   const commissions = commissionsFromPlan(problem, plan);
 
   const miners: MinerAssignment[] = plan.miners.map(m => ({

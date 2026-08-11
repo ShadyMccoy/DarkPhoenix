@@ -57,6 +57,7 @@ import {
   runCommissionHost,
   runIncrementalAnalysis,
   runLinks,
+  runTerminals,
   runSpawnPlacementStep,
   runSpawnScheduling,
   runSpawningCorps,
@@ -270,6 +271,10 @@ export const loop = ErrorMapper.wrapLoop(() => {
 
   // Fire each room's source links at the core link (RCL 5+; no-op before links).
   bulkhead("links", () => runLinks());
+
+  // Execute the plan's cross-hub terminal transfers (spec 58 phase 3).
+  // Intent-only and usually a no-op (Memory.terminalTransfers empty).
+  bulkhead("terminals", () => runTerminals());
 
   // Fire each room's towers at the closest hostile (RCL 3+; no-op before towers).
   bulkhead("towers", () => runTowers());

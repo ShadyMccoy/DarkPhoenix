@@ -34,6 +34,33 @@ it subscribes to the raw console channel and PRINTS the swallowed script-load
 error. `scripts/setup-test-env.sh` documents and rebuilds all three artifacts
 (isolated-vm, the driver's native addon, the runtime bundle).
 
+**A GREEN probe does not mean the grid baseline reproduces** (measured
+2026-08-05, spec 46; ~1h). With `setup:test-env` + `probe:mockup` both clean
+and the unit suite and all three regression integration tests green, a full
+`npm run grid` still reported `bot level dropped: 4 -> 0` with 21
+baseline-green cells regressed — mostly `timeout`, spanning avenues the
+change under test could not touch. Re-running the regressed subset ALONE
+(11 cells, no batch load) reproduced 9 of them, so it was not merely a
+full-run bucket drain.
+
+The decisive move is the BASE COMPARISON, and it is cheap:
+
+```
+git checkout HEAD~1 -- src/ && npm run build      # base bot, same sandbox
+npx ts-node -P tsconfig.test.json scripts/grid.ts --cell <the,regressed,ids>
+git checkout HEAD -- src/ && npm run build        # restore
+```
+
+The base commit failed the SAME 9 cells with the SAME assertions and the same
+`BOT LEVEL: -1` — the sandbox's own timing/CPU, not the diff. A grid verdict
+is only evidence about a change when the base scores differently in the same
+sandbox; a raw red run here is unattributed. **Never ratchet the baseline
+DOWN to make such a run pass** — the baseline is the success metric, and a
+cell red only in this sandbox has earned nothing. Prefer targeted cells that
+actually exercise the change (they run in ~40s each and were green
+throughout), and report the full-grid result as unattributable rather than as
+a regression or a pass.
+
 Two more sandbox facts, hard-won the same session:
 
 - **Staged containers decay 5,000 hits on tick 1** (no `nextDecayTime` staged),

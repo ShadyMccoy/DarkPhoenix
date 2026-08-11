@@ -903,11 +903,12 @@ describe("economy/CorpPlanner", () => {
     // + reserver + container) or fully defunded - never a miner mining into a
     // complete container with no hauler (#19). The trigger is "no home for the
     // energy": total sink capacity < total mined production. In the live
-    // economy this only bites once storage tops out (part 2A drops its
-    // capacity to physical room-remaining, ~0 when full) and the controller is
-    // at its spot cap - otherwise a sink always has room and remotes keep
-    // running ("generally we want our remotes running"). Worst net-per-part
-    // first, keep at least one so the colony never strands itself.
+    // economy this only bites once storage tops out (the adapter tapers its
+    // capacity by the absorb law, ullage/1500 -> ~0 when full - spec 58) and
+    // the controller is at its cap - otherwise a sink always has room and
+    // remotes keep running ("generally we want our remotes running"). Worst
+    // net-per-part first, keep at least one so the colony never strands
+    // itself.
     it("defunds the worst-density source whole-corp when sink capacity cannot absorb the mining", () => {
       const plan = planColony(
         problem({
@@ -948,6 +949,100 @@ describe("economy/CorpPlanner", () => {
       );
       expect(plan.miners.map(m => m.sourceId).sort()).to.deep.equal(["far", "near"]);
       expect(plan.sourceVerdicts.every(v => v.verdict !== "no-sink")).to.equal(true);
+    });
+  });
+
+  describe("consumption-constrained economy (spec 58: RCL8 controller cap + full storage)", () => {
+    // The scenario the colony has never faced: an RCL8 room whose controller
+    // is game-capped at 15 e/t and whose storage is FULL (the adapter's
+    // absorb law prices its sink at ullage/1500 -> ~0). Consumption, not
+    // production, is the binding constraint. NO FLAG anywhere - the reaction
+    // must fall out of the dependency chain alone: a hauler needs a source
+    // AND a sink, a miner needs a hauler with somewhere to deliver, so the
+    // plan contracts to exactly the consumption the sinks still admit
+    // (controller 15 + spawn overhead, fed from the bank) and the mined
+    // fleet follows the storage sink's absorb rate down to zero.
+    const world = (storeCapacity: number) =>
+      problem({
+        spawns: [spawn("S", 0)],
+        // four profitable sources (40 e/t of candidate mining) + the hub's
+        // bank source (the adapter sizes it to surplus + funded income; a
+        // fat stand-in - the storage is full, the warchest brims)
+        sources: [
+          source("m1", 10, 10),
+          source("m2", 20, 10),
+          source("m3", 30, 10),
+          source("m4", 40, 10),
+          stock("bank-home", 2, 100)
+        ],
+        sinks: [
+          sink("spawn-S", "spawn", 0, 100, 10),
+          sink("ctrl", "controller", 5, 50, 15), // the RCL8 game cap, as the adapter delivers it
+          sink("store", "storage", 2, 1, storeCapacity)
+        ]
+      });
+
+    it("FULL storage (absorb 0): zero miners, zero mined haulers - consumption runs off the bank", () => {
+      const plan = planColony(world(0));
+      // no mined source is planned: their only home (the hub) admits nothing
+      expect(plan.miners, "no miner without a routed home").to.have.length(0);
+      expect(
+        plan.haulers.some(h => h.sourceId.startsWith("m")),
+        "no hauler out of a mined source - nowhere to deliver"
+      ).to.equal(false);
+      // nothing is silently dropped: every mined source wears a stamped verdict
+      for (const id of ["m1", "m2", "m3", "m4"]) {
+        const v = plan.sourceVerdicts.find(x => x.sourceId === id)!;
+        expect(["no-sink", "unrouted"], `${id} is stamped, not silent`).to.include(v.verdict);
+      }
+      // the consumers still run - fed from the BANK, sized to their own caps
+      const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
+      const spawnSink = plan.sinks.find(s => s.sinkId === "spawn-S")!;
+      expect(ctrl.allocated).to.be.closeTo(15, 1e-6);
+      expect(spawnSink.allocated).to.be.closeTo(10, 1e-6);
+      expect(ctrl.sources.every(s => s.sourceId === "bank-home")).to.equal(true);
+      // the whole planned haul is the consumption legs: nothing beyond 15+10
+      const totalHauled = plan.haulers.reduce((s, h) => s + h.flowRate, 0);
+      expect(totalHauled).to.be.at.most(25 + 1e-6);
+    });
+
+    it("PARTIAL ullage (absorb 6 e/t): mining contracts to exactly what the hub still absorbs", () => {
+      const plan = planColony(world(6));
+      // one survivor - the nearest - shipping the hub's absorb rate, not its full 10
+      expect(plan.miners.map(m => m.sourceId), "the nearest source alone survives").to.deep.equal(["m1"]);
+      const intoStore = plan.haulers
+        .filter(h => h.sinkId === "store")
+        .reduce((s, h) => s + h.flowRate, 0);
+      expect(intoStore, "deposits sized to the absorb rate").to.be.closeTo(6, 1e-6);
+      const store = plan.sinks.find(s => s.sinkId === "store")!;
+      expect(store.allocated).to.be.closeTo(6, 1e-6);
+    });
+
+    it("the mined fleet is MONOTONE in the sink side (the dependency chain, no flag)", () => {
+      const minersAt = (cap: number) => planColony(world(cap)).miners.length;
+      expect(minersAt(0)).to.equal(0);
+      expect(minersAt(6)).to.equal(1);
+      expect(minersAt(1000), "room to absorb -> every profitable source runs").to.equal(4);
+    });
+
+    it("EVERY hauler has a live source AND a sink that admitted its flow (the structural invariant)", () => {
+      for (const cap of [0, 6, 1000]) {
+        const w = world(cap);
+        const plan = planColony(w);
+        const sourceIds = new Set(w.sources.map(s => s.id));
+        for (const h of plan.haulers) {
+          expect(h.flowRate, `hauler ${h.sourceId}->${h.sinkId} carries real flow`).to.be.greaterThan(1e-9);
+          expect(sourceIds.has(h.sourceId), `hauler ${h.sourceId}->${h.sinkId} has a live source`).to.equal(true);
+          const sinkAcc = plan.sinks.find(s => s.sinkId === h.sinkId);
+          expect(sinkAcc, `hauler ${h.sourceId}->${h.sinkId} has a planned sink`).to.not.equal(undefined);
+          expect(sinkAcc!.allocated + 1e-6, "the sink actually admitted the flow").to.be.at.least(h.flowRate);
+        }
+        // and no mined source ships more than it produces
+        for (const src of w.sources.filter(s => !s.transient)) {
+          const out = plan.haulers.filter(h => h.sourceId === src.id).reduce((s, h) => s + h.flowRate, 0);
+          expect(out, `${src.id} ships within its rate`).to.be.at.most(src.rate + 1e-6);
+        }
+      }
     });
   });
 

@@ -17,7 +17,7 @@
 import { expect } from "chai";
 import { setupGlobals } from "../mock";
 import { BodyHints, CorpKind } from "../../../src/economy/CorpKind";
-import { PORT_TENDER_CARRY } from "../../../src/economy/primitives";
+import { HUB_TENDER_CARRY, PORT_TENDER_CARRY } from "../../../src/economy/primitives";
 import {
   UpgraderStrategy,
   buildGuardBody,
@@ -70,6 +70,10 @@ function referenceBody(
     // builder as every other mover, defaulting to PORT_TENDER_CARRY.
     case "porttender":
       return buildTankerBody(bodyParam ?? PORT_TENDER_CARRY, energyBudget, false).body;
+    // The link corp's HUB TENDER (spec 58 phase 3): the storage<->terminal
+    // post - the port tender's shape at its own default CARRY.
+    case "hubmanager":
+      return buildTankerBody(bodyParam ?? HUB_TENDER_CARRY, energyBudget, false).body;
     case "feeder": {
       const carry = Math.max(1, Math.min(bodyParam ?? 4, Math.floor(energyBudget / 100), 25));
       const feederBody: BodyPartConstant[] = [];
@@ -139,6 +143,7 @@ const CASES: Case[] = [
   { kind: extensionTenderKind as CorpKind, role: "tanker" },
   { kind: linkKind as CorpKind, role: "feeder" },
   { kind: linkKind as CorpKind, role: "porttender" },
+  { kind: linkKind as CorpKind, role: "hubmanager" },
   { kind: scoutKind as CorpKind, role: "scout" },
   { kind: reservationKind as CorpKind, role: "reserver" },
   { kind: claimKind as CorpKind, role: "claimer" },

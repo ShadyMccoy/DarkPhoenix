@@ -270,6 +270,29 @@ export const UPGRADE_ENERGY_PER_WORK = 1; // UPGRADE_CONTROLLER_POWER: 1 energy/
 export const BUILD_ENERGY_PER_WORK = 5; // BUILD_POWER: 5 energy/tick per WORK
 
 /**
+ * The game's RCL8 upgrade throttle (Screeps CONTROLLER_MAX_UPGRADE_PER_TICK):
+ * a level-8 controller accepts at most 15 energy/tick, no matter the fleet.
+ * Below 8 the game imposes no rate cap.
+ */
+export const CONTROLLER_MAX_UPGRADE_PER_TICK = 15;
+
+/**
+ * The controller's game-rule upgrade ceiling (energy/tick) by level - the
+ * spec 58 consumption constraint's other half: an RCL8 room's controller sink
+ * can never absorb more than 15 e/t, so with a full storage the whole economy
+ * is bounded by consumption and the plan must contract to it. Unknown level
+ * (no vision, partial mock) is uncapped: never fabricate a cap from a read we
+ * don't have.
+ *
+ * TRANSPORT_NETWORK §11 derives the same cap independently and calls the
+ * regime it creates "the RCL8 inversion": below 8 a controller is an unbounded
+ * sink, at 8 that ends and the room's economics invert into net export.
+ */
+export function controllerMaxUpgradeRate(level: number | undefined): number {
+  return level !== undefined && level >= 8 ? CONTROLLER_MAX_UPGRADE_PER_TICK : Infinity;
+}
+
+/**
  * Extra WORK parts on every planned builder beyond the supply-sized need
  * (owner 2026-08-05: "our builders are kind of small. The limit might be on
  * the hauling but like why not throw an extra WORK or two on these guys?").
@@ -549,6 +572,148 @@ export function staffsPost(ttl: number | undefined, bodyParts: number, travelTic
  */
 export function sustainableConsumptionRate(stock: number, inflow = 0): number {
   return inflow + stock / CREEP_LIFETIME;
+}
+
+/**
+ * The ABSORB half of the ONE drain law (spec 58, owner 2026-08-05: "take the
+ * storage ullage / 1500 as the sink rate cap it exposes for the planner"): the
+ * energy/tick a storage bank can accept, given its remaining physical room
+ * (ullage). The exact mirror of sustainableConsumptionRate's stock/1500 term -
+ * stock drains over one creep generation, room fills over one - so the sink a
+ * fleet is sized against outlives the fleet it sizes.
+ *
+ * This is what makes the CONSUMPTION-CONSTRAINED regime a taper instead of a
+ * cliff: the old sink capacity (min(supply, absolute-room)) admitted the FULL
+ * mining rate until the last ~joule of room, then dropped to zero - whole
+ * corps defunded in one solve. Under the absorb law the sink rate falls
+ * linearly over the final ~1500xRate energy of room, so the planner's
+ * dependency chain (a hauler needs a source AND a sink; a miner needs a
+ * routed hauler) retires the mined fleet source by source until inflow
+ * matches what consumption actually drains. No "storage full" flag anywhere.
+ * Infinity (no live storage to read - harness paths) passes through, keeping
+ * the uncapped soak.
+ */
+export function storageAbsorbRate(ullage: number): number {
+  return Math.max(0, ullage) / CREEP_LIFETIME;
+}
+
+// ---------------------------------------------------------------------------
+// TERMINAL TRANSFER - the price of inter-room energy (spec 58 phase 1)
+// ---------------------------------------------------------------------------
+
+/** Engine constants (Screeps TERMINAL_*). */
+export const TERMINAL_CAPACITY = 300_000;
+export const TERMINAL_COOLDOWN = 10;
+export const TERMINAL_MIN_SEND = 100;
+/** Distance-decay constant in the engine's transfer-cost formula. */
+export const TERMINAL_COST_RANGE = 30;
+
+/**
+ * The engine's transfer FEE for sending `amount` energy across
+ * `roomDistance` rooms (Game.market.calcTransactionCost):
+ *
+ *     fee = amount x (1 - exp(-distance / 30))
+ *
+ * The fee is charged ON TOP of the amount - the sender loses amount + fee,
+ * the receiver gains amount - so a transfer is a PRICED edge, not free
+ * routing. Linear in the amount, so it prices exactly as a per-unit tax (the
+ * linkTransferTax shape) and the value router can compare a transfer against
+ * every other use of the same energy.
+ *
+ * Deliberately NOT rounded: the engine ceils at the moment of sending, but a
+ * planning ledger that ceils disagrees with itself by a fraction of a body
+ * (the carryPartsFor rule). The runner rounds when it actually sends.
+ */
+export function terminalSendCost(amount: number, roomDistance: number): number {
+  return amount * (1 - Math.exp(-Math.max(0, roomDistance) / TERMINAL_COST_RANGE));
+}
+
+/**
+ * Energy the SENDER must spend for `delivered` energy to arrive: the amount
+ * plus its fee. This - not the amount that lands - is what the plan charges
+ * the source hub, so a transfer competes honestly against local consumption.
+ */
+export function terminalSpendForDelivery(delivered: number, roomDistance: number): number {
+  return delivered + terminalSendCost(delivered, roomDistance);
+}
+
+/**
+ * Share of spent energy that actually ARRIVES across `roomDistance`
+ * (1 at distance 0, falling monotonically). The efficiency of the edge -
+ * ~87% at 5 rooms, ~78% at 10, ~61% at 30, ~54% at 60 - which is why a near
+ * hub beats a far one by a wide margin and why the fee belongs in the PLAN
+ * rather than hidden in the runner.
+ */
+export function terminalDeliveredFraction(roomDistance: number): number {
+  return 1 / (1 + (1 - Math.exp(-Math.max(0, roomDistance) / TERMINAL_COST_RANGE)));
+}
+
+/**
+ * Sustained e/t a terminal pair can move at one send per cooldown. Pinned to
+ * show the cooldown is NOT the binding constraint: even the MINIMUM send is
+ * 10 e/t and a full one is 30,000, so what actually limits a transfer is how
+ * fast the terminal is restocked from its storage - a hauling problem, not an
+ * engine one.
+ */
+export function terminalThroughput(sendAmount: number = TERMINAL_CAPACITY): number {
+  return sendAmount / TERMINAL_COOLDOWN;
+}
+
+/**
+ * Ticks of planned outbound flow the hub tender keeps STAGED in the terminal
+ * (spec 58 phase 3). One solve cadence: the plan re-publishes every ~50 ticks,
+ * so staging one cadence of flow means the terminal never runs dry between
+ * solves while never holding more than the plan has actually committed to
+ * sending. Five cooldowns' worth of margin over the per-send need (rate x 10)
+ * also covers the engine's fee at any realistic empire radius (<= 28% out to
+ * 10 rooms) without the stage law needing to know the distance.
+ */
+export const TERMINAL_STAGE_TICKS = 50;
+
+/**
+ * Energy the hub tender holds staged in the terminal for a planned OUTBOUND
+ * transfer rate (spec 58 phase 3) - the ONE direction law for the
+ * storage<->terminal post:
+ *
+ *   deficit = terminalStageTarget(outboundRate) - terminalEnergy
+ *   deficit > 0 -> load  (storage -> terminal: keep the sender stocked)
+ *   deficit < 0 -> drain (terminal -> storage: arrivals land in the bank)
+ *
+ * With no outbound plan the target is 0, so a pure DESTINATION hub drains
+ * everything that arrives - leg 3 of the transfer, the leg that completes it -
+ * and a RELAY hub holds exactly its outbound stage while draining the excess
+ * arrivals. One signed number instead of a mode flag. Floored at one
+ * engine-minimum send so a tiny planned rate still stages something sendable.
+ */
+export function terminalStageTarget(outboundRate: number): number {
+  if (outboundRate <= 0) return 0;
+  return Math.max(TERMINAL_MIN_SEND, outboundRate * TERMINAL_STAGE_TICKS);
+}
+
+/**
+ * CARRY parts of the parked hub tender - the storage<->terminal post (spec 58
+ * phase 3). Same sizing argument as the port tender: a PARKED shuttle
+ * transfers its whole store every tick, so 8 CARRY (400/tick) covers the
+ * maximum surplus draw (MAX_SURPLUS_DRAW, 100 e/t) four times over and any
+ * realistic arrival rate besides.
+ */
+export const HUB_TENDER_CARRY = 8;
+
+/** Standing body of one hub tender: CARRY plus its MOVE share at the tanker
+ *  gait (travels to post empty - same shape law as PORT_TENDER_PARTS). */
+export const HUB_TENDER_PARTS = HUB_TENDER_CARRY + Math.ceil(HUB_TENDER_CARRY / TANKER_CARRY_PER_MOVE_PLAIN);
+
+/**
+ * ONE terminal room's standing hub tender, parts/tick - the terminal term of
+ * {@link infraSpawnLoad}. Priced like the port tender: the full-budget body
+ * over the lifetime the spawn rebuilds it on, declared where the plan says a
+ * terminal exists (the `terminalRooms` lens) so the per-corp declaration and
+ * the aggregate stay one fact. An idle-terminal room prices a body its demand
+ * side may not buy (the runtime gate is duty, not existence) - an accepted,
+ * F2-visible residual, the same acceptance the port tender made.
+ */
+export function hubTenderSpawnLoad(): number {
+  return HUB_TENDER_PARTS / CREEP_LIFETIME;
 }
 
 /**
@@ -887,7 +1052,11 @@ export function infraSpawnLoad(
    * tender each (the drain that keeps the port's mouth open). Defaults to 0, so
    * a caller that does not know the link topology prices exactly as it did
    * before the port tender existed. */
-  portedRoomCount = 0
+  portedRoomCount = 0,
+  /** Rooms holding an owned TERMINAL - one standing hub tender each (the
+   * storage<->terminal post, spec 58 phase 3). Defaults to 0: a caller that
+   * does not know the terminal topology prices exactly as before. */
+  terminalRoomCount = 0
 ): number {
   // Feeder + tender are DEPOT movers: they exist only in rooms with a built
   // storage (`depotRoomCount`). Charging them unconditionally taxed early
@@ -915,7 +1084,8 @@ export function infraSpawnLoad(
   // colony pays for defense it never fields.
   const guards = guardedRoomCount * roomGuardSpawnLoad();
   const portTenders = portedRoomCount * portTenderSpawnLoad();
-  return feeder + tender + reservers + guards + portTenders;
+  const hubTenders = terminalRoomCount * hubTenderSpawnLoad();
+  return feeder + tender + reservers + guards + portTenders + hubTenders;
 }
 
 /**
@@ -951,7 +1121,9 @@ export function infraSpawnEnergy(
    * tender each (the drain that keeps the port's mouth open). Defaults to 0, so
    * a caller that does not know the link topology prices exactly as it did
    * before the port tender existed. */
-  portedRoomCount = 0
+  portedRoomCount = 0,
+  /** Rooms holding an owned TERMINAL - the parts twin's term, in energy. */
+  terminalRoomCount = 0
 ): number {
   const feederDist = linkFedRoomCount > 0 ? 1 : FEEDER_NOMINAL_DISTANCE;
   // Spec 45 volley-service floor - the SAME line as the parts twin above.
@@ -967,7 +1139,8 @@ export function infraSpawnEnergy(
   const reservers = reserverSpawnLoad(remoteRoomCount * RESERVER_PARTS_PER_ROOM) * CLAIM_MOVE_PER_PART;
   const guards = guardedRoomCount * roomGuardSpawnLoad() * ATTACK_MOVE_PER_PART;
   const portTenders = portedRoomCount * portTenderSpawnLoad() * CARRY_MOVE_PER_PART;
-  return feeder + tender + reservers + guards + portTenders;
+  const hubTenders = terminalRoomCount * hubTenderSpawnLoad() * CARRY_MOVE_PER_PART;
+  return feeder + tender + reservers + guards + portTenders + hubTenders;
 }
 
 /**
@@ -1232,18 +1405,6 @@ export const LINK_FIRE_THRESHOLD = 100;
 
 /** Engine: a link holds at most this much energy - the largest possible volley. */
 export const LINK_CAPACITY = 800;
-
-/**
- * Engine: a LEVEL-8 controller absorbs at most this much energy per tick
- * (CONTROLLER_MAX_UPGRADE_PER_TICK), mirrored like SPAWN_LIMITS/TOWER_LIMITS
- * (ground truth, pinned by test). A hard throttle no fleet size lifts -
- * found live t72918307, the colony's first RCL8 window: the plan allocated
- * 100 e/t against this 15 e/t pipe, delivery pinned at exactly 15.00, and
- * the un-absorbable remainder defaulted to the bank (+33.10 e/t - the E4
- * idle-capital mountain's mechanical cause at RCL8). Boosts can raise the
- * engine limit; the plan models the unboosted floor until labs exist.
- */
-export const RCL8_UPGRADE_CAP = 15;
 
 /**
  * CARRY parts that clear one FULL link volley in a single parked
@@ -1741,7 +1902,7 @@ export const DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK = 30;
  * WHY THIS STOPPED BEING A CONSTANT (owner 2026-08-06, *"let's build the edge
  * links"*). A flat 30 is safe for the ports we have - measured t72811683,
  * PORT A at range 14 fires 57.1 and carries 30 + 10 (rho 0.70), PORT B at
- * range 13 fires 61.5 and carries 40 (rho 0.65), both inside spec 47's buffer
+ * range 13 fires 61.5 and carries 40 (rho 0.65), both inside spec 58's buffer
  * band. It is NOT safe for a link placed at the far edge of the room:
  *
  *     edge (47,25)  range 12  fires 66.7  ->  30 routed = rho 0.45  fine
@@ -1749,7 +1910,7 @@ export const DEPOSIT_PORT_UNKNOWN_RANGE_FALLBACK = 30;
  *     edge ( 2,25)  range 33  fires 24.2  ->  30 routed = rho 1.24  SATURATED
  *
  * A port routed 30 e/t into a 24.2 e/t drain backs up by construction, and
- * that is the `rho >= 1.0` band where no buffer helps (spec 47: a buffer fixes
+ * that is the `rho >= 1.0` band where no buffer helps (spec 58: a buffer fixes
  * burstiness, never a rate deficit). Range-awareness is therefore the
  * PREREQUISITE for edge links, not a refinement of them.
  *
