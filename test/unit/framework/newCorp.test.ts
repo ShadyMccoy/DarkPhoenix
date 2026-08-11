@@ -47,6 +47,7 @@ const runLog: string[] = [];
 
 const beaconKind: CorpKind<BeaconCorp> = {
   kind: "beacon",
+  account: "infra", // every kind declares its statement line at registration (spec 60 B)
   runOrder: 40,
   roles: {},
   propose(problem: ColonyProblem): Commission[] {

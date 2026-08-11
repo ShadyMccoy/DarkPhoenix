@@ -26,7 +26,21 @@
  * break-glass work (scripts/rescue-console.ts) `armSpawnContractBypass`
  * admits a counted number of naked calls - registered on the console as
  * `global.spawnContractBypass(n)`.
+ *
+ * SPEC 60 PHASE A - the purchase books itself at this door. contractSpawn
+ * is no longer a pass-through: on OK it accrues the cumulative spend ledger
+ * and files the forensic BlackBox "spawn" row itself, so a body that is not
+ * on the books is impossible to buy. (BootstrapCorp used to hand-book the
+ * ledger and file NO ring row, so the forensic ring and the account covered
+ * different creep populations - the 2026-08 audit's population gap.) The
+ * memory contract is enforced at the same door: a creep born without corpId
+ * or workType is unaccountable (orphan rescue skips it, the census misses
+ * it), so the seam throws before the engine is reached.
  */
+
+import { record as blackBox } from "../telemetry/BlackBox";
+import { accrueSpawnSpend } from "../telemetry/spawnLedger";
+import { bodyEnergyCost } from "../economy/primitives";
 
 /** True while contractSpawn is on the stack - the guard's pass condition. */
 let inContract = false;
@@ -55,22 +69,81 @@ export const CREATE_CREEP_MESSAGE =
   "see docs/ONTOLOGY.md §5-6.";
 
 /**
- * The one sanctioned physical spawn. Callers own the WHAT (body, name, opts -
- * including the ledger/receipt bookkeeping that must follow an OK); this seam
- * only proves to the guard that the call came through the contract.
+ * The error an unaccountable purchase gets: a creep born without corpId or
+ * workType is invisible to the census, skipped by orphan rescue, and missing
+ * from every per-corp book - so the contract refuses it before the engine is
+ * reached (spec 60 phase A).
+ */
+export const MEMORY_CONTRACT_MESSAGE =
+  "contractSpawn requires opts.memory.corpId and opts.memory.workType. The census, " +
+  "orphan rescue and every per-corp book key off them, so a creep missing either is " +
+  "unaccountable from birth. SpawningCorp.executeSpawn stamps both from the kind's " +
+  "roles declaration; see docs/specs/60-measurement-at-the-door.md phase A.";
+
+/**
+ * What the caller tells the books about a purchase. The buyer corp is NOT a
+ * field here - it is read from the enforced `opts.memory.corpId`, so the row's
+ * `corp` and the newborn's memory can never disagree (one input, not two).
+ */
+export interface PurchaseContext {
+  /**
+   * The role bought - the spend ledger's grain (spawnLedger's role -> account
+   * class join). Distinct from memory.workType, the work-dispatch stamp.
+   */
+  role: string;
+  /**
+   * Recovery-fleet purchase (methodology #10): accrues the scavenge
+   * sub-counter beside the role total, so the account can price the cure.
+   */
+  scavenge?: boolean;
+  /**
+   * Caller-owned context merged into the forensic "spawn" row - the
+   * SpawnDirector's agenda receipt (declared/want/grant/fill/pri/rank/why:
+   * budget-vs-debit facts this seam cannot know). Opaque here; the seam's own
+   * fields (spawn, role, corp, cost, parts) always win a key collision.
+   */
+  receipt?: Record<string, unknown>;
+}
+
+/**
+ * The one sanctioned physical spawn - and, since spec 60 phase A, the one
+ * place a purchase is BOOKED. On OK this seam itself accrues the cumulative
+ * spend ledger (the account's capture-bounded spend side) and files the
+ * BlackBox "spawn" row (the forensic ring), from the body it just bought -
+ * callers stop hand-booking, so the two records cannot cover different
+ * populations. A failed spawn books nothing.
  */
 export function contractSpawn(
   spawn: StructureSpawn,
   body: BodyPartConstant[],
   name: string,
-  opts?: SpawnOptions
+  opts: SpawnOptions,
+  purchase: PurchaseContext
 ): ScreepsReturnCode {
+  const memory = opts.memory as { corpId?: string; workType?: string } | undefined;
+  if (!memory?.corpId || !memory?.workType) {
+    throw new Error(MEMORY_CONTRACT_MESSAGE);
+  }
   inContract = true;
+  let result: ScreepsReturnCode;
   try {
-    return spawn.spawnCreep(body, name, opts);
+    result = spawn.spawnCreep(body, name, opts);
   } finally {
     inContract = false;
   }
+  if (result === OK) {
+    const cost = bodyEnergyCost(body);
+    accrueSpawnSpend(purchase.role, cost, body.length, { scavenge: purchase.scavenge });
+    blackBox("spawn", {
+      ...purchase.receipt,
+      spawn: spawn.id,
+      role: purchase.role,
+      corp: memory.corpId,
+      cost,
+      parts: body.length
+    });
+  }
+  return result;
 }
 
 /**

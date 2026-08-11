@@ -37,6 +37,7 @@ export function legacyNodeId(roomName: string, sourceId: string): string {
 
 export const carryKind: CorpKind<CarryCorp> = {
   kind: "carry",
+  account: "evacuation", // moving mined energy is direct cost of mining (spec 60 B)
   runOrder: 20, // transport, after produce (10), before consume (30)
   roles: { hauler: { workType: "haul", deliversEnergy: true } },
 

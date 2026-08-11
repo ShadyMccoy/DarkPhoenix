@@ -77,6 +77,21 @@ const GET_SPAWN_DEMAND_DEBT = new Set([
   "execution/SpawnDirector.ts"
 ]);
 
+/**
+ * THE PURCHASE BOOKS ITSELF AT THE DOOR (spec 60 phase A). The spend ledger
+ * accrues and the forensic BlackBox "spawn" row is filed INSIDE contractSpawn,
+ * so a caller that hand-books either re-creates the population gap this
+ * closed: BootstrapCorp used to feed the ledger by hand and file no ring row,
+ * so the forensic ring and the account covered different creep populations.
+ * `accrueSpawnSpend(` may appear only at its definition and at the door;
+ * `"spawn"` rows may be authored only by the door. Both lists SHRINK ONLY.
+ */
+const ACCRUE_SPAWN_SPEND_ALLOWLIST = new Set([
+  "telemetry/spawnLedger.ts", // the definition
+  "corps/spawnContract.ts" // the one accrual site - the contract door
+]);
+const SPAWN_ROW_AUTHOR_ALLOWLIST = new Set(["corps/spawnContract.ts"]);
+
 describe("spawn-authority ratchet (spec 39 phase 0 - the cop lands first)", () => {
   const files = walk(SRC);
 
@@ -117,5 +132,38 @@ describe("spawn-authority ratchet (spec 39 phase 0 - the cop lands first)", () =
       paidOff,
       "these files no longer reference getSpawnDemand - remove them from GET_SPAWN_DEMAND_DEBT so the ratchet holds"
     ).to.deep.equal([]);
+  });
+
+  it("accrueSpawnSpend is called ONLY at the contract door - the purchase books itself (spec 60 A)", () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      if (!/accrueSpawnSpend\(/.test(stripComments(fs.readFileSync(f, "utf8")))) continue;
+      if (!ACCRUE_SPAWN_SPEND_ALLOWLIST.has(rel(f))) offenders.push(rel(f));
+    }
+    expect(
+      offenders,
+      "a file hand-books the spawn ledger - the purchase books itself inside contractSpawn (spec 60 phase A); " +
+        "passing a PurchaseContext is the whole contract"
+    ).to.deep.equal([]);
+  });
+
+  it('forensic "spawn" rows are authored ONLY by the contract door (one row per purchase)', () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = stripComments(fs.readFileSync(f, "utf8"));
+      if (!/(?:blackBox|record)\("spawn"/.test(src)) continue;
+      if (!SPAWN_ROW_AUTHOR_ALLOWLIST.has(rel(f))) offenders.push(rel(f));
+    }
+    expect(
+      offenders,
+      'a file files its own BlackBox "spawn" row - the contract door files the one row per purchase ' +
+        "(spec 60 phase A); pass director-side context through PurchaseContext.receipt instead"
+    ).to.deep.equal([]);
+  });
+
+  it("the booking allowlists point at files that exist (a rename must update the cop)", () => {
+    for (const f of [...ACCRUE_SPAWN_SPEND_ALLOWLIST, ...SPAWN_ROW_AUTHOR_ALLOWLIST]) {
+      expect(fs.existsSync(path.join(SRC, f)), `${f} missing - update the spec-60 booking allowlists`).to.equal(true);
+    }
   });
 });

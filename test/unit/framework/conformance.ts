@@ -10,6 +10,7 @@ import { expect } from "chai";
 import { Commission } from "../../../src/economy/Commission";
 import { CorpKind, runCorpTick } from "../../../src/economy/CorpKind";
 import { ColonyProblem } from "../../../src/economy/CorpPlanner";
+import { accountDeclarationErrors } from "../../../src/economy/accountCategory";
 
 export interface KindFixtures {
   /** A world in which the kind has something to do (auxiliaries: propose > 0). */
@@ -100,5 +101,12 @@ export function describeCorpKindConformance(kind: CorpKind, fx: KindFixtures): v
         expect(fx.commission.consumes.spawnPartsPerTick).to.be.closeTo(expectedParts, 1e-9);
       });
     }
+
+    it("declares its statement line - kind and every role resolve an AccountCategory (spec 60 B)", () => {
+      // Registration-only accounting: the income statement SUMS rows that
+      // cannot fail to exist, because a kind cannot pass conformance without
+      // naming the line it (and each of its roles) reports on.
+      expect(accountDeclarationErrors(kind)).to.deep.equal([]);
+    });
   });
 }

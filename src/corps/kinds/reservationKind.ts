@@ -53,6 +53,11 @@ export interface ReservationAssignment {
 
 export const reservationKind: CorpKind<ReservationCorp> = {
   kind: "reservation",
+  // Direct cost of mining, on a verifiable dependency (owner 2026-08-01:
+  // "reserving is an overhead applied to the gross mining"): the plan prices
+  // every source at the RESERVED yield (10 e/t vs 5 unreserved), so the
+  // reservation fleet is buying revenue - cost of goods, not general infra.
+  account: "reservation",
   runOrder: 40,
   roles: { reserver: { workType: "reserve" } },
 

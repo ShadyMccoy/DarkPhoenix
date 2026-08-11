@@ -43,6 +43,7 @@ export interface ControllerFeederAssignment {
 
 export const linkKind: CorpKind<LinkCorp> = {
   kind: "controllerFeeder",
+  account: "infra", // the hub's own logistics: feeder, port tender, hub manager (spec 60 B)
   // TWO roles, one owner: the feeder walks storage -> controller, the port
   // tender parks between a deposit port's buffer and its link. Distinct
   // workTypes so orphan rescue can tell them apart.

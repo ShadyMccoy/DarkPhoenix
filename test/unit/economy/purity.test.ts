@@ -141,6 +141,9 @@ describe("PLAN-layer purity (spec 17): economy/ is Game-free by construction", (
       "./CorpPlanner", "./primitives", "./Commission", "./CorpKind", "./commissionPlan",
       "./siteValue", "./roadEconomics", "./bank", "./expansion", "./flowAdapter", "./scavenge",
       "./goals", "./strategy", "./ids", "./proposeHelpers", "./spawnSweep",
+      // spec 60 B: the kind contract declares its statement line (type-only
+      // import), and accountCategory derives the joins from the registry.
+      "./accountCategory",
       // pure shared types
       "../types/Position", "../types/Memory",
       // (debt) the Corp base type lives in corps/ - Game-free, pinned by this suite's sibling

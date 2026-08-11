@@ -26,6 +26,7 @@ export interface CoreBusterAssignment {
 
 export const coreBusterKind: CorpKind<CoreBusterCorp> = {
   kind: "coreBuster",
+  account: "incursion", // capital spend into hostile rooms, not operating defense (spec 60 B)
   roles: { buster: { workType: "buster" }, striker: { workType: "strike" } },
   runOrder: 40,
 

@@ -35,6 +35,7 @@ class WidgetCorp extends Corp {
 /** A synthetic solver-backed kind: propose() returns [] (the "solver" emits it). */
 const widgetKind: CorpKind<WidgetCorp> = {
   kind: "widget",
+  account: "infra", // every kind declares its statement line at registration (spec 60 B)
   roles: {},
   runOrder: 10,
   propose: () => [],

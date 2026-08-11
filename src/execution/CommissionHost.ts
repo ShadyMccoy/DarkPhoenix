@@ -54,8 +54,14 @@ import type { CorpRegistry } from "./CorpRunner";
 /** Survives ticks, dies on global reset - rehydrated from Memory then. */
 let store: CorpStore | null = null;
 
-/** Every ported kind. New ports add one line here - the host body never changes. */
-const KINDS: CorpKind[] = [
+/**
+ * Every ported kind. New ports add one line here - the host body never
+ * changes. Exported READ-ONLY for the derivation-identity audits (spec 60 B:
+ * waste-ledger's script-side role table is pinned byte-identical to the
+ * registry derivation, and kind modules are not loadable outside the engine,
+ * so the unit suite is where the two meet); registration stays HERE.
+ */
+export const KINDS: CorpKind[] = [
   // Solver-backed (commissions come from FlowEconomy.getCommissions):
   harvestKind as CorpKind,
   carryKind as CorpKind,

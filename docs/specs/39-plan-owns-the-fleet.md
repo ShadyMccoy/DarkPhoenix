@@ -1,6 +1,10 @@
 # Spec 39 — The plan owns the fleet (corps receive creeps, they don't request them)
 
-**Status: PHASES 0-2 SHIPPED 2026-08-03; phases 3-5 BACKLOG (owner 2026-07-30).**
+**Status: PHASES 0-2 SHIPPED 2026-08-03; phase 4's ACCOUNTING half SHIPPED
+2026-08-06 (auxiliary corps on-budget — see README row); phases 3-5 BACKLOG,
+implementation design sharpened 2026-08-11 (§"Phases 3–4 sharpened" at the
+tail: the generic fleet-demand derivation, the F2==0 cell, the
+construction-routed first slice).**
 Phase 0 (the cop) landed first, per the migration table:
 `test/unit/framework/spawnAuthority.test.ts` pins `.spawnCreep(` to the
 executor + bootstrap allowlist and ratchets the `getSpawnDemand` CODE surface
@@ -260,3 +264,61 @@ Not attempted in the audit cycle that found it: this is a framework change, and
 patching `haulCarryNeeded` to grab construction routes instead would put the
 mining haulers and the construction tankers on the same sinks with nothing
 arbitrating — the double-order class the trap list names. The seam is the fix.
+
+## Phases 3–4 sharpened (2026-08-11 session): the generic fleet-demand derivation
+
+Phases 1–2 put BOTH inputs in place — `commission.fleet` (the declaration,
+priced inside the one derivation) and `ColonyProblem.fielded` (the live
+per-role census, TTLs ascending, spawning counted). What is missing is the
+CONSUMER, and it is one function, not eleven migrations of bespoke logic:
+
+```
+demandsFromFleet(commission, fielded[corpId], ctx) -> SpawnDemand[]
+```
+
+living with the framework (CommissionHost/SpawnDirector side), deriving each
+role's ask as **declared minus fielded, quantized at share-sized bodies**:
+
+- **gap**: `fleet[role].parts − fielded.parts` (spawning creeps count full —
+  the spec-60-D lesson is inherited by construction, not per-kind vigilance);
+- **replacement**: order the successor when `min(ttls) <
+  deliveryLeadTime(post) + spawnTime(parts)` — the schedule the corps each
+  hand-roll today, computed once from the TTLs phase 2 already carries
+  (`replacementSchedule` is the formula home);
+- **quantization (the spec 55 §5 fence, carried structurally):** asks are
+  emitted in share-sized bodies with the jitter band denominated in measured
+  units (`HAUL_ASK_JITTER_CARRY`), never raw part deltas — one-sided
+  loosening re-creates the d01f buy-then-cull treadmill, and the fence must
+  ride IN the derivation so no future kind can drop it;
+- value/priority comes from the commission (shape → tier, blocking flags per
+  the existing ladder), so SpawnScheduler doctrine is untouched.
+
+**Phase 4 then becomes registration-shaped, like every good migration here:**
+a kind opts in by DELETING its `getSpawnDemand` (and its demand-side
+lenses); the director calls `demandsFromFleet` for fleet-carrying
+commissions and falls back to `getSpawnDemand` for the rest. The
+spawn-authority ratchet's 11-file debt list is the progress meter — it goes
+to zero, then phase 5 deletes `Corp.getSpawnDemand` and the fallback.
+
+**First slice (the priced one): the construction-routed source class.**
+cee0/cd98 above — harvest commissions whose routes end at construction
+sinks, where the corp lens's `construction-` filter and the mis-sized
+tankers strand the declaration. Migrating the HARVEST kind's hauler role
+alone onto the derivation staffs cee0 (the commission already declares 35
+parts) and retires spec 49's Leg B blocker. It is also the slice with the
+clearest before/after: 82% of colony pile growth on two sources.
+
+**Acceptance additions (beyond the six above):**
+
+7. **The F2==0 grid cell** (spec 55's owed acceptance, staged HERE because
+   this seam is what makes it passable): a world staged on cee0's geometry —
+   one source routed to a construction sink at d≈36, spawn capacity free —
+   reaches `F2 declared == fielded` per role within one creep generation and
+   HOLDS it. Does not exist today; write it red-first against the first
+   slice.
+8. **The anti-treadmill pin rides along**: X5 churn ≤ 0.09 through the
+   migration window (the spec 55 SS5 addendum's bound) — a slice that
+   passes 7 by minting cullable runts must fail here.
+9. Per migrated kind: its staffing-lens conformance probes (spec 60 D +
+   spec 61 rows 1–3) stay green with the corp lens DELETED — the probes then
+   pin the derivation, which is where the lesson belongs.
