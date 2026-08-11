@@ -45,6 +45,7 @@ import { buildTankerBody } from "../spawn/BodyBuilder";
 import { stampControllerFeederRegime } from "./regimes";
 import {
   CARRY_MOVE_PAIR_COST,
+  CREEP_LIFETIME,
   HUB_TENDER_CARRY,
   SOURCE_RATE,
   carryPartsFor,
@@ -226,7 +227,7 @@ export class LinkCorp extends SpawnAnchoredCorp {
     // controller directly, so a dead feeder never starves upgrading.
     stampControllerFeederRegime(room.memory, !!(room.storage && room.storage.my) && feeders.length > 0);
 
-    if (tick - this.moveSince >= 1500) {
+    if (tick - this.moveSince >= CREEP_LIFETIME) {
       this.moveEnergy = 0;
       this.moveActive = 0;
       this.moveAlive = 0;
@@ -671,6 +672,17 @@ export class LinkCorp extends SpawnAnchoredCorp {
     return this.creepsOfWorkType(PORT_TENDER_WORK_TYPE, { includeSpawning: false });
   }
 
+  /**
+   * STAFFING lens for the port-tender DEMAND side - includes bodies still in
+   * the spawn, exactly like staffedFeeders and the hub-tender demand above
+   * (the t72811290 double-buy class: while a body builds, the work lens reads
+   * 0 and the demand re-arms). One body coming IS one body staffed; the work
+   * side keeps getPortTenders (a spawning body cannot drain a port).
+   */
+  private staffedPortTenders(): number {
+    return this.creepsOfWorkType(PORT_TENDER_WORK_TYPE, { includeSpawning: true }).length;
+  }
+
   /** A tile adjacent to BOTH the buffer and the link, so the creep withdraws and
    *  transfers from a standstill. */
   private postTile(post: PortPost): RoomPosition | null {
@@ -844,7 +856,7 @@ export class LinkCorp extends SpawnAnchoredCorp {
     const spawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (!spawn) return [];
     const posts = portPosts(spawn.room);
-    const staffed = this.getPortTenders().length;
+    const staffed = this.staffedPortTenders();
     if (posts.length === 0 || staffed >= posts.length) return [];
     // Ask for exactly the body the PLAN prices (PORT_TENDER_PARTS is
     // `buildTankerBody(PORT_TENDER_CARRY, ..., false)`'s shape), so F1/F2

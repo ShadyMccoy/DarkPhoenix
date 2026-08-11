@@ -2,13 +2,19 @@
  * @fileoverview CpuGovernor - ordered degradation when the CPU bucket falls
  * (spec 09 phase 5). CPU is the colony's third currency; when the bucket
  * drains, the governor sheds load in VALUE order - observability first,
- * planning cadence second, investment third, intel last - so the income
- * core (miners, haulers, spawning) is the last thing standing.
+ * investment second, intel last - so the income core (miners, haulers,
+ * spawning) is the last thing standing.
  *
  * The plan is a pure function of the bucket, so the degradation ORDER is a
  * unit-tested fact (the grid pins it with a stubbed clock; the real effect
  * is verified on the live server only). Level transitions are logged to the
  * black box - a bucket collapse arrives with its own shedding history.
+ *
+ * (The solve-cadence stretch this ladder once carried is retired: since the
+ * FISCAL MONTH became the budget's term - spec 46 phase A, main.ts
+ * `isPlanBudgetBoundary` - the scheduled re-solve interval already exceeds
+ * any stretch the governor would apply, so the "stretched" level keeps its
+ * place in the ladder but sheds nothing beyond lean today.)
  *
  * @module execution/CpuGovernor
  */
@@ -22,20 +28,15 @@ export interface GovernorPlan {
   level: GovernorLevel;
   /** Skip the RawMemory telemetry export (the black box still flushes). */
   skipTelemetry: boolean;
-  /** Economy re-solve cadence (ticks); FULL_SOLVE_INTERVAL (50) when full. */
-  solveInterval: number;
   /** Pause NEW construction placement + paving (existing sites keep building). */
   pauseConstruction: boolean;
   /** Stop buying scouts (fielded scouts keep walking). */
   freezeScouting: boolean;
 }
 
-export const FULL_SOLVE_INTERVAL = 50;
-const STRETCHED_SOLVE_INTERVAL = 150;
-
 /** Bucket thresholds, in shedding order. */
 export const LEAN_BUCKET = 8000; // skip telemetry
-export const STRETCHED_BUCKET = 5000; // + stretch the solve cadence
+export const STRETCHED_BUCKET = 5000; // (historical solve-stretch rung; no extra shed today)
 export const AUSTERE_BUCKET = 3000; // + pause construction/paving
 export const SURVIVAL_BUCKET = 1500; // + freeze scouting
 
@@ -54,7 +55,6 @@ export function governorPlan(bucket: number): GovernorPlan {
   return {
     level,
     skipTelemetry: level !== "full",
-    solveInterval: level === "full" || level === "lean" ? FULL_SOLVE_INTERVAL : STRETCHED_SOLVE_INTERVAL,
     pauseConstruction: level === "austere" || level === "survival",
     freezeScouting: level === "survival"
   };

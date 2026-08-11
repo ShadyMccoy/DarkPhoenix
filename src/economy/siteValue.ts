@@ -25,6 +25,7 @@
 
 import { Position, chebyshevDistance } from "../types/Position";
 import { ColonyProblem, DEFAULT_SINK_VALUE, planColony } from "./CorpPlanner";
+import { SOURCE_REGEN_TIME } from "./primitives";
 
 /** A base in the colony: its hub centre and the controller it upgrades. */
 export interface SiteNode {
@@ -56,14 +57,14 @@ export interface SiteValueOptions {
  */
 function hubValue(hub: SiteNode, assigned: SiteSource[], dist: NonNullable<SiteValueOptions["dist"]>): number {
   if (!hub.controllerPos || assigned.length === 0) return 0;
-  const supply = assigned.reduce((sum, s) => sum + s.capacity / 300, 0);
+  const supply = assigned.reduce((sum, s) => sum + s.capacity / SOURCE_REGEN_TIME, 0);
   const problem: ColonyProblem = {
     spawns: [{ id: hub.id, pos: hub.hubPos }],
     sources: assigned.map(s => ({
       id: s.id,
       nodeId: s.id,
       pos: s.pos,
-      rate: s.capacity / 300,
+      rate: s.capacity / SOURCE_REGEN_TIME,
       maxMiners: s.maxMiners ?? 1
     })),
     sinks: [

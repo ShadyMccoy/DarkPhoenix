@@ -7,8 +7,9 @@
  *
  * This runs the REAL @screeps/engine processor (via screeps-server-mockup), so
  * intent ordering and fatigue are EXECUTED, not modeled. Same code as live.
- * (The hand-rolled test/sim/GameSimulator fake resolves store/fatigue in
- * caller order and would give a false answer - do not use it for this.)
+ * (The hand-rolled GameSimulator fake this repo once carried resolved
+ * store/fatigue in caller order and gave a false answer - deleted; only the
+ * real engine answers ordering questions.)
  *
  * Body is [CARRY,CARRY,CARRY,MOVE] (the design's 3C:1M) so the detector IS the
  * real creep. On PLAIN, a loaded step generates 3*2 = 6 fatigue; an empty step

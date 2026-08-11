@@ -15,13 +15,13 @@ export { BootstrapCorp, SerializedBootstrapCorp, createBootstrapCorp } from "./B
 
 export { HarvestCorp, SerializedHarvestCorp } from "./HarvestCorp";
 
-export { CarryCorp, SerializedCarryCorp, createCarryCorp } from "./CarryCorp";
+export { CarryCorp, SerializedCarryCorp } from "./CarryCorp";
 
-export { UpgradingCorp, SerializedUpgradingCorp, createUpgradingCorp } from "./UpgradingCorp";
+export { UpgradingCorp, SerializedUpgradingCorp } from "./UpgradingCorp";
 
 export { ScoutCorp, SerializedScoutCorp } from "./ScoutCorp";
 
-export { ConstructionCorp, SerializedConstructionCorp, createConstructionCorp } from "./ConstructionCorp";
+export { ConstructionCorp, SerializedConstructionCorp } from "./ConstructionCorp";
 
 export { ReservationCorp, SerializedReservationCorp } from "./ReservationCorp";
 

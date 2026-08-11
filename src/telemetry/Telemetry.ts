@@ -161,9 +161,3 @@ export function getTelemetry(config?: Partial<TelemetryConfig>): Telemetry {
   return telemetryInstance;
 }
 
-/**
- * Reconfigures telemetry with new settings.
- */
-export function configureTelemetry(config: Partial<TelemetryConfig>): void {
-  telemetryInstance = new Telemetry(config);
-}

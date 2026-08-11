@@ -196,11 +196,6 @@ export class Squad {
   }
 }
 
-/** Anything with a position the worm head can path to (a creep, a structure, a source). */
-interface _HasPos {
-  pos: RoomPosition;
-}
-
 /**
  * Order squad members into a stable worm chain (pure, unit-testable). Sorting by
  * name makes the order deterministic and reshuffle-proof: the same members always

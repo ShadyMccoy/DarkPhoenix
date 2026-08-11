@@ -17,8 +17,10 @@
  * @module telemetry/spawnMeter
  */
 
+import { CREEP_LIFETIME } from "../economy/primitives";
+
 /** Spawn-meter window length: one creep lifetime, the economy's natural period. */
-const SPAWN_METER_WINDOW = 1500;
+const SPAWN_METER_WINDOW = CREEP_LIFETIME;
 
 /** Why a spawn stood idle this tick (spec 14, owner 2026-07-25). */
 export type SpawnIdleCause = "empty" | "bank" | "buy" | "hold";

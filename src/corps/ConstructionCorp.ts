@@ -40,7 +40,6 @@ import {
   BUILD_ENERGY_PER_WORK,
   BUILDER_WORK_HEADROOM,
   bufferCarryParts,
-  carryPartsFor,
   DIRECT_DRAW_REACH,
   projectAbsorbRate,
   refuelIntervalTicks,
@@ -3610,11 +3609,3 @@ export class ConstructionCorp extends Corp {
   }
 }
 
-/**
- * Create a ConstructionCorp for a room.
- */
-export function createConstructionCorp(room: Room, spawn: StructureSpawn): ConstructionCorp {
-  const nodeId = `${room.name}-construction`;
-  const corp = new ConstructionCorp(nodeId, spawn.id);
-  return corp;
-}

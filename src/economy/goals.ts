@@ -129,9 +129,6 @@ export interface Goal {
   blend: { [profileName: string]: number };
 }
 
-/** The default goal - the profile today's pinned behavior compiles from. */
-export const DEFAULT_GOAL: Goal = { blend: { default: 1 } };
-
 /**
  * The ladder invariants (incident-derived; ONTOLOGY §7). A valuation that
  * violates any of these is a bug by definition:

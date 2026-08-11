@@ -3,27 +3,6 @@ import { completeCensus } from "../execution/CommissionHost";
 import { Node } from "../nodes/Node";
 
 /**
- * Colony configuration
- */
-export interface ColonyConfig {
-  /** Tax rate applied per tick (default 0.001 = 0.1%) */
-  taxRate: number;
-  /** Grace period for new corps before pruning (ticks) */
-  corpGracePeriod: number;
-  /** Minimum treasury balance before funding new work */
-  minTreasuryBuffer: number;
-}
-
-/**
- * Default colony configuration
- */
-export const DEFAULT_COLONY_CONFIG: ColonyConfig = {
-  taxRate: 0.001,
-  corpGracePeriod: 1500,
-  minTreasuryBuffer: 1000
-};
-
-/**
  * Colony statistics for monitoring
  */
 export interface ColonyStats {
@@ -40,24 +19,18 @@ export interface ColonyStats {
  *
  * The colony manages:
  * 1. Nodes (territories) - spatial regions identified by peak detection
- * 2. Surveys - identifying potential corps in territories
- * 3. Statistics - tracking economic health
+ * 2. Statistics - tracking economic health
  *
  * NOTE: Actual corp execution is handled by CorpRunner in the execution module,
  * and the colony economy is solved by the CorpPlanner (src/economy). Corps are
  * managed via CorpRegistry, not via node.corps. This class provides spatial
- * infrastructure (surveying) but doesn't directly run corps or plan the economy.
+ * infrastructure but doesn't directly run corps or plan the economy.
  *
  * See main.ts for the full game loop orchestration.
  */
 export class Colony {
   /** All nodes in this colony */
   private nodes: Node[] = [];
-
-  /** Node surveyor for finding opportunities */
-
-  /** Colony configuration */
-  private config: ColonyConfig;
 
   /** Current tick */
   private currentTick = 0;
@@ -72,17 +45,12 @@ export class Colony {
     activeCorps: 0
   };
 
-  public constructor(config: Partial<ColonyConfig> = {}) {
-    this.config = { ...DEFAULT_COLONY_CONFIG, ...config };
-  }
-
   /**
    * Main colony tick - run spatial coordination.
    *
    * NOTE: This does NOT run corps - that's handled by CorpRunner in main.ts -
    * nor does it plan the economy (CorpPlanner does). This method handles:
    * - Bootstrap (one-time initialization marker)
-   * - Node surveying (identify potential corps)
    * - Stats updates
    */
   public run(tick: number, corpRegistry: CorpRegistry): void {
@@ -170,34 +138,12 @@ export class Colony {
   }
 
   /**
-   * Get configuration
-   */
-  public getConfig(): ColonyConfig {
-    return { ...this.config };
-  }
-
-  /**
-   * Update configuration
-   */
-  public setConfig(config: Partial<ColonyConfig>): void {
-    this.config = { ...this.config, ...config };
-  }
-
-  /**
-   * Get current tick
-   */
-  public getCurrentTick(): number {
-    return this.currentTick;
-  }
-
-  /**
    * Serialize colony state for persistence
    */
   public serialize(): SerializedColony {
     return {
       bootstrapped: this.bootstrapped,
       currentTick: this.currentTick,
-      config: this.config,
       nodeIds: this.nodes.map(n => n.id)
     };
   }
@@ -208,7 +154,8 @@ export class Colony {
   public deserialize(data: SerializedColony): void {
     this.bootstrapped = data.bootstrapped ?? false;
     this.currentTick = data.currentTick ?? 0;
-    this.config = { ...DEFAULT_COLONY_CONFIG, ...data.config };
+    // (Older Memory blobs may still carry a `config` key from the retired
+    // market-era ColonyConfig - ignored; nothing ever read it.)
     // Node restoration would need additional logic
   }
 }
@@ -219,13 +166,12 @@ export class Colony {
 export interface SerializedColony {
   bootstrapped: boolean;
   currentTick: number;
-  config: ColonyConfig;
   nodeIds: string[];
 }
 
 /**
- * Create a colony with default configuration
+ * Create a colony.
  */
-export function createColony(config?: Partial<ColonyConfig>): Colony {
-  return new Colony(config);
+export function createColony(): Colony {
+  return new Colony();
 }

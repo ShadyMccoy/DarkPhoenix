@@ -6,19 +6,4 @@
  * @module telemetry
  */
 
-export {
-  Telemetry,
-  getTelemetry,
-  configureTelemetry,
-  TELEMETRY_SEGMENTS,
-  PUBLIC_SEGMENTS,
-  DEFAULT_TELEMETRY_CONFIG,
-  type TelemetryConfig,
-  type BodyAggregate,
-  type CoreTelemetry,
-  type NodeTelemetry,
-  type EdgesTelemetry,
-  type IntelTelemetry,
-  type CorpsTelemetry,
-  type FlowTelemetry
-} from "./Telemetry";
+export { Telemetry, getTelemetry } from "./Telemetry";

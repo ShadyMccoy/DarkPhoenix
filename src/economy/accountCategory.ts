@@ -64,11 +64,6 @@ export type AccountCategory =
   /** Cold-start bodies, before the economy exists to classify them. */
   | "bootstrap";
 
-/** True for the three lines that net against gross mining (COGS). */
-export function isDirectCostOfMining(c: AccountCategory): boolean {
-  return c === "extraction" || c === "evacuation" || c === "reservation";
-}
-
 /**
  * KIND -> the line it reports on.
  *

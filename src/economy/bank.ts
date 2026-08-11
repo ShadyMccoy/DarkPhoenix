@@ -39,13 +39,7 @@ import "../types/Memory"; // Memory augmentation for the expansion import below
 import { Position } from "../types/Position";
 import { PlannerSource } from "./CorpPlanner";
 import { EXPANSION_CAPEX, EXPANSION_SAFETY_RESERVE } from "./expansion";
-import {
-  ANTI_DOWNGRADE_DANGER_TICKS,
-  ANTI_DOWNGRADE_RESERVE,
-  CREEP_LIFETIME,
-  storageAbsorbRate,
-  sustainableConsumptionRate
-} from "./primitives";
+import { ANTI_DOWNGRADE_DANGER_TICKS, ANTI_DOWNGRADE_RESERVE, CREEP_LIFETIME, storageAbsorbRate } from "./primitives";
 
 /**
  * The colony's HARD liquidity floor: the expansion campaign's full CAPEX plus a

@@ -26,19 +26,6 @@ export interface RoomPoint {
   y: number;
 }
 
-/** Terrain rows from the live game API for a room. */
-export function terrainRows(terrain: { get(x: number, y: number): number }): string[] {
-  const rows: string[] = [];
-  for (let y = 0; y < 50; y++) {
-    let row = "";
-    for (let x = 0; x < 50; x++) {
-      const t = terrain.get(x, y);
-      row += t & 1 ? "#" : t & 2 ? "~" : ".";
-    }
-    rows.push(row);
-  }
-  return rows;
-}
 
 /**
  * The best spawn tile for a room, or null when no open plain tile exists

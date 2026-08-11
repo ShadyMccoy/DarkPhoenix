@@ -48,7 +48,10 @@ async function api(path: string, init: any = {}): Promise<any> {
 // Spawn the biggest tender the current spawn-network energy affords (2..8 CARRY+
 // MOVE pairs), memory shaped so ExtensionTenderCorp adopts + runs it. Logs the
 // spawnCreep return code and energyAvailable to the in-game console.
-const EXPR = `(function(){var s=Game.spawns['Spawn1'];if(!s)return 'no-spawn';var e=s.room.energyAvailable;var c=Math.max(2,Math.min(8,Math.floor(e/100/2)));var b=[];for(var i=0;i<c;i++)b.push(CARRY);for(var i=0;i<c;i++)b.push(MOVE);var r=s.spawnCreep(b,'rescueT'+Game.time,{memory:{workType:'tank',corpId:'moving-W43N23-tender'}});console.log('[RESCUE] spawnCreep='+r+' e='+e+' pairs='+c+' spawning='+(s.spawning?'yes':'no'));return r;})()`;
+// Arms the spawn-contract bypass first (corps/spawnContract guards naked
+// spawnCreep at runtime); the guard on older deployed bundles may be absent,
+// hence the existence check.
+const EXPR = `(function(){var s=Game.spawns['Spawn1'];if(!s)return 'no-spawn';if(global.spawnContractBypass)global.spawnContractBypass(1);var e=s.room.energyAvailable;var c=Math.max(2,Math.min(8,Math.floor(e/100/2)));var b=[];for(var i=0;i<c;i++)b.push(CARRY);for(var i=0;i<c;i++)b.push(MOVE);var r=s.spawnCreep(b,'rescueT'+Game.time,{memory:{workType:'tank',corpId:'moving-W43N23-tender'}});console.log('[RESCUE] spawnCreep='+r+' e='+e+' pairs='+c+' spawning='+(s.spawning?'yes':'no'));return r;})()`;
 
 async function main(): Promise<void> {
   if (!process.env.SCREEPS_TOKEN) {

@@ -9,8 +9,10 @@
  *   1. PURE files may not mention Game/Memory at all (comments aside);
  *   2. PURE files may only import from the allowlisted modules below - a new
  *      import of execution// corps runtime code fails loudly;
- *   3. the sanctioned world ADAPTERS (flowAdapter, scavenge) may read Game
- *      only behind `typeof Game` guards - counted, so a guard removal trips.
+ *   3. the sanctioned world ADAPTERS (the four in the ADAPTERS list below -
+ *      flowAdapter, scavenge, roadSegmentsGame, planningAssembly) may read
+ *      Game only behind `typeof Game` guards - counted, so a guard removal
+ *      trips.
  *
  * The scan extends beyond src/economy/ to the modules the planning core
  * touches (spec 35 phase G): corps/Corp.ts (the base type), the NOW planner

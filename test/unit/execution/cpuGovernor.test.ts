@@ -1,7 +1,6 @@
 import { expect } from "chai";
 import {
   AUSTERE_BUCKET,
-  FULL_SOLVE_INTERVAL,
   LEAN_BUCKET,
   STRETCHED_BUCKET,
   SURVIVAL_BUCKET,
@@ -14,14 +13,15 @@ import { reset as resetBlackBox, rows } from "../../../src/telemetry/BlackBox";
 /**
  * Spec 09 phase 5: the degradation ORDER is a unit-tested fact (stubbed
  * clock; the real effect is verified on the live server only). Shedding
- * order: telemetry -> solve cadence -> construction/paving -> scouting.
+ * order: telemetry -> construction/paving -> scouting. (The solve-cadence
+ * stretch the "stretched" rung once carried is retired - the fiscal-month
+ * budget term owns the re-solve interval since spec 46 phase A.)
  */
 describe("CpuGovernor", () => {
   it("full operation above the lean threshold", () => {
     const p = governorPlan(LEAN_BUCKET);
     expect(p.level).to.equal("full");
     expect(p.skipTelemetry).to.equal(false);
-    expect(p.solveInterval).to.equal(FULL_SOLVE_INTERVAL);
     expect(p.pauseConstruction).to.equal(false);
     expect(p.freezeScouting).to.equal(false);
   });
@@ -30,19 +30,18 @@ describe("CpuGovernor", () => {
     const p = governorPlan(LEAN_BUCKET - 1);
     expect(p.level).to.equal("lean");
     expect(p.skipTelemetry).to.equal(true);
-    expect(p.solveInterval).to.equal(FULL_SOLVE_INTERVAL); // cadence untouched
     expect(p.pauseConstruction).to.equal(false);
   });
 
-  it("stretches the solve cadence SECOND (stretched)", () => {
+  it("keeps the stretched rung in the ladder with no extra shed (cadence is the month's)", () => {
     const p = governorPlan(STRETCHED_BUCKET - 1);
     expect(p.level).to.equal("stretched");
     expect(p.skipTelemetry).to.equal(true);
-    expect(p.solveInterval).to.be.greaterThan(FULL_SOLVE_INTERVAL);
     expect(p.pauseConstruction).to.equal(false);
+    expect(p.freezeScouting).to.equal(false);
   });
 
-  it("pauses investment THIRD (austere)", () => {
+  it("pauses investment NEXT (austere)", () => {
     const p = governorPlan(AUSTERE_BUCKET - 1);
     expect(p.level).to.equal("austere");
     expect(p.pauseConstruction).to.equal(true);
@@ -61,9 +60,10 @@ describe("CpuGovernor", () => {
     const buckets = [10000, LEAN_BUCKET - 1, STRETCHED_BUCKET - 1, AUSTERE_BUCKET - 1, SURVIVAL_BUCKET - 1];
     const sheds = buckets.map(b => {
       const p = governorPlan(b);
-      return Number(p.skipTelemetry) + Number(p.solveInterval > FULL_SOLVE_INTERVAL) + Number(p.pauseConstruction) + Number(p.freezeScouting);
+      return Number(p.skipTelemetry) + Number(p.pauseConstruction) + Number(p.freezeScouting);
     });
-    for (let i = 1; i < sheds.length; i++) expect(sheds[i]).to.be.greaterThan(sheds[i - 1]);
+    for (let i = 1; i < sheds.length; i++) expect(sheds[i]).to.be.at.least(sheds[i - 1]);
+    expect(sheds[sheds.length - 1]).to.be.greaterThan(sheds[0]);
   });
 
   it("runs DRY unless Memory.cpuGovernor is 'on' (sims stay deterministic)", () => {

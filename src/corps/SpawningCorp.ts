@@ -9,6 +9,7 @@
 
 import { BODY_COSTS, CREEP_LIFETIME } from "../economy/primitives";
 import { Corp, SerializedCorp } from "./Corp";
+import { contractSpawn } from "./spawnContract";
 import { drawOrder } from "./refillCircuit";
 import { HaulerRatio } from "../framework/EdgeVariant";
 import { getCorpKind } from "../economy/CorpKind";
@@ -160,7 +161,7 @@ export class SpawningCorp extends Corp {
     // feeder's parked relay post), so it emerges on-post instead of walking in.
     const target = corpKind.spawnTarget?.(role, spawn);
     const directions = target ? spawnDirectionsToward(spawn.pos, target) : undefined;
-    const result = spawn.spawnCreep(body, name, {
+    const result = contractSpawn(spawn, body, name, {
       memory: { corpId: buyerCorpId, workType: roleSpec.workType, spawnedBy: this.id },
       ...(energyStructures.length > 0 ? { energyStructures } : {}),
       ...(directions ? { directions } : {})

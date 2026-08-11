@@ -362,7 +362,7 @@ describe("economy/CorpPlanner", () => {
         })
       );
       expect(plan.miners).to.have.length(1);
-      expect((plan.spawnPartsUsed.get("S") ?? 0)).to.be.greaterThan(0);
+      expect(plan.partsLedger.spent).to.be.greaterThan(0);
     });
 
     it("always staffs a spawn's single source even if it alone exceeds the budget", () => {
@@ -1116,7 +1116,7 @@ describe("economy/CorpPlanner", () => {
       expect(plan.totalDelivered).to.be.closeTo(10, 1e-9);
       expect(plan.totalOverhead).to.be.greaterThan(0);
       expect(plan.sustainable).to.equal(true);
-      expect(plan.spawnPartsUsed.get("S")).to.be.greaterThan(0);
+      expect(plan.partsLedger.spent).to.be.greaterThan(0);
     });
 
     it("generalises to N spawns and sources: each miner on its nearest spawn, budgets independent", () => {
@@ -1134,10 +1134,8 @@ describe("economy/CorpPlanner", () => {
       expect(spawnsById.get("b1")).to.equal("B");
       expect(spawnsById.get("c1")).to.equal("C");
       expect(spawnsById.get("c2")).to.equal("C");
-      // no spawn's committed build-time runs away (each within budget, or a single best source)
-      for (const [, used] of plan.spawnPartsUsed) {
-        expect(used).to.be.greaterThan(0);
-      }
+      // committed build-time is booked on the one parts ledger
+      expect(plan.partsLedger.spent).to.be.greaterThan(0);
     });
   });
 });
