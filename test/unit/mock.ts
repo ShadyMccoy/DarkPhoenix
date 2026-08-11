@@ -159,11 +159,18 @@ export const MockPathFinder = {
 // ============================================================================
 // Screeps Constants
 // ============================================================================
+// The engine's real values. FIND_MINERALS and FIND_MY_CREEPS both read 106
+// until 2026-08-06 - the value of FIND_DROPPED_RESOURCES - and setupGlobals
+// below OVERWRITES the globals, so every test using this helper re-introduced
+// the collision that test/setup-mocha.js had just fixed. A mock room
+// dispatches find(type) on these numbers, so one stub was answering three
+// different lenses. Distinctness is pinned by
+// test/unit/harness/screepsConstants.test.ts.
 export const FIND_SOURCES = 105;
-export const FIND_MINERALS = 106;
+export const FIND_MINERALS = 116;
 export const FIND_STRUCTURES = 107;
 export const FIND_MY_SPAWNS = 112;
-export const FIND_MY_CREEPS = 106;
+export const FIND_MY_CREEPS = 102;
 export const FIND_HOSTILE_CREEPS = 103;
 
 export const LOOK_SOURCES = 'source';

@@ -79,12 +79,36 @@ Later families (same rule — one home):
   alternative was the cluster flap (t72489078: the sink set oscillated
   with whichever room was sighted at solve time) and the stranded-trunk
   deadlock (t72488324).
-- **Consumer sizing:** ONE VALVE — the upgrader fleet is sized from the plan's
-  controller allocation and nothing else (owner 2026-08-02, SUPERSEDES the
-  former stock-grounded rule; the bank's role there is FINANCING, not sizing —
-  see CLAUDE.md "ONE VALVE"). `sustainableConsumptionRate` remains the drain
-  law for OTHER consumers (construction fuel, haul policy); it is no longer an
-  upgrader valve.
+- **Consumer sizing — ONE VALVE, the plan allocation** (owner 2026-08-02):
+  the upgrader fleet and the feeder relay are sized from the PLAN's controller
+  allocation and nothing else (`Memory.controllerAllocations`, resolved through
+  `bank.plannedControllerFlow`). This SUPERSEDES the former "sized from ACTUAL
+  stock at their work site, never from the goal plan": the stock-grounded valve
+  was added when the plan under-stated (t72448020) and by 2026-08-02 had
+  inverted, throttling BELOW a plan that no longer under-states — the same
+  failure it was built to prevent, sign flipped. If the plan is wrong, fix the
+  plan; one number that can be audited beats two that disagree quietly.
+  `sustainableConsumptionRate` remains the drain law for OTHER consumers
+  (construction fuel, haul policy) and is no longer an upgrader valve; the
+  bank's remaining job here is FINANCING, not sizing. (Both sides of the
+  2026-08-06 merge corrected this bullet independently — kept as the fuller
+  form.)
+- **The drain law, both directions** (spec 58): `storageAbsorbRate(ullage) =
+  ullage / CREEP_LIFETIME` is the ABSORB mirror of that stock/1500 drain — a
+  bank fills over one creep generation exactly as a stock empties over one.
+  It is the storage SINK's capacity (flowAdapter), which makes the
+  CONSUMPTION-CONSTRAINED regime (RCL8: controller game-capped at 15 e/t by
+  `controllerMaxUpgradeRate`, storage full) a taper the planner's dependency
+  chain follows — a hauler needs a source AND a sink, a miner needs a routed
+  hauler — instead of a cliff, and with no "storage full" flag anywhere.
+- **The bank is TWO-SIDED** (`bank.bankPressure`, owner 2026-08-05): a
+  storage's ENERGY is a source and its ULLAGE is a sink, the two halves above
+  read as ONE object off ONE storage read
+  (`flowAdapter.storageBankPressure`), so they cannot drift. Source rises and
+  sink falls with the stock; at least one is always open. The two can never
+  be applied to each other, but that guard is STRUCTURAL and lives in
+  routing (`routeToSinks`' deposit ROLE), never in the rate pair — a rate is
+  the wrong home for a routing rule.
 - **Operation corps (spec 34):** a consumer is PARKED at its work site; energy
   comes TO it — a supply vector (`vectorSupplyParts`) beyond withdraw
   adjacency, direct draw at a length-0 route. Its onboard buffer bridges the

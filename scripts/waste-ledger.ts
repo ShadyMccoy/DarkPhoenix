@@ -2676,6 +2676,9 @@ export const ACCOUNT_CLASS_OF_ROLE: Record<string, AccountCategory> = {
   // The deposit port's drain (PortTenderCorp). Infra like the depot movers
   // beside it - the spawn network's own logistics.
   porttender: "infra",
+  // The storage<->terminal post (spec 58 phase 3) - the hub's own logistics,
+  // same family as the feeder and port tender it parks beside.
+  hubmanager: "infra",
   scout: "infra",
   guard: "defense",
   upgrader: "consumers",

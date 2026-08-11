@@ -1127,6 +1127,11 @@ export function portPosts(room: Room): PortPost[] {
  *  never count different creeps. */
 export const PORT_TENDER_WORK_TYPE = "porttend";
 
+/** The hub tender's workType (spec 58 phase 3): the parked storage<->terminal
+ *  post. Same one-spelling rule as the port tender - the kind's declaration,
+ *  the demand count and the runtime dispatch all match on THIS string. */
+export const HUB_TENDER_WORK_TYPE = "hubtend";
+
 /**
  * How many port TENDERS are alive in `room` - the drain behind its buffers.
  *

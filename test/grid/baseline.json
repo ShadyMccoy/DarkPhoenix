@@ -46,6 +46,7 @@
     "cons-link-farthest-source": "pass",
     "cons-one-site-at-a-time": "pass",
     "cons-pocket-container-exact-tile": "pass",
+    "cons-rcl8-full-bank-contracts-mining": "pass",
     "cons-repair-critical-during-build": "pass",
     "cons-repair-road-fraction": "pass",
     "cons-repair-starts-below-60": "pass",
@@ -130,6 +131,7 @@
     "spawnexec-miner-runt-immortal-at-cap": "pass",
     "spawnexec-miner-runt-recycle-affordable": "pass",
     "spawnexec-reserver-body-multiroom": "pass",
-    "spawnexec-road-hauler-2to1": "pass"
+    "spawnexec-road-hauler-2to1": "pass",
+    "term-t8-surplus-crosses-hubs": "pass"
   }
 }

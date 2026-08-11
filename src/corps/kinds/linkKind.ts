@@ -16,10 +16,16 @@ import { CorpKind } from "../../economy/CorpKind";
 import { ColonyProblem } from "../../economy/CorpPlanner";
 import { homeSpawnsByRoom, perRoomAuxiliaryCommission } from "../../economy/proposeHelpers";
 import { buildTankerBody } from "../../spawn/BodyBuilder";
-import { PORT_TENDER_CARRY, feederSpawnLoad, portTenderSpawnLoad } from "../../economy/primitives";
+import {
+  HUB_TENDER_CARRY,
+  PORT_TENDER_CARRY,
+  feederSpawnLoad,
+  hubTenderSpawnLoad,
+  portTenderSpawnLoad
+} from "../../economy/primitives";
 import { SerializedCorp } from "../Corp";
 import { LinkCorp, SerializedLinkCorp } from "../LinkCorp";
-import { PORT_TENDER_WORK_TYPE, coreLink } from "../nodeEnergy";
+import { HUB_TENDER_WORK_TYPE, PORT_TENDER_WORK_TYPE, coreLink } from "../nodeEnergy";
 import { buildRatioHaulerBody } from "../../spawn/BodyBuilder";
 
 /** The feeder commission's binding: which home room, which spawn. */
@@ -43,7 +49,12 @@ export const linkKind: CorpKind<LinkCorp> = {
   // `PORT_TENDER_WORK_TYPE` is the string this DECLARATION stamps on the creep,
   // and it is the same one both counting lenses match on (spec 57) - the
   // declaration, the demand side and the delivery side, one spelling.
-  roles: { feeder: { workType: "feed" }, porttender: { workType: PORT_TENDER_WORK_TYPE } },
+  roles: {
+    feeder: { workType: "feed" },
+    porttender: { workType: PORT_TENDER_WORK_TYPE },
+    // The storage<->terminal post (spec 58 phase 3) - same one-spelling rule.
+    hubmanager: { workType: HUB_TENDER_WORK_TYPE }
+  },
   runOrder: 41, // local mover, right after the extension tender (40)
 
   propose(problem: ColonyProblem, draft: readonly Commission[]): Commission[] {
@@ -67,6 +78,7 @@ export const linkKind: CorpKind<LinkCorp> = {
     // FROM, and charging it would make the corps' sum exceed the deduction.
     const depots = new Set(problem.depotRooms ?? []);
     const ported = new Set(problem.portRooms ?? []);
+    const terminals = new Set(problem.terminalRooms ?? []);
     const linkFed = new Set(problem.linkFedRooms ?? []);
     return [...homeSpawnsByRoom(problem)].map(([roomName, spawnId]) => {
       const relay = ctrlFlowByRoom.get(roomName) ?? 0;
@@ -84,7 +96,10 @@ export const linkKind: CorpKind<LinkCorp> = {
         // same primitives `infraSpawnLoad` composes, so SIGMA(auxiliary corps)
         // still reconciles with the colony's own deduction.
         (depots.has(roomName) ? feederSpawnLoad(relay, linkFed.has(roomName)) : 0) +
-          (ported.has(roomName) ? portTenderSpawnLoad() : 0)
+          (ported.has(roomName) ? portTenderSpawnLoad() : 0) +
+          // The hub tender (spec 58 phase 3) - priced from the SAME terminalRooms
+          // lens the adapter deducts with, so SIGMA(auxiliary) reconciles.
+          (terminals.has(roomName) ? hubTenderSpawnLoad() : 0)
       );
     });
   },
@@ -128,6 +143,8 @@ export const linkKind: CorpKind<LinkCorp> = {
     // the CARRY-heavy tanker shape - the same one the sweep on
     // TANKER_CARRY_PER_MOVE_PLAIN measured optimal.
     if (role === "porttender") return buildTankerBody(bodyParam ?? PORT_TENDER_CARRY, energyBudget, false).body;
+    // The hub tender parks like the port tender - same CARRY-heavy shape.
+    if (role === "hubmanager") return buildTankerBody(bodyParam ?? HUB_TENDER_CARRY, energyBudget, false).body;
     // Balanced 1:1 CARRY:MOVE shuttle (bodyParam = desired CARRY parts) - the
     // shared hauler builder at 1:1 IS the feeder body (bit-identical, pinned
     // by bodyEquivalence's "feeder" case). Floored at 1 CARRY so a zero

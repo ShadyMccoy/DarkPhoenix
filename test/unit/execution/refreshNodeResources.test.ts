@@ -51,7 +51,7 @@ describe("refreshNodeResources (room-agnostic source claiming)", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global as any).FIND_SOURCES = FIND_SOURCES;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global as any).FIND_MINERALS = 106;
+    (global as any).FIND_MINERALS = 116; // the engine value - 106 is FIND_DROPPED_RESOURCES (harness pin enforces distinctness)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global as any).FIND_MY_SPAWNS = 112;
     // A bot that owns nothing in the remote room: a spawn (for the username
@@ -300,7 +300,7 @@ describe("remote sources are claimed regardless of home staffing (the gate is re
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global as any).FIND_SOURCES = FIND_SOURCES;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global as any).FIND_MINERALS = 106;
+    (global as any).FIND_MINERALS = 116; // the engine value - 106 is FIND_DROPPED_RESOURCES (harness pin enforces distinctness)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global as any).FIND_MY_SPAWNS = 112;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

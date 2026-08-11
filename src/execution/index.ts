@@ -37,6 +37,7 @@ export { sampleMarketPrices, MARKET_SAMPLE_INTERVAL } from "./marketSampler";
 export { runSpawnScheduling } from "./SpawnDirector";
 
 export { runLinks } from "./LinkRunner";
+export { runTerminals } from "./TerminalRunner";
 
 export { pickTowerTarget, runTowers } from "./TowerRunner";
 

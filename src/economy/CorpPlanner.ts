@@ -46,6 +46,7 @@ import {
   miningBudgetPerSpawn,
   plannableSpawnParts,
   scavengeFloorParts,
+  terminalDeliveredFraction,
   SPAWN_PARTS_PER_TICK
 } from "./primitives";
 import { consumerUnitSpawnLoad, effectiveOneWayTiles, pavedNetEnergy, pavedSpawnPartsFor } from "./roadEconomics";
@@ -259,6 +260,32 @@ export interface ColonyProblem {
   /** Rooms marked hostile by the vision-free defense lens (RoomDiscovery). */
   hostileRooms?: readonly string[];
   /**
+   * Rooms holding a live OWNED TERMINAL (spec 58 phase 2). The ONLY thing
+   * that makes a cross-hub transfer executable, so it is what gates the
+   * per-hub anti-pump: a bank may fill ANOTHER hub's storage sink exactly
+   * when both rooms can terminal-send. Absent/empty (every world before the
+   * executor lands, and every terminal-less colony) keeps the global rule -
+   * no bank ever fills a storage sink - byte for byte.
+   */
+  terminalRooms?: readonly string[];
+  /**
+   * Linear ROOM distance between two room names - the input to the terminal
+   * fee. CONTRACT: this must be the CONTINUOUS (wrap-around) form,
+   * `Game.map.getRoomLinearDistance(a, b, true)` - the exact distance the
+   * engine's calcTransactionCost charges. The non-continuous form
+   * (RoomDiscovery.roomLinearDistance today) overstates the fee across the
+   * world seam: two hubs at W59N0/E59N0 read ~119 rooms apart when the
+   * engine charges the wrap distance ~1, so the plan's fee would disagree
+   * with the actual debit - the exact plan-vs-engine drift keeping the exact
+   * exponential was meant to prevent (review 2026-08-06). Phase 3's adapter
+   * wiring must pass the continuous form (wrap the lens or read the engine).
+   * Kept as an injected function for the same reason `dist` is: the planner
+   * stays pure and never parses a room name itself. Absent = a transfer
+   * cannot be PRICED, and an unpriceable edge is never emitted (canTransfer
+   * refuses) - so the gate is doubled.
+   */
+  roomDist?: (a: string, b: string) => number;
+  /**
    * Rooms with a BUILT storage - the depot rooms (spec 39 phase 4). Host:
    * Game.rooms[...].storage.
    *
@@ -364,6 +391,16 @@ export interface CommissionedHauler {
    * the storage on port-full. Absent = deliver to the storage sink as before.
    */
   depositPos?: Position;
+  /**
+   * A TERMINAL TRANSFER (spec 58 phase 2), not a walking haul: this hub's
+   * bank ships to ANOTHER hub's storage through the terminal network. It buys
+   * no bodies (carryParts/spawnParts 0) and `flowRate` is the SENDER'S SPEND -
+   * the sink accounts the smaller landed amount, the difference being the
+   * engine's fee. Never materialized as a CarryCorp (commissionPlan skips
+   * bank sources); the terminal runner executes it, exactly as link-served
+   * routes are executed by the link network rather than a hauler.
+   */
+  transfer?: boolean;
 }
 
 export interface CommissionedSink {
@@ -653,9 +690,10 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
   // container downstream (supply is built from `miners`). This is naturally
   // gated by the sink capacities: with a storage sink soaking `totalSupply`
   // there is always room, so it fires only once storage tops out (flowAdapter
-  // drops its capacity to physical room-remaining, ~0 when full) and the
-  // controller is at its spot cap. Worst net-per-part first; keep at least one
-  // so the colony never strands itself.
+  // tapers its capacity by the absorb law, ullage/1500 -> ~0 when full -
+  // spec 58) and the controller is at its cap (spot-bound, or the RCL8 game
+  // throttle). Worst net-per-part first; keep at least one so the colony
+  // never strands itself.
   const sinkCapacity = problem.sinks.reduce((sum, k) => sum + k.capacity, 0);
   let minedRate = miners.reduce((sum, m) => sum + m.rate, 0);
   if (minedRate > sinkCapacity + 1e-9) {
@@ -762,6 +800,63 @@ function routeToSinks(
   const hasStorageSink = sinks.some(s => s.kind === "storage");
   const isDeposit = (id: string): boolean => hasStorageSink && !isBankSourceId(id);
 
+  // CROSS-HUB TRANSFER (spec 58 phase 2, owner 2026-08-05: "model the energy
+  // in the storage as a source and the ullage as a sink"). Once both halves
+  // are first-class, moving energy between colonies is an ORDINARY route from
+  // one hub's source to another hub's sink - no new planner subsystem. Three
+  // rules make it correct rather than merely expressible:
+  //
+  //  1. PER-HUB ANTI-PUMP. The old rule ("no bank fills any storage sink") is
+  //     stricter than physics: a bank cannot fill its OWN store, but nothing
+  //     forbids it filling another room's. Tightened to exactly the physical
+  //     constraint - `banksOwnStore`.
+  //  2. TERMINAL-GATED. The leg runs through a terminal, so the edge exists
+  //     only between rooms that HAVE one. Without terminals the route is
+  //     unexecutable, and a plan the runtime cannot follow costs more than the
+  //     energy it misprices - it costs the diagnosis (the F1 objective). With
+  //     `terminalRooms` empty this whole block is inert and routing is
+  //     byte-identical to the global rule.
+  //  3. LENDER -> BORROWER ONLY. A hub in surplus is not hungry; letting two
+  //     surplus hubs fill each other's stores at value 1 would burn the engine
+  //     fee twice for zero net movement (the wash trade). A destination
+  //     qualifies only if its OWN bank is not itself lending - which the
+  //     pressure pair states directly: source > 0 means lending.
+  const terminalRooms = new Set(problem.terminalRooms ?? []);
+  // Lending = the bank's OWN surplus draw, read from the PROBLEM's bank
+  // sources - never from `supply`, whose bank rates planColony has already
+  // augmented with the funded mined income banking at each hub (the
+  // hub-and-spoke credit). On the augmented rates every hub with a single
+  // funded mine reads as "lending" and no real colony could ever receive
+  // (review 2026-08-06, probe-confirmed: a hub 5k UNDER its reserve with one
+  // 10 e/t mine was refused). The problem's rates are the adapter's
+  // bankPressure source half: surplus only, 0 while filling.
+  const lendingRooms = new Set(
+    problem.sources
+      .filter(s => s.transient && isBankSourceId(s.id) && s.rate > 1e-9)
+      .map(s => bankRoomFromId(s.id))
+  );
+  /** May this bank source transfer into this (foreign) hub's store? */
+  const canTransfer = (sourceId: string, sink: PlannerSink): boolean => {
+    // STORAGE SINKS ONLY. The fill's order filter admits bank sources to
+    // CONSUMER sinks unconditionally (a bank is a non-deposit - that is the
+    // ordinary bank->consumer draw the depot movers execute), so without this
+    // guard a foreign terminal room's spawn/controller would price as a
+    // terminal transfer: zero spawn parts for bodies the envelope still
+    // charges, a negative charge stamp, and energy landing in a terminal no
+    // executor can put into a spawn (review 2026-08-06, probe-confirmed).
+    if (sink.kind !== "storage") return false;
+    if (!isBankSourceId(sourceId)) return false;
+    if (!problem.roomDist) return false; // unpriceable edge - never emit one
+    const from = bankRoomFromId(sourceId);
+    const to = sink.pos.roomName;
+    if (from === to) return false; // THE ANTI-PUMP: never its own store
+    if (!terminalRooms.has(from) || !terminalRooms.has(to)) return false; // no executor
+    return !lendingRooms.has(to); // never lend to a lender (the wash trade)
+  };
+  /** Share of the sender's spend that ARRIVES: the engine's distance decay. */
+  const transferFraction = (sourceId: string, sink: PlannerSink): number =>
+    terminalDeliveredFraction(problem.roomDist!(bankRoomFromId(sourceId), sink.pos.roomName));
+
   // SPEC 25 - EMERGENT DEDICATION (owner doctrine 2026-07-21: work the
   // nuances into the planner, not tail-end flags): a deposit-class source may
   // feed a CONSTRUCTION sink that is NEARER to it than its hub. A source's
@@ -838,13 +933,28 @@ function routeToSinks(
         // deposit fill in the parts ledger - t72445337's order preserved).
         if (localDepositsOnly) return isDeposit(id) && d < (hubDist.get(id) ?? Infinity);
         return sink.kind === "storage"
-          ? isDeposit(id)
+          ? // Deposits haul home as always; a FOREIGN hub's bank may also land
+            // here when the terminal edge exists and this hub is hungry
+            // (canTransfer). Its own bank never can - banksOwnStore.
+            isDeposit(id) || canTransfer(id, sink)
           : !isDeposit(id) ||
               // Spec 25 exception: deposit-class sources build LOCALLY - a
               // construction sink nearer than the source's hub may draw it.
               (sink.kind === "construction" && d < (hubDist.get(id) ?? Infinity));
       })
-      .sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1));
+      .sort((a, b) => {
+        // Terminal transfers fill LAST at a storage sink, whatever their tile
+        // distance: mined deposits' only home is a hub, while a transfer
+        // moves SAVINGS between hubs at the engine's fee - and tile distance
+        // is meaningless for a route that doesn't walk. Racing them let a
+        // near foreign bank crowd fresh income out of its only home,
+        // demoting profitable miners while the warchest shipped uphill
+        // (review 2026-08-06, probe-confirmed). Production over consumption:
+        // income banks first, transfers take the residual room.
+        const ta = canTransfer(a.id, sink) ? 1 : 0;
+        const tb = canTransfer(b.id, sink) ? 1 : 0;
+        return ta - tb || a.d - b.d || (a.id < b.id ? -1 : 1);
+      });
 
     // Consumer bodies for THIS sink walk from the nearest spawn: upgraders at
     // a controller, builders at construction (5x cheaper per e/t - BUILD is
@@ -878,11 +988,19 @@ function routeToSinks(
       // headroom is DEBITED below on the confirmed `take`, not this candidate
       // rate, so a parts-ledger-limited take can't over-consume the shared port.
       // Non-storage sinks keep physD = d (untouched).
+      // Hoisted above the port leg: a TERMINAL TRANSFER never touches the
+      // link-port network - it neither walks nor lands in a link, so blending
+      // its "distance" through a port stamped depositPos on a route no hauler
+      // runs, burned the port's shared headroom that real walking deposits
+      // needed, and the stage-4 drain then synthesized a phantom core->storage
+      // hauler charged real spawn parts for flow that moves by terminal
+      // (review 2026-08-06, probe-confirmed).
+      const transfer = canTransfer(id, sink);
       let physD = d;
       let depositPos: Position | undefined;
       let chosenPort: DepositPort | undefined;
       let portShare = 0;
-      if (sink.kind === "storage" && avail > 1e-9) {
+      if (sink.kind === "storage" && avail > 1e-9 && !transfer) {
         const from = src?.haulPos ?? src?.pos;
         if (from) {
           let best: { port: DepositPort; dPort: number } | undefined;
@@ -913,9 +1031,21 @@ function routeToSinks(
       const paveFrac = paved ? src?.pavedFraction ?? 1 : 0;
       const dEff = effectiveOneWayTiles(physD, paveFrac, paved ? 2 : 1, src?.swampFraction ?? 0);
       // Parts/tick per unit of flow on this route: haul bodies + sink work bodies.
-      const chargePerUnit = ((paved ? 1.5 : 2) * carryPartsFor(1, dEff)) / effectiveLife(physD) + workPerUnit;
+      // A TERMINAL TRANSFER buys no bodies (the engine moves the energy) and
+      // loses the engine's fee in flight, so it prices on two axes the walking
+      // routes do not: zero spawn parts, and DELIVERED < SPENT. `frac` is the
+      // share that lands, so the sink's remaining target - which is in
+      // DELIVERED terms - converts to a spend of target/frac. The short
+      // storage->terminal stocking leg is NOT priced here (phase 3 owns it);
+      // it is local and small, and under-pricing it is visible rather than
+      // silent because the transfer route carries spawnParts 0 in the ledger.
+      // (`transfer` itself is hoisted above the port leg.)
+      const frac = transfer ? transferFraction(id, sink) : 1;
+      const chargePerUnit = transfer
+        ? 0
+        : ((paved ? 1.5 : 2) * carryPartsFor(1, dEff)) / effectiveLife(physD) + workPerUnit;
       const maxByParts = chargePerUnit > 1e-12 ? partsRemaining / chargePerUnit : Infinity;
-      const take = Math.min(avail, target - acc.allocated, maxByParts);
+      const take = Math.min(avail, (target - acc.allocated) / frac, maxByParts);
       if (take <= 1e-9) {
         if (maxByParts <= 1e-9) {
           // Ledger dry - the fill is over for this sink. Stamp BEFORE the
@@ -927,10 +1057,17 @@ function routeToSinks(
         }
         continue;
       }
+      // What LANDS. Equal to the spend on every walking route (frac 1); less
+      // on a transfer, by exactly the engine's fee - so the plan's delivered
+      // totals never over-state a colony that is shipping energy uphill.
+      const landed = take * frac;
       // THE CHARGE STAMP (audit t72846447): record what was ACTUALLY debited,
       // split the way the ledger spends it - haul bodies on the route, consumer
       // bodies on the sink. Published next to the independently-computed
       // `spawnParts` / `spawnLoad` so `spent` decomposes from a capture.
+      // A terminal transfer stamps 0 on both terms by construction: its
+      // chargePerUnit is 0 (the engine moves it) and storage sinks carry no
+      // consumer work, so the decomposition stays exact.
       const haulCharge = take * (chargePerUnit - workPerUnit);
       acc.chargedWork = (acc.chargedWork ?? 0) + take * workPerUnit;
       partsRemaining -= take * chargePerUnit;
@@ -939,17 +1076,20 @@ function routeToSinks(
       // (min of the routed take and the share this source claimed) so idle
       // headroom is re-offered to later deposits.
       if (chosenPort) portRemaining.set(chosenPort, (portRemaining.get(chosenPort) ?? 0) - Math.min(take, portShare));
-      acc.allocated += take;
-      acc.sources.push({ sourceId: id, amount: take, distance: physD });
+      acc.allocated += landed;
+      acc.sources.push({ sourceId: id, amount: landed, distance: physD });
       haulers.push({
         sourceId: id,
         sinkId: sink.id,
         spawnId: spawnBySource.get(id) ?? "",
         distance: physD,
+        // The SPEND at the source (the engine debits amount + fee); `landed`
+        // is what the sink accounts. Equal on every non-transfer route.
         flowRate: take,
-        carryParts: carryPartsFor(take, dEff),
-        spawnParts: ((paved ? 1.5 : 2) * carryPartsFor(take, dEff)) / effectiveLife(physD),
+        carryParts: transfer ? 0 : carryPartsFor(take, dEff),
+        spawnParts: transfer ? 0 : ((paved ? 1.5 : 2) * carryPartsFor(take, dEff)) / effectiveLife(physD),
         charged: haulCharge,
+        ...(transfer ? { transfer } : {}),
         ...(paved ? { paved } : {}),
         ...(depositPos ? { depositPos } : {})
       });

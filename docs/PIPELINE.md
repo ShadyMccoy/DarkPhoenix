@@ -73,7 +73,14 @@ terrain ─▶ Nodes ─▶ FlowGraph ─▶ ColonyProblem ─▶ ColonyPlan ─
    becomes a transient source — `economy/bank.ts`), and **link `haulPos`**
    (link-served sources haul from the core link). Sink `value` =
    `perInstanceSinkValue` over `DEFAULT_SINK_VALUE` (the ladder, ONTOLOGY §7);
-   controllers carry the anti-downgrade `reserve`.
+   controllers carry the anti-downgrade `reserve`. Sink CAPACITIES are where
+   the world's absorption limits enter the plan: storage =
+   `storageAbsorbRate(ullage)` (the drain law's absorb half, spec 58),
+   controller = `controllerRoutingCapacity` under `controllerUpgradeCap`
+   (parking×WORK, and the RCL8 game throttle — `controllerMaxUpgradeRate`),
+   construction = the sum-of-projects absorb. A CONSUMPTION-CONSTRAINED
+   colony (full bank, RCL8 controller) is nothing but these numbers going
+   small — there is no regime flag.
 
 4. **ColonyProblem → ColonyPlan.** The strategic searcher runs first
    (spec 18: `economy/strategy.ts` — `searchStructure` may pin budget-dropped
@@ -138,7 +145,10 @@ kinds' declared roles and `claimsOrphan` rules.
 Three independent clocks — don't conflate them:
 
 - **Execution: every tick.** Spawning + bootstrap corps → `runCommissionHost`
-  → links/towers → orphan rescue → `runSpawnScheduling`.
+  → links/terminals/towers → orphan rescue → `runSpawnScheduling`.
+  (`execution/TerminalRunner.runTerminals` executes the plan's published
+  cross-hub transfers — `Memory.terminalTransfers`, spec 58 phase 3 — and
+  no-ops on the empty publication every terminal-less world produces.)
 - **Economy re-solve:** the CPU governor's plan (`execution/CpuGovernor.ts`:
   `FULL_SOLVE_INTERVAL` = 50 at full/lean, `STRETCHED_SOLVE_INTERVAL` = 150
   degraded), or eagerly when nodes exist but no produce-shaped commission is

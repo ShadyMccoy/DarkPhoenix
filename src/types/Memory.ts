@@ -514,6 +514,19 @@ declare global {
     controllerAllocations?: Record<string, number>;
 
     /**
+     * The plan's CROSS-HUB TERMINAL TRANSFERS, keyed by SENDING room (spec 58
+     * phase 3): each entry is a destination room and the SPEND rate at the
+     * source in e/t (the engine debits amount + fee from the sender; the fee
+     * is inside this number, so the runner and the hub tender size from what
+     * actually leaves the bank). Written by FlowEconomy.update beside
+     * controllerAllocations from the solve's transfer-flagged routes; absent
+     * or empty = no transfers planned (every terminal-less world). Readers:
+     * execution/TerminalRunner (the send executor) and LinkCorp's hub post
+     * (the storage->terminal staging leg).
+     */
+    terminalTransfers?: Record<string, { to: string; rate: number }[]>;
+
+    /**
      * Event-triggered replanning state (spec 36 item 1): the previous
      * durable-signal snapshot and the last forced-solve tick, persisted so a
      * global reset re-seeds the baseline instead of misreading the fresh

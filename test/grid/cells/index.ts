@@ -20,8 +20,16 @@ import {
 } from "./construction";
 import { buildChurnReplacementCells, buildChurnT2Cells, buildChurnT3Cells, churnCells } from "./churn";
 import { buildHaulingCells, buildHaulingT3Cells, buildHaulingT4Cells } from "./hauling";
-import { buildPlannerT1Cells, buildPlannerT2Cells, buildPlannerT3Cells, buildPlannerT4Cells, plannerCells } from "./planner";
+import {
+  buildPlannerT1Cells,
+  buildPlannerT2Cells,
+  buildPlannerT3Cells,
+  buildPlannerT4Cells,
+  consumptionConstrainedCells,
+  plannerCells
+} from "./planner";
 import { buildStatefulMovementCells, buildT2MovementCells, buildT3MovementCells, movementCells } from "./movement";
+import { terminalCells } from "./terminals";
 import {
   buildAgendaFidelityCells,
   buildStatefulSchedulerCells,
@@ -56,6 +64,8 @@ export const ALL_CELLS: GridCell[] = [
   ...buildConstructionT1Cells(),
   ...constructionCells,
   ...plannerCells,
+  ...consumptionConstrainedCells,
+  ...terminalCells,
   ...buildPlannerT1Cells(),
   ...buildT2SchedulerCells(),
   ...buildAgendaFidelityCells(),
