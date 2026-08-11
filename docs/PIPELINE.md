@@ -116,9 +116,10 @@ terrain ─▶ Nodes ─▶ FlowGraph ─▶ ColonyProblem ─▶ ColonyPlan ─
    **`Corp`** (with demobilize hysteresis while creeps live) and
    `runCommissionedCorps` runs them in `runOrder`. Persisted to
    `Memory.commissionedCorps`. The registered roster (the `KINDS` array — the
-   ONE registration point): harvest(10), carry(20), upgrade(30), then scout,
-   reservation, raidGuard, coreBuster, construction, tender (40),
-   controllerFeeder (41), claim (45). Legacy outside the framework: bootstrap,
+   ONE registration point), by runOrder: harvest(10), carry(20),
+   construction + upgrade (30, the consume tier), then scout, reservation,
+   raidGuard, coreBuster, tender (40), controllerFeeder (41), claim (45).
+   Legacy outside the framework: bootstrap,
    spawning — folded into every census via `completeCensus`.
    - **Id spaces:** planner ids are flow-prefixed; kinds strip `source-` /
      `spawn-` at materialize. Corp ids are legacy-stable — a rename silently
@@ -135,6 +136,11 @@ terrain ─▶ Nodes ─▶ FlowGraph ─▶ ColonyProblem ─▶ ColonyPlan ─
    + workType through the buyer kind's declarations (`kind.body`,
    `kind.roles`), and files the execution receipt. Doctrine (tier ladder,
    holds, starvation, miner precedence) lives in `SpawnScheduler` alone.
+   The physical `spawnCreep` call is the spawn CONTRACT's one site
+   (`corps/spawnContract.ts` → `contractSpawn`; executeSpawn and the
+   bootstrap cold-start path both buy through it) — pinned statically by the
+   spawn-authority ratchet and at runtime by a prototype guard that makes any
+   naked `spawn.spawnCreep` throw (ONTOLOGY §8).
 
 After the corps run, `execution/OrphanRescue.ts` re-adopts or recycles any
 creep no live corp claims — live ids from the census, rescue targets from the
@@ -149,13 +155,16 @@ Three independent clocks — don't conflate them:
   (`execution/TerminalRunner.runTerminals` executes the plan's published
   cross-hub transfers — `Memory.terminalTransfers`, spec 58 phase 3 — and
   no-ops on the empty publication every terminal-less world produces.)
-- **Economy re-solve:** the CPU governor's plan (`execution/CpuGovernor.ts`:
-  `FULL_SOLVE_INTERVAL` = 50 at full/lean, `STRETCHED_SOLVE_INTERVAL` = 150
-  degraded), or eagerly when nodes exist but no produce-shaped commission is
-  materialized (bootstrap gate in `main.ts`). Every trigger — cadence,
-  bootstrap gate, and the console's `global.plan()` (registered by
-  `execution/console.ts`) — funnels into the ONE `main.ts` →
-  `runPlanningPhase` (spec 35 phase G).
+- **Economy re-solve:** the FISCAL MONTH is the budget's term (spec 46
+  phase A: the scheduled re-solve lands on `isPlanBudgetBoundary` — one plan
+  per close), plus event-triggered replans on durable world transitions
+  (`execution/planTriggers.ts`: hostile flip, expansion step, RCL-up, spawn
+  census), plus eager solves while nodes exist but no produce-shaped
+  commission is materialized (bootstrap gate in `main.ts`). Every trigger —
+  boundary, plan trigger, bootstrap gate, and the console's `global.plan()`
+  (registered by `execution/console.ts`) — funnels into the ONE `main.ts` →
+  `runPlanningPhase` (spec 35 phase G). (The CPU governor's solve-cadence
+  stretch is retired — the month interval exceeds any stretch it applied.)
 - **Spatial/terrain analysis:** ≤ every 5000 ticks
   (`MULTI_ROOM_ANALYSIS_CACHE_TTL`), spread incrementally across ticks;
   node-resource refresh on its own 50-tick clock.
@@ -232,6 +241,17 @@ Road placement is fed by two independent inputs that answer different questions:
   `economy/proposeHelpers.ts`; the spawn-value ladder in
   `spawn/demandLadder.ts`; regime lenses in `corps/regimes.ts`;
   `CorpKind.run` is optional (dispatch default `runCorpTick`).
+- **Also deleted (cleanup sweep, 2026-08-11):** the market-era `ColonyConfig`
+  (taxRate/treasury residue — serialized, never read), the plan's per-spawn
+  `spawnPartsUsed` map (a second committed-parts account beside `partsLedger`
+  with no production reader), the governor's `solveInterval`/`FULL_SOLVE_INTERVAL`
+  (superseded by the fiscal-month term, spec 46), the survey-tick accessors +
+  `Memory.lastSurveyTick`, `corps/economics.ts` (its constants re-homed in
+  `economy/primitives.ts`), the dead room-box discovery block in
+  `utils/RoomDiscovery.ts`, the uncalled corp factory functions
+  (`createCarryCorp`/`createUpgradingCorp`/`createConstructionCorp`), the
+  hand-rolled `test/sim` GameSimulator/GameMock fakes (~3.3k lines; the
+  mockup is the only fake), and the ChainPlanner-era `plan:scenario` scripts.
 - **Not yet ported to the framework:** `BootstrapCorp` and `SpawningCorp`
   (infrastructure; folded into the census by `completeCensus`; the port is
   spec 35 phase F).

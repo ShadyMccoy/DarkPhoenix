@@ -61,9 +61,13 @@ these (the kind-conformance suite enforces it):
 - `energyPerSpawnPart(rate, d) = netEnergy / spawnPartsFor` — the shadow price
 - `miningBudgetPerSpawn() = SPAWN_PARTS_PER_TICK · MINING_BUDGET_FRACTION (0.6)`
 - `deliveryLeadTime` / `staffsPost` — the replacement delivery contract
-- `sustainableConsumptionRate(stock, inflow)` — consumers sized from ACTUAL
-  stock at their work site (macro doctrine: production over consumption;
-  consumers burn the residual, never the goal plan's paper allocation)
+- `sustainableConsumptionRate(stock, inflow)` — the stock/lifetime drain law
+  for consumers OTHER than the upgrader/feeder line (construction fuel, haul
+  policy). The upgrader fleet and the feeder relay are sized from the PLAN's
+  controller allocation and nothing else — **ONE VALVE** (owner 2026-08-02,
+  superseding the former "sized from actual stock" rule; see CLAUDE.md and
+  ONTOLOGY §3). Macro doctrine stands: production over consumption — fund
+  producers first, bank to the warchest, consumers burn the residual.
 
 ## Sink values (the value ladder)
 
@@ -74,14 +78,18 @@ The planner fills sinks in value order, from nearest supply first
 |------|-------|-------|
 | spawn | 100 | keeping creeps alive — plus the agenda's funding need (spec 11) |
 | new-spawn construction site | 85 | expansion founding outranks ordinary work |
-| controller | 80 → 40 | log-priced by progress REMAINING (200 → 80, 10.4M → 40) |
+| controller (band) | ≤ 80 | banded 40–80 by downgrade pressure / progress remaining |
 | construction | 70 | build-out is investment; may absorb the full surplus while sites exist |
+| controller floor | 40 | the guaranteed trickle sits BELOW construction — load-bearing |
 | storage | 1 | soaks excess only |
 
 Floors are guaranteed by a reserve pre-pass (controller anti-downgrade = 2
-e/tick). Once a room has a storage, the controller is capped at
-`STORAGE_UPGRADE_TARGET` (15 e/t) and the surplus banks — the deposit half of
-the warchest that funds expansion CAPEX.
+e/tick). Once a room has a storage, routing is hub-and-spoke: mined energy
+banks to storage and consumers draw the bank source; the surplus above the
+warchest target is the deposit half that funds expansion CAPEX. At RCL8 the
+game itself caps the controller at 15 e/t (`controllerMaxUpgradeRate` over
+`CONTROLLER_MAX_UPGRADE_PER_TICK`), which with a full bank is the
+consumption-constrained regime — numbers going small, no regime flag.
 
 **Ordering is load-bearing.** The controller band caps at 80 *below* the
 founding site's 85 deliberately; at 90 a freshly claimed room's own L1
@@ -96,9 +104,11 @@ mining, and from where?". Three effects, all distance-driven, pull it down —
 and the build-time currency makes the cutoff fall out without a hard limit.
 
 Tools: `npm run sim:energy` prints the effective-energy table;
-`scripts/effective-energy.ts` is the model. Each corp reports its own numbers via
-`Corp.project()` → `CorpEconomics`, and `effectiveNet()` collapses them to one
-number to rank by (`src/corps/economics.ts`).
+`scripts/effective-energy.ts` is the (offline) model. The LIVE pricing is
+`planColony`'s producer selection: `netEnergy`/`pavedNetEnergy` net of the
+invader/link/reservation taxes, admitted by net-per-part against the global
+mining tranche, with `energyPerSpawnPart` as the shadow price — all from
+`economy/primitives.ts`.
 
 ### 1. The hauler dominates, and grows with distance
 
@@ -132,27 +142,28 @@ than the spawn can physically build — so build-time is often the *tighter*
 wall, and it bites at a closer distance than the energy break-even. A single
 owned source at d≈200 already eats ~40% of one spawn's entire part budget.
 
-Rather than a hard part cap, we **price build-time in energy** and fold it into
-the same ranking that already weighs energy:
+Rather than a hard part cap, we **price build-time in energy** and fold it
+into the same ranking that already weighs energy. The offline model
+(`scripts/effective-energy.ts`) makes the idea legible with one constant:
 
 ```
 effectiveNet = throughput − energyUpkeep − spawnPartsPerTick · SPAWN_PART_ENERGY_VALUE
 ```
 
-`SPAWN_PART_ENERGY_VALUE ≈ 155` (energy per part/tick) is calibrated from a
-representative source at the average remote distance (~75 tiles): it nets ~7.4
-e/tick on ~70 parts, so a held part is worth ~0.1 e/tick ≈ 155 over its life.
-Ranking by `effectiveNet`, a part-hungry far source is demoted below a near one
-in pure energy — the spawn-time wall **falls out of planning**, no hard
-distance limit required.
+`SPAWN_PART_ENERGY_VALUE ≈ 155` (energy per part/tick, in the script) is
+calibrated from a representative source at the average remote distance (~75
+tiles): it nets ~7.4 e/tick on ~70 parts, so a held part is worth ~0.1
+e/tick ≈ 155 over its life. The constant is a stand-in for the colony's
+**marginal alternative use of a part** (an idle spawn → cheap parts → far
+sources welcome; abundant near sources → expensive parts → far sources
+excluded).
 
-The constant is really a stand-in for the colony's **marginal alternative use
-of a part** (an idle spawn → cheap parts → far sources welcome; abundant near
-sources → expensive parts → far sources excluded). By construction `effNet`
-crosses zero at the calibration distance, so with 155 a single spawn's
-profitable remote reach is about **50–75 tiles**; lower the constant (a poorer
-marginal alternative) and the reach extends. Tune it to the colony, don't
-hard-code a distance.
+The LIVE planner needs no such tuned constant: `selectProducers` ranks
+candidates by **net energy per build-part** and admits them against the
+global mining tranche (`miningBudgetPerSpawn() ×` spawns), so the marginal
+alternative is evaluated directly — the last part goes to whichever source
+nets most per part, and the spawn-time wall **falls out of planning** with
+no hard distance limit.
 
 ### 4. Reserving a remote room is a per-ROOM cost
 

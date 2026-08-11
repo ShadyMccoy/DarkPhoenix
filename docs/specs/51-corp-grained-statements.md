@@ -391,6 +391,10 @@ planner one used above (and by `organismScenario.test.ts`): stage a
 a format translator or delete the orphans — but do not trust `plan:scenario` as
 a gate; it cannot even compile.
 
+**[RESOLVED 2026-08-11: deleted the orphans — the runner, its three npm
+scripts, and `test/scenarios/` are gone. The pure `ColonyProblem` harness is
+the scenario harness.]**
+
 
 ## 4. What lands
 

@@ -1,34 +1,24 @@
-# Introduction
+# DarkPhoenix docs
 
-Screeps Typescript Starter is a starting point for a Screeps AI written in [Typescript](http://www.typescriptlang.org/). It provides everything you need to start writing your AI whilst leaving `main.ts` as empty as possible.
+The read order for architecture truth (CLAUDE.md is the agent playbook):
 
-[View on GitHub](https://github.com/screepers/screeps-typescript-starter)
+1. **[ONTOLOGY.md](ONTOLOGY.md)** — the domain model (authoritative). When
+   code and ONTOLOGY disagree, that is a bug — fix it, don't drift.
+2. **[PIPELINE.md](PIPELINE.md)** — the live pipeline end to end, with
+   `file → symbol` anchors, tick cadences, and the deleted/vestigial list.
+3. **[specs/](specs/README.md)** — the work: each spec IS its acceptance
+   tests, and the index carries deployment status.
+4. The code.
 
-## What's new \(v3.0\)
+Reference notes:
 
-### Simpler setup!
-
-Over the past few months, we've felt that the TypeScript starter needed a lot of work. We were starting to realise that it had become too opinionated and was making too many decisions regarding AI design.
-
-The new version does away with all this and only provides only the code and tools necessary to base your TypeScript AI off of. This means you'll spend far less time configuring the starter kit, and more time actually writing your code.
-
-### Rollup!
-
-We have swapped the bundler from Webpack to [Rollup](https://rollupjs.org/). Rollup is easier to configure and can be set up to do everything needed for Screeps. It also comes with various improvements over Webpack, which you can learn more about [here](in-depth/module-bundling.md).
-
-### Better docs!
-
-We've also spent some time reworking the documentation from the ground-up, which is now generated through [Gitbooks](https://www.gitbook.com/). Includes all the essentials to get you up and running with Screeps AI development in TypeScript, as well as various other tips and tricks to further improve your development workflow.
-
-Maintaining the docs will also become a more community-focused effort, which means you too, can take part in improving the docs for this starter kit.
-
-## Download
-
-Download the latest source [here](https://github.com/screepers/screeps-typescript-starter/archive/master.zip), or clone this repo.
-
-```bash
-git clone https://github.com/screepers/screeps-typescript-starter.git
-```
-
-Extract it to a folder, and [let's get started](getting-started/installation.md)!
-
+- [ECONOMIC_FRAMEWORK.md](ECONOMIC_FRAMEWORK.md) — the two currencies,
+  the value ladder, effective energy.
+- [TESTING_THE_ECONOMY.md](TESTING_THE_ECONOMY.md) — the grid, the mockup
+  environment, and the invisible-failure trap every fresh clone hits.
+- [ROUTINES.md](ROUTINES.md) — corp lifecycle + roster quick reference.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — one-paragraph summary + pointer page.
+- [GRAND_STRATEGY.md](GRAND_STRATEGY.md) — the long arc (aspirational).
+- [TRANSPORT_NETWORK.md](TRANSPORT_NETWORK.md) — transport analysis note.
+- [LIVE_DATA.md](LIVE_DATA.md) — telemetry segments and capture tooling.
+- [fiscal/](fiscal/) — machine-generated fiscal close reports.
