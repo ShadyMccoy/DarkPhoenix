@@ -333,7 +333,10 @@ storage 1. `DEFAULT_SINK_VALUE` (CorpPlanner) holds the defaults;
   The dispatch meters every `kind.run` (clock injected; the dispatch stays
   pure); the un-attributed remainder is the named infrastructure residual,
   reconciled against the whole tick so nothing hides. Towers/links/bootstrap/
-  spawning migrate into kinds under this spec.
+  spawning migrate into kinds under this spec. The guardrail program that
+  makes the books INHERENT (bookkeeping at the contract seams, statement
+  lines as kind declarations, shrink-only boundary cops) is
+  [spec 60](specs/60-measurement-at-the-door.md).
 - **Known coupling debt:** the RoomMemory regime flags
   (`extensionTenderActive`, `controllerFeederActive`, `dedicatedBuildSourceId`)
   couple mover kinds to CarryCorp/UpgradingCorp branches — the next
