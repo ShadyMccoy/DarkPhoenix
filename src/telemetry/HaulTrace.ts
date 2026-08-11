@@ -39,10 +39,11 @@
  */
 
 import { TELEMETRY_SEGMENTS } from "./segmentIds";
+import { CREEP_LIFETIME } from "../economy/primitives";
 import "../types/Memory"; // Memory.haulTrace augmentation (the arming key)
 
 /** Rows kept. One creep generation; the ring drops the oldest beyond it. */
-export const HAUL_TRACE_MAX_ROWS = 1500;
+export const HAUL_TRACE_MAX_ROWS = CREEP_LIFETIME;
 /** Flush cadence - stringifying the ring every tick would be the only real cost. */
 const FLUSH_STRIDE = 25;
 

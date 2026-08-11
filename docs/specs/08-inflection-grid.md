@@ -1,5 +1,11 @@
 # Spec 08 — The Inflection-Point Grid
 
+> **Anchor erratum (2026-08-11):** this spec's design-time `file:line`
+> anchors predate the spec-35 module collapse. In particular
+> `src/flow/FlowGraph.ts` is folded into `economy/flowAdapter.ts`, and
+> `planning/EconomicConstants.ts` is deleted (constants homed in
+> `economy/primitives.ts`). PIPELINE.md carries the live map.
+
 **Status**: RUNNER BUILT (2026-07-07) — `npm run grid`. Implemented:
 `test/grid/{GridCell,judge,pack,stage,runBatch,report}.ts` + `scripts/grid.ts`
 CLI, with 17 unit tests over the pure judge/pack/ladder modules

@@ -45,8 +45,15 @@ function walk(dir: string): string[] {
 
 const rel = (p: string): string => path.relative(SRC, p).split(path.sep).join("/");
 
-/** The sanctioned spawn intent sites (spec 39 cop rule 1). */
-const SPAWN_CREEP_ALLOWLIST = new Set(["corps/SpawningCorp.ts", "corps/BootstrapCorp.ts"]);
+/**
+ * The sanctioned spawn intent sites (spec 39 cop rule 1). Since the spawn
+ * contract landed, the ONE physical `.spawnCreep(` site is contractSpawn
+ * (corps/spawnContract.ts) - SpawningCorp's executor and BootstrapCorp's
+ * cold-start path both buy through it, and the runtime guard it installs
+ * makes any other call site throw. This list is the static half of that
+ * enforcement; it may only shrink.
+ */
+const SPAWN_CREEP_ALLOWLIST = new Set(["corps/spawnContract.ts"]);
 
 /**
  * The getSpawnDemand DEBT list (spec 39 cop rule 2) - today's CODE surface,

@@ -8,7 +8,7 @@ units of economic activity that consume spawn build-time (± energy) and
 produce energy-at-a-place or colony value.
 
 > **Doc authority:** [docs/ONTOLOGY.md](docs/ONTOLOGY.md) (domain model) and
-> [docs/PIPELINE.md](docs/PIPELINE.md) (the live pipeline, `file:line`
+> [docs/PIPELINE.md](docs/PIPELINE.md) (the live pipeline, `file → symbol`
 > anchors) reflect the code as it is. If any doc disagrees with them, they win.
 
 ## Quick Start
@@ -39,7 +39,8 @@ DarkPhoenix plans the colony as one economic problem with **two currencies**:
   this is usually the *tighter* wall, and it is priced in energy so far
   sources fall out of contention without any hard distance cap.
 
-Each solve (every 50 ticks) runs two pure phases:
+Each solve (scheduled on fiscal-month boundaries — one plan per budget term —
+plus event-triggered replans on durable world changes) runs two pure phases:
 
 1. **Producer selection** — assign each source to its nearest spawn, drop
    net-negative sources, fill each spawn's mining build-time budget in
@@ -70,9 +71,9 @@ Corps are business units that execute commissioned work:
 |------|-------|---------|
 | HarvestCorp | produce | static miners on assigned sources |
 | CarryCorp | transport | haulers sized to route flow (2:1 body on paved routes) |
-| UpgradingCorp | consume | controller upgrading, sized from actual stock |
+| UpgradingCorp | consume | controller upgrading, sized from the plan's controller allocation (ONE VALVE) |
 | ConstructionCorp | consume + auxiliary | building, paving, repair ladder |
-| ExtensionTenderCorp / ControllerFeederCorp | auxiliary | local movers: depot→extensions, storage→controller |
+| ExtensionTenderCorp / LinkCorp | auxiliary | local movers: depot→extensions; link network + storage→controller relay |
 | ScoutCorp / ReservationCorp / ClaimCorp | auxiliary | intel, remote reservation, expansion claiming |
 | SpawningCorp / BootstrapCorp | infrastructure | spawn queue execution; cold-start jacks (not commissioned) |
 
@@ -120,13 +121,14 @@ npm run grid              # The inflection-point grid (spec 08) — the repo's s
 npm run sim:real -- --home W1N6 --metrics   # Real-map sim with plan-vs-actual sampling
 ```
 
-The **grid** (`test/grid/`, spec 08) is the primary metric: ~114 cells stage
-worlds at decision moments and assert the decision plus its consequence in a
-short window, ratcheted in `test/grid/baseline.json` (BOT LEVEL = highest
-tier fully green). Real captured rooms live in `test/fixtures/real-rooms/`;
-journey snapshots replay organic ramp moments. Integration tests use
+The **grid** (`test/grid/`, spec 08) is the primary metric: its cells (132 at
+last count — `test/grid/baseline.json` is the count of record) stage worlds
+at decision moments and assert the decision plus its consequence in a short
+window, ratcheted in the baseline (BOT LEVEL = highest tier fully green).
+Real captured rooms live in `test/fixtures/real-rooms/`; journey snapshots
+replay organic ramp moments. Integration tests use
 [`screeps-server-mockup`](https://github.com/screepers/screeps-server-mockup).
-See [docs/in-depth/testing.md](docs/in-depth/testing.md) and
+See [docs/TESTING_THE_ECONOMY.md](docs/TESTING_THE_ECONOMY.md) and
 [CLAUDE.md](CLAUDE.md) for the workflow rules.
 
 ## Project Structure
@@ -137,7 +139,7 @@ See [docs/in-depth/testing.md](docs/in-depth/testing.md) and
 | `src/corps/` | Runtime corps + `kinds/` (the pluggable CorpKind implementations) |
 | `src/execution/` | Live-loop glue: CommissionHost, SpawnDirector, OrphanRescue, LinkRunner |
 | `src/spawn/` | Pure body building + spawn scheduling math |
-| `src/flow/` | Legacy translation layer: FlowGraph world discovery + FlowSolution output shape |
+| `src/flow/` | `FlowTypes.ts` only: the surviving FlowSolution DTO shapes (FlowGraph itself lives in `economy/flowAdapter.ts`) |
 | `src/nodes/`, `src/spatial/` | Territory model, path distances, room analysis |
 | `src/telemetry/` | RawMemory segment exports (dashboard: `telemetry-app/`) |
 | `docs/` | ONTOLOGY, PIPELINE, specs (each spec = its acceptance tests) |
@@ -154,11 +156,13 @@ See [docs/in-depth/testing.md](docs/in-depth/testing.md) and
 - Remote mining with reservation; capital-gated expansion (claim + founding)
 - The inflection-point grid + real-map fixtures + journey snapshot replay
 
-### Planned (see docs/specs/)
-- Storage draw-down as planner supply (spec 03)
-- The NOW plan: spawn agenda as the transition contract (spec 11)
-- Robustness program: chaos harness, incident pipeline, CPU governor (spec 09)
-- Tower defense (spec 07, deferred)
+- Storage draw-down as planner supply (spec 03); the prescriptive NOW plan
+  (spec 11); the CPU governor + phase bulkheads (spec 09); tower defense
+  (spec 07)
+
+### Planned
+Current work is tracked in [docs/specs/README.md](docs/specs/README.md) —
+each spec IS its acceptance tests, and the index carries deployment status.
 
 ## Documentation
 
@@ -166,7 +170,6 @@ See [docs/in-depth/testing.md](docs/in-depth/testing.md) and
 - [Pipeline](docs/PIPELINE.md) - the live architecture, end to end
 - [Task specs](docs/specs/README.md) - current work, each with acceptance tests
 - [Economic Framework](docs/ECONOMIC_FRAMEWORK.md) - effective energy, spawn-part pricing
-- [Spatial Analysis](docs/SPATIAL_SYSTEM.md) - RoomMap algorithms and territories
 
 ## Contributing
 

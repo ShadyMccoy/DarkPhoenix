@@ -18,7 +18,7 @@ import {
   findTerritoryAdjacencies
 } from "../spatial";
 import { Node, calculateNodeROI, createNode } from "../nodes";
-import { RESERVER_BODY_COST } from "../corps/economics";
+import { RESERVER_BODY_COST } from "../economy/primitives";
 import { SiteNode, SiteSource, marginalSiteValue } from "../economy/siteValue";
 import { mineralNodeValue, resolveMarketPrices } from "../economy/mineralValue";
 import { chebyshevDistance } from "../types/Position";

@@ -135,32 +135,10 @@ export abstract class Corp {
   /** How often to re-run planning (ticks) */
   protected static readonly PLANNING_INTERVAL = 100;
 
-  /** Optional custom ID generator for deterministic testing */
-  private static idGenerator: ((type: CorpType, nodeId: string) => string) | null = null;
-
-  /** Counter for default sequential IDs in test mode */
-  private static idCounter = 0;
-
   public constructor(type: CorpType, nodeId: string, customId?: string) {
     this.id = customId ?? this.generateId(type, nodeId);
     this.type = type;
     this.nodeId = nodeId;
-  }
-
-  /**
-   * Set a custom ID generator for deterministic testing.
-   * Pass null to reset to default behavior.
-   */
-  public static setIdGenerator(generator: ((type: CorpType, nodeId: string) => string) | null): void {
-    Corp.idGenerator = generator;
-    Corp.idCounter = 0;
-  }
-
-  /**
-   * Reset ID counter (useful between tests)
-   */
-  public static resetIdCounter(): void {
-    Corp.idCounter = 0;
   }
 
   /**
@@ -169,19 +147,9 @@ export abstract class Corp {
    * creeps can always find their assigned corp after global resets.
    */
   protected generateId(type: CorpType, nodeId: string): string {
-    if (Corp.idGenerator) {
-      return Corp.idGenerator(type, nodeId);
-    }
     // Deterministic ID: type-nodeId (no timestamp)
     // This ensures creeps can find their corp after global resets
     return `${type}-${nodeId}`;
-  }
-
-  /**
-   * Generate a deterministic ID (for testing)
-   */
-  public static generateTestId(type: CorpType, nodeId: string): string {
-    return `${type}-${nodeId}-${Corp.idCounter++}`;
   }
 
   /**

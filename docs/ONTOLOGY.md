@@ -20,9 +20,10 @@ walkthrough is [PIPELINE.md](./PIPELINE.md); the work items are
 | **EXECUTE** (dumb) | `corps/`, `corps/kinds/` (materialize/run/body), `execution/` (CommissionHost, SpawnDirector, OrphanRescue, runners) | Game, plus its commission's assignment — "follow your assignment" | invent policy the plan owns; read another kind's naming conventions instead of a shared lens |
 | **AUDIT** (passive, pullable) | variance meters (`Memory.corpVariance`), the per-corp CPU ledger (`Memory.corpCpu`), telemetry segments, the spawn agenda + receipts (`Memory.spawnAgenda`), BlackBox flight recorder | everything, generically via the census | feed back into decisions; enumerate kinds by hand |
 
-Three world-adapter modules are the sanctioned PLAN↔world boundary:
-`economy/flowAdapter.ts`, `economy/scavenge.ts`, and
-`economy/roadSegmentsGame.ts` read the live world (behind `typeof Game`
+Four world-adapter modules are the sanctioned PLAN↔world boundary:
+`economy/flowAdapter.ts`, `economy/scavenge.ts`,
+`economy/roadSegmentsGame.ts`, and `economy/planningAssembly.ts` (the
+solve-input assembly seam) read the live world (behind `typeof Game`
 guards) to BUILD the pure `ColonyProblem` (the purity ratchet's ADAPTERS
 list is the mechanical form of this sentence). Everything else in
 `economy/` is Game-free.
@@ -273,6 +274,15 @@ storage 1. `DEFAULT_SINK_VALUE` (CorpPlanner) holds the defaults;
 - **Conformance suite** (`test/unit/framework/conformance.ts`): every
   registered kind — determinism of propose, serialize round-trip, materialize
   idempotence + spawnId refresh, empty-world run safety, economics envelope.
+- **The spawn contract** (`corps/spawnContract.ts`): creeps are requisitioned
+  (a corp's spawn demand → the NOW planner → `SpawningCorp.executeSpawn`),
+  never conjured. `contractSpawn` is the ONE physical `spawnCreep` site —
+  statically pinned by the spawn-authority ratchet
+  (`test/unit/framework/spawnAuthority.test.ts`, allowlist of one file), and
+  enforced at runtime by a prototype guard installed at module load
+  (`installSpawnContractGuard`, main.ts): a naked `spawn.spawnCreep` throws
+  with directions to the contract, `createCreep` always throws, and operator
+  break-glass goes through `global.spawnContractBypass(n)`.
 - **Registration-only proof** (`test/unit/execution/registrationOnly.test.ts`
   + `test/unit/framework/newCorp.test.ts`): a toy kind flows through plan,
   dispatch, demands, orphan registry, census with zero core edits.
@@ -323,7 +333,10 @@ storage 1. `DEFAULT_SINK_VALUE` (CorpPlanner) holds the defaults;
   The dispatch meters every `kind.run` (clock injected; the dispatch stays
   pure); the un-attributed remainder is the named infrastructure residual,
   reconciled against the whole tick so nothing hides. Towers/links/bootstrap/
-  spawning migrate into kinds under this spec.
+  spawning migrate into kinds under this spec. The guardrail program that
+  makes the books INHERENT (bookkeeping at the contract seams, statement
+  lines as kind declarations, shrink-only boundary cops) is
+  [spec 60](specs/60-measurement-at-the-door.md).
 - **Known coupling debt:** the RoomMemory regime flags
   (`extensionTenderActive`, `controllerFeederActive`, `dedicatedBuildSourceId`)
   couple mover kinds to CarryCorp/UpgradingCorp branches — the next

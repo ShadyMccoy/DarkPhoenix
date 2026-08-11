@@ -18,7 +18,7 @@
  * @module corps/ExtensionTenderCorp
  */
 
-import { BODY_COSTS, CARRY_CAPACITY, SPAWN_TIME_PER_PART, towerRefillBelow } from "../economy/primitives";
+import { BODY_COSTS, CARRY_CAPACITY, CREEP_LIFETIME, SPAWN_TIME_PER_PART, towerRefillBelow } from "../economy/primitives";
 import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { TENDER, TENDER_BOOTSTRAP } from "../spawn/demandLadder";
@@ -80,7 +80,7 @@ export function tenderSlotCarry(
 ): number {
   void clusterSizes;
   void staffing;
-  const share = Math.ceil(bankCapacity / Math.max(1, target) / 50);
+  const share = Math.ceil(bankCapacity / Math.max(1, target) / CARRY_CAPACITY);
   return Math.max(1, Math.min(share, maxCarry));
 }
 
@@ -325,7 +325,7 @@ export class ExtensionTenderCorp extends SpawnAnchoredCorp {
     // Duty-meter window: one creep generation, then restart (same cadence
     // as the upgrade meter - long enough to smooth bursts, short enough
     // that a fleet change shows within two captures).
-    if (tick - this.dutySince >= 1500) {
+    if (tick - this.dutySince >= CREEP_LIFETIME) {
       this.dutyTransfers = 0;
       this.dutyAlive = 0;
       this.dutySince = tick;

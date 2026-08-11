@@ -41,8 +41,10 @@ import {
   effectiveLife,
   haulerOverhead,
   minerOverhead,
+  minerSpawnLoad,
   pileDecayBudget,
   reserverSpawnLoad,
+  roundTripTicks,
   roomGuardSpawnLoad,
   GUARD_PARTS_PER_ROOM,
   FEEDER_NOMINAL_DISTANCE,
@@ -419,7 +421,7 @@ export function planSpawnLoad(cap: any): {
     l = 0;
   for (const s of flow.sources ?? []) {
     p += MINER_PARTS;
-    l += MINER_PARTS / effectiveLife(s.spawnDistance);
+    l += minerSpawnLoad(s.spawnDistance);
   }
   lines.push(["miners", p, l]);
 
@@ -684,7 +686,7 @@ export function computeChurn(cap: any): {
     const churned = ss.length - slots;
     for (let i = 0; i < churned; i++) {
       let gap = ss[i + slots].t - ss[i].t;
-      const life = ss[i].role === "reserver" ? CLAIM_LIFETIME : 1500;
+      const life = ss[i].role === "reserver" ? CLAIM_LIFETIME : CREEP_LIFETIME;
       // EOL-window exemption (t72651837 phantom, owner 2026-07-29): the
       // stride uses CURRENT staffing, so a fleet that SHRANK mid-window
       // (governor relegation) mispairs a cohort-wave spawn as a slot death
@@ -2112,8 +2114,8 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     let worstV = 0;
     for (const h of srcRoutes) {
       const d = +h.distance || 0;
-      const rt = 2 * d + 2;
-      const life = Math.max(1, 1500 - d);
+      const rt = roundTripTicks(d);
+      const life = effectiveLife(d);
       const rem = life % rt;
       const partsPerCarry = h.ratio === "2:1" ? 1.5 : 2;
       const bodyPerTick = ((+h.carryParts || 0) * partsPerCarry * 50) / life;

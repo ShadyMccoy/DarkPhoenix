@@ -26,7 +26,7 @@
  */
 
 import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
-import { RESERVATION_REFRESH_FLOOR, RESERVATION_BANK_CAP, OPPORTUNISTIC_BANK_HEADROOM } from "./economics";
+import { OPPORTUNISTIC_BANK_HEADROOM, RESERVATION_BANK_CAP, RESERVATION_REFRESH_FLOOR } from "../economy/primitives";
 import { hostileRooms, isReservableRoom, myReservationTicksLeft } from "../utils/RoomDiscovery";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { RESERVATION_TOPUP, RESERVER } from "../spawn/demandLadder";

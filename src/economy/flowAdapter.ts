@@ -62,13 +62,14 @@ import {
   WARTIME_BACKLOG_THRESHOLD,
   ANTI_DOWNGRADE_RESERVE,
   depositPortHeadroom,
-  SOURCE_RATE
+  SOURCE_ENERGY_CAPACITY,
+  SOURCE_RATE,
+  SOURCE_REGEN_TIME
 } from "./primitives";
 import { detectRoomStocks, SCAVENGE_RATE_FLOOR, stockToTransientSource } from "./scavenge";
 import { partialPaveRatio } from "./roadEconomics";
 import {
   ColonyProblem,
-  DEFAULT_SINK_VALUE,
   DepositPort,
   PlannerSink,
   PlannerSource,
@@ -167,10 +168,10 @@ export class FlowGraph {
           continue;
         }
 
-        // resource.capacity is the total energy capacity (e.g., 3000)
-        // Convert to rate: capacity / 300 ticks = energy per tick
-        const energyCapacity = resource.capacity ?? 3000;
-        const ratePerTick = energyCapacity / 300; // Standard: 3000/300 = 10 e/tick
+        // resource.capacity is the total energy capacity; rate = capacity/regen
+        // (primitives.SOURCE_RATE for the standard source).
+        const energyCapacity = resource.capacity ?? SOURCE_ENERGY_CAPACITY;
+        const ratePerTick = energyCapacity / SOURCE_REGEN_TIME;
 
         // Count mining spots from the actual game source
         let maxMiners = 1;
@@ -311,13 +312,6 @@ export class FlowGraph {
       return sinks.filter(s => s.type === type);
     }
     return sinks;
-  }
-
-  /**
-   * Get a sink by ID.
-   */
-  public getSink(id: string): FlowSink | undefined {
-    return this.sinks.get(id);
   }
 }
 
@@ -882,12 +876,6 @@ export function continuousRoomDistance(a: string, b: string): number {
     return Game.map.getRoomLinearDistance(a, b, true);
   }
   return roomLinearDistance(a, b);
-}
-
-/** Energy standing in a room's storage (0 without one; harness-safe 0). */
-export function storageRoomStock(roomName: string): number {
-  if (typeof Game === "undefined" || !Game.rooms) return 0;
-  return Game.rooms[roomName]?.storage?.store?.[RESOURCE_ENERGY] ?? 0;
 }
 
 /**

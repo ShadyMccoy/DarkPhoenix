@@ -2,7 +2,7 @@
 
 > **This document was superseded.** The FlowSolver + priority-allocation
 > design it used to describe has been deleted. The current architecture is
-> documented, with verified `file:line` anchors, in:
+> documented, with `file → symbol` anchors, in:
 >
 > - **[PIPELINE.md](PIPELINE.md)** — the economic pipeline end to end
 >   (terrain → nodes → graph → planner → commissions → corps → creeps),

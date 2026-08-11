@@ -14,6 +14,7 @@
 import "../types/Memory";
 import { Colony } from "../colony";
 import { CorpRegistry } from "./CorpRunner";
+import { armSpawnContractBypass } from "../corps/spawnContract";
 import { FlowEconomy } from "../economy/flowAdapter";
 import { completeCensus } from "./CommissionHost";
 import { resetAnalysis, runIncrementalAnalysis } from "./IncrementalAnalysis";
@@ -46,6 +47,7 @@ declare global {
       roadHeatmap: (roomName?: string) => void;
       cpuReport: () => void;
       visuals: (on?: boolean) => void;
+      spawnContractBypass: (calls?: number) => void;
     }
   }
 }
@@ -158,7 +160,6 @@ export function registerConsoleCommands(deps: ConsoleDeps): void {
   global.status = () => {
     console.log("\n=== Orchestration Status ===");
     console.log(`Current tick: ${Game.time}`);
-    console.log(`Last survey: ${Memory.lastSurveyTick ?? "never"}`);
     console.log(`Last planning: ${Memory.lastPlanningTick ?? "never"}`);
     console.log(`Next planning: tick ${Math.ceil(Game.time / PLANNING_INTERVAL) * PLANNING_INTERVAL}`);
 
@@ -416,6 +417,18 @@ export function registerConsoleCommands(deps: ConsoleDeps): void {
   global.visuals = (on?: boolean) => {
     Memory.visuals = on === undefined ? !Memory.visuals : on;
     console.log(`[visuals] overlays ${Memory.visuals ? "ON" : "OFF"}`);
+  };
+
+  /**
+   * Break-glass: admit the next `calls` naked spawnCreep invocations (default
+   * 1) past the spawn-contract guard (corps/spawnContract). For operator
+   * rescue expressions only - bot code always buys through the contract.
+   * Call from console: `global.spawnContractBypass()`, then run the naked
+   * spawn in the same or a later expression.
+   */
+  global.spawnContractBypass = (calls?: number) => {
+    const admitted = armSpawnContractBypass(calls ?? 1);
+    console.log(`[SpawnContract] bypass armed for ${admitted} naked spawn(s)`);
   };
 
   /**

@@ -21,7 +21,7 @@ const COST = { WORK: 100, CARRY: 50, MOVE: 50, CLAIM: 600 };
 const MINER_COST = 5 * COST.WORK + 3 * COST.MOVE; // 650, a 5W3M miner
 const MINER_PARTS = 8; // 5 WORK + 3 MOVE
 
-// Spawn build-time priced in energy (mirrors src/corps/economics.ts).
+// Spawn build-time priced in energy (mirrors src/economy/primitives.ts).
 const SPAWN_PART_ENERGY_VALUE = 155; // energy per part/tick held
 
 // Reserver: a CLAIM+MOVE creep that holds a remote room at the full 3000 cap.

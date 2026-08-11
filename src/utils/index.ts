@@ -8,15 +8,4 @@
 
 export { ErrorMapper } from "./ErrorMapper";
 
-export {
-  discoverNearbyRooms,
-  getDistanceToOwnedRoom,
-  categorizeRoomsByDistance,
-  DEFAULT_ROOM_BOX_RADIUS,
-  getRoomBox,
-  getRoomBoxAroundOwnedRooms,
-  get7x7RoomBox,
-  get7x7BoxAroundOwnedRooms,
-  isReservableRoom,
-  roomLinearDistance
-} from "./RoomDiscovery";
+export { get7x7BoxAroundOwnedRooms, isReservableRoom } from "./RoomDiscovery";

@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { RESERVER_BODY_COST } from "../../../src/corps/economics";
+import { RESERVER_BODY_COST } from "../../../src/economy/primitives";
 
 /**
  * The smallest reserver body (1 CLAIM + 1 MOVE) costs 650, which is what makes

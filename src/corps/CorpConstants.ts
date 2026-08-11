@@ -124,12 +124,6 @@ export const VALUE_PER_STALE_TICK = 0.001;
 // =============================================================================
 
 /**
- * Threshold for controller downgrade timer that triggers urgency.
- * At RCL 2+, controllers downgrade after 10,000 ticks without upgrading.
- */
-export const CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD = 10000;
-
-/**
  * Anti-downgrade emergency thresholds (see BootstrapCorp.runAntiDowngrade).
  *
  * During construction the flow economy starves the controller of energy on

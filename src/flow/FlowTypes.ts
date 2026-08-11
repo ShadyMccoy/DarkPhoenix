@@ -14,7 +14,7 @@
  */
 
 import type { CommissionedHauler } from "../economy/CorpPlanner";
-import { haulerOverhead } from "../economy/primitives";
+import { SOURCE_RATE, haulerOverhead } from "../economy/primitives";
 import { HaulerRatio } from "../framework/EdgeVariant";
 import { Position } from "../types/Position";
 
@@ -22,8 +22,13 @@ import { Position } from "../types/Position";
 // CONSTANTS
 // =============================================================================
 
-/** Energy produced per tick by a source (3000 capacity / 300 regen) */
-export const SOURCE_ENERGY_PER_TICK = 10;
+/**
+ * Energy produced per tick by a source. An alias of the ONE definition
+ * (primitives.SOURCE_RATE = capacity/regen) kept under the flow vocabulary's
+ * historical name - it was an independent literal 10 once, which is exactly
+ * the drift class primitives exists to prevent.
+ */
+export const SOURCE_ENERGY_PER_TICK = SOURCE_RATE;
 
 // =============================================================================
 // SINK TYPES

@@ -24,6 +24,7 @@ import {
   SPAWN_COOLDOWN
 } from "./CorpConstants";
 import { Corp, SerializedCorp } from "./Corp";
+import { contractSpawn } from "./spawnContract";
 import { driveRecycle } from "./recycle";
 import { Position } from "../types/Position";
 import { accrueSpawnSpend } from "../telemetry/spawnLedger";
@@ -269,7 +270,7 @@ export class BootstrapCorp extends Corp {
       spawn.room.energyAvailable >= JACK_COST
     ) {
       const name = `antidowngrade-${this.id.slice(-6)}-${tick}`;
-      const result = spawn.spawnCreep(JACK_BODY, name, {
+      const result = contractSpawn(spawn, JACK_BODY, name, {
         memory: { corpId: this.id, workType: "upgrade" as const, working: false }
       });
       this.lastEmergencyAttempt = tick;
@@ -362,7 +363,7 @@ export class BootstrapCorp extends Corp {
     const name = `jack-${this.id.slice(-6)}-${tick}`;
 
     // Attempt spawn
-    const result = spawn.spawnCreep(body, name, {
+    const result = contractSpawn(spawn, body, name, {
       memory: {
         corpId: this.id,
         workType: "harvest" as const,

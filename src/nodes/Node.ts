@@ -128,7 +128,6 @@ export interface Node {
   /** Room names this territory spans */
   spansRooms: string[];
 
-  /** Corps operating in this node */
   /** Resources available in this territory */
   resources: NodeResource[];
 
@@ -154,13 +153,6 @@ export interface SerializedNode {
 }
 
 /**
- * Create a node ID from room name and peak position
- */
-export function createNodeId(roomName: string, peakPosition: Position): string {
-  return `${roomName}-${peakPosition.x}-${peakPosition.y}`;
-}
-
-/**
  * Create an empty node
  */
 export function createNode(
@@ -183,20 +175,10 @@ export function createNode(
 }
 
 /**
- * Get corps of a specific type from a node
- */
-/**
  * Get resources of a specific type from a node
  */
 export function getResourcesByType(node: Node, type: NodeResourceType): NodeResource[] {
   return node.resources.filter(resource => resource.type === type);
-}
-
-/**
- * Check if a node has a specific resource type
- */
-export function hasResourceType(node: Node, type: NodeResourceType): boolean {
-  return node.resources.some(resource => resource.type === type);
 }
 
 /**
@@ -327,35 +309,3 @@ export function calculateNodeROI(
   };
 }
 
-/**
- * Calculate the distance from a position to the node's peak.
- * Supports cross-room positions using room coordinate math.
- */
-export function distanceToPeak(node: Node, position: Position): number {
-  if (position.roomName === node.peakPosition.roomName) {
-    // Same room - simple Manhattan distance
-    return Math.abs(position.x - node.peakPosition.x) + Math.abs(position.y - node.peakPosition.y);
-  }
-
-  // Cross-room distance estimation using linear distance
-  // This is approximate but good enough for territory decisions
-  const roomDistance =
-    typeof Game !== "undefined"
-      ? Game.map.getRoomLinearDistance(position.roomName, node.peakPosition.roomName)
-      : estimateRoomDistance(position.roomName, node.peakPosition.roomName);
-
-  if (roomDistance === undefined || roomDistance === null) {
-    return Infinity;
-  }
-
-  // Estimate: room distance * 50 (room width) + in-room offset
-  // This gives a reasonable approximation for sorting purposes
-  return roomDistance * 50 + Math.abs(position.x - node.peakPosition.x) + Math.abs(position.y - node.peakPosition.y);
-}
-
-/**
- * Get all unique room names that a node's territory spans.
- */
-export function getNodeRooms(node: Node): string[] {
-  return node.spansRooms;
-}

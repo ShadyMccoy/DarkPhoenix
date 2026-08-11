@@ -1,26 +1,26 @@
 /**
  * @fileoverview Main game loop entry point.
  *
- * This is the entry point for the Screeps AI. It orchestrates the colony
- * using a flow-based economic system.
- *
- * ## Phased Architecture
+ * The tick pipeline is documented end to end in docs/PIPELINE.md (authority:
+ * docs/ONTOLOGY.md). In brief:
  *
  * ### EVERY TICK (execution)
- * 1. INIT: Lazy hydration from Memory (once per code push)
- * 2. EXECUTE: Run all corps (spawning, mining, hauling, upgrading, etc.)
- * 3. PERSIST: Save state to Memory
+ * 1. INIT: Lazy hydration from Memory (once per global reset)
+ * 2. EXECUTE: spawning + bootstrap corps, the commission host (all framework
+ *    corps), orphan rescue, links/terminals/towers, spawn scheduling
+ * 3. PERSIST + AUDIT: Memory, telemetry segments, the flight recorder
  *
- * ### EVERY 5000 TICKS (planning)
- * 1. SURVEY: Analyze territory, create corps from node resources
- * 2. FLOW: Solve optimal energy allocation (sources -> sinks)
- * 3. MATERIALIZE: Update corps with flow assignments
+ * ### PLANNING (fiscal-month boundary, plan triggers, or bootstrap eagerness)
+ * runPlanningPhase: survey kick -> economy rebuild -> construction-sink
+ * admission -> planColony solve -> commission publish (the ONE seam,
+ * economy/planningAssembly.assembleEconomyForSolve).
  *
  * ## Key Components
- * - Colony: Economic coordinator (treasury, surveying)
- * - Nodes: Territory-based regions (from spatial peak detection)
- * - Corps: Business units that execute flow assignments
- * - FlowEconomy: Solver for optimal energy routing
+ * - Colony: node registry + stats
+ * - Nodes: territory-based regions (from spatial peak detection)
+ * - Corps: commissions - planning operators AND runtime owners of creeps
+ * - CorpPlanner (via economy/flowAdapter's FlowEconomy driver): the pure
+ *   GOAP planner that prices and allocates the economy
  *
  * ## Console Commands
  * Registered once at module load via execution/console.ts (spec 35 phase G):
@@ -68,6 +68,7 @@ import {
   trackRoadUsage
 } from "./execution";
 import { registerConsoleCommands } from "./execution/console";
+import { installSpawnContractGuard } from "./corps/spawnContract";
 import { checkPlanTriggers } from "./execution/planTriggers";
 import { assembleEconomyForSolve } from "./economy/planningAssembly";
 import { SerializedNode, deserializeNode } from "./nodes";
@@ -94,7 +95,7 @@ import { livePortTenders, portPosts } from "./corps/nodeEnergy";
 /** The colony instance (persisted across ticks) */
 let colony: Colony | undefined;
 
-/** Flow economy coordinator (replaces market-based allocation) */
+/** Flow economy driver (world discovery + the CorpPlanner solve; flowAdapter) */
 let flowEconomy: FlowEconomy | undefined;
 
 /** All active corps */
@@ -112,27 +113,16 @@ registerConsoleCommands({
   runPlanningPhase: force => runPlanningPhase(force)
 });
 
+// The corp spawn contract's runtime guard (corps/spawnContract): from here on
+// a spawnCreep call that did not come through contractSpawn throws. Installed
+// at module load - the engine rebuilds prototypes exactly when this module
+// re-evaluates (global reset), so the wrap can never go stale.
+installSpawnContractGuard();
+
 // =============================================================================
 // MAIN GAME LOOP
 // =============================================================================
 
-/**
- * Main game loop - executed every tick.
- *
- * ## Phased Execution
- *
- * ### Every Tick
- * 1. INIT: Lazy hydration from Memory (once per code push)
- * 2. EXECUTE: Run all corps
- * 3. PERSIST: Save state
- *
- * ### Every 5000 Ticks (Planning Phase)
- * 1. SURVEY: Analyze territory, create corps from node resources
- * 2. MARKET: Register offers, run market clearing
- * 3. PLAN: Find optimal chains, store contracts
- *
- * Wrapped with ErrorMapper to catch and log errors without crashing.
- */
 /**
  * Phase bulkhead (spec 09 ph5): one phase's throw must not abort the tick's
  * remaining phases. ErrorMapper saves the PROCESS; this saves the TICK - the
@@ -192,8 +182,8 @@ export const loop = ErrorMapper.wrapLoop(() => {
   cleanupDeadCreeps();
 
   // CPU governor (spec 09 ph5): compute this tick's degradation plan from the
-  // bucket. Consumers (solve cadence, telemetry, construction, scouting) read
-  // it via plan(); level transitions land in the black box.
+  // bucket. Consumers (telemetry, construction, scouting) read it via plan();
+  // level transitions land in the black box.
   const gov: GovernorPlan = runGovernor(typeof Game.cpu?.bucket === "number" ? Game.cpu.bucket : 10000);
 
   // ===========================================================================
@@ -387,10 +377,10 @@ export const loop = ErrorMapper.wrapLoop(() => {
   // below still replans on every durable world change (hostile flip,
   // expansion step, RCL-up, spawn census), the bootstrap term above keeps its
   // fast cadence until producers exist, and the reserve pre-pass's
-  // anti-downgrade floor is not calendar-gated. The CPU governor's stretch
-  // still applies where it BINDS - the month interval already exceeds even
-  // the stretched governor cadence, so degradation can only slow this
-  // further, never speed it up.
+  // anti-downgrade floor is not calendar-gated. (The CPU governor's
+  // solve-cadence stretch is retired outright - the month interval exceeds
+  // any stretch it would have applied, so the governor no longer carries a
+  // solveInterval at all.)
   const economyNeedsResolve =
     colony.getNodes().length > 0 && !isAnalysisInProgress() && isPlanBudgetBoundary(Game.time);
 

@@ -461,8 +461,6 @@ export interface ColonyPlan {
   totalDelivered: number;
   /** Miner + hauler spawn overhead (energy/tick). */
   totalOverhead: number;
-  /** Build-time (parts/tick) committed per spawn. */
-  spawnPartsUsed: Map<string, number>;
   /** The fill's spawn-parts ledger, traced (spec 15 P4): what the budget was,
    * what standing deductions took, what routing had to work with. `capacity`
    * is the PHYSICAL rate (what P4 audits against); `plannable` is the 90%
@@ -1433,13 +1431,10 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
   const totalOverhead = miningOverhead + haulOverhead;
   const valueDelivered = sinks.reduce((s, k) => s + k.allocated * k.value, 0);
 
-  const spawnPartsUsed = new Map<string, number>();
-  for (const m of plannedMiners) {
-    spawnPartsUsed.set(m.spawnId, (spawnPartsUsed.get(m.spawnId) ?? 0) + minerSpawnLoad(m.distance));
-  }
-  for (const h of haulers) {
-    spawnPartsUsed.set(h.spawnId, (spawnPartsUsed.get(h.spawnId) ?? 0) + h.spawnParts);
-  }
+  // (The former per-spawn `spawnPartsUsed` map is gone: it was a second
+  // account of committed build-time beside `partsLedger` - priced parts where
+  // the ledger books the debited ones, consumer WORK absent - with no
+  // production reader to reconcile it. One book: the ledger.)
 
   return {
     miners: plannedMiners,
@@ -1450,7 +1445,6 @@ export function planColony(problem: ColonyProblem): ColonyPlan {
     totalProduced,
     totalDelivered,
     totalOverhead,
-    spawnPartsUsed,
     valueDelivered,
     sustainable: totalDelivered >= totalOverhead
   };

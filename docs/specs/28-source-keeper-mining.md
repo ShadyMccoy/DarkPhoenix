@@ -32,7 +32,8 @@ is why the mature bots all take the ring.
 We take **none of it today**. SK sources are excluded at two seams, on purpose:
 
 - **Planner blindness** — `FlowGraph.discoverSources` skips any source whose
-  room `isSourceKeeperRoom` (`flow/FlowGraph.ts:114`), so the CorpPlanner never
+  room `isSourceKeeperRoom` (`FlowGraph` now lives in
+  `economy/flowAdapter.ts`), so the CorpPlanner never
   sees an SK source as a producer. (`getMinableSources` /
   `isSourceKeeperSource` in `analysis/SourceAnalysis.ts` is the in-vision
   equivalent — a lair within 5 tiles of the source.)
@@ -111,7 +112,8 @@ core-buster's one-off, it amortizes like a miner does — over `effectiveLife`,
 forever. One guardian covers a whole SK room (it walks lair to lair suppressing
 keepers), so the tax is **per room**, spread across that room's 2–3 sources.
 
-The producer admission test then extends `netEnergy` (`primitives.ts:73`) with
+The producer admission test then extends `netEnergy` (`economy/primitives.ts`;
+line anchors in this spec are design-time and have rotted) with
 the room-shared garrison cost:
 
     netEnergy_SK(source, d) = rate                       (~13.3)

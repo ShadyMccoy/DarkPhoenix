@@ -16,38 +16,27 @@ export {
   runBootstrapCorps,
   runSpawningCorps,
   logCorpStats,
-  snapshotCorpVariance,
-  CorpVarianceRow
+  snapshotCorpVariance
 } from "./CorpRunner";
 
-export {
-  commissionedCorpsOfKind,
-  allCommissionedCorps,
-  assembleFieldedFleets,
-  completeCensus,
-  CorpCensusEntry,
-  runCommissionHost,
-  resetCommissionHost
-} from "./CommissionHost";
+export { allCommissionedCorps, assembleFieldedFleets, completeCensus, runCommissionHost } from "./CommissionHost";
 
-export { rescueOrphans, orphanAction, ORPHAN_GRACE_TICKS } from "./OrphanRescue";
+export { rescueOrphans } from "./OrphanRescue";
 
-export { sampleMarketPrices, MARKET_SAMPLE_INTERVAL } from "./marketSampler";
+export { sampleMarketPrices } from "./marketSampler";
 
 export { runSpawnScheduling } from "./SpawnDirector";
 
 export { runLinks } from "./LinkRunner";
 export { runTerminals } from "./TerminalRunner";
 
-export { pickTowerTarget, runTowers } from "./TowerRunner";
+export { runTowers } from "./TowerRunner";
 
 export { persistState, cleanupDeadCreeps } from "./Persistence";
 
 export {
-  MULTI_ROOM_ANALYSIS_CACHE_TTL,
   getAnalysisCache,
   isAnalysisInProgress,
-  nodeMineralValue,
   refreshNodeResourcesFromCache,
   resetAnalysis,
   restoreVisualizationCache,
@@ -56,11 +45,10 @@ export {
 
 export { renderNodeVisuals, renderSpatialVisuals } from "./Visualization";
 
-export { trackRoadUsage, roadCandidateTiles, renderRoadScores } from "./roadTracker";
+export { trackRoadUsage } from "./roadTracker";
 
 export {
   isSpawnPlacementInProgress,
-  resetSpawnPlacement,
   shouldKickSweep,
   startSpawnPlacement,
   runSpawnPlacementStep

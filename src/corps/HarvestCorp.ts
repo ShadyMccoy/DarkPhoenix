@@ -13,13 +13,13 @@ import {
   SOURCE_BUFFER_DEFER_THRESHOLD,
   SOURCE_BUFFER_PRIORITY_PENALTY,
   staffsPost,
+  travelTicksPerTile,
   workPartsForEnergyRate
 } from "../economy/primitives";
 import { hostileRooms, routeIsDangerous } from "../utils/RoomDiscovery";
 import { accrueRaidDebt } from "../utils/raidMeter";
 import { Corp, SerializedCorp } from "./Corp";
 import { spawnRoomHasFlowMiner } from "./censusLens";
-import { travelTicksPerTile } from "./economics";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { driveRecycle, pickRuntToRecycle } from "./recycle";
 import { HaulerAssignment, MinerAssignment } from "../flow/FlowTypes";
@@ -427,7 +427,7 @@ export class HarvestCorp extends Corp {
     const workCounts = creeps.map(c => c.getActiveBodyparts(WORK));
     const runtIdx = pickRuntToRecycle(workCounts, totalWork, maxWorkPerMiner);
     if (runtIdx === null) return null;
-    if (creeps.some((c, i) => i !== runtIdx && workCounts[i] > workCounts[runtIdx])) return null; // upgrade already fielded
+    if (creeps.some((_c, i) => i !== runtIdx && workCounts[i] > workCounts[runtIdx])) return null; // upgrade already fielded
 
     const upgradeWork = Math.min(maxWorkPerMiner, workCounts[runtIdx] + 1);
     const upgradeCost = buildMinerBody(upgradeWork, ctx.energyCapacity).cost;

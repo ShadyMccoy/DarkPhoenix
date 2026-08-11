@@ -31,20 +31,18 @@ import {
 import { travelToLane, travelToQueued } from "./movement";
 import { driveRecycle, runtUpsizeThreshold, worthABody } from "./recycle";
 import {
-  CARRY_MOVE_PAIR_COST,
   CREEP_LIFETIME,
   HAUL_ASK_JITTER_CARRY,
   bufferDrainCarry,
-  carryPartsFor,
   depositRouteCarryCap,
   haulerBodyCarry,
   haulerBodyCost,
   maxCarryPairs,
   roundTripTicks,
-  staffsPost
+  staffsPost,
+  travelTicksPerTile
 } from "../economy/primitives";
 import { HaulerAssignment } from "../flow/FlowTypes";
-import { travelTicksPerTile } from "./economics";
 import { traceHaulTick } from "../telemetry/HaulTrace";
 import { DepartMeter, DepartReason } from "../telemetry/DepartMeter";
 
@@ -303,7 +301,7 @@ export class CarryCorp extends Corp {
    * snapshot yet (just spawned / first observation) only seeds it, uncounted.
    */
   private meterExecution(creeps: Creep[], tick: number, room: Room): void {
-    if (tick - this.dutySince >= 1500) {
+    if (tick - this.dutySince >= CREEP_LIFETIME) {
       this.dutyAlive = 0;
       this.dutyActive = 0;
       this.dutyIdleSource = 0;
@@ -1065,7 +1063,7 @@ export class CarryCorp extends Corp {
     // Only port-routed trips count: a route with no depositPos has no port
     // outcome to measure and must not dilute the fractions.
     if (depositPos) {
-      if (Game.time - this.portSince >= 1500) {
+      if (Game.time - this.portSince >= CREEP_LIFETIME) {
         this.portDeposits = 0;
         this.portWaits = 0;
         this.portFallbacks = 0;
@@ -1432,15 +1430,6 @@ export class CarryCorp extends Corp {
    */
   public getCreepCount(): number {
     return this.getAssignedCreeps().length;
-  }
-
-  /**
-   * Total CARRY parts the fleet currently fields. Used to size the fleet by actual
-   * capacity rather than creep count, so a fleet of runts (spawned small under
-   * energy pressure) is recognised as under-capacity and topped up.
-   */
-  private fieldedCarry(): number {
-    return this.getAssignedCreeps().reduce((sum, c) => sum + c.getActiveBodyparts(CARRY), 0);
   }
 
   /**
@@ -1970,10 +1959,3 @@ export class CarryCorp extends Corp {
   }
 }
 
-/**
- * Create a CarryCorp for a room.
- */
-export function createCarryCorp(room: Room, spawn: StructureSpawn): CarryCorp {
-  const nodeId = `${room.name}-hauling`;
-  return new CarryCorp(nodeId, spawn.id);
-}

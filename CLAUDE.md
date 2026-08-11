@@ -4,7 +4,7 @@ Screeps AI built around ONE pure economy planner (`economy/CorpPlanner.ts`)
 whose operators are corps. Read order for architecture truth:
 
 1. [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model (authoritative)
-2. [docs/PIPELINE.md](docs/PIPELINE.md) — the live pipeline, file:line anchors
+2. [docs/PIPELINE.md](docs/PIPELINE.md) — the live pipeline, `file → symbol` anchors
 3. [docs/specs/](docs/specs/README.md) — the work: each spec IS its acceptance tests
 4. The code. When code and ONTOLOGY disagree, that is a bug — fix it, don't drift.
 

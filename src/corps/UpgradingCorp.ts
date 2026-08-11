@@ -16,24 +16,16 @@ import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { buildUpgraderBody } from "../spawn/BodyBuilder";
 import { Position } from "../types/Position";
 import { SinkAllocation } from "../flow/FlowTypes";
-import {
-  effectiveLife,
-  staffsPost,
-  sustainableConsumptionRate,
-  ANTI_DOWNGRADE_RESERVE,
-  WARTIME_BACKLOG_THRESHOLD
-} from "../economy/primitives";
+import { CREEP_LIFETIME, WARTIME_BACKLOG_THRESHOLD, staffsPost, travelTicksPerTile } from "../economy/primitives";
 import { bankSurplusRate, resolveReserveTarget } from "../economy/bank";
-import { FEEDER_STOCK_HEADROOM } from "./LinkCorp";
 import { CONTROLLER_STARVE_FLOOR } from "./haulPolicy";
 import { buildPoolAbsorbRate, buildPoolBacklog } from "./constructionLedger";
-import { travelTicksPerTile } from "./economics";
 
 /** Safety bound on upgraders per controller (prevents a swarm if an allocation goes stale). */
 const UPGRADER_COUNT_CAP = 8;
 
-/** Rolling window for the WORK-utilization meter (spawn-meter cadence). */
-export const UPGRADE_METER_WINDOW = 1500;
+/** Rolling window for the WORK-utilization meter (spawn-meter cadence: one creep generation). */
+export const UPGRADE_METER_WINDOW = CREEP_LIFETIME;
 
 /**
  * Rooms whose meter this HEAP has already tallied. A fresh heap (global
@@ -406,7 +398,7 @@ export class UpgradingCorp extends Corp {
       if (creep.memory.recycling) {
         driveRecycle(creep, spawn);
       } else {
-        this.runUpgrader(creep, room, controller);
+        this.runUpgrader(creep, controller);
       }
     }
   }
@@ -415,7 +407,7 @@ export class UpgradingCorp extends Corp {
    * Run behavior for an upgrader creep.
    * Upgraders are stationary - they stay near the controller and only pick up nearby energy.
    */
-  private runUpgrader(creep: Creep, room: Room, controller: StructureController): void {
+  private runUpgrader(creep: Creep, controller: StructureController): void {
     // `working` is kept for external readers/telemetry, but the parked action
     // below is driven directly off the store: a container-fed upgrader tops up
     // AND upgrades in the SAME tick (see the parked block), so it never needs the
@@ -930,10 +922,3 @@ export class UpgradingCorp extends Corp {
   }
 }
 
-/**
- * Create an UpgradingCorp for a room.
- */
-export function createUpgradingCorp(room: Room, spawn: StructureSpawn): UpgradingCorp {
-  const nodeId = `${room.name}-upgrading`;
-  return new UpgradingCorp(nodeId, spawn.id);
-}

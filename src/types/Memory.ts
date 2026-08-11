@@ -175,11 +175,6 @@ declare global {
     spawnDemandFirstSeen?: { [key: string]: number };
 
     /**
-     * Tick when last survey phase was run.
-     */
-    lastSurveyTick?: number;
-
-    /**
      * Best spawn tile found per node by the fine-grained placement sweep,
      * with the economic value of a spawn there. Written when a sweep completes.
      */
@@ -657,11 +652,6 @@ declare global {
      * drains in the same order. `sig` invalidates on structure-set changes.
      */
     refillCircuit?: { sig: string; tour: string[] };
-
-    /**
-     * Last surveyed tick for this room.
-     */
-    lastSurveyTick?: number;
 
     /**
      * The source dedicated to construction while a build is active: its miner
