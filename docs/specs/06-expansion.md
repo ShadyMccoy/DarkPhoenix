@@ -268,3 +268,35 @@ Unit suite; `flow-handoff`, `world-layout`, `storage-depot` green.
 
 Military escort, claiming contested rooms, multi-spawn placement in the new
 room, abandoning failed rooms (losing rooms is, per the owner, fine).
+
+## The ORGANISM refinement (owner 2026-08-11, first post-claim audit): a founding room's controller draws LOCAL supply
+
+Measured the tick the first claim's campaign closed (t72935339): the
+colony-wide hub-and-spoke rule made every mined source a deposit, so
+W43N24's controller was planned **14 e/t from bank-W43N23 over 55 tiles** -
+a route `publishRoster` skips by design (bank flows belong to the depot
+movers, whose reach is the feeder's link) - while the room's OWN source cd8e
+hauled its output 48 tiles home past it. Plan 14, actual **0.01 e/t**: the
+exact plan-the-runtime-cannot-follow class F1 exists to catch, wearing the
+organism question's clothes (owner: *"supply from nearby nodes gets hauled
+to this new room... the nodes all work together, not just each room for
+itself"*).
+
+Fix, riding spec 25's existing exception rather than adding a subsystem:
+1. **Admission**: a controller in a room OUTSIDE the depot movers' reach
+   (no storage sink and no bank source in its room - the full-bank case
+   makes the storage sink vanish, so reach is derived from both) may draw
+   deposit sources nearer to it than their hub, exactly like local
+   construction; and the BANK may not feed it at all - an honest shortfall
+   beats phantom flow.
+2. **Fill order**: those controllers join the local pre-pass between
+   construction (build-first holds) and the deposit fill, so the deposit
+   greed cannot bank their supply first.
+Single-hub colonies match nothing in either change - order and routing
+byte-identical (pinned by the untouched hub-and-spoke suite).
+
+Named follow-up, deliberately not widened into this change: bank->spawn
+edges to depot-less rooms are still planned executor-less (the new spawn is
+kept topped by the haulers' always-top-the-spawn doctrine, so it self-heals
+physically; the edge is F1 pollution to reprice when the spawn sink gains
+the same reach discriminator).
