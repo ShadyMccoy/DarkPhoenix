@@ -696,6 +696,65 @@ describe("economy/CorpPlanner", () => {
       ).to.equal(0);
     });
 
+    it("a FOUNDING room's controller draws LOCAL mined supply - the bank cannot walk there (t72935339)", () => {
+      // Measured live the tick the first claim closed: the colony-wide
+      // hub-and-spoke rule made every mined source a deposit, so W43N24's
+      // controller was planned 14 e/t from bank-W43N23 over FIFTY-FIVE tiles
+      // - a route publishRoster skips (bank flows belong to the depot
+      // movers) and the home feeder's link can never execute - while the
+      // room's OWN source hauled its output 48 tiles home to storage. Plan
+      // 14, actual 0.01 e/t: the exact plan-the-runtime-cannot-follow class
+      // F1 exists to catch. The rule gains the owner's organism refinement
+      // (2026-08-11: "supply from nearby nodes gets hauled to this new
+      // room... the nodes all work together"): a controller in a room with
+      // NO storage of its own is a LOCAL consumer - deposit sources nearer
+      // to it than their hub may feed it (construction's spec-25 exception,
+      // extended), and the bank may NOT (no executor exists; an honest
+      // shortfall beats phantom flow). Hub-room controllers keep the
+      // bank-fed inversion - their feeder link IS the executor.
+      const atR = (roomName: string, x: number): Position => ({ x, y: 0, roomName });
+      const plan = planColony(
+        problem({
+          spawns: [spawn("S", 0)],
+          sources: [
+            // Rate ABOVE the controller's take, so the residual's haul-home
+            // is assertable alongside the local draw.
+            { id: "local", nodeId: "node-local", pos: atR("W1N0", 60), rate: 25, maxMiners: 1 },
+            stock("bank-home", 2, 100)
+          ],
+          sinks: [
+            sink("spawn-S", "spawn", 0, 100, 5),
+            sink("ctrl-home", "controller", 5, 50, 15),
+            { id: "ctrl-new", kind: "controller", pos: atR("W1N0", 55), value: 50, capacity: 15 },
+            sink("store", "storage", 2, 1, 1000)
+          ]
+        })
+      );
+      const ctrlNew = plan.sinks.find(s => s.sinkId === "ctrl-new")!;
+      expect(
+        ctrlNew.sources.some(s => s.sourceId === "local"),
+        "the room's own source feeds the founding controller"
+      ).to.equal(true);
+      expect(
+        ctrlNew.sources.every(s => s.sourceId !== "bank-home"),
+        "no executor-less bank haul to a storage-less room's controller"
+      ).to.equal(true);
+      // The route is a REAL commissioned hauler - the executor the bank edge never had.
+      expect(
+        plan.haulers.some(h => h.sourceId === "local" && h.sinkId === "ctrl-new"),
+        "a publishable local->controller hauler exists"
+      ).to.equal(true);
+      // The hub room's controller keeps the bank-fed inversion (its feeder executes it).
+      const ctrlHome = plan.sinks.find(s => s.sinkId === "ctrl-home")!;
+      expect(
+        ctrlHome.sources.every(s => s.sourceId === "bank-home") && ctrlHome.allocated > 0,
+        "the hub controller still draws the bank"
+      ).to.equal(true);
+      // The local source's residual beyond the controller's take still banks.
+      const store = plan.sinks.find(s => s.sinkId === "store")!;
+      expect(store.sources.some(s => s.sourceId === "local"), "the local residual still deposits home").to.equal(true);
+    });
+
     it("PRE-storage (no hub): mined feeds consumers directly - hub-and-spoke needs a hub", () => {
       // RCL<4: no storage, therefore no bank source (the storage IS the bank), so
       // the nearest-first race the production-first gate once guarded never
