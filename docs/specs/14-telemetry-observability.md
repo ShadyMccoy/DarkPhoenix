@@ -13839,3 +13839,62 @@ with no FAST RESPAWN flags; (3) ca05 churn cadence unchanged (~200t -
 kills, not double-orders; its true net stays ~2 e/t until attrition is
 priced or the corridor is held); (4) blackbox ring depth grows (less spam
 = longer effective window).
+
+## Audit cycle t72943612 -> t72950630 (2026-08-12): the drain law that paid to lose - decay dominance lands on the third naming
+
+**Verification first (7018t window, 2245t ring - the longest clean sample
+yet):**
+
+- **Dwell fix: CONFIRMED.** The blackbox ring's effective depth grew 1488
+  -> 2245t (less spam per prediction 4); no fast-respawn or flap-storm
+  signatures in the ring.
+- **In-flight-body fix: CONFIRMED at magnitude on the home side.** Home
+  churn 0% (X5's home/remote split) - the multiplier is dead. X5 0.28
+  overall is now ~100% remote invader/revoke noise (12.49 e/t remote churn
+  bodies): the corridor kill loop, a different phenomenon, correctly
+  separated. ca05's worst body died at 338t - kill cadence, no
+  double-orders. Prediction 2's "<0.15" was written against the mixed
+  gauge and is superseded by the split read.
+- **Embargo fix: third window holding** (forgone re-grew to 9.15 as the
+  solver sheds sources toward a full storage - the absorb law, not the
+  embargo class; capacity honestly 80 with 8 funded).
+
+**The strategic read the account now makes loud:** storage 927k (+3.80/t,
+E4), controller delivering 23.54 of 27.34 sustainable, W43N23 capped at
+its RCL8 15/t, the solver de-funding sources for want of sinks (P1: cd94,
+cbd8 -> unrouted). The colony is DEMAND-constrained at GCL 32 with 2 of 32
+room slots used - the E4 surplus is expansion capex with no campaign
+consuming it. Named as a strategy item for the owner: the next claim is
+the spend path.
+
+**The cycle's fix - L1's top line on its third naming:** the scavenge
+half-life law (amount/2 over effectiveLife) drains at rate/decay =
+1000/(2*effectiveLife) ~ 0.36-0.42 at EVERY pile size - structurally
+unable to beat the engine's ceil(amount/1000) decay. Four consecutive
+windows measured the outcome: 18/20/24/24% collected, recovery net +0.31
+e/t against 8.06 e/t of standing pile decay - bodies paid to lose the
+race. `scavengeRate` now takes max(half-life, SCAVENGE_DECAY_DOMINANCE x
+ceil(amount/1000)) with dominance 2 (recover ~2/3), still capped by
+MAX_SCAVENGE_RATE (the retired 150-tick burst's t72447104 displacement
+asked 20 e/t; dominance asks 2-10). A stock the bigger ask makes
+unprofitable loses funding honestly - a write-off beats a paid loss. The
+micro-route floor's cull role is subsumed (smallest fundable ask is now
+2 e/t) and its test pins the new contract.
+
+**Predictions for the next capture:** (1) SCAV collection share 24% ->
+>=50% on funded stocks; (2) L1's pile-decay line falls toward the
+ceil-FLOOR share (~3.6 e/t of small unfunded piles); (3) scavenge routes
+leave P2's micro-route list; (4) recovery net rises from +0.31 e/t; (5)
+watch item: scavenger spawn spend may triple (0.24 -> ~0.7 p/t slack
+exists) - the trade is priced, not accidental.
+
+**Addendum, the first cut went red on the canary (recorded per the
+failed-hypothesis doctrine):** unconditional dominance failed
+`runt-economy` - in a 300-cap cold-start world a 1901e mouth pile's 4 e/t
+ask displaced the miner upsize from the spawn's tiny bank ("never
+afforded", gate `clear`, 12m run, 0 passing) - the t72447104 displacement
+class in miniature, caught by exactly the canary that class burned before.
+The law is therefore MATURITY-GATED (same lens as the drain deadband:
+storage standing): bootstrap keeps the waste-tolerant half-life law - the
+ramp spends every spare unit on the escape - and mature colonies price
+dominance. Both branches pinned in scavenge.test.ts.

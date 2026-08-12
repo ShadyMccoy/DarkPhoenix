@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import "../../../src/types/Memory"; // load the RoomMemory type augmentation
 import {
   scavengeRate,
   collectStocks,
@@ -7,7 +8,8 @@ import {
   CONTROLLER_BUCKET_RANGE,
   EnergyFind,
   SCAVENGE_THRESHOLD,
-  MAX_SCAVENGE_RATE
+  MAX_SCAVENGE_RATE,
+  SCAVENGE_DECAY_DOMINANCE
 } from "../../../src/economy/scavenge";
 
 const ROOM = "W0N0";
@@ -15,16 +17,35 @@ const find = (_id: string, energy: number, x = 10): EnergyFind => ({ energy, pos
 
 describe("economy/scavenge", () => {
   describe("scavengeRate", () => {
-    it("drains a stock over the target horizon", () => {
-      // 1500 energy over 150 ticks = 10/tick
-      // Owner 2026-07-20: halfway amount over effective ttl - a 1500 stock
-      // at the spawn's doorstep asks 1500/2/1500 = 0.5 e/t (waste-free),
-      // and DISTANCE lowers it further (shorter working life).
+    // DECAY DOMINANCE (audit t72950630). The half-life law (amount/2 over
+    // effectiveLife) drains at rate/decay = 1000/(2*effectiveLife) ~ 0.36-0.42
+    // at EVERY pile size - it can never beat the engine's ceil(amount/1000)
+    // decay, and four consecutive windows measured exactly that: we collected
+    // 18/20/24/24% while paying scavenger bodies to lose the race (recovery
+    // net +0.31 e/t against 8.06 e/t of pile decay). The rate now dominates
+    // decay by SCAVENGE_DECAY_DOMINANCE so ~2/3 of a funded stock is
+    // recovered; the half-life term remains as the large-pile ramp and
+    // MAX_SCAVENGE_RATE still caps the absurd (the retired 150-tick burst's
+    // displacement, t72447104, came from 20 e/t asks - dominance asks 2-10).
+    it("MATURE: the rate DOMINATES the stock's decay (never pay bodies to lose the race)", () => {
+      for (const amount of [800, 1500, 1694, 5000]) {
+        const decay = Math.ceil(amount / 1000);
+        expect(scavengeRate(amount, 30, true), `amount=${amount}`).to.be.at.least(
+          SCAVENGE_DECAY_DOMINANCE * decay - 1e-9
+        );
+      }
+    });
+    it("BOOTSTRAP keeps the waste-tolerant half-life law (the runt-economy canary: dominance displaced the miner upsize)", () => {
+      // A 1901e mouth pile in a 300-cap cold-start world asked 4 e/t under
+      // dominance and the upsize was "never afforded" (t72950630 gate run,
+      // red). The ramp spends every spare unit on the escape; piles may rot.
       expect(scavengeRate(1500)).to.be.closeTo(1500 / 2 / 1500, 1e-9);
+      expect(scavengeRate(1901, 10)).to.be.lessThan(1);
       expect(scavengeRate(1500, 100), "travel shortens the working life").to.be.greaterThan(scavengeRate(1500));
     });
-    it("caps the rate so a huge pile doesn't ask for an absurd fleet", () => {
+    it("caps the rate so a huge pile doesn't ask for an absurd fleet, mature or not", () => {
       expect(scavengeRate(1_000_000)).to.equal(MAX_SCAVENGE_RATE);
+      expect(scavengeRate(1_000_000, 0, true)).to.equal(MAX_SCAVENGE_RATE);
     });
   });
 
@@ -93,11 +114,19 @@ describe("economy/scavenge", () => {
  * decays away, corp strands). They stay with opportunistic pickup instead.
  */
 describe("scavenge micro-route floor", () => {
-  it("a threshold-hugging pile sizes under the floor; a real overflow pile clears it", async () => {
+  it("BOOTSTRAP: a threshold-hugging pile sizes under the floor; a real overflow pile clears it", async () => {
     const { scavengeRate, SCAVENGE_RATE_FLOOR } = await import("../../../src/economy/scavenge");
     // 750 at the spawn's doorstep: 375/1500 = 0.25 - churn, not recovery
     expect(scavengeRate(750, 10)).to.be.lessThan(SCAVENGE_RATE_FLOOR);
     // the fid-t4 recapture class (2k+ overflow near the controller) stays in
     expect(scavengeRate(2000, 20)).to.be.greaterThan(SCAVENGE_RATE_FLOOR);
+  });
+  it("MATURE: decay dominance subsumes the floor - every funded stock clears it by construction (audit t72950630)", async () => {
+    const { scavengeRate, SCAVENGE_RATE_FLOOR, SCAVENGE_THRESHOLD } = await import("../../../src/economy/scavenge");
+    // Under dominance the smallest fundable stock rates >= 2 e/t: a fast
+    // clear recovering ~2/3 instead of a trickle recovering a quarter. The
+    // floor holds vacuously and the trickle class cannot re-enter.
+    expect(scavengeRate(SCAVENGE_THRESHOLD, 10, true)).to.be.at.least(2 - 1e-9);
+    expect(scavengeRate(SCAVENGE_THRESHOLD, 10, true)).to.be.greaterThan(SCAVENGE_RATE_FLOOR);
   });
 });

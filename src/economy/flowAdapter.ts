@@ -645,6 +645,12 @@ function toSinkKind(type: SinkType): SinkKind | null {
 export function detectTransientSources(): PlannerSource[] {
   if (typeof Game === "undefined" || !Game.rooms) return [];
   const out: PlannerSource[] = [];
+  // Decay dominance is a MATURE-colony law (audit t72950630): with a storage
+  // standing, the bigger drain ask buys recovery the bank can absorb; in a
+  // bootstrap world it displaces the miner upsize from the spawn's tiny
+  // bank (the runt-economy canary's red). Same maturity lens the drain
+  // deadband rides (storageBacked).
+  const mature = Object.values(Game.rooms).some(r => r.controller?.my && !!r.storage?.my);
   for (const roomName in Game.rooms) {
     // REMOTE SCAVENGE IS SPILL-ONLY (refining the 2026-07-19 ruling): the
     // original incident was detectRoomStocks summing a remote CONTAINER into
@@ -662,7 +668,7 @@ export function detectTransientSources(): PlannerSource[] {
       ? detectRoomStocks(Game.rooms[roomName])
       : detectRoomStocks(Game.rooms[roomName], REMOTE_SPILL_THRESHOLD, false);
     for (const stock of stocks) {
-      const src = stockToTransientSource(stock, `${roomName}-scavenge`, stockSpawnDistance(stock.pos));
+      const src = stockToTransientSource(stock, `${roomName}-scavenge`, stockSpawnDistance(stock.pos), mature);
       // Micro-route floor (owner 2026-07-20): a sub-floor rate plans a
       // sub-1-CARRY route whose corp lifecycle costs more than it recovers
       // (the E2/E5 churn loop) - leave those piles to opportunistic pickup.
