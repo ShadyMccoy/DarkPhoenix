@@ -208,6 +208,14 @@ export function myReservationTicksLeft(roomName: string, myUsername: string | un
  * headed there). Existing creeps run out; funding resumes the tick the room
  * clears. Vision-limited by design: an unseen room is not assumed hostile.
  */
+/**
+ * Ticks a FRESH hostile mark holds before an all-clear sighting can lift it
+ * (audit t72943612, the W40N43 border-dancer flap storm - see the unmark
+ * branch below). Small against every mark TTL (600-1500), so a real
+ * all-clear lifts at most this late.
+ */
+export const UNMARK_DWELL = 50;
+
 let hostileRoomsTick = -1;
 let hostileRoomsCache = new Set<string>();
 export function hostileRooms(): Set<string> {
@@ -252,7 +260,19 @@ export function hostileRooms(): Set<string> {
           }
           recordRaidSighting(roomName);
         }
-      } else if (intel?.hostileUntil) {
+      } else if (intel?.hostileUntil && Game.time >= (intel.hostileMarkedAt ?? 0) + UNMARK_DWELL) {
+        // UNMARK DWELL (audit t72943612): a hostile dancing on a room border
+        // reads hostile/clear on alternating ticks, and the zero-dwell
+        // unmark flapped mark/unmark EVERY tick for ~90 ticks (W40N43) -
+        // ~60 blackbox rows, 15% of the ring, and hostileRooms() flickered
+        // under the admission's routeIsDangerous lens. A FRESH mark holds
+        // for UNMARK_DWELL ticks before an all-clear can lift it (the
+        // dancer's marks are always fresh - each unmark deleted the stamp -
+        // so the flap collapses to one pair per dwell). A mark older than
+        // the dwell lifts on the first clear exactly as before: early lift
+        // is the feature, and legacy entries without hostileMarkedAt (?? 0)
+        // lift immediately, today's behavior.
+        //
         // RETAIN the closed window before lifting the mark (v33): the loss
         // meter books tombstones AFTER this clear in any room with standing
         // vision - the home room ALWAYS has it, so deleting outright erased

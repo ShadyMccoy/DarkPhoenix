@@ -13781,3 +13781,61 @@ kill replacements remain; (3) "runt-upsize" recycle share collapses from
 59%; (4) W43N24 upgrader count converges 7 -> targetCount as bodies
 expire; (5) R1 drops toward the true kill tax (the ~200t cadence
 survives, the 2-4x amplification does not).
+
+## Audit cycle t72941602 -> t72943612 (2026-08-12): verification split by a mid-window deploy; the border-dancer flap storm
+
+**Verification of the in-flight-body fix (deployed mid-window, so the ring
+mixes both worlds):** the <60t FAST RESPAWN signature is GONE (worst churn
+ca05 1900e@186t - a walk-length life, not a double-order), and absolute
+runt-upsize recycling HALVED (~1.20 -> ~0.68 e/t; its share of recycles
+rose to 81% only because other recycle classes fell more). The
+t72943241/61 hauler pair 20t apart almost certainly PRE-dates the deploy
+landing. W43N24 upgraders 7 -> 5, converging on target 3 (prediction 4 on
+track), its allocation resized 20.6 -> 10.7. VERDICT: mechanism-confirmed
+on the signature, magnitude needs the next clean window (X5 0.29 is
+mixed-window).
+
+**The embargo fix's second clean window:** forgone 0.00 held, E4's slope
+went NEGATIVE (-1.26/t - the first storage drawdown in weeks), plan flap
+1, P12 valve holds.
+
+**The corridor kill story sharpened, and the defense chain WON a raid on
+camera:** kills 83% of tombstone energy, 39% in intel-hostile rooms (was
+20%), W44N23 24%. But the ring shows the system working end-to-end at
+W44N23: guard meter armed a full window early (debt 77k >= 65k floor,
+stamped t72941602), four 520e guards massed ~1000t before the raid,
+raid sighted t72943108, room read CLEAR one tick later. What remains
+invisible: whether guards were AT POST for the kills that still happened
+(the "covered" stamp records targeting only) - the guard OUTCOME stamp is
+the named instrument for a future cycle. R1 (27x) stays a gauge: its
+constant-swap was retired by the standing-guard tax design; what the 27x
+now measures is the LOSS side (attrition), which enters no admission term
+- pricing corridor attrition at admission is a design question to take up
+with the guard stamps in hand.
+
+**New finding, fixed: the W40N43 border-dancer flap storm.** A hostile
+dancing on a room border read hostile/clear on alternating ticks; mark and
+unmark fired EVERY tick for ~90 ticks - ~60 blackbox rows (15% of the
+400-row ring), and hostileRooms() flickered tick to tick under the
+admission's routeIsDangerous lens (a flap on a ROUTE room would flap
+funding verdicts). Fix: UNMARK_DWELL = 50 - a FRESH mark holds through
+clear sightings for 50 ticks (the dancer's marks are always fresh, so the
+flap collapses ~50x); marks older than the dwell lift on first clear
+exactly as before, and legacy no-stamp entries lift immediately. Pinned in
+roomDiscovery.test.ts (two new tests; three v33 retention tests hop the
+dwell - their intent is retention, not unmark timing). Ordering note for
+honesty: the behavioral red here is the measured storm itself; the
+pre-fix test run only demonstrated compile-red.
+
+**Standing debt honestly named (third cycle on the list):** L1 remains the
+top line (pile decay 10.45 improving from 23.97; scavenge still collects
+20% vs the engine's 80%) - the backlog drain term / scavenge sizing has
+now been named three cycles running without an attempt. It is the next
+cycle's work item unless a live incident preempts.
+
+**Predictions for the next capture:** (1) zero mark/unmark flap pairs
+under 50t anywhere in the ring; (2) X5 falls below 0.15 in a clean window
+with no FAST RESPAWN flags; (3) ca05 churn cadence unchanged (~200t -
+kills, not double-orders; its true net stays ~2 e/t until attrition is
+priced or the corridor is held); (4) blackbox ring depth grows (less spam
+= longer effective window).
