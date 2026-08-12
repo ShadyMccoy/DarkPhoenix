@@ -13978,3 +13978,20 @@ bank-W43N23 -> controller-cd8c edge; (2) a bankfeed carry corp fields
 allocation rises toward its ~28 demand and dryShare falls from 0.776;
 (4) E4's slope goes NEGATIVE (the bank finally drains); (5) colony
 controller delivery rises above 27 pts/t.
+
+### Bankfeed partial verification t72959638 (+~540t post-deploy): the plan half is LIVE
+
+Predictions 1-2 confirmed within one solve of the deploy, larger than
+predicted: the solver routes **bank-W43N23 -> controller-cd8c at 47 e/t**
+(sink demand/allocated jumped 28/20.6 -> 77/77) plus a second out-of-room
+leg bank -> spawn-db0f at 10 e/t - the exact "executor-less, F1
+pollution" edge named at t72936194, now commissioned. The bankfeed corp
+stands (`hauling-W43N24-hauling-3N23`, 2 routes, carryNeeded 125, exit
+"asking") with its fleet in the spawn pipeline. In-room bank legs stay
+uncommissioned (feeder/tender) - the split held. ENERGY-side verification
+(deliveries, dryShare falling from the post-reset 1.0, E4 slope negative,
+delivery > 27 pts/t) lands next capture once the ~125-carry fleet fields
+and walks. Watch items: the fleet's spawn bill is priced (the routes are
+plan routes now) but will read as a spend spike against P4's 0.33x
+headroom; and the first fleet generation is the in-flight-body fix's
+first big-body test at scale.
