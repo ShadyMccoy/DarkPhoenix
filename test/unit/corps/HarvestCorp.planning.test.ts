@@ -131,4 +131,66 @@ describe("HarvestCorp mining planning (spots x capacity)", () => {
       expect(pickRuntToRecycle([2, 2, 2], 5, 2)).to.equal(null);
     });
   });
+
+  describe("in-flight upsize suppression (audit t72941602: 4 spawns sold the same upsize in 4 ticks)", () => {
+    // Live ring t72940889-892: ca05's standing 3-WORK runt had its 5-WORK
+    // upsize already SPAWNING, but runtUpgradeDemand read getActiveCreeps()
+    // (excludes spawning) - the in-flight successor never suppressed the
+    // demand, so every free spawn's evaluation re-sold it: four miners in
+    // four consecutive ticks, ~12 bodies for a target-1 source over ~1250t,
+    // recycled-why "runt-upsize" 59% of the window's recycle energy. The
+    // demand lens must count the body IN THE PIPE, exactly as staffsPost
+    // already does for the count path (undefined ttl = freshest incumbent).
+    const nodeId = "W1N1-harvest-s";
+    function corpWithRuntFleet(extraCreeps: Record<string, unknown> = {}): HarvestCorp {
+      const corp = new HarvestCorp(nodeId, "spawn1", "source-s");
+      corp.setMinerAssignment({
+        sourceId: "source-s", nodeId, spawnId: "spawn-spawn1", spawnDistance: 2,
+        harvestRate: 10, spawnCostPerTick: 0, maxMiners: 1, efficiency: 80,
+      } as MinerAssignment);
+      const creeps: Record<string, unknown> = {
+        runt: {
+          memory: { corpId: corp.id, workType: "harvest" },
+          spawning: false,
+          ticksToLive: 900,
+          body: [{ type: "work" }, { type: "work" }, { type: "work" }, { type: "move" }],
+          getActiveBodyparts: () => 3,
+        },
+        ...extraCreeps,
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = { creeps, time: 100, getObjectById: () => null };
+      return corp;
+    }
+
+    it("a SPAWNING upsize sibling suppresses the upsize demand (no pile-on across spawns)", () => {
+      const corp = corpWithRuntFleet({
+        upsize: {
+          memory: { corpId: corp0Id(), workType: "harvest" },
+          spawning: true,
+          ticksToLive: undefined,
+          body: [
+            { type: "work" }, { type: "work" }, { type: "work" }, { type: "work" }, { type: "work" },
+            { type: "move" }, { type: "move" }, { type: "move" }
+          ],
+          getActiveBodyparts: () => 0, // spawning creeps have no ACTIVE parts
+        },
+      });
+      const demands = corp.getSpawnDemand({ energyCapacity: 12900, tick: 100 });
+      expect(demands, "the successor in the pipe already covers this runt").to.deep.equal([]);
+    });
+
+    it("without the in-flight sibling the upsize IS still demanded (the gate itself stands)", () => {
+      const corp = corpWithRuntFleet();
+      const demands = corp.getSpawnDemand({ energyCapacity: 12900, tick: 100 });
+      expect(demands.length).to.equal(1);
+      expect(demands[0].why).to.equal("upsize");
+    });
+
+    // The two fixtures must agree on the corp id BEFORE the corp exists: the
+    // id is deterministic (type-nodeId), so precompute it the same way.
+    function corp0Id(): string {
+      return new HarvestCorp(nodeId, "spawn1", "source-s").id;
+    }
+  });
 });

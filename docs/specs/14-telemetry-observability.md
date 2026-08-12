@@ -13719,3 +13719,65 @@ danger lens; disagreement is now a stamped verdict, not a silent 30 e/t.
 Named for next cycle, in order: L1 remainder (backlog drain term +
 scavenge sizing - drain 3.03 vs decay 14 e/t), R1 raid-tax calibration
 (ca05 churn watch), E4 spend path (bank slope +25).
+
+## Audit cycle t72940325 -> t72941602 (2026-08-11): the in-flight-body hole - one lens bug, three corps, 26% of spawn spend
+
+**Expansion status first (owner asked):** W43N24 leveled RCL 2 -> 3
+mid-window (~11.8 e/t into the new controller since the embargo fix); GCL
+32 at 96.3% toward 33; the W52N54 corps are dormant registry ghosts (0
+creeps, no sizing), not an active expansion.
+
+**The embargo fix holds in its first clean window (1277t):** forgone 0.00
+(vs 40.28), heldFrac decoration 0.00 - no pile-gated miners anywhere, E6
+0 of 11 deferred, pile decay halved 23.97 -> 12.33 (standing piles 16.5 ->
+7.7), plan flap 1, bank slope +25 -> +4.96, controller 25.72 pts/t
+sustained (vs 19.86 pre-fix), P7 1.71x the wartime floor, X1 dry WORK 0.
+
+**The new top forces:** L1 19.19 e/t named (top line), but the sharper
+signals were R1 26.60x the priced raid tax with "remote churn bodies
+11.01 e/t" and X5's flag: `W45N23-harvest-ca05 2200e@36t - FAST RESPAWN
+(<60t = double-order/loop)`.
+
+**Attribution (ring receipts, then falsification, then the seam):**
+ca05's re-funded corp bought ~12 miners + 2 haulers (~12k energy) in
+~1250t for a target-1 source - including FOUR miner purchases in four
+consecutive ticks across four different spawns (t72940889-892), and two
+2200e haulers 36t apart against a 132t build time. First hypothesis
+(spawning creeps don't staff) FALSIFIED at the source: staffsPost's
+undefined-ttl rule already counts them. The real seam is one lens bug in
+three places: **fleet-accounting demand gates read a spawning body's
+ACTIVE parts, which are zero while assembling** -
+
+1. HarvestCorp.runtUpgradeDemand read getActiveCreeps() (excludes
+   spawning outright): an in-flight upsize never suppressed re-orders -
+   every free spawn re-sold it ("recycled why: runt-upsize 59%").
+2. CarryCorp.staffing() counted the spawning hauler toward COUNT but
+   summed CARRY via getActiveBodyparts = 0: the carry gate stayed unmet
+   for the whole build.
+3. UpgradingCorp.countStaffing: same shape in WORK - the live W43N24
+   fleet fielded 7 upgraders against targetCount 3.
+
+The ring's ~200t-spaced "scale" purchases between bursts are the REAL
+kill cadence (W44N23 raidDebt 49.7k -> 77.2k this window) - that half is
+R1's under-priced tax, gated by its own >=10-fiscal-window swap rule,
+untouched this cycle. The corp self-converged once bodies landed
+(staffing 1/1, gate clear, last ~700t of ring quiet) - the churn is a
+TRANSITION amplifier, firing on every re-funding, kill replacement, and
+upsize; X5 books it at 0.26 of spawn spend.
+
+**Fix (red-first, three tests in the incident's exact shapes):** demand
+lenses now price a spawning body by its BODY DEFINITION - "a body in the
+pipe is the freshest possible incumbent" (staffsPost's own doctrine,
+extended to the part-sum side). HarvestCorp gains
+getMinerCreepsIncludingSpawning() for the runt-upgrade path with
+spawning-aware WORK counts; CarryCorp.staffing() and
+UpgradingCorp.countStaffing() sum body parts for spawning creeps.
+Work-driving paths keep excluding spawning creeps (they cannot act).
+
+**Predictions for the next capture:** (1) X5 churn share falls from 0.26
+toward its ~0.1 baseline with NO "FAST RESPAWN" flags; (2) F1's
+unbudgeted share (0.408 p/t, 48%) shrinks by the multiplier's share -
+kill replacements remain; (3) "runt-upsize" recycle share collapses from
+59%; (4) W43N24 upgrader count converges 7 -> targetCount as bodies
+expire; (5) R1 drops toward the true kill tax (the ~200t cadence
+survives, the 2-4x amplification does not).

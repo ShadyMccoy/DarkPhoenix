@@ -1450,7 +1450,15 @@ export class CarryCorp extends Corp {
       // pounce swap manages its own replacement; excluding them double-orders.
       if (!staffsPost(creep.ticksToLive, creep.body?.length ?? 0, distance)) continue;
       count += 1;
-      carry += creep.getActiveBodyparts(CARRY);
+      // Spawning-aware CARRY (audit t72941602): a body still assembling has
+      // no ACTIVE parts, so getActiveBodyparts read the in-flight hauler as
+      // 0 CARRY - the count gate saw it, the carry gate did not, and the ask
+      // re-fired at every free spawn until the body finished (two 2200e
+      // haulers 36t apart against a 132t build). Its body definition is what
+      // it will field.
+      carry += creep.spawning
+        ? (creep.body ?? []).filter(p => p.type === CARRY).length
+        : creep.getActiveBodyparts(CARRY);
     }
     return { count, carry };
   }

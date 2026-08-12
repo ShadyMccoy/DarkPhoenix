@@ -346,6 +346,40 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
     });
 
     /**
+     * IN-FLIGHT BODIES COUNT (audit t72941602). Live ring t72939660/t72939696:
+     * ca05's first 2200e hauler was still ASSEMBLING (44 parts = 132 build
+     * ticks) when a second spawn sold the same route another 2200e body 36
+     * ticks later. staffing() already counts the spawning creep toward the
+     * COUNT (staffsPost: undefined ttl = the freshest incumbent) but summed
+     * its CARRY via getActiveBodyparts - which is 0 while spawning - so the
+     * carry gate stayed unmet and the ask re-fired at every free spawn until
+     * the body finished. Same lens hole as the miner-side runt-upsize burst,
+     * different currency (CARRY sum vs WORK count).
+     */
+    it("a SPAWNING hauler's body CARRY satisfies the carry gate (no second sale mid-build)", () => {
+      const nodeId = "W1N1-hauling-inflight";
+      const corp = carryCorp(nodeId);
+      const r = route("storage-ssss", 10, 5); // carryParts = ceil(5*22/50) = 3
+      corp.setHaulerAssignments([r]);
+      const creeps: Record<string, unknown> = {
+        pipe: {
+          memory: { corpId: nodeId, workType: "haul" },
+          spawning: true,
+          ticksToLive: undefined,
+          body: [
+            { type: "carry" }, { type: "carry" }, { type: "carry" },
+            { type: "move" }, { type: "move" }, { type: "move" }
+          ],
+          store: { getCapacity: () => 150 },
+          getActiveBodyparts: () => 0 // spawning creeps have no ACTIVE parts
+        }
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = { ...MockGame, creeps, time: 100 };
+      expect(corp.getSpawnDemand(ctx)).to.deep.equal([], "the body in the pipe covers the route");
+    });
+
+    /**
      * THE DOUBLE-DRAIN (F1 ask-gap, measured t72760734). Since the phase-1
      * route repricing the PLAN prices bufferDrainCarry INTO each staged
      * route's carryParts (CorpPlanner: `h.carryParts += drainCarry`), and the
