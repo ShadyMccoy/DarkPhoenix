@@ -13,7 +13,7 @@
 
 import { Corp, SerializedCorp } from "./Corp";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
-import { isIntelId, isScavengeId, parsePositionalId, stripSourcePrefix } from "../economy/ids";
+import { bankRoomFromId, isBankSourceId, isIntelId, isScavengeId, parsePositionalId, stripSourcePrefix } from "../economy/ids";
 import { SCAVENGE_THRESHOLD } from "../economy/scavenge";
 import { isTenderCreep } from "./censusLens";
 import { tenderOwnsExtensions } from "./regimes";
@@ -645,6 +645,21 @@ export class CarryCorp extends Corp {
     // Per-source CarryCorp: use the source from hauler assignment
     if (this.haulerAssignments.length > 0) {
       const assignment = this.haulerAssignments[0];
+      // BANKFEED (owner 2026-08-12: "the new rooms can take energy though"):
+      // a bank-sourced route withdraws at the bank room's STORAGE - the
+      // out-of-room executor commissionPlan emits for bank -> foreign-sink
+      // edges. The bank room is ours by construction (it has our storage),
+      // so vision is standing and the structure resolves live; without this
+      // branch the bank- id falls through getObjectById(null) and the
+      // hauler holds forever.
+      if (isBankSourceId(assignment.fromId)) {
+        const storage = Game.rooms[bankRoomFromId(assignment.fromId)]?.storage;
+        if (storage) {
+          creep.memory.assignedSourcePos = { x: storage.pos.x, y: storage.pos.y, roomName: storage.pos.roomName };
+          this.pickupPos = { x: storage.pos.x, y: storage.pos.y, roomName: storage.pos.roomName };
+        }
+        return null;
+      }
       // Extract source game ID from flow source ID (e.g., "source-abc123" → "abc123")
       const sourceGameId = stripSourcePrefix(assignment.fromId);
 
@@ -793,6 +808,19 @@ export class CarryCorp extends Corp {
     // drop pile / wait tile). The stock spot is null once drained - the scavenger
     // then carries home what it has and stands down (re-detection drops the stock
     // next economy rebuild).
+    // BANKFEED collect: withdraw from the bank room's storage (the pickup
+    // branch in getAssignedSource resolved targetPos to its tile). A dry or
+    // vanished storage departs with whatever is aboard - the route's demand
+    // dies with the plan edge, not here.
+    if (this.isBankRoute()) {
+      const storage = Game.rooms[targetPos.roomName]?.storage;
+      if (storage && storage.store[RESOURCE_ENERGY] > 0) {
+        workSpot(creep, { pos: storage.pos, structure: storage }, "collect");
+      } else if (creep.store[RESOURCE_ENERGY] > 0) {
+        this.depart(creep, room, "bank-dry");
+      }
+      return;
+    }
     if (this.isScavenger()) {
       const spot = scavengeSpot(targetPos);
       if (spot) {
@@ -842,6 +870,11 @@ export class CarryCorp extends Corp {
       return;
     }
     workSpot(creep, spot, "collect");
+  }
+
+  /** True when this corp withdraws from a bank (the bankfeed executor). */
+  private isBankRoute(): boolean {
+    return isBankSourceId(this.haulerAssignments[0]?.fromId ?? "");
   }
 
   /** True when this corp serves a transient ground stock rather than a source. */

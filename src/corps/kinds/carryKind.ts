@@ -12,7 +12,7 @@
 import { Commission } from "../../economy/Commission";
 import { BodyHints, CorpKind, DemandWorld } from "../../economy/CorpKind";
 import { ColonyProblem, CommissionedHauler } from "../../economy/CorpPlanner";
-import { isScavengeId, stripSourcePrefix, stripSpawnPrefix } from "../../economy/ids";
+import { isBankSourceId, isScavengeId, stripSourcePrefix, stripSpawnPrefix } from "../../economy/ids";
 import { buildRatioHaulerBody } from "../../spawn/BodyBuilder";
 import { SerializedCorp } from "../Corp";
 import { CarryCorp, SerializedCarryCorp } from "../CarryCorp";
@@ -93,7 +93,10 @@ export const carryKind: CorpKind<CarryCorp> = {
   demandGroup(corp: CarryCorp, corpId: string, world: DemandWorld) {
     const fromId = corp.getHaulerAssignments()[0]?.fromId;
     const sourceId = stripSourcePrefix(fromId ?? corpId.replace(/^carry-/, ""));
-    const started = isScavengeId(sourceId) || world.isSourceMined(sourceId);
+    // Scavenge stocks AND bank sources are already-extracted energy - no
+    // producer to wait for, the unit is born started (the bankfeed executor,
+    // owner 2026-08-12, would otherwise gate forever: banks have no miner).
+    const started = isScavengeId(sourceId) || isBankSourceId(sourceId) || world.isSourceMined(sourceId);
     return { groupId: sourceId, started };
   },
 

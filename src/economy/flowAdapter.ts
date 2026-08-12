@@ -1704,7 +1704,11 @@ export function publishTerminalTransfers(
   Memory.terminalTransfers = byFrom;
 }
 
-function publishRoster(plan: ReturnType<typeof planColony>, linkServedIds: ReadonlySet<string> = new Set()): void {
+function publishRoster(
+  plan: ReturnType<typeof planColony>,
+  linkServedIds: ReadonlySet<string> = new Set(),
+  sinkRoomById: ReadonlyMap<string, string> = new Map()
+): void {
   if (typeof Memory === "undefined") return;
   const corps: Record<string, unknown>[] = [];
   for (const m of plan.miners) {
@@ -1716,10 +1720,17 @@ function publishRoster(plan: ReturnType<typeof planColony>, linkServedIds: Reado
     });
   }
   for (const h of plan.haulers) {
-    // Bank flows are executed by the depot movers (tender/feeder), never by a
-    // spawnable CarryCorp - publishing them would be permanent phantom variance
-    // for the plan-vs-fielded gauges.
-    if (isBankSourceId(h.sourceId)) continue;
+    // IN-ROOM bank flows are executed by the depot movers (tender/feeder),
+    // never by a spawnable CarryCorp - publishing them would be permanent
+    // phantom variance for the plan-vs-fielded gauges. OUT-OF-ROOM bank
+    // edges ARE fielded since the bankfeed executor (owner 2026-08-12) -
+    // commissionPlan emits their carry corp, so they publish like any
+    // walking route (skipping them would hide a real fleet from F1/F2).
+    if (
+      isBankSourceId(h.sourceId) &&
+      (sinkRoomById.get(h.sinkId) === undefined || sinkRoomById.get(h.sinkId) === bankRoomFromId(h.sourceId))
+    )
+      continue;
     // Link-served sources (spec 02 feeder-router): transported by the link
     // network + feeder, not a walking CarryCorp (commissionsFromPlan omits the
     // carry corp). Publishing their uncommissioned haulers - including the
@@ -1973,7 +1984,7 @@ export function solveColony(
   // feeder, not a commissioned CarryCorp (spec 02) - keep them out of the
   // plan-vs-fielded roster so the gauge sees no phantom walking haulers.
   const linkServedIds = new Set(problem.sources.filter(s => s.haulPos).map(s => s.id));
-  publishRoster(plan, linkServedIds);
+  publishRoster(plan, linkServedIds, new Map(problem.sinks.map(s => [s.id, s.pos.roomName])));
   publishTerminalTransfers(plan, problem);
   const commissions = commissionsFromPlan(problem, plan);
 

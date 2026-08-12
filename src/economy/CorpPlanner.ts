@@ -1016,11 +1016,16 @@ function routeToSinks(
           return isDeposit(id) || canTransfer(id, sink);
         }
         if (isBankSourceId(id)) {
-          // The bank spends only where its depot movers reach: a controller
-          // OUTSIDE every storage room has no executor for a bank flow
-          // (publishRoster skips bank routes by design), so the edge is
-          // refused rather than planned-and-never-fielded (t72935339).
-          return !(sink.kind === "controller" && !depotReachRooms.has(sink.pos.roomName));
+          // The bank reaches every controller (owner 2026-08-12: "the new
+          // rooms can take energy though"). In-room, the depot movers carry
+          // it (feeder/link); OUT-OF-ROOM, the bankfeed carry corp is the
+          // executor - commissionPlan emits a walking route for exactly the
+          // bank edges that leave their room, so the t72935339 honesty
+          // refusal (an edge nothing fielded) no longer applies. Measured
+          // need: W43N23 banked ~900k behind its RCL8 15/t cap while
+          // W43N24's uncapped controller starved at dryShare 0.6-0.78 on
+          // local-only supply.
+          return true;
         }
         return (
           !isDeposit(id) ||

@@ -346,6 +346,39 @@ describe("CarryCorp behaviour (trivial scenarios)", () => {
     });
 
     /**
+     * THE BANKFEED PICKUP (owner 2026-08-12: "the new rooms can take energy
+     * though"). A bank-sourced route ("bank-W1N1" -> a foreign room's
+     * controller) is the out-of-room executor commissionPlan now emits -
+     * the hauler must resolve its pickup to the BANK ROOM'S STORAGE, not
+     * fall through getObjectById(null) and hold forever.
+     */
+    it("a bank-sourced route resolves its pickup to the bank room's storage", () => {
+      const nodeId = "W2N2-hauling-N1N1"; // homed in the SINK's room
+      const corp = carryCorp(nodeId);
+      const r = { ...route("controller-cc", 30, 5), fromId: "bank-W1N1" } as HaulerAssignment;
+      corp.setHaulerAssignments([r]);
+      const storage = { pos: { x: 7, y: 8, roomName: "W1N1" }, store: { [("energy" as any)]: 50000 }, my: true };
+      const creep: any = {
+        memory: { corpId: nodeId, workType: "haul" },
+        spawning: false,
+        store: { energy: 0, getFreeCapacity: () => 150, getCapacity: () => 150 },
+        pos: { x: 1, y: 1, roomName: "W2N2", getRangeTo: () => 10 },
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).Game = {
+        ...MockGame,
+        creeps: { h: creep },
+        rooms: { W1N1: { name: "W1N1", storage } },
+        time: 100
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (corp as any).getAssignedSource(creep, []);
+      expect(creep.memory.assignedSourcePos, "pickup = the bank room's storage tile").to.deep.equal({
+        x: 7, y: 8, roomName: "W1N1"
+      });
+    });
+
+    /**
      * IN-FLIGHT BODIES COUNT (audit t72941602). Live ring t72939660/t72939696:
      * ca05's first 2200e hauler was still ASSEMBLING (44 parts = 132 build
      * ticks) when a second spawn sold the same route another 2200e body 36

@@ -16,7 +16,7 @@
  * hundred ticks of counts, not history. `departsSince` stamps when counting
  * started so a reader can normalize.
  */
-export type DepartReason = "full" | "yield" | "scavenge-dry" | "spot-dry";
+export type DepartReason = "full" | "yield" | "scavenge-dry" | "spot-dry" | "bank-dry";
 
 /**
  * Scalar fields on purpose: the stamp spreads into CorpSizingRecord, whose

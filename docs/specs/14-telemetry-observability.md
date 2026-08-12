@@ -13933,3 +13933,48 @@ scavengers gone, mining routes own their piles); (2) forgone falls back
 toward ~10; (3) recovery net returns positive with the fleet bill under
 2 e/t; (4) SCAV keeps >=50% collection on the (now truly orphan) stocks;
 (5) cd8d's micro-route fracture heals (P2 count falls).
+
+## Owner-directed cycle (2026-08-12, "the new rooms can take energy though"): the bankfeed executor
+
+**The direction:** W43N23 banks ~900k it cannot spend (RCL8 caps its
+controller at 15/t; the solver sheds sources for want of sinks) while
+W43N24's UNCAPPED RCL3 controller starves at dryShare 0.6-0.78 on
+local-only supply. The t72935339 refusal (bank may not feed a
+storage-less room's controller) was honesty about a missing EXECUTOR -
+publishRoster skipped bank routes, so the plan had claimed a 14 e/t flow
+nothing fielded. The owner's point: make the flow real, don't refuse it.
+
+**The executor, four seams (each red-first):**
+1. CorpPlanner: the refusal lifts - bank reaches every controller
+   (in-room via depot movers as always; out-of-room via the new corp).
+2. commissionPlan: OUT-OF-ROOM bank routes commission a standalone
+   bankfeed carry corp, homed in the SINK's room via consumes.at (so
+   legacyNodeId and deliverToController key off where it delivers);
+   in-room legs stay uncommissioned (feeder/tender territory).
+3. publishRoster: out-of-room bank edges publish (they are now a real
+   fleet F1/F2 must see); in-room stay skipped.
+4. CarryCorp: a bank- route resolves pickup to the bank room's STORAGE
+   (new branch; the id previously fell through getObjectById and held
+   forever) and collects by structure withdraw; carryKind.demandGroup
+   births bank units started (no producer to wait for). "bank-dry"
+   joins DepartReason.
+
+**Canary flake found and recorded during the gate:** runt-economy went
+red twice on the new build and once (earlier today) on the dominance
+cut - but the pre-change build drew green, the THIRD new-build draw drew
+green, and every verdict tracks a 4m/12m host mode exactly (fast=green,
+slow=red, plateau shape identical to the documented 2026-08-03 incident;
+the diff is provably unreachable in that storage-less world - every new
+branch gates on isBankSourceId). VERDICT: pre-existing environment-
+correlated flake, my diff acquitted by draws 3+4; the slow-mode plateau
+is a TEST-ESTATE work item (spec 61 class): harden the 300-cap escape
+or pin the mode. Re-read re5's dominance attribution with this in mind:
+the maturity gate stays (the mouth-fight was real in prod), but the
+canary red that motivated it may have been this flake.
+
+**Predictions for the post-deploy capture:** (1) flow haulers[] carries a
+bank-W43N23 -> controller-cd8c edge; (2) a bankfeed carry corp fields
+(hauling-W43N24-hauling-3N23, creeps >= 1); (3) W43N24's controller
+allocation rises toward its ~28 demand and dryShare falls from 0.776;
+(4) E4's slope goes NEGATIVE (the bank finally drains); (5) colony
+controller delivery rises above 27 pts/t.

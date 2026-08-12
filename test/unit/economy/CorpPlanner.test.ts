@@ -333,6 +333,40 @@ describe("economy/CorpPlanner", () => {
         });
       });
 
+      describe("bank feeds a storage-less room's controller (owner 2026-08-12: 'the new rooms can take energy though')", () => {
+        // The refusal it lifts (t72935339) was honesty about a missing
+        // EXECUTOR - publishRoster skipped bank routes, so the plan claimed
+        // a 14 e/t flow nothing fielded. The bankfeed carry corp now fields
+        // exactly this leg (commissionPlan emits it for out-of-room bank
+        // edges), so the edge is real: W43N23's ~900k surplus reaches
+        // W43N24's uncapped RCL3 controller instead of idling behind the
+        // home room's RCL8 15/t cap while its upgraders starved at
+        // dryShare 0.6-0.78 on local-only supply.
+        it("routes bank energy to a controller OUTSIDE every storage room (local supply still fills first)", () => {
+          const bank: PlannerSource = {
+            id: "bank-W1N1",
+            nodeId: "W1N1-bank",
+            pos: { x: 0, y: 0, roomName: "W1N1" },
+            rate: 40,
+            maxMiners: 0,
+            transient: true
+          };
+          const remoteCtrl = sink("ctrl", "controller", 30, 60, 30);
+          remoteCtrl.pos = { x: 30, y: 0, roomName: "W2N2" }; // no storage room
+          const plan = planColony(
+            problem({
+              spawns: [spawn("S", 0)],
+              sources: [bank],
+              sinks: [remoteCtrl, sink("store", "storage", 0, 1, 1000)]
+            })
+          );
+          const ctrl = plan.sinks.find(s => s.kind === "controller")!;
+          expect(ctrl.allocated, "the bank funds the new room's climb").to.be.greaterThan(0);
+          const edge = plan.haulers.find(h => h.sourceId === "bank-W1N1" && h.sinkId === "ctrl");
+          expect(edge, "a real routed edge, not a phantom").to.not.equal(undefined);
+        });
+      });
+
       it("prices a PAVED candidate with the same model its own route edges use (cycle t72786811)", () => {
         // The live seam: cee2's candidate read d 82 / net 5.93 (raw 1:1)
         // in the same plan whose route edge for the same source was 2:1 at
