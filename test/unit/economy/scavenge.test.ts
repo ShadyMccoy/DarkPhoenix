@@ -9,7 +9,8 @@ import {
   EnergyFind,
   SCAVENGE_THRESHOLD,
   MAX_SCAVENGE_RATE,
-  SCAVENGE_DECAY_DOMINANCE
+  SCAVENGE_DECAY_DOMINANCE,
+  excludeSourceMouths
 } from "../../../src/economy/scavenge";
 
 const ROOM = "W0N0";
@@ -91,6 +92,33 @@ describe("economy/scavenge", () => {
       // cover at least that zone or a pile can be both counted as upgrader
       // stock AND hauled away as scavenge.
       expect(CONTROLLER_BUCKET_RANGE).to.be.at.least(3);
+    });
+  });
+
+  describe("excludeSourceMouths", () => {
+    // AUDIT t72958467: decay dominance turned mouth piles into 6 e/t
+    // scavenge routes and the recovery fleet (7.08 e/t of bodies) fought
+    // the mining corps at three mouths - forgone mining 39.09 e/t, recovery
+    // net -4.21, cd8d's haul fractured into 8 micro-routes. Since the
+    // staged-mouth drain term (2026-08-07) a mouth pile is priced into the
+    // MINING corp's own routes and gated by E6; a scavenge stock there is
+    // double coverage. Mouths leave the scan; orphan piles (tombstones
+    // mid-route, port spills) remain scavenge's domain. The dominance LAW
+    // itself was confirmed by the same window: 67% collection on true
+    // stocks vs 18-24% under half-life.
+    it("drops finds within the mouth radius of a source; keeps orphan piles", () => {
+      // finds sit at y=25 (the helper); the source at (31,24) puts the x=30
+      // find at Chebyshev 1 (a mouth pile) and the x=40 find at 9 (orphan).
+      const src = { x: 31, y: 24, roomName: ROOM };
+      const kept = excludeSourceMouths(
+        [find("mouth", 4213, 30), find("orphan", 1500, 40)],
+        [src]
+      );
+      expect(kept).to.have.length(1);
+      expect(kept[0].pos.x).to.equal(40);
+    });
+    it("keeps everything when the room has no sources", () => {
+      expect(excludeSourceMouths([find("a", 1000, 10)], [])).to.have.length(1);
     });
   });
 

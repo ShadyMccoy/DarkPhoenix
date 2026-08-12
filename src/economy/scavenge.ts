@@ -151,6 +151,40 @@ export function collectStocks(finds: EnergyFind[], threshold = SCAVENGE_THRESHOL
 }
 
 /**
+ * Chebyshev radius around a source inside which ground energy is the MINING
+ * corp's business, not scavenge's (covers the mouth container and drop
+ * spread). See excludeSourceMouths.
+ */
+export const SOURCE_MOUTH_RANGE = 2;
+
+/**
+ * Drop finds at source mouths (audit t72958467). Since the staged-mouth
+ * drain term (2026-08-07) a mouth pile is priced into the MINING corp's own
+ * routes and gated by E6 - a scavenge stock there is DOUBLE COVERAGE, and at
+ * decay-dominance rates the recovery fleet (7.08 e/t of bodies) fought the
+ * mining corps at three mouths: forgone mining 39.09 e/t, recovery net
+ * -4.21, one source's haul fractured into 8 micro-routes. Mouths leave the
+ * scan; orphan piles (tombstones mid-route, port spills, core-adjacent
+ * drops) remain scavenge's domain. Pure - callers pass the room's source
+ * positions.
+ */
+export function excludeSourceMouths(
+  finds: EnergyFind[],
+  sourcePositions: Position[],
+  range = SOURCE_MOUTH_RANGE
+): EnergyFind[] {
+  if (sourcePositions.length === 0) return finds;
+  return finds.filter(
+    f =>
+      !sourcePositions.some(
+        sp =>
+          sp.roomName === f.pos.roomName &&
+          Math.max(Math.abs(f.pos.x - sp.x), Math.abs(f.pos.y - sp.y)) <= range
+      )
+  );
+}
+
+/**
  * Drop finds inside the controller bucket (see CONTROLLER_BUCKET_RANGE). Pure:
  * pass null when the room has no owned controller and everything is kept.
  */
@@ -209,6 +243,14 @@ export function detectRoomStocks(
   finds = excludeControllerBucket(
     finds,
     feederManaged ? { x: ctrl!.pos.x, y: ctrl!.pos.y, roomName: room.name } : null
+  );
+
+  // SOURCE MOUTHS ARE THE MINING CORP'S TERRITORY (audit t72958467; see
+  // excludeSourceMouths). Applies to owned AND remote scans - the staged
+  // drain term prices mouth clearing into the mining routes everywhere.
+  finds = excludeSourceMouths(
+    finds,
+    room.find(FIND_SOURCES).map(s => ({ x: s.pos.x, y: s.pos.y, roomName: room.name }))
   );
 
   // ONE SUMMED STOCK (owner 2026-07-10): a pile sitting on/next to a stocked

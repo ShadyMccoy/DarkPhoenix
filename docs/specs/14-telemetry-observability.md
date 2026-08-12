@@ -13898,3 +13898,38 @@ The law is therefore MATURITY-GATED (same lens as the drain deadband:
 storage standing): bootstrap keeps the waste-tolerant half-life law - the
 ramp spends every spare unit on the escape - and mature colonies price
 dominance. Both branches pinned in scavenge.test.ts.
+
+## Audit cycle t72950630 -> t72958467 (2026-08-12): dominance verified on true stocks, and its regression attributed to the SCAN - mouths leave scavenge
+
+**The window read like a disaster and attributed like a scope bug.**
+Forgone mining exploded to 39.09 e/t (heldFrac 26.81 - three mouths gated:
+cd8d 100% of window at buffered 4213, ca05 86%, cd94 41%), the scavenge
+body bill went 1.55 -> 7.08 e/t, recovery net FLIPPED to -4.21 e/t
+(prediction 4 failed in the worst direction), and cd8d's haul fractured
+into 8 micro-routes (P2 16 of 26).
+
+**But the SAME window confirmed the rate law itself:** SCAV collection
+24% -> 67% (prediction 1, exactly the designed ~2/3), scavengers demob
+cleanly when their pile drains ("scavenge-drained" 41% of recycles - a
+new, healthy class), and stocks actually cleared (37-38: 87e left).
+
+**The attribution:** the stocks dominance was draining ARE SOURCE MOUTHS -
+W43N24-30-20 is source (31,21)'s mouth (container summed in by the
+one-summed-stock rule, owned rooms includeContainers=true), 37-38 the
+other. Since the staged-mouth drain term (2026-08-07) a mouth pile is
+priced into the MINING corp's own routes and gated by E6 - a scavenge
+stock there is DOUBLE COVERAGE. The half-life law kept that overlap
+negligible (0.5-1 e/t trickles); dominance weaponized it into a 6 e/t
+fight at each mouth. The 2026-07-19 container-siphon ruling fixed this
+for REMOTE scans only; W43N24 becoming OWNED re-exposed it.
+
+**Fix: excludeSourceMouths (range 2, both scans)** - mirrors
+excludeControllerBucket; mouths are the mining corps' territory, orphan
+piles (tombstones mid-route, port spills, core drops) remain scavenge's.
+Red-first pure-function tests; full gate green (canary included).
+
+**Predictions for the next capture:** (1) E6 deferrals collapse (mouth
+scavengers gone, mining routes own their piles); (2) forgone falls back
+toward ~10; (3) recovery net returns positive with the fleet bill under
+2 e/t; (4) SCAV keeps >=50% collection on the (now truly orphan) stocks;
+(5) cd8d's micro-route fracture heals (P2 count falls).
