@@ -14151,3 +14151,24 @@ graph; the hub attacher covers owned-room hub structures only.
    as re-funded routes drain the mouths.
 5. E4 stays FAIL short-term (re-funded income rises before spends ramp);
    the honest gauge now watches the founding + depot fill absorb it.
+
+**Live verification (same session, ~t72969700, ~550t after deploy):**
+prediction 1 CONFIRMED - `storage-...33a95d` (W43N24 depot) and W43N21's
+controller (`dbcd97`, level 1, priority 80, 8 e/t allocated) both in the
+live plan's sinks; the depot absorbs 214.7 e/t of its 460 ullage demand.
+Prediction 2 EXCEEDED - not >=6 of 10 but **19 sources funded** (was 4):
+every flipped source re-funded plus five more (d017, cedc, d019, d01f,
+cee2, cee0, cd90, cd92, cd98, cd94, cd99, cd8d, cd8e, cd8a, cbd5, cbd8,
+ca05, c9f8, c9f9), verdict census 19 funded / 15 prospect / 4 over-budget,
+**zero no-sink, zero unrouted**. Prediction 3 CONFIRMED in the kill half -
+`buster-Buster-72969430` spawned ~280t after deploy, walked
+W43N23->W43N22->W43N21, and EZRO's spawn is GONE from the room objects;
+W43N21's first re-funded miner (`miner-t-cd98-72969554`) walking in.
+Grid regression: the five adjacent cells (exp-t5-claimer, exp-t5-founding-
+funnels, def-t5-core-buster, cons-t4-storage-completes,
+cons-rcl8-full-bank-contracts-mining) all [P] on the shipped bundle.
+Cache survey (question-the-mechanism): the three CommissionHost lenses and
+the governor level are stride-keyed self-rebuilding memos - deploy-safe;
+multiRoomAnalysisCache was the ONLY event-built hard-prerequisite cache in
+execution/economy. L1/pile-decay trend and the founding funnel remain
+next-window business (predictions 4-5 stand).
