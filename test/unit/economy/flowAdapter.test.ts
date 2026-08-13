@@ -1734,3 +1734,72 @@ describe("economy/flowAdapter - founding sites are bank-funded at the founding p
     expect(total, "cluster demand = the local source's full rate").to.be.closeTo(10, 0.2);
   });
 });
+
+/**
+ * THE CLAIM-PUMP RUNG (owner 2026-08-13: "There should be few corps more
+ * valuable than pumping up a new claim room"). A freshly-founded room's
+ * controller is the unlock for its whole build-out - RCL gates extensions,
+ * the tower, the storage - yet it priced on the ordinary controller band
+ * (measured 61.2 at t72979146), BELOW any remote road site's 70, and
+ * colony-wide wartime relegation would floor it at 42 exactly while the
+ * colony builds elsewhere. The rung: an owned room WITHOUT a storage (still
+ * developing to self-sufficiency) prices its controller at
+ * claimPumpController - above every ordinary controller and ordinary
+ * construction, below only the founding site and spawn rungs - and is
+ * EXEMPT from wartime relegation (relegating the thing being pumped is
+ * self-defeating; wartime keeps its charter for storage-backed rooms).
+ */
+describe("economy/flowAdapter - the claim-pump rung (owner 2026-08-13)", () => {
+  const g = globalThis as unknown as { Game?: unknown };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  const CROOM = "W8N1";
+  const cat = (x: number, y = 25): Position => ({ x, y, roomName: CROOM });
+
+  /** A founded claim room: owned controller + spawn + its own source - NO storage yet. */
+  function claimRoomNode(): Node {
+    const n = createNode("claim", CROOM, cat(44), 50, [CROOM], 0);
+    n.resources = [
+      { type: "controller", id: "ctrl-c", position: cat(40), isOwned: true } as NodeResource,
+      { type: "spawn", id: "spawn-c", position: cat(44) } as NodeResource,
+      { type: "source", id: "csrc", position: cat(45), capacity: 3000 } as NodeResource
+    ];
+    return n;
+  }
+
+  const bankSource = (rate: number): PlannerSource => ({
+    id: "bank-W0N0",
+    nodeId: "W0N0-bank",
+    pos: at(6),
+    rate,
+    maxMiners: 0,
+    transient: true
+  });
+
+  it("a storage-less owned room's controller prices at the claim-pump rung - above ordinary construction", () => {
+    const { DEFAULT_VALUATION } = require("../../../src/economy/goals");
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), claimRoomNode()]);
+    // A big REMOTE construction backlog stands (wartime arms colony-wide).
+    graph.addConstructionSite("remoteRoad", "home", { x: 48, y: 25, roomName: "W1N0" }, 8000, undefined, "road");
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+
+    const claimCtrl = sol.sinkAllocations.find(a => a.sinkType === "controller" && a.sinkId.endsWith("ctrl-c"))!;
+    const homeCtrl = sol.sinkAllocations.find(a => a.sinkType === "controller" && a.sinkId.endsWith("ctrl-0"))!;
+    const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
+
+    expect(claimCtrl.priority, "the claim pump prices at its OWN rung").to.equal(DEFAULT_VALUATION.claimPumpController);
+    expect(claimCtrl.priority, "above ordinary construction - few corps outrank the pump").to.be.greaterThan(
+      build.priority
+    );
+    expect(homeCtrl.priority, "the STORAGE-BACKED home controller still relegates in wartime").to.be.lessThan(
+      claimCtrl.priority
+    );
+  });
+});

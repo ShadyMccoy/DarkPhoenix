@@ -31,6 +31,14 @@
 export interface SinkValuation {
   spawn: number;
   newSpawnSite: number;
+  /** The CLAIM-PUMP rung (owner 2026-08-13: "There should be few corps more
+   * valuable than pumping up a new claim room"): the controller of an owned
+   * room still developing to self-sufficiency (no storage yet). RCL gates
+   * the new room's whole build-out, so pumping its level IS the unlock -
+   * above every ordinary controller and ordinary construction, below only
+   * the founding site and the spawn rung. Exempt from wartime relegation
+   * (the adapter scopes wartime to storage-backed rooms). */
+  claimPumpController: number;
   controllerMax: number;
   construction: number;
   controllerStatic: number;
@@ -47,6 +55,7 @@ export interface SinkValuation {
 export const DEFAULT_VALUATION: SinkValuation = {
   spawn: 100,
   newSpawnSite: 85,
+  claimPumpController: 82,
   controllerMax: 80,
   construction: 70,
   controllerStatic: 50,
@@ -81,6 +90,7 @@ export const GOAL_PROFILES: { [name: string]: SinkValuation } = {
   growController: {
     spawn: 100,
     newSpawnSite: 85,
+    claimPumpController: 84.5,
     controllerMax: 84,
     construction: 60,
     controllerStatic: 65,
@@ -90,6 +100,7 @@ export const GOAL_PROFILES: { [name: string]: SinkValuation } = {
   foundRoom: {
     spawn: 100,
     newSpawnSite: 95,
+    claimPumpController: 90,
     controllerMax: 70,
     construction: 80,
     controllerStatic: 50,
@@ -99,6 +110,7 @@ export const GOAL_PROFILES: { [name: string]: SinkValuation } = {
   warchest: {
     spawn: 100,
     newSpawnSite: 85,
+    claimPumpController: 75,
     controllerMax: 60,
     construction: 55,
     controllerStatic: 48,
@@ -139,10 +151,29 @@ export interface Goal {
  *  I4 storage is strictly the bottom (the residual buffer).
  */
 export function assertValuationInvariants(v: SinkValuation): void {
-  const top = Math.max(v.newSpawnSite, v.controllerMax, v.construction, v.controllerStatic, v.controllerMin, v.storage);
+  const top = Math.max(
+    v.newSpawnSite,
+    v.claimPumpController,
+    v.controllerMax,
+    v.construction,
+    v.controllerStatic,
+    v.controllerMin,
+    v.storage
+  );
   if (!(v.spawn > top)) throw new Error(`goal invariant I1: spawn (${v.spawn}) must be strictly top`);
   if (!(v.newSpawnSite > v.construction)) {
     throw new Error(`goal invariant I2: newSpawnSite (${v.newSpawnSite}) must outrank construction (${v.construction})`);
+  }
+  // The claim-pump rung (owner 2026-08-13): below the founding site, above
+  // both the ordinary controller band and ordinary construction - "few corps
+  // more valuable than pumping up a new claim room".
+  if (!(v.newSpawnSite > v.claimPumpController)) {
+    throw new Error(`goal invariant I5: newSpawnSite (${v.newSpawnSite}) must outrank claimPumpController (${v.claimPumpController})`);
+  }
+  if (!(v.claimPumpController > v.controllerMax && v.claimPumpController > v.construction)) {
+    throw new Error(
+      `goal invariant I6: claimPumpController (${v.claimPumpController}) must outrank controllerMax (${v.controllerMax}) and construction (${v.construction})`
+    );
   }
   if (!(v.controllerMax >= v.controllerStatic && v.controllerStatic >= v.controllerMin)) {
     throw new Error(`goal invariant I3: controller band must order max >= static >= min`);
@@ -165,6 +196,7 @@ export function compileGoal(goal?: Goal): SinkValuation {
   const out: SinkValuation = {
     spawn: 0,
     newSpawnSite: 0,
+    claimPumpController: 0,
     controllerMax: 0,
     construction: 0,
     controllerStatic: 0,
@@ -175,6 +207,7 @@ export function compileGoal(goal?: Goal): SinkValuation {
     const p = GOAL_PROFILES[name];
     const f = w / total;
     out.spawn += p.spawn * f;
+    out.claimPumpController += p.claimPumpController * f;
     out.newSpawnSite += p.newSpawnSite * f;
     out.controllerMax += p.controllerMax * f;
     out.construction += p.construction * f;

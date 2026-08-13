@@ -581,8 +581,17 @@ function perInstanceSinkValue(
   val: SinkValuation = DEFAULT_VALUATION,
   /** Rooms under spec-33 wartime relegation - their controller prices at the
    *  ladder's floor rung instead of its remaining-progress band. */
-  wartimeRooms: ReadonlySet<string> = new Set()
+  wartimeRooms: ReadonlySet<string> = new Set(),
+  /** Owned rooms still developing to self-sufficiency (no storage yet) -
+   *  their controller prices at the CLAIM-PUMP rung (owner 2026-08-13:
+   *  "There should be few corps more valuable than pumping up a new claim
+   *  room"): above every ordinary controller and ordinary construction,
+   *  and never wartime-relegated (RCL gates the room's own build-out). */
+  claimPumpRooms: ReadonlySet<string> = new Set()
 ): number {
+  if (kind === "controller" && claimPumpRooms.has(sink.position.roomName)) {
+    return val.claimPumpController;
+  }
   if (kind === "controller" && wartimeRooms.has(sink.position.roomName)) {
     return wartimeControllerValue(val);
   }
@@ -1334,14 +1343,29 @@ export function buildColonyProblem(
   // absorbs at its own caps, and the residual banks - never the controller.
   // Exits cleanly when the colony backlog drains below the threshold.
   const colonyBacklog = constructionSites.reduce((sum, cs) => sum + (cs.progressRemaining ?? 0), 0);
+  const controllerRooms = graph
+    .getSinks()
+    .filter(s => s.type === "controller")
+    .map(s => s.position.roomName);
+  // CLAIM-PUMP rooms (owner 2026-08-13: "There should be few corps more
+  // valuable than pumping up a new claim room"): owned rooms still
+  // developing to self-sufficiency - a controller stands, no storage yet.
+  // Their controller prices at the claimPumpController rung and is EXEMPT
+  // from wartime relegation: RCL gates the room's own build-out (extensions,
+  // tower, the storage itself), so relegating the pump to fund construction
+  // elsewhere is self-defeating. Wartime keeps its charter for
+  // storage-backed (mature) rooms below.
+  //
+  // A CLAIM presumes a colony pumping it: the lens engages only when a bank
+  // stands SOMEWHERE (roomsWithStorage non-empty). A bootstrap home - the
+  // young colony's only, storage-less room - keeps the measured
+  // build-supersedes-upgrade doctrine (G6: construction 70 over the
+  // controller band; the RCL2->3 extension bottleneck) untouched.
+  const claimPumpRooms: ReadonlySet<string> =
+    roomsWithStorage.size > 0 ? new Set(controllerRooms.filter(r => !roomsWithStorage.has(r))) : new Set();
   const wartimeRooms: ReadonlySet<string> =
     colonyBacklog >= WARTIME_BACKLOG_THRESHOLD
-      ? new Set(
-          graph
-            .getSinks()
-            .filter(s => s.type === "controller")
-            .map(s => s.position.roomName)
-        )
+      ? new Set(controllerRooms.filter(r => roomsWithStorage.has(r)))
       : new Set();
 
   // SOURCE-LOCAL CLUSTERS (spec 25 phase 3, owner: "there shouldn't be any
@@ -1364,12 +1388,7 @@ export function buildColonyProblem(
   // and its 15k spawn site priced at the local source's 10 e/t while 979k
   // sat banked (t72972253; owner 2026-08-13: "fund new rooms at like
   // 100 e/t instead of 4"). Owned-room sites are bank-funded, full stop.
-  const ownedControllerRooms = new Set<string>(
-    graph
-      .getSinks()
-      .filter(s => s.type === "controller")
-      .map(s => s.position.roomName)
-  );
+  const ownedControllerRooms = new Set<string>(controllerRooms);
   // FOUNDING sites: a spawn being built in a room with no standing spawn -
   // the campaign's one payload. Absorbs at the founding pace below.
   const spawnSinkRooms = new Set<string>(
@@ -1456,7 +1475,7 @@ export function buildColonyProblem(
       id: sink.id,
       kind,
       pos: sink.position,
-      value: perInstanceSinkValue(kind, sink, valuation, wartimeRooms),
+      value: perInstanceSinkValue(kind, sink, valuation, wartimeRooms, claimPumpRooms),
       capacity:
         kind === "spawn"
           ? // Overhead need PLUS the agenda's funding need (spec 11 phase 2,

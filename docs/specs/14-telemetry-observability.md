@@ -14274,3 +14274,42 @@ the room's follow-on build-out batches into the wartime pool (~90+ e/t
 sustained - the owner's number, carried by the existing horizon at real
 backlogs); (3) G1 under-spending shrinks as the founding + refleeted ramp
 draw together; E4 stays honest-FAIL until they do.
+
+## Owner directive (2026-08-13, "There should be few corps more valuable than pumping up a new claim room"): the claim-pump rung
+
+**Founding update first (live, t72979146)**: the founding SURGE delivered -
+`Spawn5` STANDS at (15,27), a fifth spawn sink is in the plan, W43N21 swarms
+(~15 construction tankers, 4 builders, 2 upgraders, miners on both sources,
+2 guards), and the follow-on site builds at 25 e/t of planned legs. The
+campaign closed on its own.
+
+**The gap the directive names**: the fresh W43N21 controller priced 61.2 -
+top of the ordinary controller band, but BELOW ordinary construction's 70,
+so any remote road site in the empire outranked pumping the new claim's
+RCL - and colony-wide wartime relegation would floor it to 42 exactly while
+the colony builds elsewhere. RCL gates the new room's whole build-out
+(extensions, tower, the storage itself), so the pump IS the unlock.
+
+**Landed (red-first; unit 2693, trio green)**: `claimPumpController: 82` -
+a new anchor in the sink ladder (goals.ts), between newSpawnSite 85 and
+controllerMax 80. The lens (flowAdapter): an owned room with a controller
+sink and NO storage, engaged only while a bank stands SOMEWHERE
+(roomsWithStorage non-empty) - a claim presumes a colony pumping it, so a
+bootstrap home's measured build-supersedes-upgrade doctrine (G6, the
+RCL2->3 extension bottleneck) is untouched. Claim-pump rooms are EXEMPT
+from wartime relegation (wartime keeps its charter for storage-backed
+rooms). Invariants I5/I6 pin the rung's place at compile time; the DEFAULT
+ladder pin and all four goal profiles extended in the same commit (the
+90-vs-85 founding-incident door held - the rung landed with its chain).
+
+**The full ladder now**: spawn 100 > new-spawn-site 85 > claim-pump
+controller 82 > controller <=80 > construction 70 > controller floor 40 >
+storage 1. CLAUDE.md's Economics line needs the same edit when this
+merges.
+
+**Predictions**: W43N21's controller re-prices 61.2 -> 82 on the next
+solve; its allocation climbs (upgraders scale as the ladder routes it
+flow); RCL 2 within ~1-2k ticks of deploy, RCL 3 (tower - the room can
+then defend itself) inside the next audit window; W43N24 exits the lens
+the moment its walked-fill bank makes bankFedControllerRate generous (its
+storage stands, so it was never in it - the bank-fed law is its pump).
