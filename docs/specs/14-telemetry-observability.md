@@ -14040,3 +14040,34 @@ edge with real carry once the sink registers; (2) W43N24 storage fills at
 plan speed and cd8c's demand wakes as its bank grows; (3) W43N23 E4 slope
 NEGATIVE; (4) the no-sink set shrinks as W43N24's ullage joins colony
 sink capacity; (5) delivery recovers toward 24+ pts/t.
+
+## Expansion staged (owner 2026-08-13: "Seems like we could be claiming more rooms"): W43N21 campaign
+
+**The pick, from data:** two-source candidates within 2 rooms were W43N21,
+W41N21, W44N21, W45N22. W43N21 wins on measured economics (cd98/cd99
+funded for weeks at net 6.3-8.6, the best-known books of any candidate),
+standing reservation, and the contiguous southern spine
+(W43N23 -> W43N22 -> W43N21); owning it deletes its reserver bill
+(~2.1 e/t) and its invader-raid class outright (owned rooms farm no
+raids). Its known risks are the machinery's job: the standing invader
+structure is the coreBuster kind's exact case, and raids en route are the
+guard meter's. The unknown-terrain candidates (W41N21/W44N21/W45N22, no
+raid history but no books either) stay on the list for claims 4+.
+
+**The staging, per the W43N24 precedent (the sanctioned memory-API
+lever):** spawnPos (15,27) computed OFFLINE with the bot's own picker
+(pickSpawnSpot over live terrain + intel anchors: sources (5,23)/(13,38),
+controller (28,19) - open plains at their centroid).
+Memory.expansion = {W43N21, W43N21-15-27, (15,27), t72967162} written and
+confirmed; **the claimer (650e) was bought at t72967163 - ONE tick after
+staging** - and claim-W43N21-claim stands with 1 creep walking. This claim
+is the first to land on the full organism rails: the bankfeed corp and
+the walked bank fill mean the founding funnel draws the ~950k W43N23 bank
+from day one instead of local trickles.
+
+**Milestones to verify next capture (the W43N24 timeline):** claim lands
+(~t+300), owned-room trigger forces the replan, founding site at (15,27),
+siteProgress rising on bank-funded tankers, spawn stands, campaign
+self-closes. Watch items: the invader core's effect on the claimer's
+approach (the buster may need to fire first) and the W43N22 transit
+(raidDebt ~100k, a raid due).
