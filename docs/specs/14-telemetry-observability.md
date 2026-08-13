@@ -14313,3 +14313,51 @@ flow); RCL 2 within ~1-2k ticks of deploy, RCL 3 (tower - the room can
 then defend itself) inside the next audit window; W43N24 exits the lens
 the moment its walked-fill bank makes bankFedControllerRate generous (its
 storage stands, so it was never in it - the bank-fed law is its pump).
+
+## Audit cycle t72972253 -> t72984055 (2026-08-13): the confetti fleet - the pool's capacity now sizes bodies
+
+**Window**: 11,802t. The economy tripled: 19 funded sources / 190 e/t, 128
+creeps, FIVE spawns (Spawn5 = W43N21's own), home spawns saturated
+0.97-0.98, P4 at 0.96x ceiling, bank FULL at 1,000,000.
+
+**Verified from cycles 1-2 + directives**: ca05 grinder STOPPED (no fast
+respawns; remote churn 13% -> 9% of spend); F1 converged 0.24x -> 0.88x;
+the healed route lens re-admitted five embargoed deep remotes
+(embargoed->funded flips - the detour law working as designed); W43N21 hit
+RCL 2 (21,660/45,000 - halfway to its tower) with the claim-pump rung live
+at 82.0 and 7 sites building. The founding chain end-to-end: claim ->
+eviction -> site -> spawn -> RCL 2, one session.
+
+**Falsified, THIRD time, now attributed**: L1 pile decay rose again (12.98
+-> 20.47 -> 31.16) and the W43N24 depot stayed dry (191e; its controller
+frozen at 27,341 three cycles). Both are ONE mechanism, and the ring named
+it: the plan routes 15 sources into the depot (out to dist 214, 60-88 CARRY
+each), but body size was fixed at collect time from the ANCHOR room's
+energyCapacity - so the whole expansion fleet, anchored at Spawn4 (1,300)
+and Spawn5 (~550), was bought as CONFETTI: 300e 3-CARRY haulers, over and
+over (cd8e's 8,000e mouth served by repeated 300e bodies), while the
+saturated 12,900 home spawns built guards and reservers. 622 CARRY parts of
+F2 gap that arithmetic never closes.
+
+**Landed (red-first; unit 2694, trio green, multispawn-t7 x2 + spawnexec
+cells [P]; deployed)**: `collectDemands` runs at the POOL's capacity
+(SpawnDirector pass-1 computes max energyCapacityAvailable over eligible
+rooms) - the global-pool doctrine (owner 2026-07-25: any spawn builds any
+corp) extended to SIZING. minCost floors still let a small spawn min-scale
+an urgent body; per-spawn affordability keeps purchases real; single-room
+worlds are arithmetically unchanged (max = own capacity).
+
+**Named, not fixed**: (1) P12 RUNTIME FAULT - home feeder relay 5.00 <
+published 15.00, with the controllerFeeder countMismatch (claimed 3/counted
+1, staffsPost family) alongside; the home score line sags (P7 0.80x of the
+wartime floor). (2) The storage-FULL regime: 1M cap reached, absorb path
+saturated - the spend paths (W43N21 pump, W43N24 depot chain, GCL 32 ->
+33 at 10.5M remaining) are the cure, all now unblocked. (3) R1 raid tax
+10x priced, 22 raidGuards standing - repricing waits for its 10-window
+gate. (4) Admission keeps widening (reservers for W41N25/W43N25 bought
+this window) at 0.96x P4 - watch for over-admission at the ceiling.
+
+**Predictions**: (1) depot-route hauler receipts jump to the 1,500-2,500e
+class; (2) L1 FALLS for the first time in four windows (target <=15 next
+window) as real carry fields; (3) W43N24 storage holds real stock, cd8c
+wakes, rclProgress moves off 27,341; (4) F2's 622p gap halves.
