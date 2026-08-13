@@ -142,6 +142,9 @@ export interface AdmittedConstruction {
   y: number;
   roomName: string;
   remaining: number;
+  /** The ledger's durable structureType, passed through so the flow sink can
+   *  recognize a FOUNDING spawn site (trunk aggregates are roads and omit it). */
+  structureType?: string;
 }
 
 /** Positional key for matching a record to a route tile. */
@@ -189,7 +192,7 @@ export function aggregateTrunkRoadSinks(
     const hit = rec.structureType === "road" ? tileIndex.get(tileKey(rec.x, rec.y, rec.roomName)) : undefined;
     if (!hit) {
       // Not a trunk-road tile: keep the per-site sink verbatim.
-      out.push({ id: rec.id, x: rec.x, y: rec.y, roomName: rec.roomName, remaining: rec.remaining });
+      out.push({ id: rec.id, x: rec.x, y: rec.y, roomName: rec.roomName, remaining: rec.remaining, structureType: rec.structureType });
       continue;
     }
     const list = matchedByRoute.get(hit.routeIdx) ?? [];
@@ -203,7 +206,7 @@ export function aggregateTrunkRoadSinks(
     // fragmentation to cure, and an aggregate of one is just the tile).
     if (matched.length < 2) {
       for (const { rec } of matched) {
-        out.push({ id: rec.id, x: rec.x, y: rec.y, roomName: rec.roomName, remaining: rec.remaining });
+        out.push({ id: rec.id, x: rec.x, y: rec.y, roomName: rec.roomName, remaining: rec.remaining, structureType: rec.structureType });
       }
       continue;
     }

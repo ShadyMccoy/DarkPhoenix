@@ -1637,3 +1637,100 @@ describe("flowAdapter: construction only funds rooms the colony works", () => {
     expect(await siteRooms([])).to.deep.equal(["W0N0"]);
   });
 });
+
+/**
+ * THE FOUNDING SITE IS BANK-FUNDED AT THE FOUNDING PACE (owner 2026-08-13:
+ * "We have like a million in the bank. We can fund new rooms at like 100 e/t
+ * instead of 4"; measured t72972253: bank 979k, founding funnel 4.2 e/t).
+ *
+ * The clamp was the SOURCE-LOCAL cluster rule: the W43N21 founding spawn site
+ * sat nearer its room's own source than any hub, and the room - owned, but
+ * storage-less - fell through the "hub-room sites stay bank-funded" exemption
+ * into the road-building-remote class. Capacity became the local source's
+ * 10 e/t and the ~1M bank never touched the founding.
+ *
+ * The rule's charter is road-building REMOTES. Sites in rooms WE OWN (the
+ * graph's owned-controller sink rooms) never cluster, and a FOUNDING site -
+ * structureType "spawn" in a room with no spawn sink - absorbs at the
+ * founding completion tier (primitives), bounded as ever by
+ * minedSupply + bankRate.
+ */
+describe("economy/flowAdapter - founding sites are bank-funded at the founding pace (owner 2026-08-13)", () => {
+  const g = globalThis as unknown as { Game?: unknown };
+  let savedGame: unknown;
+  beforeEach(() => {
+    savedGame = g.Game;
+    g.Game = { time: 0, getObjectById: () => null, rooms: {}, creeps: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+  });
+
+  const FROOM = "W9N1";
+  const fat = (x: number, y = 25): Position => ({ x, y, roomName: FROOM });
+
+  /** The founding room: OWNED controller + its own source, NO spawn (the claim landed, the spawn hasn't). */
+  function foundingRoomNode(): Node {
+    const n = createNode("found", FROOM, fat(44), 50, [FROOM], 0);
+    n.resources = [
+      { type: "controller", id: "ctrl-f", position: fat(40), isOwned: true } as NodeResource,
+      { type: "source", id: "fsrc", position: fat(45), capacity: 3000 } as NodeResource
+    ];
+    return n;
+  }
+
+  const bankSource = (rate: number): PlannerSource => ({
+    id: "bank-W0N0",
+    nodeId: "W0N0-bank",
+    pos: at(6),
+    rate,
+    maxMiners: 0,
+    transient: true
+  });
+
+  it("a founding spawn site next to its room's source is NOT clustered to 10 e/t - it draws the bank at the founding pace", () => {
+    const { projectAbsorbRate, effectiveLife } = require("../../../src/economy/primitives");
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), foundingRoomNode()]);
+    // The founding spawn site, ADJACENT to the founding room's own source
+    // (dist 1 << dist-to-hub ~41) - the exact geometry that clustered W43N21.
+    graph.addConstructionSite("foundingSpawn", "found", fat(46), 15_000, undefined, "spawn");
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(100)]);
+
+    const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
+    const foundingRate = projectAbsorbRate(15_000, 41, "founding"); // travel = |5-46| under manhattan
+    expect(build.demand, "founding pace, not the local source's 10").to.be.closeTo(foundingRate, 1e-6);
+    expect(build.demand, "the incident's bar: two-digit-plus funding").to.be.greaterThan(50);
+
+    // And the BANK actually funds it - a bank->construction leg exists. (The
+    // one-spawn fixture's spawn-time budget admits ~33 e/t of the 100+
+    // demand; the live 4-spawn colony admits far more - it already routes a
+    // 140 e/t bank leg. The pin here is the MECHANISM: bank flow reaches the
+    // founding, and the total dwarfs the 10 e/t the cluster clamp allowed.)
+    const bankToSite = sol.haulers.filter(h => h.fromId === "bank-W0N0" && h.toId.startsWith("construction"));
+    expect(
+      bankToSite.reduce((s, h) => s + h.flowRate, 0),
+      "the bank pours into the founding"
+    ).to.be.greaterThan(15);
+    expect(build.allocated, "total funding well past the old 10 e/t cluster clamp").to.be.greaterThan(25);
+  });
+
+  it("a SECOND-spawn site in a room that already has a spawn keeps the ordinary pace (no founding tier)", () => {
+    const { projectAbsorbRate } = require("../../../src/economy/primitives");
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    // A spawn site IN the home room (RCL7 second spawn) - not a founding.
+    graph.addConstructionSite("secondSpawn", "home", at(9), 15_000, undefined, "spawn");
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+    const build = sol.sinkAllocations.find(a => a.sinkType === "construction")!;
+    // bankRate > 0 => the wartime accelerate horizon, exactly as before.
+    expect(build.demand).to.be.closeTo(projectAbsorbRate(15_000, 4, true), 1e-6);
+  });
+
+  it("road sites in UNOWNED remote rooms still cluster to their source (the spec-25 charter is untouched)", () => {
+    const graph = graphOf([homeNodeWithStorage(5), sourceNode("s1", 15), sourceNode("s2", 25)]);
+    graph.addConstructionSite("roadA", "home", { x: 24, y: 25, roomName: "W1N0" }, 1500, undefined, "road");
+    graph.addConstructionSite("roadB", "home", { x: 27, y: 25, roomName: "W1N0" }, 1500, undefined, "road");
+    const sol = solveWithCorpPlanner(graph, 0, manhattan, [], [bankSource(40)]);
+    const total = sol.sinkAllocations.filter(a => a.sinkType === "construction").reduce((s, a) => s + a.demand, 0);
+    expect(total, "cluster demand = the local source's full rate").to.be.closeTo(10, 0.2);
+  });
+});

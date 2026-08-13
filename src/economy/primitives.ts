@@ -837,8 +837,31 @@ export const ANTI_DOWNGRADE_DANGER_TICKS = 10_000;
 
 /** The sizing horizon for a crew working `travelDistance` from its spawn.
  * `accelerate` (a spendable surplus stands) shortens it to the wartime pace. */
-export function projectBuildHorizon(travelDistance: number, accelerate = false): number {
-  const fraction = accelerate ? WARTIME_COMPLETION_FRACTION : PROJECT_COMPLETION_FRACTION;
+/**
+ * FOUNDING completion fraction (owner 2026-08-13: "We have like a million in
+ * the bank. We can fund new rooms at like 100 e/t instead of 4"). A founding
+ * spawn site is the colony's CURRENT OBJECTIVE - MAX_SURPLUS_DRAW's doctrine
+ * ("surge the current objective as fast as it can physically absorb; a max
+ * draw that binds below the absorption ceiling counteracts the bot's whole
+ * purpose") applied to the completion horizon: finish the founding in a
+ * TENTH of the crew's life, so a fresh 15k spawn absorbs
+ * 15,000/(0.1 x ~1,400) ~ 107 e/t - the drain law's own ceiling - instead
+ * of the wartime ~1/3-life trickle. Measured incident (t72972253): 979k
+ * banked, founding funnel 4.2 e/t.
+ */
+export const FOUNDING_COMPLETION_FRACTION = 1 / 10;
+
+/** The completion pace: ordinary (2/3 life), wartime-accelerated (1/3), or
+ * the founding surge (1/10) - see each fraction's doc. */
+export type ProjectPace = boolean | "founding";
+
+export function projectBuildHorizon(travelDistance: number, accelerate: ProjectPace = false): number {
+  const fraction =
+    accelerate === "founding"
+      ? FOUNDING_COMPLETION_FRACTION
+      : accelerate
+      ? WARTIME_COMPLETION_FRACTION
+      : PROJECT_COMPLETION_FRACTION;
   return Math.max(1, fraction * effectiveLife(travelDistance));
 }
 
@@ -860,7 +883,7 @@ export function projectBuildHorizon(travelDistance: number, accelerate = false):
  * visible sites raises `remainingWork` and with it the crew cap - the
  * owner's focused-burst lever under this rule.
  */
-export function projectAbsorbRate(remainingWork: number, travelDistance = 0, accelerate = false): number {
+export function projectAbsorbRate(remainingWork: number, travelDistance = 0, accelerate: ProjectPace = false): number {
   return Math.max(5, remainingWork / projectBuildHorizon(travelDistance, accelerate));
 }
 

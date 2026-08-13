@@ -945,14 +945,23 @@ export class ConstructionCorp extends Corp {
       absorb = buildPoolAbsorbRate(spawnForTravel.pos.roomName, spawnForTravel.pos);
     } else {
       const siteWork = this.siteWorkRemaining(room);
-      const firstSite = room.find(FIND_MY_CONSTRUCTION_SITES)[0];
+      const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
+      const firstSite = sites[0];
       const travel =
         spawnForTravel && firstSite
           ? spawnForTravel.pos.roomName === room.name
             ? spawnForTravel.pos.getRangeTo(firstSite.pos)
             : roomLinearDistance(spawnForTravel.pos.roomName, room.name) * 50
           : 0;
-      if (siteWork > 0) absorb = projectAbsorbRate(siteWork, travel);
+      // FOUNDING pace (owner 2026-08-13, one lens with the plan's sink
+      // capacity): a spawn site in a spawnless owned room is the colony's
+      // current objective - the crew sizes to finish it in a tenth of its
+      // life, matching the bank draw the plan routes at the same tier.
+      const founding =
+        room.controller?.my === true &&
+        room.find(FIND_MY_SPAWNS).length === 0 &&
+        sites.some(s => s.structureType === STRUCTURE_SPAWN);
+      if (siteWork > 0) absorb = projectAbsorbRate(siteWork, travel, founding ? "founding" : false);
     }
     // The horizon cap still bounds BANK-funded pool work, but the crew may
     // size up to the plan's source-funded cluster rate (spec 25 phase 3).

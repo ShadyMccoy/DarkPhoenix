@@ -548,3 +548,33 @@ describe("volleyServiceCarry (spec 45: the feeder is a SERVICE creep, sized for 
     expect(infraSpawnEnergy(relay, 1, 0, 1)).to.be.closeTo(expected, 1e-9);
   });
 });
+
+/**
+ * FOUNDING PACE (owner 2026-08-13: "We have like a million in the bank. We
+ * can fund new rooms at like 100 e/t instead of 4"): a founding spawn site is
+ * the colony's CURRENT OBJECTIVE, and MAX_SURPLUS_DRAW's own doctrine says
+ * surge it as fast as it can physically absorb - a completion horizon that
+ * paces a 15k founding spawn at ~8-20 e/t against a ~1M bank is a pacer, the
+ * class the owner retired. The founding tier finishes the project in a tenth
+ * of the crew's life: 15,000 / (0.1 x effectiveLife) ~ 100+ e/t, exactly the
+ * drain law's ceiling. Ordinary and wartime paces are UNCHANGED - pinned
+ * here so the tier cannot drift them.
+ */
+describe("projectAbsorbRate - the FOUNDING completion tier (owner 2026-08-13)", () => {
+  const { projectAbsorbRate, effectiveLife, FOUNDING_COMPLETION_FRACTION } = require("../../../src/economy/primitives");
+
+  it("a founding spawn site absorbs at ~the drain law's ceiling (100 e/t class)", () => {
+    const rate = projectAbsorbRate(15_000, 110, "founding");
+    expect(rate).to.be.closeTo(15_000 / (FOUNDING_COMPLETION_FRACTION * effectiveLife(110)), 1e-9);
+    expect(rate, "the whole point: ~100 e/t, not ~10").to.be.greaterThan(100);
+  });
+
+  it("ordinary and wartime paces are unchanged by the tier's existence", () => {
+    expect(projectAbsorbRate(15_000, 110, false)).to.be.closeTo(15_000 / ((2 / 3) * effectiveLife(110)), 1e-9);
+    expect(projectAbsorbRate(15_000, 110, true)).to.be.closeTo(15_000 / ((1 / 3) * effectiveLife(110)), 1e-9);
+  });
+
+  it("the tail pin holds at every tier: a 400-energy remainder never rates a big crew", () => {
+    expect(projectAbsorbRate(400, 10, "founding")).to.equal(5);
+  });
+});

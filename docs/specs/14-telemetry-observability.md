@@ -14237,3 +14237,40 @@ diagnosis.
    0.294 was the ramp reading).
 5. Founding spawn STANDS (~5,500 progress remained at ~4.2 e/t => ~1,300t);
    campaign self-closes; W43N21 bootstrap begins.
+
+## Owner directive (2026-08-13, "We have like a million in the bank. We can fund new rooms at like 100 e/t instead of 4"): the founding pace
+
+**The clamp, followed to its seam**: the W43N21 founding spawn site sat
+nearer its room's own source (cd98/cd99) than any hub, and the room - owned
+but storage-less - fell through the "hub-room sites stay bank-funded"
+exemption into the SOURCE-LOCAL cluster class (spec 25 phase 3, charter:
+road-building remotes). Its capacity became the local source's 10 e/t
+(measured plan edges: cd98->site 10, cbd8->site ~1; measured delivery 4.2
+e/t), while the drain law's own ceiling (bankSurplusRate = min(100,
+surplus/1500) = 100 at the 979k bank) sat unread. Even un-clustered, the
+POOLED horizon (wartime 1/3-life) prices a lone 15k site at ~8-20 e/t -
+MAX_SURPLUS_DRAW's docblock names this exact class: "a max draw that binds
+below the absorption ceiling counteracts the bot's whole purpose."
+
+**Landed (red-first; unit 2692, trio, exp-t5 cells green; deployed)**:
+1. `FOUNDING_COMPLETION_FRACTION = 1/10` (primitives): a founding spawn
+   site - structureType "spawn" in a room with NO spawn sink - finishes in
+   a tenth of the crew's life: fresh 15k at ~110 travel = ~117 e/t, the
+   drain law's ceiling. Ordinary (2/3) and wartime (1/3) paces pinned
+   unchanged; the 400-energy tail pin holds at every tier.
+2. OWNED-room sites never source-cluster (the graph's controller-sink
+   rooms) - clustering keeps its road-remote charter.
+3. The ledger's durable `structureType` now travels on the flow sink
+   (admission -> adapter), so founding detection and the 85-rung pricing
+   are vision-free; founding sites leave the pool sum (no pro-rata
+   dilution of other sites).
+4. Crew side (ConstructionCorp remote branch) reads the same founding
+   lens - one formula, both readers, per the buildPoolAbsorb pin.
+
+**Predictions for the next capture**: (1) the W43N21 site's allocation
+jumps ~10 -> ~40+ e/t (founding pace at its ~5k remaining) and the spawn
+STANDS within ~200-400t of deploy; (2) post-spawn, the campaign closes and
+the room's follow-on build-out batches into the wartime pool (~90+ e/t
+sustained - the owner's number, carried by the existing horizon at real
+backlogs); (3) G1 under-spending shrinks as the founding + refleeted ramp
+draw together; E4 stays honest-FAIL until they do.

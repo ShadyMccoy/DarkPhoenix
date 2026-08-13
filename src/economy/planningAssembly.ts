@@ -87,7 +87,7 @@ export function addConstructionSitesToFlow(economy: FlowEconomy, nodes: Node[]):
     }
     if (!best) continue;
 
-    economy.addConstructionSite(rec.id, best.id, { x: rec.x, y: rec.y, roomName }, rec.remaining);
+    economy.addConstructionSite(rec.id, best.id, { x: rec.x, y: rec.y, roomName }, rec.remaining, rec.structureType);
   }
 }
 
