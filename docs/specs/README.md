@@ -11,7 +11,74 @@ planner reasons over an abstracted world and new corp kinds plug in without
 touching the core. Specs 02, 03, 06 and 07 should be implemented as corp kinds
 through that framework; they double as proof that it works.
 
-## Deployment status (2026-08-09)
+## Deployment status (2026-08-13) — the seven-cycle audit arc + the W43N21 claim
+
+**Live on shard1 `master`:** everything through the walked bank fill,
+deployed from session at ~t72966900 (branch `claude/production-audit-alqcw8`,
+PR #171). Seven audit cycles 2026-08-11..13, all recorded with predictions
+and verdicts at the tail of [spec 14](14-telemetry-observability.md):
+
+1. **Transit-embargo admission** (t72938848, ✅ verified ×3 windows): the
+   planner reads the corps' `routeIsDangerous` lens; forgone mining
+   40.28 → 0. New verdict `"embargoed"`; safe-spawn rerouting.
+2. **In-flight bodies count** (t72941602, ✅ home churn 0%): demand gates
+   price a spawning body by its body definition — one lens hole in
+   HarvestCorp/CarryCorp/UpgradingCorp had every free spawn re-selling the
+   same purchase.
+3. **Unmark dwell** (t72943612, ✅ ring depth +50%): border-dancing
+   hostiles flapped marks every tick; fresh marks now hold `UNMARK_DWELL`.
+4. **Scavenge decay dominance, maturity-gated** (t72950630, ✅ law: 24→67%
+   collection): the half-life drain law structurally lost to pile decay;
+   mature colonies now dominate it 2×; bootstrap keeps the ramp law (the
+   runt-economy canary caught unconditional dominance).
+5. **Source-mouth exclusion** (t72958467): dominance weaponized a
+   scan-scope bug — mouths are the mining corps' priced territory.
+6. **The bankfeed executor** (owner: "the new rooms can take energy
+   though"): out-of-room bank edges commission a walking carry corp;
+   drove W43N24 RCL 3→4 at ~15 e/t.
+7. **The walked bank fill** (t72966674): a lender hub primes a new
+   depot's storage without terminals — the RCL4 depot transition had
+   choked the colony (12 sources "no-sink") on the old hub's last ullage.
+
+**IN FLIGHT — the W43N21 claim (owner: "we could be claiming more
+rooms"):** campaign staged t72967162 via the sanctioned memory-API lever,
+claimer bought ONE tick later, walking at last capture (t72967290).
+Best-measured candidate (cd98/cd99 net 6.3–8.6 for weeks); owning it
+deletes its reserver bill and its invader-raid class. **Next-session
+checkpoints:** claim lands (~t72967500), founding site at (15,27),
+siteProgress rising on bank-funded supply (first claim on the
+bankfeed + walked-fill rails), spawn stands, campaign self-closes.
+Watch items: the standing invader core (coreBuster's case), the W43N22
+transit raid meter (~due), and the walked-fill predictions (E4 slope
+negative, the no-sink set shrinking, delivery recovering toward 24+).
+
+**Named backlog, in priority order (each with its measured motivation in
+spec 14):**
+1. **Verify the W43N21 funnel + walked fill** — first audit of the next
+   session; predictions above.
+2. **S3 porttender stall** (t72966674: head `porttender@200` vs bank
+   12900, AFFORDABLE+IDLE) — a scheduler wedge on a new role class.
+3. **Guard OUTCOME stamps** — "covered" records targeting, not
+   presence/engagement; the corridor kill story's invisible half.
+4. **Corridor attrition at admission** — R1 reads ~27× the priced tax;
+   the loss side (killed walkers) enters no admission term. Take up with
+   the guard stamps in hand.
+5. **Analysis-refresh lag for just-completed depots** — the RCL4
+   transition's storage was invisible to the plan for minutes; a
+   completion-triggered refresh if it recurs.
+6. **runt-economy slow-host flake** (test estate, spec 61 class): reds
+   track a 4m/12m host mode exactly (documented plateau shape); harden
+   the 300-cap escape or pin the mode.
+7. **Next claims** once W43N21's spawn stands: W41N21 / W44N21 / W45N22
+   (two-source, scouted, no books yet — reserve-and-mine first to build
+   the books, then claim).
+8. **E4 re-read after the transition** — the walked fill + claim funnel
+   are the spend paths; if the slope is still positive in steady state,
+   the next lever is another claim, not another valve.
+
+---
+
+## Prior deployment status (2026-08-09)
 
 **Live on shard1 `master`:** specs 56 + 57 + core telemetry **v36**, deployed
 from session at ~t72873000 and verified at t72873814.
