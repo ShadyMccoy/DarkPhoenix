@@ -14172,3 +14172,68 @@ the governor level are stride-keyed self-rebuilding memos - deploy-safe;
 multiRoomAnalysisCache was the ONLY event-built hard-prerequisite cache in
 execution/economy. L1/pile-decay trend and the founding funnel remain
 next-window business (predictions 4-5 stand).
+
+## Audit cycle t72968647 -> t72972253 (2026-08-13): the ramp, and the stronghold grinder
+
+**Window**: 3,606t - the REOPENED economy's first ramp (19 sources funded,
+fleet 31->52 creeps, plan prices 1.246 p/t vs 0.294 built). Founding site
+CONFIRMED placed and 63% built (siteProgress 9476/15000, ~4.2 e/t funnel) -
+cycle-1 prediction 3 fully lands. L1 pile decay 20.47 e/t (top line) is the
+ramp's shape, not a freeze: 8 of 14 mouths gated buffer-full while their
+scale-tier haulers (~740 CARRY parts of long-route fleet) queue at the
+funding pace; spend 55 e/t continuous, spawn idle 90% attributed to the
+FUNDING ledger, tender duty 0.014 (heartbeat fine - extensions full at
+capture; the throttle is the pacer, not the refill). VERDICT: bounded
+transient (~30k one-time rot), predicted to clear in ~1-2k ticks - next
+window L1 is the check. W43N24 depot dry + controller frozen 2 cycles traces
+to the same ramp: the walked-fill fleet (bank->storage-33a95d, 140 e/t, 269
+CARRY) is the biggest unbuilt block, and Spawn4 burns every arriving unit on
+the ca05 grinder (below).
+
+**THE STRONGHOLD GRINDER (fixed this cycle, mechanism proven live)**:
+mining-W45N23-harvest-ca05 bought ~10 miners at 650e in ~1,700t (ring
+receipts, ~150t cadence), zero alive at capture, staffing stamp 0/1. The
+route decision ran through THREE lenses: (1) the transit-embargo gate priced
+the corp's ANCHOR route - W43N23->W45N23 = [W44N23, W45N23], all safe (live
+findRoute via console, t72972447) - and approved; (2) the GLOBAL SPAWN POOL
+birthed every miner at W43N24 (nearest free spawn, ring rows); (3) the
+walker followed findRoute(W43N24, W45N23) = [W44N24, W45N24, W45N23] -
+straight through TWO live-marked rooms (hostileUntil 72973428/72973735,
+hostileStructureCount 4 each: invader-stronghold pattern, whose squads also
+explain the home-room kill share - 7,145e of 18,188e killed cargo in W43N23,
+91% of kills in intel-"safe" rooms). Each dying miner refreshed the marks
+its successor's gate never read.
+
+**Fix (ONE lens)**: `safeRouteRooms` in RoomDiscovery - findRoute with
+marked TRANSIT rooms priced Infinity (endpoints exempt: a hostile endpoint
+is the corp's own funding decision), mark-free corridor verified, null when
+none exists. `routeIsDangerous` now means UNAVOIDABLY dangerous (endpoint
+marked, or no hostile-free corridor) - a workable detour HEALS the route
+instead of embargoing it. `travelTo` steers cross-room legs along the same
+corridor room-by-room (the buster's own travel pattern; travelToLane
+inherits); no marks / no safe corridor / final leg = bit-identical naive
+behavior, so military corps keep entering danger deliberately. The
+transit-embargo stamp now NAMES the blocking rooms (`blocked`). Red-first:
+roomDiscovery 36 green, movement 41 green; full gate green (unit 2686 +
+trio); def-t3/def-t5 cells [P].
+
+**Pre-existing regression, acquitted from this change**:
+plan-t5-remote-pipeline red (`always:"extensions refill before the draining
+spawn finishes"`, fail @400-485/700t) IDENTICALLY on pre-change source -
+an incident against the deployed build (baseline still says pass), owned by
+a future cycle; timing variance suggests flake-class, multi-draw before
+diagnosis.
+
+**Predictions for the next capture** (~2,000t+ post-deploy):
+1. ca05's grinder STOPS: miner arrivals via the southern corridor, staffing
+   1/1, no 650e receipt train (or, if the pool births at W43N23, same). X5
+   remote share falls from 13%.
+2. Scale haulers complete; L1 falls from 20.47 toward <=8; E6 deferred
+   mouths drain (cd99/d01f first - biggest buffers).
+3. W43N24 storage begins holding energy (walked fill lands as the trunk
+   fleet builds); cd8c controller demand wakes; its rclProgress moves off
+   27341.
+4. F1 converges toward 1.0 as the ramp completes (plan 1.246 vs built
+   0.294 was the ramp reading).
+5. Founding spawn STANDS (~5,500 progress remained at ~4.2 e/t => ~1,300t);
+   campaign self-closes; W43N21 bootstrap begins.

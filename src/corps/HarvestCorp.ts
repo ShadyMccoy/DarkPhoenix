@@ -16,7 +16,7 @@ import {
   travelTicksPerTile,
   workPartsForEnergyRate
 } from "../economy/primitives";
-import { hostileRooms, routeIsDangerous } from "../utils/RoomDiscovery";
+import { hostileRooms, routeIsDangerous, routeRooms } from "../utils/RoomDiscovery";
 import { accrueRaidDebt } from "../utils/raidMeter";
 import { Corp, SerializedCorp } from "./Corp";
 import { spawnRoomHasFlowMiner } from "./censusLens";
@@ -606,9 +606,17 @@ export class HarvestCorp extends Corp {
     // Spec 13 phase 2b (transit embargo): a replacement miner must not WALK
     // through a raided room to reach a clear one. Endpoint rooms come first
     // (Game-free, harness-safe); the route check needs the spawn resolved.
+    // Since t72972253 the lens HEALS: routeIsDangerous is true only when NO
+    // hostile-free corridor exists (the walker detours along the same
+    // safeRouteRooms corridor otherwise), and the stamp NAMES the wall - the
+    // stronghold-grinder wedge was invisible for exactly want of this record.
     const homeSpawn = Game.getObjectById(this.spawnId as Id<StructureSpawn>);
     if (homeSpawn && routeIsDangerous(homeSpawn.room.name, this.getPosition().roomName)) {
-      this.lastSizing = { tick: Game.time, gate: "transit-embargo" };
+      const danger = hostileRooms();
+      const blocked = routeRooms(homeSpawn.room.name, this.getPosition().roomName)
+        .filter(r => danger.has(r))
+        .join(",");
+      this.lastSizing = { tick: Game.time, gate: "transit-embargo", blocked };
       return [];
     }
 

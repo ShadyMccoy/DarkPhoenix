@@ -393,9 +393,70 @@ export function routeRooms(fromRoom: string, toRoom: string): string[] {
   return rooms;
 }
 
-/** Is any room on the route between the two rooms currently hostile? */
+/**
+ * The hostile-aware room corridor between two rooms - the SINGLE route lens
+ * (the stronghold-grinder incident, t72972253): the transit-embargo gate, the
+ * spawn pool, and the walker each priced a route through a DIFFERENT lens, so
+ * a corp anchored on a safe corridor kept buying miners the pool birthed onto
+ * a hostile one (~10 bodies at 650e in 1,700 ticks, each death refreshing the
+ * marks its successor's gate never read).
+ *
+ * Marked TRANSIT rooms are priced out (Infinity); endpoints are exempt -
+ * working a hostile endpoint is the corp's own funding decision, not the
+ * router's. Returns the corridor (endpoints included) when a hostile-free one
+ * exists, or NULL when every corridor crosses a live mark. With no marks at
+ * all this is exactly routeRooms (no callback pricing runs); without the map
+ * API it degrades to routeRooms' endpoints-only fallback.
+ */
+let safeRouteTick = -1;
+let safeRouteCache = new Map<string, string[] | null>();
+export function safeRouteRooms(fromRoom: string, toRoom: string): string[] | null {
+  const danger = hostileRooms();
+  if (danger.size === 0) return routeRooms(fromRoom, toRoom);
+  if (typeof Game === "undefined" || typeof Game.map?.findRoute !== "function") {
+    return routeRooms(fromRoom, toRoom);
+  }
+  if (Game.time !== safeRouteTick) {
+    safeRouteTick = Game.time;
+    safeRouteCache = new Map();
+  }
+  const key = `${fromRoom}->${toRoom}`;
+  const hit = safeRouteCache.get(key);
+  if (hit !== undefined) return hit;
+
+  let result: string[] | null = null;
+  if (fromRoom === toRoom) {
+    result = [fromRoom];
+  } else {
+    const route = Game.map.findRoute(fromRoom, toRoom, {
+      routeCallback: (roomName: string) =>
+        danger.has(roomName) && roomName !== fromRoom && roomName !== toRoom ? Infinity : 1
+    });
+    result = Array.isArray(route) ? [fromRoom, ...route.map(step => step.room)] : null;
+    // VERIFY the corridor is actually mark-free (transit rooms; endpoints
+    // exempt). The engine excludes Infinity rooms itself, but the router is
+    // swappable (harness mocks, API drift) - a corridor this lens cannot
+    // vouch for must read as "no safe corridor", never as an approval.
+    if (result) {
+      const transit = result.slice(1, -1);
+      if (transit.some(r => danger.has(r))) result = null;
+    }
+  }
+  safeRouteCache.set(key, result);
+  return result;
+}
+
+/**
+ * Is the route between the two rooms UNAVOIDABLY dangerous? True when an
+ * endpoint itself is marked (the caller's own-room gates layer above this),
+ * or when NO hostile-free corridor exists (safeRouteRooms). A route with a
+ * safe detour is NOT dangerous - the walker (corps/movement travelTo) steers
+ * along the same safeRouteRooms corridor, so funding continuing is safe by
+ * construction: gate and walker read ONE lens.
+ */
 export function routeIsDangerous(fromRoom: string, toRoom: string): boolean {
   const danger = hostileRooms();
   if (danger.size === 0) return false;
-  return routeRooms(fromRoom, toRoom).some(r => danger.has(r));
+  if (danger.has(fromRoom) || danger.has(toRoom)) return true;
+  return safeRouteRooms(fromRoom, toRoom) === null;
 }
