@@ -117,9 +117,31 @@ describe("miner operation commission (spec 34 D5: one envelope, all-in routed pr
     expect(out.filter(c => c.kind === "harvest").length).to.equal(0);
   });
 
-  it("bank source routes stay uncommissioned (depot movers own those legs)", () => {
+  it("IN-ROOM bank routes stay uncommissioned (depot movers own those legs)", () => {
     const bank = route("bank-W1N1", 0.03);
     const out = commissionsFromPlan(problem, plan({ haulers: [bank] }));
     expect(out.length).to.equal(0);
+  });
+
+  it("OUT-OF-ROOM bank routes commission the bankfeed carry corp, homed in the SINK's room (owner 2026-08-12)", () => {
+    // The t72935339 refusal was a missing executor: publishRoster skipped
+    // bank routes, so a bank->remote-controller edge was planned-and-never-
+    // fielded. This commission IS the executor - a walking CarryCorp that
+    // withdraws at the bank's storage and delivers at the new room's
+    // controller input. consumes.at carries the SINK room so legacyNodeId
+    // homes the corp where it delivers (deliverToController keys off the
+    // corp's room); pickup resolves live from the bank- id.
+    const bankProblem: ColonyProblem = {
+      ...problem,
+      sinks: [
+        { id: "controller-cc", kind: "controller", pos: { x: 20, y: 20, roomName: "W2N2" }, value: 60, capacity: 30 }
+      ]
+    };
+    const edge: CommissionedHauler = { ...route("bank-W1N1", 0.05), sinkId: "controller-cc" };
+    const out = commissionsFromPlan(bankProblem, plan({ haulers: [edge] }));
+    const carry = out.filter(c => c.kind === "carry");
+    expect(carry.length, "the executor exists").to.equal(1);
+    expect(carry[0].consumes.at?.roomName, "homed in the sink's room").to.equal("W2N2");
+    expect((carry[0].assignment as CommissionedHauler[])[0].sourceId).to.equal("bank-W1N1");
   });
 });

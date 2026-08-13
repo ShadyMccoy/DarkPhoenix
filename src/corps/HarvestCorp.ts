@@ -221,6 +221,25 @@ export class HarvestCorp extends Corp {
     return creeps;
   }
 
+  /**
+   * The miner squad INCLUDING bodies still assembling in a spawn - the
+   * DEMAND-side fleet view (audit t72941602). Work-driving keeps using
+   * getActiveCreeps (a spawning creep cannot act), but any lens that decides
+   * whether to BUY must see the body already in the pipe, or every free
+   * spawn's evaluation re-sells the same purchase until it finishes
+   * assembling.
+   */
+  private getMinerCreepsIncludingSpawning(): Creep[] {
+    const creeps: Creep[] = [];
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      if (creep.memory.corpId === this.id && creep.memory.workType !== "haul") {
+        creeps.push(creep);
+      }
+    }
+    return creeps;
+  }
+
   public constructor(nodeId: string, spawnId: string, sourceId: string, customId?: string) {
     super("mining", nodeId, customId);
     this.spawnId = spawnId;
@@ -424,7 +443,12 @@ export class HarvestCorp extends Corp {
 
     const totalWork = Math.max(1, workPartsForEnergyRate(this.minerAssignment.harvestRate, HARVEST_ENERGY_PER_WORK));
     const maxWorkPerMiner = Math.max(1, buildMinerBody(totalWork, ctx.energyCapacity).workParts);
-    const workCounts = creeps.map(c => c.getActiveBodyparts(WORK));
+    // Spawning-aware WORK count (audit t72941602): a body still assembling
+    // has no ACTIVE parts, so getActiveBodyparts would read the in-flight
+    // upsize as a 0-WORK runt; its body definition is what it will field.
+    const workCounts = creeps.map(c =>
+      c.spawning ? (c.body ?? []).filter(p => p.type === WORK).length : c.getActiveBodyparts(WORK)
+    );
     const runtIdx = pickRuntToRecycle(workCounts, totalWork, maxWorkPerMiner);
     if (runtIdx === null) return null;
     if (creeps.some((_c, i) => i !== runtIdx && workCounts[i] > workCounts[runtIdx])) return null; // upgrade already fielded
@@ -670,8 +694,16 @@ export class HarvestCorp extends Corp {
 
     if (current >= target) {
       // Fully staffed by count - but a runt fleet still wants its overlap
-      // upgrade (spawn-then-recycle; see runtUpgradeDemand).
-      const upgrade = this.runtUpgradeDemand(ctx, this.getActiveCreeps());
+      // upgrade (spawn-then-recycle; see runtUpgradeDemand). The fleet view
+      // must include SPAWNING siblings (audit t72941602): the demand lens is
+      // what suppresses a re-order, and an upsize still assembling is
+      // invisible to getActiveCreeps - four spawns each sold ca05 the same
+      // upsize in four consecutive ticks (ring t72940889-892), ~12 bodies
+      // for a target-1 source over ~1250t, all but one recycled
+      // ("runt-upsize" 59% of the window's recycle energy). Same doctrine as
+      // staffsPost's undefined-ttl rule: a body in the pipe is the freshest
+      // possible incumbent.
+      const upgrade = this.runtUpgradeDemand(ctx, this.getMinerCreepsIncludingSpawning());
       return upgrade ? depriceForPile([upgrade], piled) : [];
     }
 

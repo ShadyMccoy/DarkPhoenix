@@ -13608,3 +13608,466 @@ planned executor-less (self-healing physically; F1 pollution).
 **Cycle verdict: FIXED, prediction-confirmed.** The full organism chain -
 claim, founding funnel, local supply, the climb - is now measured working
 at production scale.
+
+## Audit cycle t72936194 -> t72938848 (2026-08-11): the transit-embargo split - 30 e/t funded that no corp would staff
+
+**The account's headline:** forgone mining 40.28 e/t (25% of capacity, the
+largest line in the account), pile decay 23.97 vs budget 0 (L1 top line),
+controller 12% of capacity vs >=50% target, bank +9.37 e/t above a reserve
+already 7x over target.
+
+**The attribution walk (stamps over inference, and the stamps first
+mislead):** the account's own decoration blamed the pile gates ("stamps
+explain 24.79 e/t (heldFrac)") and E6 blamed hauling. Differencing each
+harvest corp's cumulative `produced` across the two captures falsified both
+readings: every pile-gated source mined 9.5-10.0 e/t (the de-pricing gate
+holds PRIORITY, not the pick - its heldFrac is not a mining contra), and the
+forgone 40 is almost exactly **four sources fielding nothing at all**: cd8a
+(W43N25), ca05 (W45N23), d017 (W41N25) all stamped `gate:
+"transit-embargo"`, plus cd99 ramping after its P1 flip. Three embargoed
+sources = ~30 e/t, stamped "funded" in the same capture's candidates[].
+
+**The seam (the trap list called it):** the planner's danger lens is the
+source ROOM only (flowAdapter `defunded`, t72793209) while the corps'
+purchase gates read `routeIsDangerous` over the WHOLE transit
+(HarvestCorp:586, CarryCorp:1504). Active marks at capture - W45N24 and
+W44N25 (hostileUntil ~t72940123), the raided corridor NW of the new W43N24
+spawn - made routes dangerous whose endpoints were clear. Plan funds, corps
+refuse: 30 e/t of phantom capacity, a 7.2 e/t cd8a flow into
+controller-cd8c sizing W43N24's upgraders (28 WORK fielded, dryShare 0.559,
+stock 0), reservation still bought for W45N23 (2.10 e/t for a room mining
+nothing), F1 over-stating 0.186 p/t.
+
+**Fix (red-first, `transit-embargo admission` suite in
+CorpPlanner.test.ts):** `ColonyProblem.routeDangerous` carries the corps'
+lens as a closure exactly like `dist`; `selectProducers` prefers the
+nearest spawn with a SAFE route (reroute before forgoing - cd8a/ca05 remain
+fundable via W43N23's spawns whose corridor is clear), embargoes with its
+own stamped verdict only when no spawn qualifies, exempts spawn-room
+sources (the t72793209 polarity), and never silently reroutes a spec-18
+pin. flowAdapter passes the live `routeIsDangerous`; absent lens =
+fail-open (every harness unchanged).
+
+**Also fixed:** P12's `.find(first controller sink)` broke when W43N24's
+local-fed controller joined the plan - it compared the NEW room's
+allocation (28) against W43N23's feeder relay (20) and printed a phantom
+"RUNTIME FAULT". Room-matched now (feeder's room end-to-end): relay 20 >=
+published 15, ONE VALVE holds; the row keeps failing honestly on the
+solver gap (0.15x the law's cap, wartime relegation + spawn-sink claims).
+
+**Sidebar measured, not fixed (named for the next cycle):** the Spawn4
+"hold" rows (miner 650 / reserver 1300 vs a 550-cap bank) are benign - the
+auction is global and big bodies wait for big spawns. The REAL standing
+leaks behind L1: inflow-sized carry has no backlog drain term (H1: haulers
+BUSY while 6.4k sits piled; d01f delivered 4.94 of 9.60 mined) and the
+scavenge fleet loses to decay on 3 of 3 stocks (drain 3.03 vs decay 14.00
+e/t - we collect 18%). cd8e's squad shows duty 0.561 / idleSink 0.426
+against a SATURATED deposit link (8f08 rho 0.96) - the port leg is the
+suspect if the pile survives this deploy.
+
+**Predictions for the post-deploy capture:** (1) candidates[] shows
+cd8a/ca05 funded with a W43N23-side spawnId (or "embargoed" while marks
+stand - either is coherent; "funded at db0f" is the failure); (2) forgone
+mining falls toward ~15 e/t as rerouted fleets field (full effect needs a
+fleet-walk window); (3) W43N24's controller allocation drops toward its
+real local inflow (~21) and upgrader dryShare falls from 0.559; (4) F1's
+over-statement shrinks by the embargoed classes; (5) W45N23 reservation
+stops renewing while its source is unworkable.
+
+### Post-deploy verification t72940325 (+~1400t, deploy mid-window): FIXED
+
+The five predictions, against the fresh solve (flow tick 72940326):
+
+1. **CONFIRMED, the sharp one**: cd8a "embargoed", d017 "embargoed" -
+   stamped, never phantom-funded - and **ca05 "funded" from 00a7
+   (W43N23's Spawn3, d 130)**: rerouted AROUND the marked corridor onto a
+   spawn that can build its bodies. "Funded at db0f" did not occur.
+2. **CONFIRMED beyond the target**: forgone mining 40.28 -> **0.00**
+   against an honest capacity of 100 (six sources adjudicated out, priced
+   at zero). The clamp note is doing its job: raw mining 117.29 e/t runs
+   17.29 ABOVE funded capacity - embargoed incumbents keep their routes
+   (doctrine) while the plan claims only what it funds. Controller
+   delivery rose 19.86 -> 27.36 pts/t. E6 deferred ops 4 -> 1; cd8e
+   heldFrac 1.00 -> 0.26, buffer 3321 -> 2761.
+3. **CONFIRMED on the allocation**: W43N24 controller 28 -> 20.63
+   (predicted ~21), fielded WORK 28 -> 21 and shrinking. dryShare 0.605
+   NOT yet down (meter spans 4327t of mostly pre-deploy starvation; the
+   oversized fleet must age out) - converges over the next generation or
+   it is a new finding.
+4. **INCONCLUSIVE - transition window**: F1 inverted 0.82x -> 1.39x on a
+   684t post-reset ring while the admission set changed under it (bodies
+   bought for sources that then flipped verdict; off-plan incumbents).
+   The gauge measured the transition, as the X5 deploy caveat predicts.
+   Real signal inside it: ca05's first rerouted body 2200e dead at 204t
+   (remote churn) - the corridor kill-tax is real, R1 already prints it
+   13x under-priced. If ca05 churns again next window, the fix is the
+   INVADER TAX calibration, not the reroute.
+5. **RESOLVED BETTER THAN PREDICTED**: the stale W45N23 reservation
+   lapsed (reservedUntil gone from intel) and the corp now maintains it
+   CORRECTLY - ca05 is funded again via the reroute, so the 2.10 e/t buys
+   uplift for a worked source instead of nothing.
+
+P12 held room-matched (relay 20 >= published 15, no phantom fault). P1
+prints 6 flips - the embargo transitions themselves, now named. E4
+worsened (bank slope +25.26 e/t, 827k above reserve) - the standing
+spend-path complaint, unchanged in kind, larger in degree while
+construction pool drains; still the doctrine's next target after L1.
+
+**Cycle verdict: FIXED, predictions confirmed (1-3, 5), one gauge
+inconclusive by construction (4).** The plan and the runtime read the same
+danger lens; disagreement is now a stamped verdict, not a silent 30 e/t.
+Named for next cycle, in order: L1 remainder (backlog drain term +
+scavenge sizing - drain 3.03 vs decay 14 e/t), R1 raid-tax calibration
+(ca05 churn watch), E4 spend path (bank slope +25).
+
+## Audit cycle t72940325 -> t72941602 (2026-08-11): the in-flight-body hole - one lens bug, three corps, 26% of spawn spend
+
+**Expansion status first (owner asked):** W43N24 leveled RCL 2 -> 3
+mid-window (~11.8 e/t into the new controller since the embargo fix); GCL
+32 at 96.3% toward 33; the W52N54 corps are dormant registry ghosts (0
+creeps, no sizing), not an active expansion.
+
+**The embargo fix holds in its first clean window (1277t):** forgone 0.00
+(vs 40.28), heldFrac decoration 0.00 - no pile-gated miners anywhere, E6
+0 of 11 deferred, pile decay halved 23.97 -> 12.33 (standing piles 16.5 ->
+7.7), plan flap 1, bank slope +25 -> +4.96, controller 25.72 pts/t
+sustained (vs 19.86 pre-fix), P7 1.71x the wartime floor, X1 dry WORK 0.
+
+**The new top forces:** L1 19.19 e/t named (top line), but the sharper
+signals were R1 26.60x the priced raid tax with "remote churn bodies
+11.01 e/t" and X5's flag: `W45N23-harvest-ca05 2200e@36t - FAST RESPAWN
+(<60t = double-order/loop)`.
+
+**Attribution (ring receipts, then falsification, then the seam):**
+ca05's re-funded corp bought ~12 miners + 2 haulers (~12k energy) in
+~1250t for a target-1 source - including FOUR miner purchases in four
+consecutive ticks across four different spawns (t72940889-892), and two
+2200e haulers 36t apart against a 132t build time. First hypothesis
+(spawning creeps don't staff) FALSIFIED at the source: staffsPost's
+undefined-ttl rule already counts them. The real seam is one lens bug in
+three places: **fleet-accounting demand gates read a spawning body's
+ACTIVE parts, which are zero while assembling** -
+
+1. HarvestCorp.runtUpgradeDemand read getActiveCreeps() (excludes
+   spawning outright): an in-flight upsize never suppressed re-orders -
+   every free spawn re-sold it ("recycled why: runt-upsize 59%").
+2. CarryCorp.staffing() counted the spawning hauler toward COUNT but
+   summed CARRY via getActiveBodyparts = 0: the carry gate stayed unmet
+   for the whole build.
+3. UpgradingCorp.countStaffing: same shape in WORK - the live W43N24
+   fleet fielded 7 upgraders against targetCount 3.
+
+The ring's ~200t-spaced "scale" purchases between bursts are the REAL
+kill cadence (W44N23 raidDebt 49.7k -> 77.2k this window) - that half is
+R1's under-priced tax, gated by its own >=10-fiscal-window swap rule,
+untouched this cycle. The corp self-converged once bodies landed
+(staffing 1/1, gate clear, last ~700t of ring quiet) - the churn is a
+TRANSITION amplifier, firing on every re-funding, kill replacement, and
+upsize; X5 books it at 0.26 of spawn spend.
+
+**Fix (red-first, three tests in the incident's exact shapes):** demand
+lenses now price a spawning body by its BODY DEFINITION - "a body in the
+pipe is the freshest possible incumbent" (staffsPost's own doctrine,
+extended to the part-sum side). HarvestCorp gains
+getMinerCreepsIncludingSpawning() for the runt-upgrade path with
+spawning-aware WORK counts; CarryCorp.staffing() and
+UpgradingCorp.countStaffing() sum body parts for spawning creeps.
+Work-driving paths keep excluding spawning creeps (they cannot act).
+
+**Predictions for the next capture:** (1) X5 churn share falls from 0.26
+toward its ~0.1 baseline with NO "FAST RESPAWN" flags; (2) F1's
+unbudgeted share (0.408 p/t, 48%) shrinks by the multiplier's share -
+kill replacements remain; (3) "runt-upsize" recycle share collapses from
+59%; (4) W43N24 upgrader count converges 7 -> targetCount as bodies
+expire; (5) R1 drops toward the true kill tax (the ~200t cadence
+survives, the 2-4x amplification does not).
+
+## Audit cycle t72941602 -> t72943612 (2026-08-12): verification split by a mid-window deploy; the border-dancer flap storm
+
+**Verification of the in-flight-body fix (deployed mid-window, so the ring
+mixes both worlds):** the <60t FAST RESPAWN signature is GONE (worst churn
+ca05 1900e@186t - a walk-length life, not a double-order), and absolute
+runt-upsize recycling HALVED (~1.20 -> ~0.68 e/t; its share of recycles
+rose to 81% only because other recycle classes fell more). The
+t72943241/61 hauler pair 20t apart almost certainly PRE-dates the deploy
+landing. W43N24 upgraders 7 -> 5, converging on target 3 (prediction 4 on
+track), its allocation resized 20.6 -> 10.7. VERDICT: mechanism-confirmed
+on the signature, magnitude needs the next clean window (X5 0.29 is
+mixed-window).
+
+**The embargo fix's second clean window:** forgone 0.00 held, E4's slope
+went NEGATIVE (-1.26/t - the first storage drawdown in weeks), plan flap
+1, P12 valve holds.
+
+**The corridor kill story sharpened, and the defense chain WON a raid on
+camera:** kills 83% of tombstone energy, 39% in intel-hostile rooms (was
+20%), W44N23 24%. But the ring shows the system working end-to-end at
+W44N23: guard meter armed a full window early (debt 77k >= 65k floor,
+stamped t72941602), four 520e guards massed ~1000t before the raid,
+raid sighted t72943108, room read CLEAR one tick later. What remains
+invisible: whether guards were AT POST for the kills that still happened
+(the "covered" stamp records targeting only) - the guard OUTCOME stamp is
+the named instrument for a future cycle. R1 (27x) stays a gauge: its
+constant-swap was retired by the standing-guard tax design; what the 27x
+now measures is the LOSS side (attrition), which enters no admission term
+- pricing corridor attrition at admission is a design question to take up
+with the guard stamps in hand.
+
+**New finding, fixed: the W40N43 border-dancer flap storm.** A hostile
+dancing on a room border read hostile/clear on alternating ticks; mark and
+unmark fired EVERY tick for ~90 ticks - ~60 blackbox rows (15% of the
+400-row ring), and hostileRooms() flickered tick to tick under the
+admission's routeIsDangerous lens (a flap on a ROUTE room would flap
+funding verdicts). Fix: UNMARK_DWELL = 50 - a FRESH mark holds through
+clear sightings for 50 ticks (the dancer's marks are always fresh, so the
+flap collapses ~50x); marks older than the dwell lift on first clear
+exactly as before, and legacy no-stamp entries lift immediately. Pinned in
+roomDiscovery.test.ts (two new tests; three v33 retention tests hop the
+dwell - their intent is retention, not unmark timing). Ordering note for
+honesty: the behavioral red here is the measured storm itself; the
+pre-fix test run only demonstrated compile-red.
+
+**Standing debt honestly named (third cycle on the list):** L1 remains the
+top line (pile decay 10.45 improving from 23.97; scavenge still collects
+20% vs the engine's 80%) - the backlog drain term / scavenge sizing has
+now been named three cycles running without an attempt. It is the next
+cycle's work item unless a live incident preempts.
+
+**Predictions for the next capture:** (1) zero mark/unmark flap pairs
+under 50t anywhere in the ring; (2) X5 falls below 0.15 in a clean window
+with no FAST RESPAWN flags; (3) ca05 churn cadence unchanged (~200t -
+kills, not double-orders; its true net stays ~2 e/t until attrition is
+priced or the corridor is held); (4) blackbox ring depth grows (less spam
+= longer effective window).
+
+## Audit cycle t72943612 -> t72950630 (2026-08-12): the drain law that paid to lose - decay dominance lands on the third naming
+
+**Verification first (7018t window, 2245t ring - the longest clean sample
+yet):**
+
+- **Dwell fix: CONFIRMED.** The blackbox ring's effective depth grew 1488
+  -> 2245t (less spam per prediction 4); no fast-respawn or flap-storm
+  signatures in the ring.
+- **In-flight-body fix: CONFIRMED at magnitude on the home side.** Home
+  churn 0% (X5's home/remote split) - the multiplier is dead. X5 0.28
+  overall is now ~100% remote invader/revoke noise (12.49 e/t remote churn
+  bodies): the corridor kill loop, a different phenomenon, correctly
+  separated. ca05's worst body died at 338t - kill cadence, no
+  double-orders. Prediction 2's "<0.15" was written against the mixed
+  gauge and is superseded by the split read.
+- **Embargo fix: third window holding** (forgone re-grew to 9.15 as the
+  solver sheds sources toward a full storage - the absorb law, not the
+  embargo class; capacity honestly 80 with 8 funded).
+
+**The strategic read the account now makes loud:** storage 927k (+3.80/t,
+E4), controller delivering 23.54 of 27.34 sustainable, W43N23 capped at
+its RCL8 15/t, the solver de-funding sources for want of sinks (P1: cd94,
+cbd8 -> unrouted). The colony is DEMAND-constrained at GCL 32 with 2 of 32
+room slots used - the E4 surplus is expansion capex with no campaign
+consuming it. Named as a strategy item for the owner: the next claim is
+the spend path.
+
+**The cycle's fix - L1's top line on its third naming:** the scavenge
+half-life law (amount/2 over effectiveLife) drains at rate/decay =
+1000/(2*effectiveLife) ~ 0.36-0.42 at EVERY pile size - structurally
+unable to beat the engine's ceil(amount/1000) decay. Four consecutive
+windows measured the outcome: 18/20/24/24% collected, recovery net +0.31
+e/t against 8.06 e/t of standing pile decay - bodies paid to lose the
+race. `scavengeRate` now takes max(half-life, SCAVENGE_DECAY_DOMINANCE x
+ceil(amount/1000)) with dominance 2 (recover ~2/3), still capped by
+MAX_SCAVENGE_RATE (the retired 150-tick burst's t72447104 displacement
+asked 20 e/t; dominance asks 2-10). A stock the bigger ask makes
+unprofitable loses funding honestly - a write-off beats a paid loss. The
+micro-route floor's cull role is subsumed (smallest fundable ask is now
+2 e/t) and its test pins the new contract.
+
+**Predictions for the next capture:** (1) SCAV collection share 24% ->
+>=50% on funded stocks; (2) L1's pile-decay line falls toward the
+ceil-FLOOR share (~3.6 e/t of small unfunded piles); (3) scavenge routes
+leave P2's micro-route list; (4) recovery net rises from +0.31 e/t; (5)
+watch item: scavenger spawn spend may triple (0.24 -> ~0.7 p/t slack
+exists) - the trade is priced, not accidental.
+
+**Addendum, the first cut went red on the canary (recorded per the
+failed-hypothesis doctrine):** unconditional dominance failed
+`runt-economy` - in a 300-cap cold-start world a 1901e mouth pile's 4 e/t
+ask displaced the miner upsize from the spawn's tiny bank ("never
+afforded", gate `clear`, 12m run, 0 passing) - the t72447104 displacement
+class in miniature, caught by exactly the canary that class burned before.
+The law is therefore MATURITY-GATED (same lens as the drain deadband:
+storage standing): bootstrap keeps the waste-tolerant half-life law - the
+ramp spends every spare unit on the escape - and mature colonies price
+dominance. Both branches pinned in scavenge.test.ts.
+
+## Audit cycle t72950630 -> t72958467 (2026-08-12): dominance verified on true stocks, and its regression attributed to the SCAN - mouths leave scavenge
+
+**The window read like a disaster and attributed like a scope bug.**
+Forgone mining exploded to 39.09 e/t (heldFrac 26.81 - three mouths gated:
+cd8d 100% of window at buffered 4213, ca05 86%, cd94 41%), the scavenge
+body bill went 1.55 -> 7.08 e/t, recovery net FLIPPED to -4.21 e/t
+(prediction 4 failed in the worst direction), and cd8d's haul fractured
+into 8 micro-routes (P2 16 of 26).
+
+**But the SAME window confirmed the rate law itself:** SCAV collection
+24% -> 67% (prediction 1, exactly the designed ~2/3), scavengers demob
+cleanly when their pile drains ("scavenge-drained" 41% of recycles - a
+new, healthy class), and stocks actually cleared (37-38: 87e left).
+
+**The attribution:** the stocks dominance was draining ARE SOURCE MOUTHS -
+W43N24-30-20 is source (31,21)'s mouth (container summed in by the
+one-summed-stock rule, owned rooms includeContainers=true), 37-38 the
+other. Since the staged-mouth drain term (2026-08-07) a mouth pile is
+priced into the MINING corp's own routes and gated by E6 - a scavenge
+stock there is DOUBLE COVERAGE. The half-life law kept that overlap
+negligible (0.5-1 e/t trickles); dominance weaponized it into a 6 e/t
+fight at each mouth. The 2026-07-19 container-siphon ruling fixed this
+for REMOTE scans only; W43N24 becoming OWNED re-exposed it.
+
+**Fix: excludeSourceMouths (range 2, both scans)** - mirrors
+excludeControllerBucket; mouths are the mining corps' territory, orphan
+piles (tombstones mid-route, port spills, core drops) remain scavenge's.
+Red-first pure-function tests; full gate green (canary included).
+
+**Predictions for the next capture:** (1) E6 deferrals collapse (mouth
+scavengers gone, mining routes own their piles); (2) forgone falls back
+toward ~10; (3) recovery net returns positive with the fleet bill under
+2 e/t; (4) SCAV keeps >=50% collection on the (now truly orphan) stocks;
+(5) cd8d's micro-route fracture heals (P2 count falls).
+
+## Owner-directed cycle (2026-08-12, "the new rooms can take energy though"): the bankfeed executor
+
+**The direction:** W43N23 banks ~900k it cannot spend (RCL8 caps its
+controller at 15/t; the solver sheds sources for want of sinks) while
+W43N24's UNCAPPED RCL3 controller starves at dryShare 0.6-0.78 on
+local-only supply. The t72935339 refusal (bank may not feed a
+storage-less room's controller) was honesty about a missing EXECUTOR -
+publishRoster skipped bank routes, so the plan had claimed a 14 e/t flow
+nothing fielded. The owner's point: make the flow real, don't refuse it.
+
+**The executor, four seams (each red-first):**
+1. CorpPlanner: the refusal lifts - bank reaches every controller
+   (in-room via depot movers as always; out-of-room via the new corp).
+2. commissionPlan: OUT-OF-ROOM bank routes commission a standalone
+   bankfeed carry corp, homed in the SINK's room via consumes.at (so
+   legacyNodeId and deliverToController key off where it delivers);
+   in-room legs stay uncommissioned (feeder/tender territory).
+3. publishRoster: out-of-room bank edges publish (they are now a real
+   fleet F1/F2 must see); in-room stay skipped.
+4. CarryCorp: a bank- route resolves pickup to the bank room's STORAGE
+   (new branch; the id previously fell through getObjectById and held
+   forever) and collects by structure withdraw; carryKind.demandGroup
+   births bank units started (no producer to wait for). "bank-dry"
+   joins DepartReason.
+
+**Canary flake found and recorded during the gate:** runt-economy went
+red twice on the new build and once (earlier today) on the dominance
+cut - but the pre-change build drew green, the THIRD new-build draw drew
+green, and every verdict tracks a 4m/12m host mode exactly (fast=green,
+slow=red, plateau shape identical to the documented 2026-08-03 incident;
+the diff is provably unreachable in that storage-less world - every new
+branch gates on isBankSourceId). VERDICT: pre-existing environment-
+correlated flake, my diff acquitted by draws 3+4; the slow-mode plateau
+is a TEST-ESTATE work item (spec 61 class): harden the 300-cap escape
+or pin the mode. Re-read re5's dominance attribution with this in mind:
+the maturity gate stays (the mouth-fight was real in prod), but the
+canary red that motivated it may have been this flake.
+
+**Predictions for the post-deploy capture:** (1) flow haulers[] carries a
+bank-W43N23 -> controller-cd8c edge; (2) a bankfeed carry corp fields
+(hauling-W43N24-hauling-3N23, creeps >= 1); (3) W43N24's controller
+allocation rises toward its ~28 demand and dryShare falls from 0.776;
+(4) E4's slope goes NEGATIVE (the bank finally drains); (5) colony
+controller delivery rises above 27 pts/t.
+
+### Bankfeed partial verification t72959638 (+~540t post-deploy): the plan half is LIVE
+
+Predictions 1-2 confirmed within one solve of the deploy, larger than
+predicted: the solver routes **bank-W43N23 -> controller-cd8c at 47 e/t**
+(sink demand/allocated jumped 28/20.6 -> 77/77) plus a second out-of-room
+leg bank -> spawn-db0f at 10 e/t - the exact "executor-less, F1
+pollution" edge named at t72936194, now commissioned. The bankfeed corp
+stands (`hauling-W43N24-hauling-3N23`, 2 routes, carryNeeded 125, exit
+"asking") with its fleet in the spawn pipeline. In-room bank legs stay
+uncommissioned (feeder/tender) - the split held. ENERGY-side verification
+(deliveries, dryShare falling from the post-reset 1.0, E4 slope negative,
+delivery > 27 pts/t) lands next capture once the ~125-carry fleet fields
+and walks. Watch items: the fleet's spawn bill is priced (the routes are
+plan routes now) but will read as a spend spike against P4's 0.33x
+headroom; and the first fleet generation is the in-flight-body fix's
+first big-body test at scale.
+
+## Audit cycle t72958467 -> t72966674 (2026-08-12/13): the RCL4 depot transition chokes the colony; the walked bank fill primes it
+
+**Bankfeed energy-side verification, overtaken by events:** W43N24 leveled
+RCL 3 -> 4 mid-window (~15 e/t of bank-funded upgrading - the bankfeed
+line's work), built its storage, and the plan FLIPPED it to depot class:
+its controller demand went to 0 (priced off its OWN empty bank via
+bankFedControllerRate), the bank->cd8c 47 e/t edge died with the founding
+local-exception, cd8e re-routed home, and the colony re-centralized into
+W43N23's nearly-full storage (948k, ullage ~52k -> absorb 35.9). Result:
+12 sources "no-sink", funded capacity 40, delivery 15.85 pts/t, pile
+decay 17.57 (defunded incumbents' output rotting), S3 stalling on a
+porttender purchase. Two captures 73t apart proved the runtime is ahead
+of the plan: W43N24's storage gained 0 -> 400 from off-plan hauler
+redirects while remaining INVISIBLE to the plan (the analysis refresh had
+not yet registered the just-completed structure as a sink).
+
+**The transition is self-resolving but trickle-slow, and the missing edge
+was structural:** the terminal was the ONLY cross-hub bank->storage
+executor (spec 58 rule 2), so a lender hub could not prime a new depot the
+bankfeed corp can walk to. Fix: `canWalkBankFill` - bank -> foreign
+storage WITHOUT terminals, same anti-pump (never its own store, parse-
+keyed) and lender->borrower rules as canTransfer, priced as an ORDINARY
+walked route (real carry, no engine fee), and RESIDUAL-ONLY: it joins the
+final value pass, never the storage pre-fill, so every consumer -
+a storage-less room's controller above all - outranks foreign priming.
+Retired pins updated deliberately: "no bank fills any store without a
+terminal" (crossHubTransfer) described the executor-less world; fixtures
+using the stylized "bank-home" id (whose parsed room was phantom) moved
+to the real bank-<room> shape the parse-keyed anti-pump reads.
+
+**Named, not fixed:** (1) S3 porttender stall (head porttender@200 vs
+bank 12900 AFFORDABLE+IDLE) - a wedge on a new role class, needs its own
+diagnosis; (2) the analysis-refresh lag for just-completed depots (the
+sink joined the world minutes after the structure did) - acceptable once
+the walked fill primes at plan speed, worth a completion-triggered
+refresh if it recurs; (3) L1 remains top-line by e/t (17.57 pile decay is
+mostly the defunded-incumbent class this transition created - re-read
+after the sink capacity relaxes).
+
+**Predictions for the next capture:** (1) a bank-W43N23 -> W43N24-storage
+edge with real carry once the sink registers; (2) W43N24 storage fills at
+plan speed and cd8c's demand wakes as its bank grows; (3) W43N23 E4 slope
+NEGATIVE; (4) the no-sink set shrinks as W43N24's ullage joins colony
+sink capacity; (5) delivery recovers toward 24+ pts/t.
+
+## Expansion staged (owner 2026-08-13: "Seems like we could be claiming more rooms"): W43N21 campaign
+
+**The pick, from data:** two-source candidates within 2 rooms were W43N21,
+W41N21, W44N21, W45N22. W43N21 wins on measured economics (cd98/cd99
+funded for weeks at net 6.3-8.6, the best-known books of any candidate),
+standing reservation, and the contiguous southern spine
+(W43N23 -> W43N22 -> W43N21); owning it deletes its reserver bill
+(~2.1 e/t) and its invader-raid class outright (owned rooms farm no
+raids). Its known risks are the machinery's job: the standing invader
+structure is the coreBuster kind's exact case, and raids en route are the
+guard meter's. The unknown-terrain candidates (W41N21/W44N21/W45N22, no
+raid history but no books either) stay on the list for claims 4+.
+
+**The staging, per the W43N24 precedent (the sanctioned memory-API
+lever):** spawnPos (15,27) computed OFFLINE with the bot's own picker
+(pickSpawnSpot over live terrain + intel anchors: sources (5,23)/(13,38),
+controller (28,19) - open plains at their centroid).
+Memory.expansion = {W43N21, W43N21-15-27, (15,27), t72967162} written and
+confirmed; **the claimer (650e) was bought at t72967163 - ONE tick after
+staging** - and claim-W43N21-claim stands with 1 creep walking. This claim
+is the first to land on the full organism rails: the bankfeed corp and
+the walked bank fill mean the founding funnel draws the ~950k W43N23 bank
+from day one instead of local trickles.
+
+**Milestones to verify next capture (the W43N24 timeline):** claim lands
+(~t+300), owned-room trigger forces the replan, founding site at (15,27),
+siteProgress rising on bank-funded tankers, spawn stands, campaign
+self-closes. Watch items: the invader core's effect on the claimer's
+approach (the buster may need to fire first) and the W43N22 transit
+(raidDebt ~100k, a raid due).

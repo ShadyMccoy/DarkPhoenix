@@ -291,10 +291,14 @@ export function buildDefenseCells(): GridCell[] {
       // scenario: "Reserved: Invader (4998)"). No hostile creep is ever in
       // sight, so the v1 creep pass alone would keep funding a room whose
       // controller we cannot take back. The reservation is the observable:
-      // the planner still OPENS the remote mine (non-vacuity - the defund,
-      // not the planner, is what holds the line), intel stamps the
-      // reservation-bounded mark, and no body is ever bought for the room -
-      // no miner/hauler for its source, no reserver at all.
+      // intel stamps the reservation-bounded mark, the SAME-LENS DEFUND
+      // (t72793209) excludes the source at ADMISSION - the plan itself never
+      // opens the room, verdict "defunded" in the flow segment - and no body
+      // is ever bought: no miner/hauler for its source, no reserver at all.
+      // (v1 asserted the planner still OPENS the mine with the defund
+      // downstream at spawn-demand time; the admission defund retired that
+      // doctrine, and the cell went red for asserting it - caught by the
+      // t72938848 audit's post-fix sweep, same failure on the pre-fix build.)
       id: "def-t5-invader-reservation-defunds-remote",
       tier: 5,
       avenue: "defense",
@@ -358,15 +362,28 @@ export function buildDefenseCells(): GridCell[] {
         );
       },
       assertions: [
-        // Non-vacuity: the planner still opens the remote mine (the defund is
-        // downstream, at spawn-demand time - pattern: plan-t5-remote-pipeline).
-        eventually("the planner opens the invader-reserved remote source", (s) => {
-          const src = s.objects("east").find((o: any) => o.type === "source");
+        // Non-vacuity: the solve provably RUNS and plans the home economy -
+        // so the east exclusion below is an adjudication, not a dead planner.
+        eventually("the planner runs: the HOME source is planned", (s) => {
+          const src = s.objects(undefined).find((o: any) => o.type === "source");
           if (!src) return false;
           return (s.memory?.economyPlan?.corps ?? []).some(
             (c: any) => c.kind === "mine" && c.sourceId === `source-${src._id}`
           );
         }),
+        // THE ADMISSION DEFUND (t72793209): the reserved source never enters
+        // the plan at all - one level stronger than v1's body-level defund.
+        always(
+          "the invader-reserved source is never planned",
+          (s) => {
+            const src = s.objects("east").find((o: any) => o.type === "source");
+            if (!src) return true;
+            return !(s.memory?.economyPlan?.corps ?? []).some(
+              (c: any) => c.kind === "mine" && c.sourceId === `source-${src._id}`
+            );
+          },
+          10 // staging settles
+        ),
         // The sighting stamps the reservation-bounded mark.
         eventually("intel stamps the invader-reservation mark", (s) => {
           const intel = s.memory?.roomIntel?.[s.room("east")];

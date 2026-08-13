@@ -5,6 +5,7 @@ import { CarryCorp } from "../../../src/corps/CarryCorp";
 import { UpgradingCorp } from "../../../src/corps/UpgradingCorp";
 import { LinkCorp } from "../../../src/corps/LinkCorp";
 import { MinerAssignment, HaulerAssignment, SinkAllocation } from "../../../src/flow/FlowTypes";
+import { buildUpgraderBody } from "../../../src/spawn/BodyBuilder";
 
 const ctx = { energyCapacity: 550, tick: 100 };
 
@@ -115,6 +116,42 @@ describe("corp getSpawnDemand()", () => {
       const demands = corp.getSpawnDemand(ctx);
       expect(demands).to.have.length(1);
       expect(demands[0].value).to.equal(90);
+    });
+
+    it("a SPAWNING upgrader's body WORK counts toward fleet satisfaction (audit t72941602 lens family)", () => {
+      // Third instance of the in-flight-body hole (miner runt-upsize burst,
+      // hauler carry gate): countStaffing includes spawning creeps in the
+      // COUNT (staffsPost: undefined ttl staffs) but summed their WORK via
+      // getActiveBodyparts - 0 while assembling - so upgraderFleetSatisfied's
+      // work side stayed unmet and the demand re-fired at every free spawn
+      // for the whole build (a 20+ part body = 60+ blind ticks). Live shape:
+      // W43N24 fielded 7 upgraders against targetCount 3.
+      const corp = new UpgradingCorp("W1N1-upgrading", "spawn1");
+      const affordable = buildUpgraderBody(ctx.energyCapacity, 99, "containerFed").workParts;
+      corp.setSinkAllocation({
+        sinkId: "controller-x", sinkType: "controller", allocated: affordable, demand: affordable,
+        unmet: 0, priority: 65,
+      } as SinkAllocation);
+      const savedGame = (global as any).Game;
+      const body = Array.from({ length: affordable }, () => ({ type: "work" }));
+      (global as any).Game = {
+        ...savedGame,
+        time: 100,
+        creeps: {
+          pipe: {
+            memory: { corpId: corp.id, workType: "upgrade" },
+            spawning: true,
+            ticksToLive: undefined,
+            body: [...body, { type: "carry" }, { type: "move" }],
+            getActiveBodyparts: () => 0, // spawning creeps have no ACTIVE parts
+          },
+        },
+      };
+      try {
+        expect(corp.getSpawnDemand(ctx), "the body in the pipe covers the allocation").to.deep.equal([]);
+      } finally {
+        (global as any).Game = { ...savedGame, creeps: {} };
+      }
     });
   });
 

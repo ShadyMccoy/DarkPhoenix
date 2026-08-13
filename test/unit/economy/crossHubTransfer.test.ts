@@ -118,17 +118,19 @@ function twoHubWorld(
 
 describe("economy/CorpPlanner - cross-hub transfer (spec 58 phase 2)", () => {
   describe("the GATE: no terminals, no transfer (safe to land before the executor)", () => {
-    it("without terminalRooms the global anti-pump stands - no BANK fills ANY store", () => {
+    it("without terminalRooms the lender's bank WALKS to the borrower's store (the bankfeed executor, t72966674)", () => {
+      // RETIRED PIN, deliberately: this test used to assert "no bank fills
+      // ANY store without a terminal" - true while the terminal was the only
+      // cross-hub executor. The bankfeed carry corp (owner 2026-08-12) walks
+      // any out-of-room bank edge, so the fill now exists WITHOUT terminals,
+      // priced as an ordinary route (real carry, no transfer fee) - the RCL4
+      // depot transition's priming line. The terminal TRANSFER (fee-priced,
+      // zero-carry) still requires terminals - pinned below.
       const plan = planColony(twoHubWorld());
-      expect(
-        plan.haulers.some(h => h.sourceId.startsWith("bank-") && h.sinkId.startsWith("store-")),
-        "no bank->store route without a terminal to carry it"
-      ).to.equal(false);
-      const storeB = plan.sinks.find(s => s.sinkId === "store-B")!;
-      expect(
-        storeB.sources.filter(s => s.sourceId.startsWith("bank-")).length,
-        "nothing banked reaches B"
-      ).to.equal(0);
+      const walked = plan.haulers.find(h => h.sourceId === "bank-A" && h.sinkId === "store-B");
+      expect(walked, "the walked fill exists terminal-free").to.not.equal(undefined);
+      expect(walked!.transfer ?? false, "not a terminal transfer").to.equal(false);
+      expect(walked!.carryParts, "priced as a walked route").to.be.greaterThan(0);
     });
 
     it("MINED energy already cross-banks without any terminal - that is a walking haul, not a transfer", () => {
@@ -142,13 +144,17 @@ describe("economy/CorpPlanner - cross-hub transfer (spec 58 phase 2)", () => {
       expect(plan.haulers.some(h => h.sourceId === "mA" && h.sinkId === "store-B")).to.equal(true);
     });
 
-    it("a terminal in only ONE of the two rooms is still no edge (it takes two)", () => {
+    it("a terminal in only ONE of the two rooms never opens a TRANSFER (it takes two; the walked fill may still carry)", () => {
       for (const rooms of [["A"], ["B"]]) {
         const plan = planColony(twoHubWorld({ terminalRooms: rooms }));
+        const edges = plan.haulers.filter(h => h.sourceId === "bank-A" && h.sinkId === "store-B");
         expect(
-          plan.haulers.some(h => h.sourceId === "bank-A" && h.sinkId === "store-B"),
-          `one-sided terminal (${rooms.join()}) must not open the edge`
+          edges.some(h => h.transfer === true),
+          `one-sided terminal (${rooms.join()}) must not open the fee-priced transfer`
         ).to.equal(false);
+        for (const e of edges) {
+          expect(e.carryParts, "any surviving edge is the WALKED fill, priced in bodies").to.be.greaterThan(0);
+        }
       }
     });
   });

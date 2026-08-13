@@ -204,6 +204,17 @@ export interface ColonyProblem {
   /** Real walking distance between two positions (e.g. cached pathDistance). */
   dist: (a: Position, b: Position) => number;
   /**
+   * The corps' transit-danger lens (utils/RoomDiscovery.routeIsDangerous),
+   * carried as a closure exactly like `dist`: is any room on the haul route
+   * between the two rooms currently hostile? HarvestCorp/CarryCorp buy no
+   * bodies over a dangerous transit, so admission must read the SAME lens or
+   * it funds capacity no corp will staff (audit t72938848: three sources,
+   * 30 e/t of the forgone line, stamped `transit-embargo` at the corps while
+   * "funded" in the plan). Absent = fail-open (no route is dangerous) - the
+   * t72793209 polarity, and every harness's default.
+   */
+  routeDangerous?: (fromRoom: string, toRoom: string) => boolean;
+  /**
    * Deposit ports (spec 26): links a mined deposit may turn around at instead of
    * walking to its storage hub. Priced as a shorter delivery leg into the STORAGE
    * sink; empty/absent = today's behaviour (haul the full hub leg). Assembled by
@@ -446,6 +457,7 @@ export interface SourceVerdict {
     | "no-sink"
     | "unrouted"
     | "defunded"
+    | "embargoed"
     | "prospect";
 }
 
@@ -566,11 +578,52 @@ function selectProducers(problem: ColonyProblem): { miners: CommissionedMiner[];
       verdicts.push({ sourceId: source.id, rate: source.rate, distance: 0, net: 0, tax: 0, parts: 0, verdict: "defunded" });
       continue;
     }
+    // TRANSIT-EMBARGO ADMISSION (audit t72938848 - the ROUTE half of the
+    // t72793209 same-lens defund). The corps' purchase gates read
+    // routeIsDangerous(spawn room, source room) - ANY transit room hostile -
+    // while admission read only the source room's own `defunded` stamp, so a
+    // mark on a corridor room left sources "funded" that no corp would
+    // staff: three sources = 30 e/t of the 40.28 forgone line, a 7.2 e/t
+    // phantom flow sizing W43N24's upgraders, reservation bought for a room
+    // mining nothing. Same lens, corps' polarity: prefer the nearest spawn
+    // with a SAFE route (reroute before forgoing - production over
+    // consumption); only when no spawn offers one does the source leave the
+    // plan, stamped "embargoed", re-funded automatically when the mark
+    // expires. Spawn-room sources are exempt exactly like the defunded
+    // stamp: home defense is towers + guards, and un-funding the home
+    // economy mid-raid would be the death spiral - the corps' own gate
+    // already pauses purchases for the mark's short horizon.
+    const routeSafe = (sp: PlannerSpawn): boolean =>
+      spawnRoomNames.has(source.pos.roomName) ||
+      problem.routeDangerous === undefined ||
+      !problem.routeDangerous(sp.pos.roomName, source.pos.roomName);
     // The searcher's pin overrides the nearest-spawn default (spec 18).
     const pinned = source.assignedSpawnId ? spawns.find(s => s.id === source.assignedSpawnId) : undefined;
+    if (pinned && !routeSafe(pinned)) {
+      // The pin is the searcher's - embargo it rather than silently
+      // rerouting a placement another system owns.
+      const d = dist(pinned.pos, source.pos);
+      verdicts.push({
+        sourceId: source.id,
+        rate: source.rate,
+        distance: Number.isFinite(d) ? d : 0,
+        net: 0,
+        tax: 0,
+        parts: 0,
+        verdict: "embargoed"
+      });
+      continue;
+    }
     const near = pinned
       ? { spawn: pinned, distance: dist(pinned.pos, source.pos) }
-      : nearestSpawn(source.pos, spawns, dist);
+      : nearestSpawn(source.pos, spawns.filter(routeSafe), dist);
+    if (!near && nearestSpawn(source.pos, spawns, dist)) {
+      // Spawns are reachable - every route to them is dangerous. This is the
+      // embargo, not a path-lens failure; the distinction keeps "unreachable"
+      // meaning what it has always meant.
+      verdicts.push({ sourceId: source.id, rate: source.rate, distance: 0, net: 0, tax: 0, parts: 0, verdict: "embargoed" });
+      continue;
+    }
     if (!near) {
       // The formerly verdict-LESS skip (spec 14: no invisible decisions).
       // Spawns exist but none is reachable: the path lens failed for this
@@ -880,6 +933,26 @@ function routeToSinks(
   /** Share of the sender's spend that ARRIVES: the engine's distance decay. */
   const transferFraction = (sourceId: string, sink: PlannerSink): number =>
     terminalDeliveredFraction(problem.roomDist!(bankRoomFromId(sourceId), sink.pos.roomName));
+  /**
+   * May this bank source WALK into this (foreign) hub's store? The bankfeed
+   * executor (owner 2026-08-12) carries any out-of-room bank edge, so the
+   * terminal is no longer the only cross-hub executor. Same anti-pump and
+   * lender->borrower rules as canTransfer; the edge prices as an ORDINARY
+   * walked route (`transfer` stays false, bodies by distance, no engine
+   * fee), so the F1 objective holds - the plan claims only what the corp
+   * can walk. Born for the RCL4 depot transition (t72966674): a new room's
+   * empty storage joined the sinks while the old hub sat on 948k it could
+   * not spend - without this edge the new depot primes at off-plan trickle
+   * speed, its controller (priced off its OWN bank) reads demand 0, and the
+   * colony chokes on the old hub's last ullage (12 sources "no-sink").
+   */
+  const canWalkBankFill = (sourceId: string, sink: PlannerSink): boolean => {
+    if (sink.kind !== "storage") return false;
+    if (!isBankSourceId(sourceId)) return false;
+    const from = bankRoomFromId(sourceId);
+    if (from === sink.pos.roomName) return false; // THE ANTI-PUMP: never its own store
+    return !lendingRooms.has(sink.pos.roomName); // never lend to a lender (the wash trade)
+  };
 
   // SPEC 25 - EMERGENT DEDICATION (owner doctrine 2026-07-21: work the
   // nuances into the planner, not tail-end flags): a deposit-class source may
@@ -902,7 +975,7 @@ function routeToSinks(
     }
   }
 
-  const fill = (sink: PlannerSink, target: number, localDepositsOnly = false): void => {
+  const fill = (sink: PlannerSink, target: number, localDepositsOnly = false, noWalkedBankFill = false): void => {
     const acc = out.get(sink.id) ?? {
       sinkId: sink.id,
       kind: sink.kind,
@@ -959,15 +1032,26 @@ function routeToSinks(
         if (sink.kind === "storage") {
           // Deposits haul home as always; a FOREIGN hub's bank may also land
           // here when the terminal edge exists and this hub is hungry
-          // (canTransfer). Its own bank never can - banksOwnStore.
-          return isDeposit(id) || canTransfer(id, sink);
+          // (canTransfer) - or WALKED by the bankfeed corp when no terminal
+          // does (canWalkBankFill, t72966674). Its own bank never can -
+          // banksOwnStore. The walked fill is RESIDUAL redistribution: it
+          // joins only the final value pass (noWalkedBankFill excludes it
+          // from the dedicated storage pre-fill), so a lender's consumers -
+          // a storage-less room's controller above all - outrank a foreign
+          // store's priming; storage's value-1 rank is the point.
+          return isDeposit(id) || canTransfer(id, sink) || (!noWalkedBankFill && canWalkBankFill(id, sink));
         }
         if (isBankSourceId(id)) {
-          // The bank spends only where its depot movers reach: a controller
-          // OUTSIDE every storage room has no executor for a bank flow
-          // (publishRoster skips bank routes by design), so the edge is
-          // refused rather than planned-and-never-fielded (t72935339).
-          return !(sink.kind === "controller" && !depotReachRooms.has(sink.pos.roomName));
+          // The bank reaches every controller (owner 2026-08-12: "the new
+          // rooms can take energy though"). In-room, the depot movers carry
+          // it (feeder/link); OUT-OF-ROOM, the bankfeed carry corp is the
+          // executor - commissionPlan emits a walking route for exactly the
+          // bank edges that leave their room, so the t72935339 honesty
+          // refusal (an edge nothing fielded) no longer applies. Measured
+          // need: W43N23 banked ~900k behind its RCL8 15/t cap while
+          // W43N24's uncapped controller starved at dryShare 0.6-0.78 on
+          // local-only supply.
+          return true;
         }
         return (
           !isDeposit(id) ||
@@ -1182,10 +1266,13 @@ function routeToSinks(
     fill(sink, sink.capacity, true);
   }
   for (const sink of [...sinks].filter(s => s.kind === "storage").sort(byValueThenId)) {
-    fill(sink, sink.capacity);
+    // Walked bank fills sit this pass out (residual redistribution - see the
+    // storage branch in the order filter): income deposits bank first.
+    fill(sink, sink.capacity, false, true);
   }
   // Value pass: highest value first, up to capacity (spawn/storage are
-  // already at target - their re-fill is a no-op).
+  // already at target - their re-fill is a no-op, except the walked bank
+  // fill, which joins HERE so every consumer outranked it first).
   for (const sink of [...sinks].sort(byValueThenId)) {
     fill(sink, sink.capacity);
   }
