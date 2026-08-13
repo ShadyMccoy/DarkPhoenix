@@ -1100,7 +1100,15 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
   }
 
   // ---- E4 idle capital ----
-  const room = core.rooms?.[0];
+  // The BANK room, not rooms[0]: the export sorts rooms by name, and a
+  // storage-less room sorting first (W43N21's claim, t72968647) made E4 read
+  // "storage null vs reserve" and verdict "at/near target" while 949k idled
+  // in W43N23 - the audit's own idle-capital gauge blind to the idle capital.
+  // The gauge's subject is the colony's bank: the room holding the LARGEST
+  // storage balance.
+  const room = (core.rooms ?? [])
+    .filter((r: any) => typeof r.storageEnergy === "number")
+    .sort((a: any, b: any) => b.storageEnergy - a.storageEnergy)[0];
   if (room) {
     const broom = (bcore.rooms ?? []).find((r: any) => r.name === room.name);
     const slope = broom ? (room.storageEnergy - broom.storageEnergy) / dt : 0;
@@ -1161,7 +1169,7 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
         ? "WARN"
         : "ok",
       detail:
-        `storage ${room.storageEnergy} vs reserve ${reserve}${
+        `${room.name} storage ${room.storageEnergy} vs reserve ${reserve}${
           typeof core.warchestTarget === "number" ? " (dynamic)" : " (base floor)"
         }, slope ${slope.toFixed(2)}/t over ${dt}t, feederActive ${room.feederActive}${
           feederAwaitingBody ? " (relay between generations - body demanded)" : ""

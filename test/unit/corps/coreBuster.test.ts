@@ -124,3 +124,104 @@ describe("CoreBusterCorp mission targets and demand (spec 13 phase 4)", () => {
     expect(corp.getSpawnDemand({ energyCapacity: 600, tick: Game.time } as any)).to.have.length(0);
   });
 });
+
+/**
+ * EVICTION: hostile structures in rooms WE OWN (the EZRO-squatter incident,
+ * t72968647). The engine counts ALL owners' spawns against a room's RCL
+ * spawn limit (utils.checkControllerAvailability filters by type only), so a
+ * derelict foreign spawn in a claimed room consumes the RCL-1 slot and the
+ * founding site returns ERR_RCL_NOT_ENOUGH forever - the W43N21 campaign sat
+ * wedged 1,400+ ticks on exactly this while the expansion driver swallowed
+ * the code as transient. An owned room hosting hostile structures is the
+ * buster's charter (evict occupations, restore the income stream); owned
+ * rooms always have vision (the controller is an owned structure), so the
+ * live read is durable, not a creep-vision read.
+ */
+describe("CoreBusterCorp eviction (hostile structures in owned rooms)", () => {
+  const OWNED = "W1N3"; // claimed, no spawn of ours yet - the founding shape
+
+  beforeEach(() => {
+    install();
+    (global as any).FIND_HOSTILE_STRUCTURES = 109;
+    (global as any).STRUCTURE_INVADER_CORE = "invaderCore";
+    // The corp's home spawn is the only spawn in the census - closest by default.
+    (Game as any).spawns = { Spawn1: { room: { name: HOME } } };
+  });
+
+  /** An owned, visible room with the given hostile structures. */
+  function ownedRoomWithHostiles(name: string, hostiles: any[]): any {
+    return {
+      name,
+      controller: { my: true, level: 1 },
+      find: (type: number) => (type === (global as any).FIND_HOSTILE_STRUCTURES ? hostiles : [])
+    };
+  }
+
+  it("targets an owned room with a hostile spawn for the buster fleet", () => {
+    (Game.rooms as any)[OWNED] = ownedRoomWithHostiles(OWNED, [
+      { structureType: "spawn", pos: { x: 30, y: 33, roomName: OWNED }, hits: 5000 }
+    ]);
+    const corp = new CoreBusterCorp(`${HOME}-coreBuster`, "spawn1");
+    expect(corp.missionTargets(HOME).attack, "eviction rooms join the KILL phase").to.deep.equal([OWNED]);
+    expect(corp.missionTargets(HOME).strike, "nothing to strip - no invader reservation").to.deep.equal([]);
+
+    const demands = corp.getSpawnDemand(ctx);
+    expect(demands).to.have.length(1);
+    expect(demands[0].role).to.equal("buster");
+  });
+
+  it("a clean owned room is no mission", () => {
+    (Game.rooms as any)[OWNED] = ownedRoomWithHostiles(OWNED, []);
+    const corp = new CoreBusterCorp(`${HOME}-coreBuster`, "spawn1");
+    expect(corp.missionTargets(HOME)).to.deep.equal({ attack: [], strike: [] });
+  });
+
+  it("only the CLOSEST home room's corp claims the eviction (no double busters)", () => {
+    // Two home spawn rooms; the eviction belongs to the closer one.
+    (Game as any).spawns = {
+      Spawn1: { room: { name: HOME } }, // distance 1 (mock map: a===b ? 0 : 1)
+      Spawn2: { room: { name: "W9N9" } }
+    };
+    (Game as any).map.getRoomLinearDistance = (a: string, b: string) => {
+      if (a === b) return 0;
+      if (a === HOME && b === OWNED) return 1;
+      if (a === "W9N9" && b === OWNED) return 4;
+      return 5;
+    };
+    (Game.rooms as any)[OWNED] = ownedRoomWithHostiles(OWNED, [{ structureType: "spawn", pos: { x: 30, y: 33 } }]);
+
+    const near = new CoreBusterCorp(`${HOME}-coreBuster`, "spawn1");
+    expect(near.missionTargets(HOME).attack).to.deep.equal([OWNED]);
+    expect(near.missionTargets("W9N9").attack, "the far home stays out of it").to.deep.equal([]);
+  });
+
+  it("the buster grinds the hostile spawn when no invader core stands (runBuster targeting)", () => {
+    const attacked: string[] = [];
+    const hostileSpawn = {
+      structureType: "spawn",
+      pos: { x: 30, y: 33, roomName: OWNED },
+      hits: 5000
+    };
+    (Game.rooms as any)[OWNED] = ownedRoomWithHostiles(OWNED, [hostileSpawn]);
+    const corp = new CoreBusterCorp(`${HOME}-coreBuster`, "spawn1");
+    (Game.creeps as any).b1 = {
+      name: "b1",
+      spawning: false,
+      memory: { corpId: corp.id, workType: "buster", targetRoom: OWNED },
+      room: (Game.rooms as any)[OWNED],
+      pos: {
+        x: 29,
+        y: 33,
+        roomName: OWNED,
+        isNearTo: () => true
+      },
+      attack: (t: any) => {
+        attacked.push(t.structureType);
+        return 0;
+      }
+    };
+
+    corp.work(Game.time);
+    expect(attacked, "no core in the room - the buster attacks the squatter spawn").to.deep.equal(["spawn"]);
+  });
+});

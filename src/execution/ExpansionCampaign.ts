@@ -76,7 +76,21 @@ export function updateExpansionCampaign(nodes: Node[]): void {
         const result = room.createConstructionSite(x, y, STRUCTURE_SPAWN);
         if (result === OK) {
           console.log(`[Expansion] founding spawn site placed at ${x},${y} in ${expansion.roomName}`);
-        } else if (result !== ERR_RCL_NOT_ENOUGH) {
+        } else if (result === ERR_RCL_NOT_ENOUGH) {
+          // Usually transient (the controller levels), with ONE permanent
+          // shape that must be NAMED (t72968647, wedged silently 1,400+
+          // ticks): the engine counts ALL owners' spawns against the RCL
+          // structure limit, so a hostile spawn in the claimed room consumes
+          // the slot until it is destroyed. The coreBuster's eviction class
+          // clears it; this stamp is how the wedge stays visible meanwhile.
+          const squatters = room.find(FIND_HOSTILE_STRUCTURES).filter(s => s.structureType === STRUCTURE_SPAWN);
+          if (squatters.length > 0) {
+            console.log(
+              `[Expansion] founding blocked in ${expansion.roomName}: ${squatters.length} hostile spawn(s) ` +
+                `occupy the RCL-limited slot (eviction required - coreBuster)`
+            );
+          }
+        } else {
           // A blocked tile (creep parked, terrain drift) is permanent - fall
           // back to the room's current best placement next planning pass.
           console.log(`[Expansion] spawn site at ${x},${y} in ${expansion.roomName} failed (${result})`);

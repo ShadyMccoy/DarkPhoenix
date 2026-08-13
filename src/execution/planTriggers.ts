@@ -34,6 +34,15 @@ export interface PlanTriggerSnapshot {
   rclByRoom: Record<string, number>;
   /** My-spawn count across owned rooms (the census's spawn set size). */
   spawnCount: number;
+  /**
+   * HUB resources known to the persisted node graph (spawn + storage +
+   * owned-controller resource count across Memory.nodes). A hub structure
+   * joining or leaving the graph (attachOwnedRoomHubResources) is a durable
+   * world transition the 5000-tick cadence would otherwise sit on - measured
+   * t72968647: W43N24's storage attached but unsolved would have priced a
+   * storage-less world for up to a full cadence more.
+   */
+  hubResources: number;
 }
 
 
@@ -81,6 +90,7 @@ export function planTriggerReason(prev: PlanTriggerSnapshot, curr: PlanTriggerSn
     if (was !== undefined && curr.rclByRoom[room] > was) return `rcl-up:${room}:${was}->${curr.rclByRoom[room]}`;
   }
   if (prev.spawnCount !== curr.spawnCount) return `spawns:${prev.spawnCount}->${curr.spawnCount}`;
+  if (prev.hubResources !== curr.hubResources) return `hub-resources:${prev.hubResources}->${curr.hubResources}`;
   return null;
 }
 
@@ -128,11 +138,24 @@ export function assemblePlanTriggerSnapshot(): PlanTriggerSnapshot {
     const c = Game.rooms[roomName]?.controller;
     if (c?.my) rclByRoom[roomName] = c.level;
   }
+  // Hub resources from the PERSISTED graph (Memory.nodes, last tick's
+  // serialize) - the durable store, not live vision. One tick of lag against
+  // the heap-side attach is fine; the debounce window dwarfs it.
+  let hubResources = 0;
+  const nodes = (Memory as { nodes?: Record<string, { resources?: { type: string; isOwned?: boolean }[] }> }).nodes;
+  for (const nodeId in nodes ?? {}) {
+    for (const r of nodes![nodeId].resources ?? []) {
+      if (r.type === "spawn" || r.type === "storage" || (r.type === "controller" && r.isOwned === true)) {
+        hubResources++;
+      }
+    }
+  }
   return {
     hostileRooms: [...hostileRooms()],
     expansionState: Memory.expansion?.roomName,
     rclByRoom,
-    spawnCount: Object.keys(Game.spawns ?? {}).length
+    spawnCount: Object.keys(Game.spawns ?? {}).length,
+    hubResources
   };
 }
 

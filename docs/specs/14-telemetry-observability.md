@@ -14071,3 +14071,83 @@ siteProgress rising on bank-funded tankers, spawn stands, campaign
 self-closes. Watch items: the invader core's effect on the claimer's
 approach (the buster may need to fire first) and the W43N22 transit
 (raidDebt ~100k, a raid due).
+
+## Audit cycle t72936194 -> t72968647 (2026-08-13): the frozen graph, the RCL-8 sink collapse, and the squatter
+
+**Window**: 32,453t - one full handicap-sweep cycle (0->20%, cycle 4; both
+endpoints ~0-1%, so the endpoint plan diff is handicap-controlled). W43N23
+hit **RCL 8** mid-window; the sweep opened cycle 5 at t72967500.
+
+**All five predictions from the depot-transition cycle FALSIFIED, one
+attribution**: no bank->W43N24-storage edge, storage 0 at capture (local
+trickle only), E4 slope +3.52, the no-sink set GREW to 10 flips, delivery
+20.68. Every miss traces to the same root: **the node graph is frozen**. The
+full terrain analysis runs only at zero nodes; re-analysis at colony scale is
+held behind `Memory.analysisGo` (the 2026-08-11 crash-loop hold, still null);
+every deploy wipes the heap territory cache, so `refreshNodeResourcesFromCache`
+no-oped and NOTHING born after the last full analysis could ever join the
+graph. Measured cost: W43N24's storage (completed ~32k ticks prior) had no
+node resource -> `discoverSinks` emitted no sink -> at RCL 8 (controller
+hard-capped 15 e/t) colony sink capacity collapsed -> P1 defunded 10 sources
+(140->40 e/t funded capacity, verdicts `no-sink`/`unrouted`) -> standing
+miners rotted their mouths at **12.98 e/t** (L1 top line; H3 cd8d 4813->7452
+with zero drain). The ENERGY ACCOUNT carried the signature honestly:
+residual -58.49 e/t (spend measured against a 4-source revenue line while
+~14 sources' corps kept working), spawn 47.26 vs 9.46 budget.
+
+**The squatter (W43N21)**: the claim landed (rcl 1) but the campaign wedged
+1,400+ ticks before this audit read the room objects: the "standing invader
+structure" in the pick's risk list is actually **another player's derelict
+spawn** ("MainSpan", user EZRO, GCL ~3.4, zero creeps, full store - a
+respawn gone idle; their RCL-1 controller downgraded away, which is what made
+the room claimable). Engine fact worth pinning: `checkControllerAvailability`
+counts ALL owners' spawns+sites against the RCL structure limit, so at RCL 1
+EZRO's spawn consumes the room's ONLY spawn slot and
+`createConstructionSite` returns ERR_RCL_NOT_ENOUGH forever - the code the
+campaign deliberately swallowed as "controller still leveling". (The road on
+(15,27) was a red herring: engine `checkConstructionSite` ignores
+road/rampart when placing other types. Reading the engine before fixing
+saved a wrong fallback patch.)
+
+**Landed (all red-first; unit 2676 green, trio green)**:
+1. `attachOwnedRoomHubResources` (IncrementalAnalysis): owned-room HUB
+   structures - storage, spawns, owned controller - join/prune from
+   GUARANTEED vision, no territories needed; wired into the refresh path both
+   with and without the analysis cache, and into post-analysis
+   reconciliation (supersedes attachOwnedSpawnsToNodes, same precedent).
+2. `hub-resources` plan trigger (planTriggers): a hub resource joining or
+   leaving the persisted graph forces a replan - without it the 5000-tick
+   cadence sits on the attach.
+3. coreBuster EVICTION class: rooms WE OWN with hostile structures join the
+   KILL phase (closest-home dedup, lexicographic tie-break); in owned rooms
+   the buster attacks core ?? hostile spawn ?? any hostile structure - in
+   neutral rooms it stays core-only (another player's remote infra is not
+   this corp's war to start).
+4. Campaign occupied-slot stamp (ExpansionCampaign): ERR_RCL_NOT_ENOUGH
+   with hostile spawns present logs `founding blocked ... eviction required`
+   instead of silence.
+5. E4 reads the BANK room (largest storage), not rooms[0] - a storage-less
+   claim sorting first had blinded the idle-capital gauge to 921,612 idle
+   (it read "storage null ... at/near target"). Honest verdict now: FAIL,
+   equilibrium past the absorbable knee.
+
+**Held deliberately**: `Memory.analysisGo` stays null - the crash-loop hold
+stands until the batch step is instrumented (heap/CPU stamps). DEBT: with
+territories still frozen, NEW remote sources/minerals stay invisible to the
+graph; the hub attacher covers owned-room hub structures only.
+
+**Predictions for the next capture** (deploy + ~200-2000t):
+1. flow sinks[] gains `storage-6a7cc9a6...` (W43N24 depot, ~1M ullage) and a
+   controller sink for W43N21; a `hub-resources:N->M` forced replan stamps
+   within ~50t of deploy.
+2. The defunded set SHRINKS: >=6 of the 10 flipped sources re-fund (W43N24
+   locals against the depot first); H3's cd8d mouth stops growing.
+3. A buster walks W43N23->W43N21 and EZRO's spawn (5000 hits, undefended)
+   falls within ~600t of deploy; the founding site places on the next
+   campaign pass; `[Expansion] founding spawn site placed` logs. Fuses:
+   campaign timeout t72987162, controller downgrade ~t72987463 - both clear
+   if eviction lands inside ~15k ticks.
+4. L1 pile decay falls from 12.98 toward <=5 e/t over the next full window
+   as re-funded routes drain the mouths.
+5. E4 stays FAIL short-term (re-funded income rises before spends ramp);
+   the honest gauge now watches the founding + depot fill absorb it.
