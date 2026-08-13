@@ -13995,3 +13995,48 @@ and walks. Watch items: the fleet's spawn bill is priced (the routes are
 plan routes now) but will read as a spend spike against P4's 0.33x
 headroom; and the first fleet generation is the in-flight-body fix's
 first big-body test at scale.
+
+## Audit cycle t72958467 -> t72966674 (2026-08-12/13): the RCL4 depot transition chokes the colony; the walked bank fill primes it
+
+**Bankfeed energy-side verification, overtaken by events:** W43N24 leveled
+RCL 3 -> 4 mid-window (~15 e/t of bank-funded upgrading - the bankfeed
+line's work), built its storage, and the plan FLIPPED it to depot class:
+its controller demand went to 0 (priced off its OWN empty bank via
+bankFedControllerRate), the bank->cd8c 47 e/t edge died with the founding
+local-exception, cd8e re-routed home, and the colony re-centralized into
+W43N23's nearly-full storage (948k, ullage ~52k -> absorb 35.9). Result:
+12 sources "no-sink", funded capacity 40, delivery 15.85 pts/t, pile
+decay 17.57 (defunded incumbents' output rotting), S3 stalling on a
+porttender purchase. Two captures 73t apart proved the runtime is ahead
+of the plan: W43N24's storage gained 0 -> 400 from off-plan hauler
+redirects while remaining INVISIBLE to the plan (the analysis refresh had
+not yet registered the just-completed structure as a sink).
+
+**The transition is self-resolving but trickle-slow, and the missing edge
+was structural:** the terminal was the ONLY cross-hub bank->storage
+executor (spec 58 rule 2), so a lender hub could not prime a new depot the
+bankfeed corp can walk to. Fix: `canWalkBankFill` - bank -> foreign
+storage WITHOUT terminals, same anti-pump (never its own store, parse-
+keyed) and lender->borrower rules as canTransfer, priced as an ORDINARY
+walked route (real carry, no engine fee), and RESIDUAL-ONLY: it joins the
+final value pass, never the storage pre-fill, so every consumer -
+a storage-less room's controller above all - outranks foreign priming.
+Retired pins updated deliberately: "no bank fills any store without a
+terminal" (crossHubTransfer) described the executor-less world; fixtures
+using the stylized "bank-home" id (whose parsed room was phantom) moved
+to the real bank-<room> shape the parse-keyed anti-pump reads.
+
+**Named, not fixed:** (1) S3 porttender stall (head porttender@200 vs
+bank 12900 AFFORDABLE+IDLE) - a wedge on a new role class, needs its own
+diagnosis; (2) the analysis-refresh lag for just-completed depots (the
+sink joined the world minutes after the structure did) - acceptable once
+the walked fill primes at plan speed, worth a completion-triggered
+refresh if it recurs; (3) L1 remains top-line by e/t (17.57 pile decay is
+mostly the defunded-incumbent class this transition created - re-read
+after the sink capacity relaxes).
+
+**Predictions for the next capture:** (1) a bank-W43N23 -> W43N24-storage
+edge with real carry once the sink registers; (2) W43N24 storage fills at
+plan speed and cd8c's demand wakes as its bank grows; (3) W43N23 E4 slope
+NEGATIVE; (4) the no-sink set shrinks as W43N24's ullage joins colony
+sink capacity; (5) delivery recovers toward 24+ pts/t.

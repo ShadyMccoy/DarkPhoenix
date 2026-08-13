@@ -933,6 +933,26 @@ function routeToSinks(
   /** Share of the sender's spend that ARRIVES: the engine's distance decay. */
   const transferFraction = (sourceId: string, sink: PlannerSink): number =>
     terminalDeliveredFraction(problem.roomDist!(bankRoomFromId(sourceId), sink.pos.roomName));
+  /**
+   * May this bank source WALK into this (foreign) hub's store? The bankfeed
+   * executor (owner 2026-08-12) carries any out-of-room bank edge, so the
+   * terminal is no longer the only cross-hub executor. Same anti-pump and
+   * lender->borrower rules as canTransfer; the edge prices as an ORDINARY
+   * walked route (`transfer` stays false, bodies by distance, no engine
+   * fee), so the F1 objective holds - the plan claims only what the corp
+   * can walk. Born for the RCL4 depot transition (t72966674): a new room's
+   * empty storage joined the sinks while the old hub sat on 948k it could
+   * not spend - without this edge the new depot primes at off-plan trickle
+   * speed, its controller (priced off its OWN bank) reads demand 0, and the
+   * colony chokes on the old hub's last ullage (12 sources "no-sink").
+   */
+  const canWalkBankFill = (sourceId: string, sink: PlannerSink): boolean => {
+    if (sink.kind !== "storage") return false;
+    if (!isBankSourceId(sourceId)) return false;
+    const from = bankRoomFromId(sourceId);
+    if (from === sink.pos.roomName) return false; // THE ANTI-PUMP: never its own store
+    return !lendingRooms.has(sink.pos.roomName); // never lend to a lender (the wash trade)
+  };
 
   // SPEC 25 - EMERGENT DEDICATION (owner doctrine 2026-07-21: work the
   // nuances into the planner, not tail-end flags): a deposit-class source may
@@ -955,7 +975,7 @@ function routeToSinks(
     }
   }
 
-  const fill = (sink: PlannerSink, target: number, localDepositsOnly = false): void => {
+  const fill = (sink: PlannerSink, target: number, localDepositsOnly = false, noWalkedBankFill = false): void => {
     const acc = out.get(sink.id) ?? {
       sinkId: sink.id,
       kind: sink.kind,
@@ -1012,8 +1032,14 @@ function routeToSinks(
         if (sink.kind === "storage") {
           // Deposits haul home as always; a FOREIGN hub's bank may also land
           // here when the terminal edge exists and this hub is hungry
-          // (canTransfer). Its own bank never can - banksOwnStore.
-          return isDeposit(id) || canTransfer(id, sink);
+          // (canTransfer) - or WALKED by the bankfeed corp when no terminal
+          // does (canWalkBankFill, t72966674). Its own bank never can -
+          // banksOwnStore. The walked fill is RESIDUAL redistribution: it
+          // joins only the final value pass (noWalkedBankFill excludes it
+          // from the dedicated storage pre-fill), so a lender's consumers -
+          // a storage-less room's controller above all - outrank a foreign
+          // store's priming; storage's value-1 rank is the point.
+          return isDeposit(id) || canTransfer(id, sink) || (!noWalkedBankFill && canWalkBankFill(id, sink));
         }
         if (isBankSourceId(id)) {
           // The bank reaches every controller (owner 2026-08-12: "the new
@@ -1240,10 +1266,13 @@ function routeToSinks(
     fill(sink, sink.capacity, true);
   }
   for (const sink of [...sinks].filter(s => s.kind === "storage").sort(byValueThenId)) {
-    fill(sink, sink.capacity);
+    // Walked bank fills sit this pass out (residual redistribution - see the
+    // storage branch in the order filter): income deposits bank first.
+    fill(sink, sink.capacity, false, true);
   }
   // Value pass: highest value first, up to capacity (spawn/storage are
-  // already at target - their re-fill is a no-op).
+  // already at target - their re-fill is a no-op, except the walked bank
+  // fill, which joins HERE so every consumer outranked it first).
   for (const sink of [...sinks].sort(byValueThenId)) {
     fill(sink, sink.capacity);
   }
