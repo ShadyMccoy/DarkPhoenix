@@ -14361,3 +14361,41 @@ this window) at 0.96x P4 - watch for over-admission at the ceiling.
 class; (2) L1 FALLS for the first time in four windows (target <=15 next
 window) as real carry fields; (3) W43N24 storage holds real stock, cd8c
 wakes, rclProgress moves off 27,341; (4) F2's 622p gap halves.
+
+## Audit cycle t72984055 -> t72987947 (2026-08-13): the turn - and the spawn claim that starves the home floor
+
+**Window**: 3,892t, one fleet-generation after the pool-capacity sizing fix.
+
+**Verified (the confetti fix works)**: L1 FELL for the first time in four
+windows (34.26 -> 29.22 named; pile decay 31.16 -> 28.25) with E6 deferrals
+6/22 (was 7/23); F2's fleet gap 622p -> 542p (one generation in); the BANK
+FELL for the first time (1,000,000 -> 973,116, slope -6.91/t - the spend
+paths finally outrun income); **W43N21 hit RCL 3** (tower in its 6-site
+batch, ETA ~5,787t) barely 4,000 ticks after RCL 2. P1 flap calm (2).
+X5 13% (a W43N21 upgrader killed young at 204t - raids continue until the
+tower stands). X1's 8.80 dry WORK is that same young-room transition: the
+pump's 12-WORK fleet stands 70% dry while construction (21.3 absorb) and
+the pump (11.4) over-subscribe the room's ~20 e/t local mining - it
+resolves when the tower lands and the batch drains; watch, don't patch.
+
+**The P12 fault, root-caused to its seam (two cycles standing, now exact)**:
+the home controller sink (cd91) reads demand 15.0, priority 40 (wartime
+floor rung), **allocated 0.0** - and the publisher faithfully writes
+Memory.controllerAllocations.W43N23 = 0, so the feeder honestly falls to
+its relay floor 5 (its planFlow stamp = 0 is CORRECT reading, not the
+fault). The starvation is the SOLVER's: the five spawn sinks claim
+5 x 19.7 = 98.5 e/t of fleet-maintenance pricing - the bank's entire 100
+e/t surplus draw - and the wartime-relegated home floor loses to them,
+while priority-1 storage still absorbs 124.8 (deposit-class routing).
+Measured spend at the spawns is ~55-70 e/t: the claim over-states by
+~30-40, and the over-claim starves the floor. Home stock drained 4,049 ->
+2,749; P7 0.72x of the wartime floor 11.4.
+
+**Named work item (next session)**: the controller FLOOR reserve must
+survive the spawn sinks' maintenance claim - either the floor pre-pass
+runs before/against the spawn claim, or spawnSinkDemand's ceiling stops
+over-claiming past measured maintenance (the P12 over-routing note has
+carried this number since t72773737). Touches CorpPlanner fill order -
+fresh-context work, red-first from this capture (t72987947 committed).
+
+**Cycle verdict**: verified (4 predictions) + blocker named with data.
