@@ -22,7 +22,7 @@ import {
 } from "./CorpPlanner";
 import { Commission, CommissionFleet, FleetRole, corpIdFor } from "./Commission";
 import { listCorpKinds } from "./CorpKind";
-import { isBankSourceId } from "./ids";
+import { bankRoomFromId, isBankSourceId } from "./ids";
 import {
   BUILD_ENERGY_PER_WORK,
   HARVEST_ENERGY_PER_WORK,
@@ -224,13 +224,43 @@ export function commissionsFromPlan(problem: ColonyProblem, plan: ColonyPlan): C
   // already on the ground, a pure-vector operation with no node half to
   // merge into) keep the carry path, one commission per source.
   for (const [sourceId, routes] of routesBySource) {
-    // Bank sources (spec 03 withdrawal) get NO transport commission: the depot
-    // movers already run those legs - the extension tender (bank -> spawn) and
-    // the LinkCorp (bank -> controller input, sized to the same
-    // economy/bank primitives). A CarryCorp here would fight the feeder for
-    // the input tile and, via the feeder-active redirect, pump the load
-    // straight back into the storage it withdrew from.
-    if (isBankSourceId(sourceId)) continue;
+    // Bank sources (spec 03 withdrawal): IN-ROOM legs get NO transport
+    // commission - the depot movers already run them (the extension tender
+    // bank -> spawn, the LinkCorp bank -> controller input), and a CarryCorp
+    // would fight the feeder for the input tile. OUT-OF-ROOM legs (owner
+    // 2026-08-12: "the new rooms can take energy though") have no depot
+    // mover: the BANKFEED carry corp is their executor - it withdraws at
+    // the bank's storage and delivers at the foreign sink (t72935339's
+    // missing half; W43N23 banked ~900k behind its RCL8 cap while W43N24's
+    // uncapped controller starved on local-only supply). The commission is
+    // homed in the SINK's room via consumes.at, so legacyNodeId and
+    // deliverToController both key off where it DELIVERS; pickup resolves
+    // live from the bank- id (CarryCorp's bank branch). A sink whose room
+    // cannot be resolved is treated as in-room (conservative skip).
+    if (isBankSourceId(sourceId)) {
+      const bankRoom = bankRoomFromId(sourceId);
+      const outOfRoom = routes.filter(r => {
+        const room = sinkById.get(r.sinkId)?.pos.roomName;
+        return room !== undefined && room !== bankRoom;
+      });
+      if (outOfRoom.length === 0) continue;
+      const sinkPos = sinkById.get(outOfRoom[0].sinkId)!.pos;
+      const flow = outOfRoom.reduce((s, r) => s + r.flowRate, 0);
+      out.push({
+        corpId: corpIdFor("carry", sourceId),
+        kind: "carry",
+        shape: "transport",
+        consumes: {
+          energyRate: flow,
+          at: sinkPos,
+          spawnPartsPerTick: outOfRoom.reduce((s, r) => s + r.spawnParts, 0)
+        },
+        produces: { energyRate: flow },
+        fleet: { hauler: haulerFleetRole(outOfRoom) },
+        assignment: outOfRoom
+      });
+      continue;
+    }
     const src = sourceById.get(sourceId);
     // LINK-SERVED sources get NO walking carry commission either (spec 02
     // feeder-router, owner 2026-07-26): a source whose energy EMERGES at the

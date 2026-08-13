@@ -61,6 +61,14 @@ export const MAX_SCAVENGE_RATE = 20;
  */
 export const SCAVENGE_RATE_FLOOR = 0.5;
 
+/**
+ * How much faster than a stock's own decay (ceil(amount/1000)/t) its drain
+ * rate is priced (audit t72950630): rate 2x decay recovers ~2/3 of what
+ * stands and clears the pile in finite time; the half-life law it floors
+ * recovered 18-24% over four measured windows while paying full body cost.
+ */
+export const SCAVENGE_DECAY_DOMINANCE = 2;
+
 /** A scavengeable ground energy stock (dropped pile, tombstone, or ruin). */
 export interface GroundStock {
   /** Stable position-encoded id: "scavenge-ROOM-X-Y" (see stockId). */
@@ -96,8 +104,29 @@ export interface EnergyFind {
  * stock, that is the correct trade (owner: "not necessarily wrong - we
  * sort of lose on the capex or the room reservation a bit").
  */
-export function scavengeRate(amount: number, distance = 0): number {
-  return Math.min(MAX_SCAVENGE_RATE, amount / 2 / effectiveLife(distance));
+export function scavengeRate(amount: number, distance = 0, mature = false): number {
+  const halfLife = amount / 2 / effectiveLife(distance);
+  // DECAY DOMINANCE, MATURE COLONIES ONLY (audit t72950630). The half-life
+  // term alone drains at rate/decay = 1000/(2*effectiveLife) ~ 0.36-0.42 at
+  // EVERY pile size - it structurally loses to the engine's
+  // ceil(amount/1000) decay, and four consecutive audit windows measured
+  // the outcome: 18/20/24/24% collected, the engine taking the rest,
+  // scavenger bodies paid to lose the race (recovery net +0.31 e/t against
+  // 8.06 e/t of standing pile decay). A MATURE colony's rate now DOMINATES
+  // decay so ~2/3 of a funded stock is recovered; a stock this ask makes
+  // unprofitable simply loses funding (an honest write-off beats a paid
+  // loss). MAX_SCAVENGE_RATE still caps the absurd - the retired 150-tick
+  // burst (t72447104 displacement) asked 20 e/t per pile, dominance asks
+  // 2-10.
+  //
+  // BOOTSTRAP KEEPS THE HALF-LIFE LAW (the same split CarryCorp's drain
+  // term rides): in a 300-cap cold-start world the dominance ask displaces
+  // the miner upsize from the spawn's tiny bank - the runt-economy canary
+  // went red on exactly this (a 1901e mouth pile asking 4 e/t, upsize
+  // "never afforded", t72950630 gate run). The ramp is waste-TOLERANT by
+  // doctrine: piles may rot while every spare unit buys the escape.
+  const decayBeating = mature ? SCAVENGE_DECAY_DOMINANCE * Math.ceil(amount / 1000) : 0;
+  return Math.min(MAX_SCAVENGE_RATE, Math.max(halfLife, decayBeating));
 }
 
 /**
@@ -122,6 +151,40 @@ export function collectStocks(finds: EnergyFind[], threshold = SCAVENGE_THRESHOL
 }
 
 /**
+ * Chebyshev radius around a source inside which ground energy is the MINING
+ * corp's business, not scavenge's (covers the mouth container and drop
+ * spread). See excludeSourceMouths.
+ */
+export const SOURCE_MOUTH_RANGE = 2;
+
+/**
+ * Drop finds at source mouths (audit t72958467). Since the staged-mouth
+ * drain term (2026-08-07) a mouth pile is priced into the MINING corp's own
+ * routes and gated by E6 - a scavenge stock there is DOUBLE COVERAGE, and at
+ * decay-dominance rates the recovery fleet (7.08 e/t of bodies) fought the
+ * mining corps at three mouths: forgone mining 39.09 e/t, recovery net
+ * -4.21, one source's haul fractured into 8 micro-routes. Mouths leave the
+ * scan; orphan piles (tombstones mid-route, port spills, core-adjacent
+ * drops) remain scavenge's domain. Pure - callers pass the room's source
+ * positions.
+ */
+export function excludeSourceMouths(
+  finds: EnergyFind[],
+  sourcePositions: Position[],
+  range = SOURCE_MOUTH_RANGE
+): EnergyFind[] {
+  if (sourcePositions.length === 0) return finds;
+  return finds.filter(
+    f =>
+      !sourcePositions.some(
+        sp =>
+          sp.roomName === f.pos.roomName &&
+          Math.max(Math.abs(f.pos.x - sp.x), Math.abs(f.pos.y - sp.y)) <= range
+      )
+  );
+}
+
+/**
  * Drop finds inside the controller bucket (see CONTROLLER_BUCKET_RANGE). Pure:
  * pass null when the room has no owned controller and everything is kept.
  */
@@ -134,12 +197,12 @@ export function excludeControllerBucket(finds: EnergyFind[], controllerPos: Posi
 }
 
 /** Turn a detected stock into a transient PlannerSource (no miner; bounded drain rate). */
-export function stockToTransientSource(stock: GroundStock, nodeId: string, distance = 0): PlannerSource {
+export function stockToTransientSource(stock: GroundStock, nodeId: string, distance = 0, mature = false): PlannerSource {
   return {
     id: stock.id,
     nodeId,
     pos: stock.pos,
-    rate: scavengeRate(stock.amount, distance),
+    rate: scavengeRate(stock.amount, distance, mature),
     maxMiners: 0,
     transient: true
   };
@@ -180,6 +243,14 @@ export function detectRoomStocks(
   finds = excludeControllerBucket(
     finds,
     feederManaged ? { x: ctrl!.pos.x, y: ctrl!.pos.y, roomName: room.name } : null
+  );
+
+  // SOURCE MOUTHS ARE THE MINING CORP'S TERRITORY (audit t72958467; see
+  // excludeSourceMouths). Applies to owned AND remote scans - the staged
+  // drain term prices mouth clearing into the mining routes everywhere.
+  finds = excludeSourceMouths(
+    finds,
+    room.find(FIND_SOURCES).map(s => ({ x: s.pos.x, y: s.pos.y, roomName: room.name }))
   );
 
   // ONE SUMMED STOCK (owner 2026-07-10): a pile sitting on/next to a stocked

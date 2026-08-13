@@ -14,7 +14,14 @@
  */
 import "../../../src/types/Memory";
 import { expect } from "chai";
-import { hostileRooms, isReservableRoom, roomLinearDistance, routeIsDangerous, routeRooms } from "../../../src/utils/RoomDiscovery";
+import {
+  hostileRooms,
+  isReservableRoom,
+  roomLinearDistance,
+  routeIsDangerous,
+  routeRooms,
+  UNMARK_DWELL
+} from "../../../src/utils/RoomDiscovery";
 import { rows } from "../../../src/telemetry/BlackBox";
 
 const FIND_HOSTILE_CREEPS = 103;
@@ -124,7 +131,9 @@ describe("utils/RoomDiscovery - hostileRooms invader-reservation marking", () =>
     expect(g.Memory.roomIntel.E1N1.invaderReservedUntil).to.equal(time + 4998);
 
     // The invaders die but the core still holds the controller: the creep
-    // mark lifts on the all-clear sighting, the reservation mark holds.
+    // mark lifts on the all-clear sighting (past the unmark dwell - fresh
+    // marks hold through flicker, audit t72943612), the reservation holds.
+    time += UNMARK_DWELL;
     const after = observe({ E1N1: mockRoom("E1N1", { reservation: { username: "Invader", ticksToEnd: 4996 } }) });
     expect(after.has("E1N1"), "reservation alone keeps the room defunded").to.equal(true);
     expect(g.Memory.roomIntel.E1N1.hostileUntil).to.equal(undefined);
@@ -328,6 +337,7 @@ describe("utils/RoomDiscovery - flight-recorder rows for defense state (spec 13 
   it("records one mark row per fresh mark, one unmark on the early lift", () => {
     observe({ W7N1: mockRoom("W7N1", { hostiles: [{ ticksToLive: 500 } as any] }) });
     observe({ W7N1: mockRoom("W7N1", { hostiles: [{ ticksToLive: 499 } as any] }) }); // re-stamp: no new row
+    time += UNMARK_DWELL; // past the fresh-mark dwell (audit t72943612)
     observe({ W7N1: mockRoom("W7N1", {}) }); // all-clear lift
 
     const marks = rows().filter(r => r.k === "mark" && r.d.room === "W7N1");
@@ -470,6 +480,7 @@ describe("utils/RoomDiscovery - closed hostile windows retained for attribution 
     const intel = g.Memory.roomIntel.W5N5;
     expect(intel.hostileMarkedAt, "the episode's start is durable").to.equal(markTick);
     const until = intel.hostileUntil;
+    time += UNMARK_DWELL; // past the fresh-mark dwell (audit t72943612)
     observe({ W5N5: mockRoom("W5N5") }); // fresh all-clear sighting
     expect(intel.hostileUntil, "live mark lifted").to.equal(undefined);
     expect(intel.hostileMarkedAt, "start stamp cleared with it").to.equal(undefined);
@@ -479,6 +490,7 @@ describe("utils/RoomDiscovery - closed hostile windows retained for attribution 
   it("keeps only the last 3 closed windows", () => {
     for (let i = 0; i < 4; i++) {
       observe({ W5N5: mockRoom("W5N5", { hostiles: [{ ticksToLive: 100 }] }) });
+      time += UNMARK_DWELL; // past the fresh-mark dwell (audit t72943612)
       observe({ W5N5: mockRoom("W5N5") });
     }
     const windows = g.Memory.roomIntel.W5N5.hostileWindows;
@@ -493,5 +505,58 @@ describe("utils/RoomDiscovery - closed hostile windows retained for attribution 
     const w = g.Memory.roomIntel.W5N5.hostileWindows[0];
     expect(w.until).to.equal(until);
     expect(w.from, "bounded by the max creep TTL - conservative, never wider").to.equal(until - 1500);
+  });
+});
+
+describe("utils/RoomDiscovery - unmark dwell (audit t72943612: the W40N43 flap storm)", () => {
+  // A hostile dancing on a room border read hostile/clear on alternating
+  // ticks, so mark and unmark each fired EVERY tick for ~90 ticks - ~60
+  // blackbox rows (15% of the 400-row ring), and hostileRooms() flickered
+  // tick to tick. Since the transit-embargo admission (t72938848) reads
+  // routeIsDangerous, a flap on a ROUTE room would flap funding verdicts
+  // solve to solve. A FRESH mark now holds for UNMARK_DWELL ticks before an
+  // all-clear sighting can lift it; a mark older than the dwell still lifts
+  // on the first clear (the early-lift feature is the point of unmarking).
+  const g = globalThis as unknown as { Game?: any; Memory?: any; FIND_HOSTILE_CREEPS?: number };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+  let savedFind: unknown;
+  let time = 60_000;
+
+  function observe(rooms: Record<string, any>): Set<string> {
+    time += 1;
+    g.Game = { time, rooms };
+    return hostileRooms();
+  }
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+    savedFind = g.FIND_HOSTILE_CREEPS;
+    g.FIND_HOSTILE_CREEPS = FIND_HOSTILE_CREEPS;
+    (globalThis as any).FIND_HOSTILE_STRUCTURES = FIND_HOSTILE_STRUCTURES;
+    (globalThis as any).STRUCTURE_INVADER_CORE = "invaderCore";
+    g.Memory = { roomIntel: {} };
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+    g.FIND_HOSTILE_CREEPS = savedFind as number;
+  });
+
+  it("an all-clear one tick after a FRESH mark does NOT unmark (the border-dancer)", () => {
+    observe({ W1N1: mockRoom("W1N1", { hostiles: [{ ticksToLive: 600 }] }) });
+    const set = observe({ W1N1: mockRoom("W1N1") }); // clear sighting next tick
+    expect(set.has("W1N1"), "the fresh mark must dwell through the dancer's clear tick").to.equal(true);
+    expect(g.Memory.roomIntel.W1N1.hostileUntil, "mark stands").to.be.a("number");
+  });
+
+  it("a mark older than the dwell lifts on the first all-clear (early lift preserved)", () => {
+    observe({ W1N1: mockRoom("W1N1", { hostiles: [{ ticksToLive: 600 }] }) });
+    time += UNMARK_DWELL; // the mark ages past the dwell
+    const set = observe({ W1N1: mockRoom("W1N1") });
+    expect(set.has("W1N1"), "stale mark lifts on clear sighting").to.equal(false);
+    expect(g.Memory.roomIntel.W1N1.hostileUntil).to.equal(undefined);
+    expect(g.Memory.roomIntel.W1N1.hostileWindows, "the closed window is still retained").to.have.length(1);
   });
 });

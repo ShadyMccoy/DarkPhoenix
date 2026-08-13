@@ -571,7 +571,14 @@ export class UpgradingCorp extends Corp {
       count += 1;
       // The fleet's real burn capacity, not its headcount - see
       // upgraderFleetSatisfied for why the two must both be checked.
-      work += creep.getActiveBodyparts(WORK);
+      // Spawning-aware (audit t72941602, third instance of the in-flight-body
+      // hole): an assembling upgrader has no ACTIVE parts, so it counted
+      // toward the headcount while contributing 0 WORK - the work side of
+      // upgraderFleetSatisfied stayed unmet and the demand re-fired at every
+      // free spawn for the whole build (live: 7 fielded against target 3).
+      work += creep.spawning
+        ? (creep.body ?? []).filter(p => p.type === WORK).length
+        : creep.getActiveBodyparts(WORK);
     }
     return { count, work };
   }

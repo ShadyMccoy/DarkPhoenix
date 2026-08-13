@@ -247,6 +247,200 @@ describe("economy/CorpPlanner", () => {
         expect(v("seed").verdict).to.equal("funded");
       });
 
+      describe("transit-embargo admission (audit t72938848: the ROUTE half of the same-lens defund)", () => {
+        // Live: cd8a/ca05/d017 stood "funded" - 30 e/t of the 40.28 forgone
+        // line - while their corps stamped `transit-embargo` and fielded
+        // nothing. The planner's danger lens was the source ROOM only
+        // (defunded, t72793209); the corps' lens is routeIsDangerous over
+        // the whole transit (HarvestCorp:586, CarryCorp:1504). A mark on a
+        // corridor room (W45N24/W44N25) split the two: phantom capacity, a
+        // 7.2 e/t flow sizing W43N24's upgraders that could never arrive,
+        // reservation bought for a room mining nothing. Admission now reads
+        // the SAME lens, preferring the nearest spawn with a safe route
+        // (reroute before forgoing); only with no safe route anywhere does
+        // the source leave the plan, stamped "embargoed".
+        const roomSpawn = (id: string, x: number, roomName: string): PlannerSpawn => ({ id, pos: { x, y: 0, roomName } });
+        const remoteSource = (id: string, x: number, roomName: string): PlannerSource => ({
+          ...source(id, x),
+          pos: { x, y: 0, roomName }
+        });
+
+        it("funds from the nearest spawn whose route is SAFE, not the nearest outright", () => {
+          const plan = planColony(
+            problem({
+              spawns: [roomSpawn("near", 0, "W1N0"), roomSpawn("far", 30, "W2N0")],
+              sources: [remoteSource("rmt", 10, "W5N0")],
+              sinks: [sink("store", "storage", 0, 1, 1000)],
+              routeDangerous: from => from === "W1N0"
+            })
+          );
+          const v = plan.sourceVerdicts.find(x => x.sourceId === "rmt")!;
+          expect(v.verdict).to.equal("funded");
+          const miner = plan.miners.find(m => m.sourceId === "rmt")!;
+          expect(miner.spawnId, "assigned around the danger, not through it").to.equal("far");
+          expect(miner.distance, "priced at the SAFE route's distance").to.equal(20);
+        });
+
+        it("with NO safe route the source leaves the plan with verdict 'embargoed' - never phantom-funded", () => {
+          const plan = planColony(
+            problem({
+              spawns: [roomSpawn("near", 0, "W1N0"), roomSpawn("far", 30, "W2N0")],
+              sources: [remoteSource("rmt", 10, "W5N0"), remoteSource("clear", 40, "W6N0")],
+              sinks: [sink("store", "storage", 0, 1, 1000)],
+              routeDangerous: (_from, to) => to === "W5N0"
+            })
+          );
+          const v = (id: string) => plan.sourceVerdicts.find(x => x.sourceId === id)!;
+          expect(v("rmt").verdict).to.equal("embargoed");
+          expect(plan.miners.some(m => m.sourceId === "rmt"), "no capacity priced for it").to.equal(false);
+          expect(v("clear").verdict, "the safe twin is untouched").to.equal("funded");
+        });
+
+        it("a PINNED spawn whose route is dangerous embargoes - the pin is the searcher's, never silently rerouted (spec 18)", () => {
+          const plan = planColony(
+            problem({
+              spawns: [roomSpawn("pinned", 0, "W1N0"), roomSpawn("safe", 5, "W2N0")],
+              sources: [{ ...remoteSource("rmt", 10, "W5N0"), assignedSpawnId: "pinned" }],
+              sinks: [sink("store", "storage", 0, 1, 1000)],
+              routeDangerous: from => from === "W1N0"
+            })
+          );
+          expect(plan.sourceVerdicts.find(x => x.sourceId === "rmt")!.verdict).to.equal("embargoed");
+          expect(plan.miners.length).to.equal(0);
+        });
+
+        it("a spawn-room source is NEVER route-embargoed (home defense is towers + guards, not defunding)", () => {
+          const plan = planColony(
+            problem({
+              spawns: [roomSpawn("home", 0, "W1N0")],
+              sources: [remoteSource("own", 5, "W1N0")],
+              sinks: [sink("store", "storage", 0, 1, 1000)],
+              routeDangerous: () => true
+            })
+          );
+          expect(plan.sourceVerdicts.find(x => x.sourceId === "own")!.verdict).to.equal("funded");
+        });
+
+        it("absent lens = today's behaviour (fail-open, nearest spawn)", () => {
+          const plan = planColony(
+            problem({
+              spawns: [roomSpawn("near", 0, "W1N0"), roomSpawn("far", 30, "W2N0")],
+              sources: [remoteSource("rmt", 10, "W5N0")],
+              sinks: [sink("store", "storage", 0, 1, 1000)]
+            })
+          );
+          expect(plan.miners.find(m => m.sourceId === "rmt")!.spawnId).to.equal("near");
+        });
+      });
+
+      describe("bank feeds a storage-less room's controller (owner 2026-08-12: 'the new rooms can take energy though')", () => {
+        // The refusal it lifts (t72935339) was honesty about a missing
+        // EXECUTOR - publishRoster skipped bank routes, so the plan claimed
+        // a 14 e/t flow nothing fielded. The bankfeed carry corp now fields
+        // exactly this leg (commissionPlan emits it for out-of-room bank
+        // edges), so the edge is real: W43N23's ~900k surplus reaches
+        // W43N24's uncapped RCL3 controller instead of idling behind the
+        // home room's RCL8 15/t cap while its upgraders starved at
+        // dryShare 0.6-0.78 on local-only supply.
+        it("routes bank energy to a controller OUTSIDE every storage room (local supply still fills first)", () => {
+          const bank: PlannerSource = {
+            id: "bank-W1N1",
+            nodeId: "W1N1-bank",
+            pos: { x: 0, y: 0, roomName: "W1N1" },
+            rate: 40,
+            maxMiners: 0,
+            transient: true
+          };
+          const remoteCtrl = sink("ctrl", "controller", 30, 60, 30);
+          remoteCtrl.pos = { x: 30, y: 0, roomName: "W2N2" }; // no storage room
+          const plan = planColony(
+            problem({
+              spawns: [spawn("S", 0)],
+              sources: [bank],
+              sinks: [remoteCtrl, sink("store", "storage", 0, 1, 1000)]
+            })
+          );
+          const ctrl = plan.sinks.find(s => s.kind === "controller")!;
+          expect(ctrl.allocated, "the bank funds the new room's climb").to.be.greaterThan(0);
+          const edge = plan.haulers.find(h => h.sourceId === "bank-W1N1" && h.sinkId === "ctrl");
+          expect(edge, "a real routed edge, not a phantom").to.not.equal(undefined);
+        });
+      });
+
+      describe("walked bank fill: a lender's bank primes a foreign hub's store WITHOUT terminals (t72966674)", () => {
+        // The RCL4 depot transition: W43N24's empty storage joined the plan
+        // while W43N23 sat on 948k it could not spend - and with the
+        // terminal gate as the only cross-hub executor, the new depot primed
+        // at off-plan trickle speed while its controller (priced off its OWN
+        // empty bank) read demand 0 and 12 sources sat "no-sink" against the
+        // old hub's last ullage. The bankfeed corp (owner 2026-08-12)
+        // carries any out-of-room bank edge, so the walked fill is
+        // executable: same anti-pump and lender->borrower rules as
+        // canTransfer, priced as an ORDINARY route (bodies by distance,
+        // carryParts > 0, no engine fee).
+        const lenderBank = (rate = 40): PlannerSource => ({
+          id: "bank-W1N1",
+          nodeId: "W1N1-bank",
+          pos: { x: 0, y: 0, roomName: "W1N1" },
+          rate,
+          maxMiners: 0,
+          transient: true
+        });
+        const foreignStore = (): PlannerSink => {
+          const s = sink("storage-far", "storage", 55, 1, 600);
+          s.pos = { x: 55, y: 0, roomName: "W2N2" };
+          return s;
+        };
+
+        it("routes the walked fill with REAL carry (no terminal, no transfer pricing)", () => {
+          const plan = planColony(
+            problem({
+              spawns: [spawn("S", 0)],
+              sources: [lenderBank()],
+              sinks: [foreignStore()]
+            })
+          );
+          const edge = plan.haulers.find(h => h.sourceId === "bank-W1N1" && h.sinkId === "storage-far");
+          expect(edge, "the walked fill exists").to.not.equal(undefined);
+          expect(edge!.carryParts, "priced as a walked route, not a terminal transfer").to.be.greaterThan(0);
+          expect(edge!.transfer ?? false).to.equal(false);
+        });
+
+        it("never fills its OWN store (the anti-pump holds)", () => {
+          const ownStore = (): PlannerSink => {
+            const s = sink("storage-own", "storage", 5, 1, 600);
+            s.pos = { x: 5, y: 0, roomName: "W1N1" };
+            return s;
+          };
+          const plan = planColony(
+            problem({ spawns: [spawn("S", 0)], sources: [lenderBank()], sinks: [ownStore()] })
+          );
+          expect(plan.haulers.some(h => h.sourceId === "bank-W1N1" && h.sinkId === "storage-own")).to.equal(false);
+        });
+
+        it("never lends to a LENDER (the wash trade stays impossible)", () => {
+          const otherLender: PlannerSource = {
+            id: "bank-W2N2",
+            nodeId: "W2N2-bank",
+            pos: { x: 55, y: 0, roomName: "W2N2" },
+            rate: 40,
+            maxMiners: 0,
+            transient: true
+          };
+          const plan = planColony(
+            problem({
+              spawns: [spawn("S", 0)],
+              sources: [lenderBank(), otherLender],
+              sinks: [foreignStore()]
+            })
+          );
+          expect(
+            plan.haulers.some(h => h.sourceId === "bank-W1N1" && h.sinkId === "storage-far"),
+            "W2N2 is lending - it is not hungry"
+          ).to.equal(false);
+        });
+      });
+
       it("prices a PAVED candidate with the same model its own route edges use (cycle t72786811)", () => {
         // The live seam: cee2's candidate read d 82 / net 5.93 (raw 1:1)
         // in the same plan whose route edge for the same source was 2:1 at
@@ -508,7 +702,7 @@ describe("economy/CorpPlanner", () => {
     ): ColonyProblem =>
       problem({
         spawns: [spawn("S", 0)],
-        sources: [...sources, stock("bank-home", 50, 100)],
+        sources: [...sources, stock(`bank-${ROOM}`, 50, 100)],
         sinks: [sink("spawn-S", "spawn", 0, 100, 5), sink("store", "storage", 50, 1, 1000)],
         depositPorts: ports
       });
@@ -562,7 +756,7 @@ describe("economy/CorpPlanner", () => {
         problem({
           spawns: [spawn("S", 0)],
           // remote m1 (dHub 20) deposits at the port; home (dHub 2) owns the drain.
-          sources: [source("m1", 30, 10), source("home", 48, 10), stock("bank-home", 50, 100)],
+          sources: [source("m1", 30, 10), source("home", 48, 10), stock(`bank-${ROOM}`, 50, 100)],
           sinks: [sink("spawn-S", "spawn", 0, 100, 5), sink("store", "storage", 50, 1, 1000)],
           depositPorts: [{ pos: port, headroom: 15, drainFrom: at(49), drainSourceId: "home" }]
         })
@@ -581,7 +775,7 @@ describe("economy/CorpPlanner", () => {
       const plan = planColony(
         problem({
           spawns: [spawn("S", 0)],
-          sources: [source("m1", 30, 10), source("home", 48, 10), stock("bank-home", 50, 100)],
+          sources: [source("m1", 30, 10), source("home", 48, 10), stock(`bank-${ROOM}`, 50, 100)],
           sinks: [sink("spawn-S", "spawn", 0, 100, 5), sink("store", "storage", 50, 1, 1000)],
           depositPorts: [{ pos: at(60), headroom: 15, drainFrom: at(49), drainSourceId: "home" }]
         })
@@ -625,7 +819,7 @@ describe("economy/CorpPlanner", () => {
           spawns: [spawn("S", 0)],
           // 2 mined sources (20 e/t) + the hub carrying mined-throughput+surplus (the
           // adapter bumps the bank rate to minedSupply+surplus; here 100 stands in)
-          sources: [source("m1", 20), source("m2", 25), stock("bank-home", 2, 100)],
+          sources: [source("m1", 20), source("m2", 25), stock(`bank-${ROOM}`, 2, 100)],
           sinks: [
             sink("spawn-S", "spawn", 0, 100, 8),
             sink("ctrl", "controller", 5, 50, 30),
@@ -640,9 +834,9 @@ describe("economy/CorpPlanner", () => {
       const minedToStore = store.sources.filter(s => s.sourceId.startsWith("m")).reduce((a, s) => a + s.amount, 0);
       expect(minedToStore, "all mined production banks to the storage hub").to.be.closeTo(20, 1e-6);
       // consumers draw the HUB (bank), never mined directly
-      expect(ctrl.sources.every(s => s.sourceId === "bank-home"), "controller drawn only from the hub").to.equal(true);
+      expect(ctrl.sources.every(s => s.sourceId === `bank-${ROOM}`), "controller drawn only from the hub").to.equal(true);
       expect(ctrl.allocated, "controller filled to its capacity from the hub").to.be.closeTo(30, 1e-6);
-      expect(spawnSink.sources.every(s => s.sourceId === "bank-home"), "spawn drawn only from the hub").to.equal(true);
+      expect(spawnSink.sources.every(s => s.sourceId === `bank-${ROOM}`), "spawn drawn only from the hub").to.equal(true);
       expect(spawnSink.allocated, "spawn fully funded from the hub").to.be.closeTo(8, 1e-6);
       // no mined->consumer hauler is ever commissioned (hub-and-spoke)
       expect(
@@ -659,7 +853,7 @@ describe("economy/CorpPlanner", () => {
         problem({
           spawns: [spawn("S", 0)],
           // a FAR remote source + the hub; the controller sits in the home room
-          sources: [source("remote", 40, 10), stock("bank-home", 5, 300)],
+          sources: [source("remote", 40, 10), stock(`bank-${ROOM}`, 5, 300)],
           sinks: [
             sink("spawn-S", "spawn", 0, 100, 5),
             sink("ctrl", "controller", 6, 50, 100),
@@ -674,14 +868,18 @@ describe("economy/CorpPlanner", () => {
       expect(store.sources.find(s => s.sourceId === "remote")?.amount ?? 0, "the remote's full output banks").to.be.closeTo(10, 1e-6);
       // the controller and spawn draw the hub (the warchest income)
       const ctrl = plan.sinks.find(s => s.sinkId === "ctrl")!;
-      expect(ctrl.sources.every(s => s.sourceId === "bank-home") && ctrl.allocated > 0, "controller drawn from the hub").to.equal(true);
+      expect(ctrl.sources.every(s => s.sourceId === `bank-${ROOM}`) && ctrl.allocated > 0, "controller drawn from the hub").to.equal(true);
     });
 
     it("the hub never deposits into storage - it IS the storage (structural anti-pump)", () => {
+      // The bank id parses to its ROOM (bank-<roomName>) - the walked-fill
+      // anti-pump (t72966674) keys on that parse, so the fixtures use the
+      // real id shape (the old stylized "bank-home" parsed to a phantom room
+      // and slipped past the own-store check the moment walked fills existed).
       const plan = planColony(
         problem({
           spawns: [spawn("S", 0)],
-          sources: [source("mined", 5, 10), stock("bank-home", 2, 100)],
+          sources: [source("mined", 5, 10), stock(`bank-${ROOM}`, 2, 100)],
           sinks: [
             sink("ctrl", "controller", 8, 50, 5),
             sink("store", "storage", 2, 1, 1000)
@@ -691,7 +889,7 @@ describe("economy/CorpPlanner", () => {
       const store = plan.sinks.find(s => s.sinkId === "store")!;
       expect(store.sources.find(s => s.sourceId === "mined")?.amount ?? 0, "mined banks to storage").to.be.greaterThan(0);
       expect(
-        store.sources.find(s => s.sourceId === "bank-home")?.amount ?? 0,
+        store.sources.find(s => s.sourceId === `bank-${ROOM}`)?.amount ?? 0,
         "the hub never deposits back into its own store"
       ).to.equal(0);
     });
@@ -720,7 +918,7 @@ describe("economy/CorpPlanner", () => {
             // Rate ABOVE the controller's take, so the residual's haul-home
             // is assertable alongside the local draw.
             { id: "local", nodeId: "node-local", pos: atR("W1N0", 60), rate: 25, maxMiners: 1 },
-            stock("bank-home", 2, 100)
+            stock(`bank-${ROOM}`, 2, 100)
           ],
           sinks: [
             sink("spawn-S", "spawn", 0, 100, 5),
@@ -736,7 +934,7 @@ describe("economy/CorpPlanner", () => {
         "the room's own source feeds the founding controller"
       ).to.equal(true);
       expect(
-        ctrlNew.sources.every(s => s.sourceId !== "bank-home"),
+        ctrlNew.sources.every(s => s.sourceId !== `bank-${ROOM}`),
         "no executor-less bank haul to a storage-less room's controller"
       ).to.equal(true);
       // The route is a REAL commissioned hauler - the executor the bank edge never had.
@@ -747,7 +945,7 @@ describe("economy/CorpPlanner", () => {
       // The hub room's controller keeps the bank-fed inversion (its feeder executes it).
       const ctrlHome = plan.sinks.find(s => s.sinkId === "ctrl-home")!;
       expect(
-        ctrlHome.sources.every(s => s.sourceId === "bank-home") && ctrlHome.allocated > 0,
+        ctrlHome.sources.every(s => s.sourceId === `bank-${ROOM}`) && ctrlHome.allocated > 0,
         "the hub controller still draws the bank"
       ).to.equal(true);
       // The local source's residual beyond the controller's take still banks.
@@ -788,7 +986,7 @@ describe("economy/CorpPlanner", () => {
       const plan = planColony(
         problem({
           spawns: [spawn("S", 0)],
-          sources: [source("remote", 40, 10), stock("bank-home", 2, 200)],
+          sources: [source("remote", 40, 10), stock(`bank-${ROOM}`, 2, 200)],
           sinks: [
             sink("spawn-S", "spawn", 0, 100, 5),
             sink("ctrl", "controller", 5, 50, 200),
@@ -821,7 +1019,7 @@ describe("economy/CorpPlanner", () => {
           spawns: [spawn("S", 0)],
           // A (closer to the hub) partially routes and exhausts the ledger;
           // B's deposit gets nothing - a B miner would mine for pure rot.
-          sources: [source("A", 30, 20), source("B", 45, 10), stock("bank-home", 2, 200)],
+          sources: [source("A", 30, 20), source("B", 45, 10), stock(`bank-${ROOM}`, 2, 200)],
           sinks: [
             sink("spawn-S", "spawn", 0, 100, 1),
             sink("store", "storage", 2, 1, 1000)
@@ -855,7 +1053,7 @@ describe("economy/CorpPlanner", () => {
     const world = (extraSinks: PlannerSink[], opts: Partial<ColonyProblem> = {}): ColonyProblem =>
       problem({
         spawns: [spawn("S", 0)],
-        sources: [source("T", 46, 10), stock("bank-home", 2, 200)],
+        sources: [source("T", 46, 10), stock(`bank-${ROOM}`, 2, 200)],
         sinks: [
           sink("spawn-S", "spawn", 0, 100, 1),
           sink("store", "storage", 2, 1, 1000),
@@ -879,7 +1077,7 @@ describe("economy/CorpPlanner", () => {
         "funded"
       );
       // anti-pump intact: the bank never deposits
-      expect(plan.haulers.some(h => h.sourceId === "bank-home" && h.sinkId === "store")).to.equal(false);
+      expect(plan.haulers.some(h => h.sourceId === `bank-${ROOM}` && h.sinkId === "store")).to.equal(false);
     });
 
     it("2. RESIDUAL DEPOSITS: sites absorbing 4 of 10 leave 6 shipping home (partial dedication is just routing)", () => {
@@ -902,7 +1100,7 @@ describe("economy/CorpPlanner", () => {
       // their bank funding; the exception is strictly source-LOCAL building.
       const plan = planColony(world([sink("farSite", "construction", 96, 70, 5)]));
       expect(plan.haulers.some(h => h.sourceId === "T" && h.sinkId === "farSite")).to.equal(false);
-      const fromBank = plan.haulers.find(h => h.sourceId === "bank-home" && h.sinkId === "farSite");
+      const fromBank = plan.haulers.find(h => h.sourceId === `bank-${ROOM}` && h.sinkId === "farSite");
       expect(fromBank, "the bank funds distant construction, as before").to.not.equal(undefined);
     });
 
@@ -934,7 +1132,7 @@ describe("economy/CorpPlanner", () => {
           sources: [
             source("mined", 30, 10),
             { ...stock("scavenge-big", 5, 5.5), transient: true }, // ~16k pile at the new rate
-            stock("bank-home", 2, 50)
+            stock(`bank-${ROOM}`, 2, 50)
           ],
           sinks: [
             sink("spawn-S", "spawn", 0, 100, 1),
@@ -1032,7 +1230,7 @@ describe("economy/CorpPlanner", () => {
           source("m2", 20, 10),
           source("m3", 30, 10),
           source("m4", 40, 10),
-          stock("bank-home", 2, 100)
+          stock(`bank-${ROOM}`, 2, 100)
         ],
         sinks: [
           sink("spawn-S", "spawn", 0, 100, 10),
@@ -1059,7 +1257,7 @@ describe("economy/CorpPlanner", () => {
       const spawnSink = plan.sinks.find(s => s.sinkId === "spawn-S")!;
       expect(ctrl.allocated).to.be.closeTo(15, 1e-6);
       expect(spawnSink.allocated).to.be.closeTo(10, 1e-6);
-      expect(ctrl.sources.every(s => s.sourceId === "bank-home")).to.equal(true);
+      expect(ctrl.sources.every(s => s.sourceId === `bank-${ROOM}`)).to.equal(true);
       // the whole planned haul is the consumption legs: nothing beyond 15+10
       const totalHauled = plan.haulers.reduce((s, h) => s + h.flowRate, 0);
       expect(totalHauled).to.be.at.most(25 + 1e-6);

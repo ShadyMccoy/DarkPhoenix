@@ -18,7 +18,7 @@
  */
 
 import "../types/Memory"; // RoomMemory.roadRoutes augmentation (paved receipts)
-import { hostileRooms, isSourceKeeperRoom, roomLinearDistance } from "../utils/RoomDiscovery";
+import { hostileRooms, isSourceKeeperRoom, roomLinearDistance, routeIsDangerous } from "../utils/RoomDiscovery";
 import { portPosts } from "../corps/nodeEnergy";
 import { guardTargetsFor } from "../utils/raidMeter";
 import {
@@ -645,6 +645,12 @@ function toSinkKind(type: SinkType): SinkKind | null {
 export function detectTransientSources(): PlannerSource[] {
   if (typeof Game === "undefined" || !Game.rooms) return [];
   const out: PlannerSource[] = [];
+  // Decay dominance is a MATURE-colony law (audit t72950630): with a storage
+  // standing, the bigger drain ask buys recovery the bank can absorb; in a
+  // bootstrap world it displaces the miner upsize from the spawn's tiny
+  // bank (the runt-economy canary's red). Same maturity lens the drain
+  // deadband rides (storageBacked).
+  const mature = Object.values(Game.rooms).some(r => r.controller?.my && !!r.storage?.my);
   for (const roomName in Game.rooms) {
     // REMOTE SCAVENGE IS SPILL-ONLY (refining the 2026-07-19 ruling): the
     // original incident was detectRoomStocks summing a remote CONTAINER into
@@ -662,7 +668,7 @@ export function detectTransientSources(): PlannerSource[] {
       ? detectRoomStocks(Game.rooms[roomName])
       : detectRoomStocks(Game.rooms[roomName], REMOTE_SPILL_THRESHOLD, false);
     for (const stock of stocks) {
-      const src = stockToTransientSource(stock, `${roomName}-scavenge`, stockSpawnDistance(stock.pos));
+      const src = stockToTransientSource(stock, `${roomName}-scavenge`, stockSpawnDistance(stock.pos), mature);
       // Micro-route floor (owner 2026-07-20): a sub-floor rate plans a
       // sub-1-CARRY route whose corp lifecycle costs more than it recovers
       // (the E2/E5 churn loop) - leave those piles to opportunistic pickup.
@@ -1640,6 +1646,12 @@ export function buildColonyProblem(
     assembly,
     spawns,
     sources, sinks, dist, infraPartsPerTick, infraEnergyPerTick, infraInputs, depositPorts,
+    // The corps' transit lens, carried like `dist` (audit t72938848): the
+    // ROUTE half of the same-lens defund above - a mark on a corridor room
+    // must un-fund at admission exactly where it un-staffs at the purchase
+    // gate, or the plan prices capacity no corp will field. routeIsDangerous
+    // fails open without Game (harness), matching the field's contract.
+    routeDangerous: routeIsDangerous,
     // The transfer edge's gate + its fee input (spec 58 phase 3). Present
     // even when empty: the CONTRACT is continuous wrap-around distance, and
     // an always-present roomDist means canTransfer's double gate reduces to
@@ -1692,7 +1704,11 @@ export function publishTerminalTransfers(
   Memory.terminalTransfers = byFrom;
 }
 
-function publishRoster(plan: ReturnType<typeof planColony>, linkServedIds: ReadonlySet<string> = new Set()): void {
+function publishRoster(
+  plan: ReturnType<typeof planColony>,
+  linkServedIds: ReadonlySet<string> = new Set(),
+  sinkRoomById: ReadonlyMap<string, string> = new Map()
+): void {
   if (typeof Memory === "undefined") return;
   const corps: Record<string, unknown>[] = [];
   for (const m of plan.miners) {
@@ -1704,10 +1720,17 @@ function publishRoster(plan: ReturnType<typeof planColony>, linkServedIds: Reado
     });
   }
   for (const h of plan.haulers) {
-    // Bank flows are executed by the depot movers (tender/feeder), never by a
-    // spawnable CarryCorp - publishing them would be permanent phantom variance
-    // for the plan-vs-fielded gauges.
-    if (isBankSourceId(h.sourceId)) continue;
+    // IN-ROOM bank flows are executed by the depot movers (tender/feeder),
+    // never by a spawnable CarryCorp - publishing them would be permanent
+    // phantom variance for the plan-vs-fielded gauges. OUT-OF-ROOM bank
+    // edges ARE fielded since the bankfeed executor (owner 2026-08-12) -
+    // commissionPlan emits their carry corp, so they publish like any
+    // walking route (skipping them would hide a real fleet from F1/F2).
+    if (
+      isBankSourceId(h.sourceId) &&
+      (sinkRoomById.get(h.sinkId) === undefined || sinkRoomById.get(h.sinkId) === bankRoomFromId(h.sourceId))
+    )
+      continue;
     // Link-served sources (spec 02 feeder-router): transported by the link
     // network + feeder, not a walking CarryCorp (commissionsFromPlan omits the
     // carry corp). Publishing their uncommissioned haulers - including the
@@ -1961,7 +1984,7 @@ export function solveColony(
   // feeder, not a commissioned CarryCorp (spec 02) - keep them out of the
   // plan-vs-fielded roster so the gauge sees no phantom walking haulers.
   const linkServedIds = new Set(problem.sources.filter(s => s.haulPos).map(s => s.id));
-  publishRoster(plan, linkServedIds);
+  publishRoster(plan, linkServedIds, new Map(problem.sinks.map(s => [s.id, s.pos.roomName])));
   publishTerminalTransfers(plan, problem);
   const commissions = commissionsFromPlan(problem, plan);
 
