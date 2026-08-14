@@ -14519,3 +14519,66 @@ line: spawn throughput is the binding constraint; the hauler shortfall is
 spec 39's unread `commission.fleet` seam, now with F1/F2/E6/H1 all pointing at
 it from different sides). Confound on file: the spec-50 spawn-handicap sweep is
 live (cycle 6, ramping 0->3% across this window).
+
+### Gate attribution for the guard-homing deploy (same cycle): runt-economy is DRAW-VARIANT, not regressed
+
+The trio's `runt-economy` came back red on the pending change and would have
+blocked the deploy on a reading of the exit code alone. Attribution first
+(the protocol's rule), and the answer was variance:
+
+| build | draws | result |
+|---|---|---|
+| pre-change (6162cb4) | 2 | pass @ tick 440, pass @ tick 440 |
+| post-change (ee7e862) | 3 | **fail @ tick 1200**, pass @ tick 440, pass @ tick 440 |
+
+Identical code on both sides of the failure, so the cell is the variable, not
+the diff. Two independent confirmations:
+
+- **Direct measurement**: `grep -ci guard` over BOTH transcripts (the failing
+  post-change draw and a passing pre-change draw) returns **0**. No guard corp,
+  no guard demand, no guard console line - the changed code path never executed
+  in that world. It cannot be causal.
+- **Structural**: the cell stages ONE room (W0N0, RCL 2, no roomIntel), so
+  `guardTargetsFor` returns `[]`; and with a single home room
+  `nearestGuardHome` is the identity. The change is a provable no-op there.
+
+The failing draw's own stamps name the real trajectory: `harvest-1353` at
+**staffing 0** (its source never got a miner at all) while `harvest-70c9` sat
+`buffer-full` (2075 over a 2000 threshold) - a cold-start race that lost, which
+is exactly the class the cell's own diagnostic text describes. The pass path
+early-exits at tick 440 (~3m); a losing draw runs the full 1200 (~11m), so the
+runtime asymmetry is a tell, not a hang.
+
+**Recorded as a property of the cell**: `runt-economy` is a cold-start race with
+a binary outcome and should be read multi-draw (CLAUDE.md's multi-draw rule
+applies to it), never as a single-draw gate.
+
+**Guard-path verification** (the cell that actually fires the changed code):
+`def-t4-raid-guard-holds-the-remote` re-run green - `T4 defense 1/1, total 1/1`,
+all four assertions satisfied (guard fielded before the raid @1, raid lands
+@150, **guard kills the invader inside the window @174**, meter resets @151).
+It stages a single home, so the binding is identity there by construction -
+which is the point: the fix must not disturb the one-home world it was not
+written for.
+
+**Deployed** to `master` t73003513+ with the gate green (unit 2713,
+flow-handoff, storage-depot, def-t4; runt-economy acquitted above).
+
+**The prediction, sharp to the room name** (computed by running the shipped
+`nearestGuardHome` over the three measured homes and the three measured armed
+rooms - so verification is falsifiable, not a vibe):
+
+```
+  W43N25 -> W43N24        raidGuard-W43N23  targets 1  (W44N23)
+  W44N22 -> W43N21        raidGuard-W43N24  targets 1  (W43N25)
+  W44N23 -> W43N23        raidGuard-W43N21  targets 1  (W44N22)
+                          TOTAL 3 guards   (measured today: 10 / 96 parts)
+```
+
+Each corp's `sizing.targets` goes 3 -> 1; the surplus seven stand down through
+`GUARD_RECYCLE_GRACE` (100t) and recycle, so the fleet drains over ~100-150t and
+a +200t recapture covers it. Defense 10.65 -> ~3.2 e/t (under its 4.16 budget);
+P4 1.01x -> ~0.99x (FAIL -> ok). **Downstream must NOT move on this alone** -
+0.045 p/t is ~3% of the hauler shortfall; piles (32.34), forgone mining (80.31)
+and the controller (9.84 vs 63.00) moving here would falsify the chain as
+modelled, and would be reported as a miss.
