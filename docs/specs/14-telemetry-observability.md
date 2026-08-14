@@ -14071,3 +14071,370 @@ siteProgress rising on bank-funded tankers, spawn stands, campaign
 self-closes. Watch items: the invader core's effect on the claimer's
 approach (the buster may need to fire first) and the W43N22 transit
 (raidDebt ~100k, a raid due).
+
+## Audit cycle t72936194 -> t72968647 (2026-08-13): the frozen graph, the RCL-8 sink collapse, and the squatter
+
+**Window**: 32,453t - one full handicap-sweep cycle (0->20%, cycle 4; both
+endpoints ~0-1%, so the endpoint plan diff is handicap-controlled). W43N23
+hit **RCL 8** mid-window; the sweep opened cycle 5 at t72967500.
+
+**All five predictions from the depot-transition cycle FALSIFIED, one
+attribution**: no bank->W43N24-storage edge, storage 0 at capture (local
+trickle only), E4 slope +3.52, the no-sink set GREW to 10 flips, delivery
+20.68. Every miss traces to the same root: **the node graph is frozen**. The
+full terrain analysis runs only at zero nodes; re-analysis at colony scale is
+held behind `Memory.analysisGo` (the 2026-08-11 crash-loop hold, still null);
+every deploy wipes the heap territory cache, so `refreshNodeResourcesFromCache`
+no-oped and NOTHING born after the last full analysis could ever join the
+graph. Measured cost: W43N24's storage (completed ~32k ticks prior) had no
+node resource -> `discoverSinks` emitted no sink -> at RCL 8 (controller
+hard-capped 15 e/t) colony sink capacity collapsed -> P1 defunded 10 sources
+(140->40 e/t funded capacity, verdicts `no-sink`/`unrouted`) -> standing
+miners rotted their mouths at **12.98 e/t** (L1 top line; H3 cd8d 4813->7452
+with zero drain). The ENERGY ACCOUNT carried the signature honestly:
+residual -58.49 e/t (spend measured against a 4-source revenue line while
+~14 sources' corps kept working), spawn 47.26 vs 9.46 budget.
+
+**The squatter (W43N21)**: the claim landed (rcl 1) but the campaign wedged
+1,400+ ticks before this audit read the room objects: the "standing invader
+structure" in the pick's risk list is actually **another player's derelict
+spawn** ("MainSpan", user EZRO, GCL ~3.4, zero creeps, full store - a
+respawn gone idle; their RCL-1 controller downgraded away, which is what made
+the room claimable). Engine fact worth pinning: `checkControllerAvailability`
+counts ALL owners' spawns+sites against the RCL structure limit, so at RCL 1
+EZRO's spawn consumes the room's ONLY spawn slot and
+`createConstructionSite` returns ERR_RCL_NOT_ENOUGH forever - the code the
+campaign deliberately swallowed as "controller still leveling". (The road on
+(15,27) was a red herring: engine `checkConstructionSite` ignores
+road/rampart when placing other types. Reading the engine before fixing
+saved a wrong fallback patch.)
+
+**Landed (all red-first; unit 2676 green, trio green)**:
+1. `attachOwnedRoomHubResources` (IncrementalAnalysis): owned-room HUB
+   structures - storage, spawns, owned controller - join/prune from
+   GUARANTEED vision, no territories needed; wired into the refresh path both
+   with and without the analysis cache, and into post-analysis
+   reconciliation (supersedes attachOwnedSpawnsToNodes, same precedent).
+2. `hub-resources` plan trigger (planTriggers): a hub resource joining or
+   leaving the persisted graph forces a replan - without it the 5000-tick
+   cadence sits on the attach.
+3. coreBuster EVICTION class: rooms WE OWN with hostile structures join the
+   KILL phase (closest-home dedup, lexicographic tie-break); in owned rooms
+   the buster attacks core ?? hostile spawn ?? any hostile structure - in
+   neutral rooms it stays core-only (another player's remote infra is not
+   this corp's war to start).
+4. Campaign occupied-slot stamp (ExpansionCampaign): ERR_RCL_NOT_ENOUGH
+   with hostile spawns present logs `founding blocked ... eviction required`
+   instead of silence.
+5. E4 reads the BANK room (largest storage), not rooms[0] - a storage-less
+   claim sorting first had blinded the idle-capital gauge to 921,612 idle
+   (it read "storage null ... at/near target"). Honest verdict now: FAIL,
+   equilibrium past the absorbable knee.
+
+**Held deliberately**: `Memory.analysisGo` stays null - the crash-loop hold
+stands until the batch step is instrumented (heap/CPU stamps). DEBT: with
+territories still frozen, NEW remote sources/minerals stay invisible to the
+graph; the hub attacher covers owned-room hub structures only.
+
+**Predictions for the next capture** (deploy + ~200-2000t):
+1. flow sinks[] gains `storage-6a7cc9a6...` (W43N24 depot, ~1M ullage) and a
+   controller sink for W43N21; a `hub-resources:N->M` forced replan stamps
+   within ~50t of deploy.
+2. The defunded set SHRINKS: >=6 of the 10 flipped sources re-fund (W43N24
+   locals against the depot first); H3's cd8d mouth stops growing.
+3. A buster walks W43N23->W43N21 and EZRO's spawn (5000 hits, undefended)
+   falls within ~600t of deploy; the founding site places on the next
+   campaign pass; `[Expansion] founding spawn site placed` logs. Fuses:
+   campaign timeout t72987162, controller downgrade ~t72987463 - both clear
+   if eviction lands inside ~15k ticks.
+4. L1 pile decay falls from 12.98 toward <=5 e/t over the next full window
+   as re-funded routes drain the mouths.
+5. E4 stays FAIL short-term (re-funded income rises before spends ramp);
+   the honest gauge now watches the founding + depot fill absorb it.
+
+**Live verification (same session, ~t72969700, ~550t after deploy):**
+prediction 1 CONFIRMED - `storage-...33a95d` (W43N24 depot) and W43N21's
+controller (`dbcd97`, level 1, priority 80, 8 e/t allocated) both in the
+live plan's sinks; the depot absorbs 214.7 e/t of its 460 ullage demand.
+Prediction 2 EXCEEDED - not >=6 of 10 but **19 sources funded** (was 4):
+every flipped source re-funded plus five more (d017, cedc, d019, d01f,
+cee2, cee0, cd90, cd92, cd98, cd94, cd99, cd8d, cd8e, cd8a, cbd5, cbd8,
+ca05, c9f8, c9f9), verdict census 19 funded / 15 prospect / 4 over-budget,
+**zero no-sink, zero unrouted**. Prediction 3 CONFIRMED in the kill half -
+`buster-Buster-72969430` spawned ~280t after deploy, walked
+W43N23->W43N22->W43N21, and EZRO's spawn is GONE from the room objects;
+W43N21's first re-funded miner (`miner-t-cd98-72969554`) walking in.
+Grid regression: the five adjacent cells (exp-t5-claimer, exp-t5-founding-
+funnels, def-t5-core-buster, cons-t4-storage-completes,
+cons-rcl8-full-bank-contracts-mining) all [P] on the shipped bundle.
+Cache survey (question-the-mechanism): the three CommissionHost lenses and
+the governor level are stride-keyed self-rebuilding memos - deploy-safe;
+multiRoomAnalysisCache was the ONLY event-built hard-prerequisite cache in
+execution/economy. L1/pile-decay trend and the founding funnel remain
+next-window business (predictions 4-5 stand).
+
+## Audit cycle t72968647 -> t72972253 (2026-08-13): the ramp, and the stronghold grinder
+
+**Window**: 3,606t - the REOPENED economy's first ramp (19 sources funded,
+fleet 31->52 creeps, plan prices 1.246 p/t vs 0.294 built). Founding site
+CONFIRMED placed and 63% built (siteProgress 9476/15000, ~4.2 e/t funnel) -
+cycle-1 prediction 3 fully lands. L1 pile decay 20.47 e/t (top line) is the
+ramp's shape, not a freeze: 8 of 14 mouths gated buffer-full while their
+scale-tier haulers (~740 CARRY parts of long-route fleet) queue at the
+funding pace; spend 55 e/t continuous, spawn idle 90% attributed to the
+FUNDING ledger, tender duty 0.014 (heartbeat fine - extensions full at
+capture; the throttle is the pacer, not the refill). VERDICT: bounded
+transient (~30k one-time rot), predicted to clear in ~1-2k ticks - next
+window L1 is the check. W43N24 depot dry + controller frozen 2 cycles traces
+to the same ramp: the walked-fill fleet (bank->storage-33a95d, 140 e/t, 269
+CARRY) is the biggest unbuilt block, and Spawn4 burns every arriving unit on
+the ca05 grinder (below).
+
+**THE STRONGHOLD GRINDER (fixed this cycle, mechanism proven live)**:
+mining-W45N23-harvest-ca05 bought ~10 miners at 650e in ~1,700t (ring
+receipts, ~150t cadence), zero alive at capture, staffing stamp 0/1. The
+route decision ran through THREE lenses: (1) the transit-embargo gate priced
+the corp's ANCHOR route - W43N23->W45N23 = [W44N23, W45N23], all safe (live
+findRoute via console, t72972447) - and approved; (2) the GLOBAL SPAWN POOL
+birthed every miner at W43N24 (nearest free spawn, ring rows); (3) the
+walker followed findRoute(W43N24, W45N23) = [W44N24, W45N24, W45N23] -
+straight through TWO live-marked rooms (hostileUntil 72973428/72973735,
+hostileStructureCount 4 each: invader-stronghold pattern, whose squads also
+explain the home-room kill share - 7,145e of 18,188e killed cargo in W43N23,
+91% of kills in intel-"safe" rooms). Each dying miner refreshed the marks
+its successor's gate never read.
+
+**Fix (ONE lens)**: `safeRouteRooms` in RoomDiscovery - findRoute with
+marked TRANSIT rooms priced Infinity (endpoints exempt: a hostile endpoint
+is the corp's own funding decision), mark-free corridor verified, null when
+none exists. `routeIsDangerous` now means UNAVOIDABLY dangerous (endpoint
+marked, or no hostile-free corridor) - a workable detour HEALS the route
+instead of embargoing it. `travelTo` steers cross-room legs along the same
+corridor room-by-room (the buster's own travel pattern; travelToLane
+inherits); no marks / no safe corridor / final leg = bit-identical naive
+behavior, so military corps keep entering danger deliberately. The
+transit-embargo stamp now NAMES the blocking rooms (`blocked`). Red-first:
+roomDiscovery 36 green, movement 41 green; full gate green (unit 2686 +
+trio); def-t3/def-t5 cells [P].
+
+**Pre-existing regression, acquitted from this change**:
+plan-t5-remote-pipeline red (`always:"extensions refill before the draining
+spawn finishes"`, fail @400-485/700t) IDENTICALLY on pre-change source -
+an incident against the deployed build (baseline still says pass), owned by
+a future cycle; timing variance suggests flake-class, multi-draw before
+diagnosis.
+
+**Predictions for the next capture** (~2,000t+ post-deploy):
+1. ca05's grinder STOPS: miner arrivals via the southern corridor, staffing
+   1/1, no 650e receipt train (or, if the pool births at W43N23, same). X5
+   remote share falls from 13%.
+2. Scale haulers complete; L1 falls from 20.47 toward <=8; E6 deferred
+   mouths drain (cd99/d01f first - biggest buffers).
+3. W43N24 storage begins holding energy (walked fill lands as the trunk
+   fleet builds); cd8c controller demand wakes; its rclProgress moves off
+   27341.
+4. F1 converges toward 1.0 as the ramp completes (plan 1.246 vs built
+   0.294 was the ramp reading).
+5. Founding spawn STANDS (~5,500 progress remained at ~4.2 e/t => ~1,300t);
+   campaign self-closes; W43N21 bootstrap begins.
+
+## Owner directive (2026-08-13, "We have like a million in the bank. We can fund new rooms at like 100 e/t instead of 4"): the founding pace
+
+**The clamp, followed to its seam**: the W43N21 founding spawn site sat
+nearer its room's own source (cd98/cd99) than any hub, and the room - owned
+but storage-less - fell through the "hub-room sites stay bank-funded"
+exemption into the SOURCE-LOCAL cluster class (spec 25 phase 3, charter:
+road-building remotes). Its capacity became the local source's 10 e/t
+(measured plan edges: cd98->site 10, cbd8->site ~1; measured delivery 4.2
+e/t), while the drain law's own ceiling (bankSurplusRate = min(100,
+surplus/1500) = 100 at the 979k bank) sat unread. Even un-clustered, the
+POOLED horizon (wartime 1/3-life) prices a lone 15k site at ~8-20 e/t -
+MAX_SURPLUS_DRAW's docblock names this exact class: "a max draw that binds
+below the absorption ceiling counteracts the bot's whole purpose."
+
+**Landed (red-first; unit 2692, trio, exp-t5 cells green; deployed)**:
+1. `FOUNDING_COMPLETION_FRACTION = 1/10` (primitives): a founding spawn
+   site - structureType "spawn" in a room with NO spawn sink - finishes in
+   a tenth of the crew's life: fresh 15k at ~110 travel = ~117 e/t, the
+   drain law's ceiling. Ordinary (2/3) and wartime (1/3) paces pinned
+   unchanged; the 400-energy tail pin holds at every tier.
+2. OWNED-room sites never source-cluster (the graph's controller-sink
+   rooms) - clustering keeps its road-remote charter.
+3. The ledger's durable `structureType` now travels on the flow sink
+   (admission -> adapter), so founding detection and the 85-rung pricing
+   are vision-free; founding sites leave the pool sum (no pro-rata
+   dilution of other sites).
+4. Crew side (ConstructionCorp remote branch) reads the same founding
+   lens - one formula, both readers, per the buildPoolAbsorb pin.
+
+**Predictions for the next capture**: (1) the W43N21 site's allocation
+jumps ~10 -> ~40+ e/t (founding pace at its ~5k remaining) and the spawn
+STANDS within ~200-400t of deploy; (2) post-spawn, the campaign closes and
+the room's follow-on build-out batches into the wartime pool (~90+ e/t
+sustained - the owner's number, carried by the existing horizon at real
+backlogs); (3) G1 under-spending shrinks as the founding + refleeted ramp
+draw together; E4 stays honest-FAIL until they do.
+
+## Owner directive (2026-08-13, "There should be few corps more valuable than pumping up a new claim room"): the claim-pump rung
+
+**Founding update first (live, t72979146)**: the founding SURGE delivered -
+`Spawn5` STANDS at (15,27), a fifth spawn sink is in the plan, W43N21 swarms
+(~15 construction tankers, 4 builders, 2 upgraders, miners on both sources,
+2 guards), and the follow-on site builds at 25 e/t of planned legs. The
+campaign closed on its own.
+
+**The gap the directive names**: the fresh W43N21 controller priced 61.2 -
+top of the ordinary controller band, but BELOW ordinary construction's 70,
+so any remote road site in the empire outranked pumping the new claim's
+RCL - and colony-wide wartime relegation would floor it to 42 exactly while
+the colony builds elsewhere. RCL gates the new room's whole build-out
+(extensions, tower, the storage itself), so the pump IS the unlock.
+
+**Landed (red-first; unit 2693, trio green)**: `claimPumpController: 82` -
+a new anchor in the sink ladder (goals.ts), between newSpawnSite 85 and
+controllerMax 80. The lens (flowAdapter): an owned room with a controller
+sink and NO storage, engaged only while a bank stands SOMEWHERE
+(roomsWithStorage non-empty) - a claim presumes a colony pumping it, so a
+bootstrap home's measured build-supersedes-upgrade doctrine (G6, the
+RCL2->3 extension bottleneck) is untouched. Claim-pump rooms are EXEMPT
+from wartime relegation (wartime keeps its charter for storage-backed
+rooms). Invariants I5/I6 pin the rung's place at compile time; the DEFAULT
+ladder pin and all four goal profiles extended in the same commit (the
+90-vs-85 founding-incident door held - the rung landed with its chain).
+
+**The full ladder now**: spawn 100 > new-spawn-site 85 > claim-pump
+controller 82 > controller <=80 > construction 70 > controller floor 40 >
+storage 1. CLAUDE.md's Economics line needs the same edit when this
+merges.
+
+**Predictions**: W43N21's controller re-prices 61.2 -> 82 on the next
+solve; its allocation climbs (upgraders scale as the ladder routes it
+flow); RCL 2 within ~1-2k ticks of deploy, RCL 3 (tower - the room can
+then defend itself) inside the next audit window; W43N24 exits the lens
+the moment its walked-fill bank makes bankFedControllerRate generous (its
+storage stands, so it was never in it - the bank-fed law is its pump).
+
+## Audit cycle t72972253 -> t72984055 (2026-08-13): the confetti fleet - the pool's capacity now sizes bodies
+
+**Window**: 11,802t. The economy tripled: 19 funded sources / 190 e/t, 128
+creeps, FIVE spawns (Spawn5 = W43N21's own), home spawns saturated
+0.97-0.98, P4 at 0.96x ceiling, bank FULL at 1,000,000.
+
+**Verified from cycles 1-2 + directives**: ca05 grinder STOPPED (no fast
+respawns; remote churn 13% -> 9% of spend); F1 converged 0.24x -> 0.88x;
+the healed route lens re-admitted five embargoed deep remotes
+(embargoed->funded flips - the detour law working as designed); W43N21 hit
+RCL 2 (21,660/45,000 - halfway to its tower) with the claim-pump rung live
+at 82.0 and 7 sites building. The founding chain end-to-end: claim ->
+eviction -> site -> spawn -> RCL 2, one session.
+
+**Falsified, THIRD time, now attributed**: L1 pile decay rose again (12.98
+-> 20.47 -> 31.16) and the W43N24 depot stayed dry (191e; its controller
+frozen at 27,341 three cycles). Both are ONE mechanism, and the ring named
+it: the plan routes 15 sources into the depot (out to dist 214, 60-88 CARRY
+each), but body size was fixed at collect time from the ANCHOR room's
+energyCapacity - so the whole expansion fleet, anchored at Spawn4 (1,300)
+and Spawn5 (~550), was bought as CONFETTI: 300e 3-CARRY haulers, over and
+over (cd8e's 8,000e mouth served by repeated 300e bodies), while the
+saturated 12,900 home spawns built guards and reservers. 622 CARRY parts of
+F2 gap that arithmetic never closes.
+
+**Landed (red-first; unit 2694, trio green, multispawn-t7 x2 + spawnexec
+cells [P]; deployed)**: `collectDemands` runs at the POOL's capacity
+(SpawnDirector pass-1 computes max energyCapacityAvailable over eligible
+rooms) - the global-pool doctrine (owner 2026-07-25: any spawn builds any
+corp) extended to SIZING. minCost floors still let a small spawn min-scale
+an urgent body; per-spawn affordability keeps purchases real; single-room
+worlds are arithmetically unchanged (max = own capacity).
+
+**Named, not fixed**: (1) P12 RUNTIME FAULT - home feeder relay 5.00 <
+published 15.00, with the controllerFeeder countMismatch (claimed 3/counted
+1, staffsPost family) alongside; the home score line sags (P7 0.80x of the
+wartime floor). (2) The storage-FULL regime: 1M cap reached, absorb path
+saturated - the spend paths (W43N21 pump, W43N24 depot chain, GCL 32 ->
+33 at 10.5M remaining) are the cure, all now unblocked. (3) R1 raid tax
+10x priced, 22 raidGuards standing - repricing waits for its 10-window
+gate. (4) Admission keeps widening (reservers for W41N25/W43N25 bought
+this window) at 0.96x P4 - watch for over-admission at the ceiling.
+
+**Predictions**: (1) depot-route hauler receipts jump to the 1,500-2,500e
+class; (2) L1 FALLS for the first time in four windows (target <=15 next
+window) as real carry fields; (3) W43N24 storage holds real stock, cd8c
+wakes, rclProgress moves off 27,341; (4) F2's 622p gap halves.
+
+## Audit cycle t72984055 -> t72987947 (2026-08-13): the turn - and the spawn claim that starves the home floor
+
+**Window**: 3,892t, one fleet-generation after the pool-capacity sizing fix.
+
+**Verified (the confetti fix works)**: L1 FELL for the first time in four
+windows (34.26 -> 29.22 named; pile decay 31.16 -> 28.25) with E6 deferrals
+6/22 (was 7/23); F2's fleet gap 622p -> 542p (one generation in); the BANK
+FELL for the first time (1,000,000 -> 973,116, slope -6.91/t - the spend
+paths finally outrun income); **W43N21 hit RCL 3** (tower in its 6-site
+batch, ETA ~5,787t) barely 4,000 ticks after RCL 2. P1 flap calm (2).
+X5 13% (a W43N21 upgrader killed young at 204t - raids continue until the
+tower stands). X1's 8.80 dry WORK is that same young-room transition: the
+pump's 12-WORK fleet stands 70% dry while construction (21.3 absorb) and
+the pump (11.4) over-subscribe the room's ~20 e/t local mining - it
+resolves when the tower lands and the batch drains; watch, don't patch.
+
+**The P12 fault, root-caused to its seam (two cycles standing, now exact)**:
+the home controller sink (cd91) reads demand 15.0, priority 40 (wartime
+floor rung), **allocated 0.0** - and the publisher faithfully writes
+Memory.controllerAllocations.W43N23 = 0, so the feeder honestly falls to
+its relay floor 5 (its planFlow stamp = 0 is CORRECT reading, not the
+fault). The starvation is the SOLVER's: the five spawn sinks claim
+5 x 19.7 = 98.5 e/t of fleet-maintenance pricing - the bank's entire 100
+e/t surplus draw - and the wartime-relegated home floor loses to them,
+while priority-1 storage still absorbs 124.8 (deposit-class routing).
+Measured spend at the spawns is ~55-70 e/t: the claim over-states by
+~30-40, and the over-claim starves the floor. Home stock drained 4,049 ->
+2,749; P7 0.72x of the wartime floor 11.4.
+
+**Named work item (next session)**: the controller FLOOR reserve must
+survive the spawn sinks' maintenance claim - either the floor pre-pass
+runs before/against the spawn claim, or spawnSinkDemand's ceiling stops
+over-claiming past measured maintenance (the P12 over-routing note has
+carried this number since t72773737). Touches CorpPlanner fill order -
+fresh-context work, red-first from this capture (t72987947 committed).
+
+**Cycle verdict**: verified (4 predictions) + blocker named with data.
+
+## Audit cycle t72987947 -> t72991038 (2026-08-13): the phantom fault - the defect theory falsified, the instrument fixed
+
+**Window**: 3,091t. The score line: P7 collapsed to 0.10x (home delivering
+1.5 e/t), the bank re-filled to its 1M cap (slope +8.70) - and the cycle's
+investigation FALSIFIED the cycle-4 defect theory. The home controller's
+zero allocation is OWNER DESIGN, twice over: the plan's floor is
+danger-gated to zero by the 2026-08-04 ruling ("we don't need it UNLESS the
+controller is in danger of downgrading... Not the constant trickle"), and
+wartime construction-primacy (2026-08-05) relegates the home band while
+build-outs stand. The home upgrading fleet EOL'ing out under a zero
+allocation is ONE VALVE working. The score returns when the batches drain,
+and the score's FUTURE lives in the uncapped pump rooms (W43N21 at RCL 3,
+its supply line filling: stock 0 -> 416, dry share 0.705 -> 0.495).
+
+**The real defect was in the INSTRUMENT**: P12's "published" was a CORP
+ECHO - it read the upgrading corp's sizing.planAllocated (15) as the
+publish while Memory.controllerAllocations carried 0, printed a phantom
+"published 15.00" and a phantom "RUNTIME FAULT" against a feeder that was
+faithfully relaying the real zero, and sent two cycles hunting a ghost.
+The two channels (commission echo vs publish) disagreeing IS a spec-38
+phase-B seam finding of its own - now measurable.
+
+**Landed (observability-only; unit 2694 green; deployed)**: core segment
+v40 exports Memory.controllerAllocations verbatim; P12 reads the REAL
+publish (echo as fallback) and NAMES the echo-vs-publish divergence in its
+detail when the channels disagree.
+
+**Also this window**: confetti fix keeps verifying (F2 0.13 frac, best
+yet); L1 27.55 (flat); X6's first micro-fail is the pool-sizing change's
+one visible cost (a 2c-route hauler bought at 8c - 15 parts over 1,680t,
+negligible, now pinned by the gauge); c9f8/c9f9 re-funded as their
+corridor cleared (the healed lens again). Fiscal FY4865-M09-M10 closed
+(handicap 13-14%).
+
+**Cycle verdict**: falsified (the cycle-4 solver-defect theory) +
+instrumented (the gauge that misled). The spawn-claim honesty question
+(98.5 claimed vs ~70 measured) remains open as a PRICING refinement, not
+a starvation defect.

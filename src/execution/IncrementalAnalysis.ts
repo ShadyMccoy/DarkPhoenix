@@ -324,11 +324,10 @@ export function refreshNodeResources(colony: Colony, result: MultiRoomAnalysisRe
     }
   }
 
-  const ownedRooms = new Set<string>();
-  for (const roomName in Game.rooms) {
-    if (Game.rooms[roomName].controller?.my) ownedRooms.add(roomName);
-  }
-  attachOwnedSpawnsToNodes(colony, ownedRooms);
+  // Hub structures (spawns, storage, owned controllers) sit on
+  // structure-blocked tiles the territory division skips - re-attach anything
+  // populateNodeResources just dropped, from guaranteed owned-room vision.
+  attachOwnedRoomHubResources(colony);
 }
 
 /**
@@ -337,14 +336,21 @@ export function refreshNodeResources(colony: Colony, result: MultiRoomAnalysisRe
  * main loop while nodes exist and no terrain analysis is running; cheap and
  * interval-gated. This is what lets a source discovered after the one-time terrain
  * pass - e.g. a neighbouring room only just scouted - get claimed and mined,
- * rather than staying invisible until the next 5000-tick terrain rebuild. No-op
- * until a terrain analysis has been cached.
+ * rather than staying invisible until the next 5000-tick terrain rebuild.
+ *
+ * WITHOUT a cached terrain pass (every post-deploy global until analysisGo is
+ * set - the 2026-08-11 hold), territory claiming is impossible, but owned-room
+ * HUB structures still join: they need no territories, and a storage completing
+ * mid-freeze must not stay sinkless for 32k ticks again (t72968647).
  */
 export function refreshNodeResourcesFromCache(colony: Colony): void {
-  if (!multiRoomAnalysisCache) return;
   if (Game.time - lastResourceRefreshTick < NODE_RESOURCE_REFRESH_INTERVAL) return;
   lastResourceRefreshTick = Game.time;
-  refreshNodeResources(colony, multiRoomAnalysisCache.result);
+  if (multiRoomAnalysisCache) {
+    refreshNodeResources(colony, multiRoomAnalysisCache.result); // ends with the hub attach
+  } else {
+    attachOwnedRoomHubResources(colony);
+  }
 }
 
 /**
@@ -414,13 +420,14 @@ function updateNodesFromAnalysis(colony: Colony, result: MultiRoomAnalysisResult
     }
   }
 
-  // Reconciliation: guarantee every owned spawn is attached to a node as a
-  // "spawn" resource. A spawn sits on a structure-blocked tile, which the
-  // territory division treats as an obstacle, so it can fall through
-  // populateNodeResources and leave the flow economy with no spawn sink
-  // ("No spawn sinks - cannot assign miners"). Attach any unclaimed spawn to
-  // the nearest node (by peak distance) that spans its room.
-  attachOwnedSpawnsToNodes(colony, ownedRooms);
+  // Reconciliation: guarantee every owned HUB structure (spawn, storage,
+  // controller) is attached to a node. They sit on structure-blocked tiles,
+  // which the territory division treats as obstacles, so they can fall
+  // through populateNodeResources and leave the flow economy with no spawn
+  // sink ("No spawn sinks - cannot assign miners") or no storage sink (the
+  // t72968647 sink collapse). Attach any unclaimed hub structure to the
+  // nearest node (by peak distance) that spans its room.
+  attachOwnedRoomHubResources(colony);
 
   // Build the colony context once: every node is a candidate hub, and every
   // source in the colony goes into one shared pool. A node's economic value is
@@ -492,47 +499,123 @@ function toColonyNode(node: Node): SiteNode {
   return { id: node.id, hubPos: node.peakPosition, controllerPos: controller?.position };
 }
 
+/** Nearest node spanning `roomName` by peak Manhattan distance, same-room peaks preferred. */
+function nearestNodeSpanning(allNodes: Node[], roomName: string, x: number, y: number): Node | undefined {
+  let best: Node | undefined;
+  let bestDist = Infinity;
+  for (const n of allNodes) {
+    if (!n.spansRooms.includes(roomName)) continue;
+    const samePenalty = n.peakPosition.roomName === roomName ? 0 : 50;
+    const dist = Math.abs(n.peakPosition.x - x) + Math.abs(n.peakPosition.y - y) + samePenalty;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = n;
+    }
+  }
+  return best;
+}
+
 /**
- * Ensures every owned, visible spawn is attached to exactly one node as a
- * "spawn" resource. Spawns occupy structure-blocked tiles that the territory
- * division skips, so they routinely fail the territory-claim check in
- * populateNodeResources. Without a spawn resource the FlowGraph finds no spawn
- * sink and the solver assigns zero miners, so the colony never mines via the
- * flow economy. Any unclaimed spawn is attached to the nearest node (by peak
- * Manhattan distance, preferring same-room peaks) that spans the spawn's room.
+ * Attach every owned, visible room's HUB structures - storage, spawns, the
+ * owned controller - to the node graph from GUARANTEED vision, with no
+ * territory cache required, and prune hub resources whose structure is gone.
+ *
+ * WHY THIS EXISTS (the frozen-graph incident, t72968647): the full terrain
+ * analysis runs only at zero nodes, and re-analysis at established-colony
+ * scale is held behind Memory.analysisGo (the 2026-08-11 crash-loop hold), so
+ * after any deploy the heap territory cache is gone and
+ * refreshNodeResourcesFromCache no-ops - the node graph freezes at its Memory
+ * snapshot. Measured cost of the freeze: W43N24's storage (completed ~32k
+ * ticks earlier) never became a resource, discoverSinks never emitted its
+ * sink, colony sink capacity collapsed at RCL 8 and the planner defunded 10
+ * sources (no-sink/unrouted) while their mouths rotted 12.98 e/t (the L1 top
+ * line); W43N21's claimed controller likewise never joined, leaving the new
+ * room with no local sink at all.
+ *
+ * Hub structures need no territory partitioning - they belong to the node
+ * already anchored in their room (the attachOwnedSpawnsToNodes precedent).
+ * Owned rooms ALWAYS have vision (an owned controller is an owned structure),
+ * so this is a durable read, not a creep-vision read (trap-list compliant).
+ * Scope is deliberately narrow: hub structures in owned+visible rooms only -
+ * sources/minerals/remote intel remain the territory refresh's business.
  */
-function attachOwnedSpawnsToNodes(colony: Colony, ownedRooms: Set<string>): void {
+export function attachOwnedRoomHubResources(colony: Colony): void {
   const allNodes = colony.getNodes();
   if (allNodes.length === 0) return;
 
-  const spawnClaimed = (spawnId: string): boolean =>
-    allNodes.some(n => n.resources.some(r => r.type === "spawn" && r.id === spawnId));
-
-  for (const roomName of ownedRooms) {
+  for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
-    if (!room) continue;
+    if (!room?.controller?.my) continue;
 
-    for (const spawn of room.find(FIND_MY_SPAWNS)) {
-      if (spawnClaimed(spawn.id)) continue;
+    const spawns = room.find(FIND_MY_SPAWNS);
+    const liveSpawnIds = new Set<string>(spawns.map(s => s.id));
+    const storage = room.storage && room.storage.my ? room.storage : undefined;
 
-      let best: Node | undefined;
-      let bestDist = Infinity;
-      for (const n of allNodes) {
-        if (!n.spansRooms.includes(roomName)) continue;
-        const samePenalty = n.peakPosition.roomName === roomName ? 0 : 50;
-        const dist = Math.abs(n.peakPosition.x - spawn.pos.x) + Math.abs(n.peakPosition.y - spawn.pos.y) + samePenalty;
-        if (dist < bestDist) {
-          bestDist = dist;
-          best = n;
-        }
-      }
+    // Prune hub resources whose structure no longer stands (a destroyed
+    // storage must not stay a sink forever - the freeze bug in reverse).
+    for (const n of allNodes) {
+      n.resources = n.resources.filter(r => {
+        if (r.position.roomName !== roomName) return true;
+        if (r.type === "spawn") return liveSpawnIds.has(r.id);
+        if (r.type === "storage") return storage !== undefined && r.id === storage.id;
+        return true;
+      });
+    }
 
+    // Spawns: same claim rule as attachOwnedSpawnsToNodes.
+    for (const spawn of spawns) {
+      const claimed = allNodes.some(n => n.resources.some(r => r.type === "spawn" && r.id === spawn.id));
+      if (claimed) continue;
+      const best = nearestNodeSpanning(allNodes, roomName, spawn.pos.x, spawn.pos.y);
       if (best) {
         best.resources.push({
           type: "spawn",
           id: spawn.id,
           position: { x: spawn.pos.x, y: spawn.pos.y, roomName },
           capacity: 300
+        });
+      }
+    }
+
+    // Storage: the room's bank. Without this resource the FlowGraph emits no
+    // storage sink and the room cannot absorb surplus.
+    if (storage) {
+      const claimed = allNodes.some(n => n.resources.some(r => r.type === "storage" && r.id === storage.id));
+      if (!claimed) {
+        const best = nearestNodeSpanning(allNodes, roomName, storage.pos.x, storage.pos.y);
+        if (best) {
+          best.resources.push({
+            type: "storage",
+            id: storage.id,
+            position: { x: storage.pos.x, y: storage.pos.y, roomName },
+            capacity: storage.store.getCapacity(RESOURCE_ENERGY) ?? undefined
+          });
+        }
+      }
+    }
+
+    // Controller: refresh ownership/level in place (a claim or rcl-up must
+    // reach the graph), or attach it if the graph never carried it.
+    const controller = room.controller;
+    let found = false;
+    for (const n of allNodes) {
+      for (const r of n.resources) {
+        if (r.type !== "controller" || r.position.roomName !== roomName) continue;
+        found = true;
+        r.id = controller.id;
+        r.isOwned = true;
+        r.level = controller.level;
+      }
+    }
+    if (!found && controller.pos) {
+      const best = nearestNodeSpanning(allNodes, roomName, controller.pos.x, controller.pos.y);
+      if (best) {
+        best.resources.push({
+          type: "controller",
+          id: controller.id,
+          position: { x: controller.pos.x, y: controller.pos.y, roomName },
+          level: controller.level,
+          isOwned: true
         });
       }
     }

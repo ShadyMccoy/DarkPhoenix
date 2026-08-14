@@ -1,7 +1,10 @@
 /**
- * @fileoverview CoreBusterCorp - evict invader-core occupations from remote
- * rooms: KILL the core, then STRIP the leftover reservation (spec 13 phase 4,
- * superseding spec 12 phase 2 with engine-ground-truth economics).
+ * @fileoverview CoreBusterCorp - evict hostile occupations: invader cores in
+ * remote rooms (KILL the core, then STRIP the leftover reservation - spec 13
+ * phase 4, superseding spec 12 phase 2 with engine-ground-truth economics),
+ * and hostile structures in rooms WE OWN (the eviction class, t72968647: a
+ * derelict foreign spawn consumes a claimed room's RCL-limited spawn slot,
+ * wedging the founding site forever - the buster clears it).
  *
  * Engine facts that shape the mission:
  * - Income under a foreign reservation is ZERO (harvest.js:31), and a live
@@ -65,24 +68,63 @@ export class CoreBusterCorp extends SpawnAnchoredCorp {
    * marked blind) default to the striker: the reservation observable alone
    * cannot prove a core, and a striker discovering a live core flips the
    * intel on arrival (its own vision re-stamps).
+   *
+   * EVICTION (the EZRO-squatter incident, t72968647): rooms WE OWN that host
+   * hostile structures also join the KILL phase. The engine counts ALL
+   * owners' spawns against a room's RCL structure limit, so a derelict
+   * foreign spawn in a freshly-claimed room consumes the RCL-1 slot and the
+   * founding site can never place - the W43N21 campaign sat wedged on
+   * exactly this. Owned rooms always have vision (the controller is an owned
+   * structure), so the live read is durable, not a creep-vision read. Only
+   * the CLOSEST home (by linear distance over rooms with my spawns,
+   * lexicographic tie-break) claims the eviction - no double busters.
    */
   public missionTargets(homeRoom: string): { attack: string[]; strike: string[] } {
     const attack: string[] = [];
     const strike: string[] = [];
-    if (typeof Memory === "undefined" || !Memory.roomIntel) return { attack, strike };
+    if (typeof Memory !== "undefined" && Memory.roomIntel) {
+      for (const roomName in Memory.roomIntel) {
+        if (roomName === homeRoom) continue;
+        const intel = Memory.roomIntel[roomName];
+        if (!intel) continue;
+        const remaining = (intel.invaderReservedUntil ?? 0) - Game.time;
+        if (remaining < CORE_BUSTER_MIN_REMAINING) continue;
+        if (!intel.sourceCount) continue; // no income to restore
+        if (Game.map.getRoomLinearDistance(homeRoom, roomName) > MAX_SCOUT_DISTANCE) continue;
 
-    for (const roomName in Memory.roomIntel) {
-      if (roomName === homeRoom) continue;
-      const intel = Memory.roomIntel[roomName];
-      if (!intel) continue;
-      const remaining = (intel.invaderReservedUntil ?? 0) - Game.time;
-      if (remaining < CORE_BUSTER_MIN_REMAINING) continue;
-      if (!intel.sourceCount) continue; // no income to restore
-      if (Game.map.getRoomLinearDistance(homeRoom, roomName) > MAX_SCOUT_DISTANCE) continue;
-
-      if (intel.invaderCorePresent === true) attack.push(roomName);
-      else strike.push(roomName);
+        if (intel.invaderCorePresent === true) attack.push(roomName);
+        else strike.push(roomName);
+      }
     }
+
+    if (typeof Game !== "undefined" && Game.rooms) {
+      const homeRooms = new Set<string>();
+      for (const name in Game.spawns ?? {}) {
+        const r = Game.spawns[name].room;
+        if (r) homeRooms.add(r.name);
+      }
+      for (const roomName in Game.rooms) {
+        if (roomName === homeRoom || attack.includes(roomName)) continue;
+        const room = Game.rooms[roomName];
+        if (!room?.controller?.my) continue;
+        if (room.find(FIND_HOSTILE_STRUCTURES).length === 0) continue;
+        if (Game.map.getRoomLinearDistance(homeRoom, roomName) > MAX_SCOUT_DISTANCE) continue;
+        // Closest-home dedup: this corp claims the eviction only when its
+        // home is the nearest spawn room (ties break lexicographically).
+        let closest: string | undefined;
+        let closestDist = Infinity;
+        for (const hr of [...homeRooms].sort()) {
+          const d = Game.map.getRoomLinearDistance(hr, roomName);
+          if (d < closestDist) {
+            closestDist = d;
+            closest = hr;
+          }
+        }
+        if (closest !== homeRoom) continue;
+        attack.push(roomName);
+      }
+    }
+
     return { attack: attack.sort(), strike: strike.sort() };
   }
 
@@ -139,14 +181,20 @@ export class CoreBusterCorp extends SpawnAnchoredCorp {
       });
       return;
     }
-    const core = creep.room
-      .find(FIND_HOSTILE_STRUCTURES)
-      .find(s => s.structureType === STRUCTURE_INVADER_CORE) as StructureInvaderCore | undefined;
-    if (!core) return; // vision re-stamps invaderCorePresent=false; strike phase takes over
-    if (creep.pos.isNearTo(core)) {
-      creep.attack(core); // ERR_INVALID_TARGET while deploy-invulnerable: wait it out adjacent
+    const hostiles = creep.room.find(FIND_HOSTILE_STRUCTURES);
+    const core = hostiles.find(s => s.structureType === STRUCTURE_INVADER_CORE) as StructureInvaderCore | undefined;
+    // EVICTION targeting is scoped to rooms WE OWN: any hostile structure
+    // there is an intrusion (a squatter spawn eats the RCL structure slot -
+    // t72968647). In NEUTRAL rooms the mission stays core-only - another
+    // player's remote-infra structures are not this corp's war to start.
+    const target =
+      core ??
+      (creep.room.controller?.my ? (hostiles.find(s => s.structureType === STRUCTURE_SPAWN) ?? hostiles[0]) : undefined);
+    if (!target) return; // vision re-stamps invaderCorePresent=false; strike phase takes over
+    if (creep.pos.isNearTo(target)) {
+      creep.attack(target); // ERR_INVALID_TARGET while deploy-invulnerable: wait it out adjacent
     } else {
-      travelTo(creep, core.pos, { range: 1, visualizePathStyle: { stroke: "#ff9944" } });
+      travelTo(creep, target.pos, { range: 1, visualizePathStyle: { stroke: "#ff9944" } });
     }
   }
 

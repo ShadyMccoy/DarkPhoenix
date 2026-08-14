@@ -25,6 +25,33 @@ function targetPos(target: MoveTarget): RoomPosition {
   return (target as { pos?: RoomPosition }).pos ?? (target as RoomPosition);
 }
 
+import { hostileRooms, safeRouteRooms } from "../utils/RoomDiscovery";
+
+/**
+ * Hostile-aware waypoint for a cross-room leg (the stronghold-grinder
+ * incident, t72972253): the walker was the naive lens of the route decision -
+ * miners born at W43N24 walked findRoute's default corridor [W44N24, W45N24]
+ * into live-marked stronghold rooms and died at a ~150-tick cadence, while
+ * their corp's transit gate read the (safe) corridor from its ANCHOR spawn.
+ *
+ * When the target is in another room AND danger marks exist AND a
+ * hostile-free corridor exists, returns the corridor's next room to steer
+ * toward (room-by-room stepping, the buster's own travel pattern). Returns
+ * null - leaving behavior bit-identical to naive moveTo - when: same-room
+ * target, no marks, no safe corridor (the funding gates own that case; a
+ * military corp entering danger deliberately keeps today's path), or the
+ * next hop IS the target room (the final leg).
+ */
+function hostileAwareNextRoom(creep: Creep, target: RoomPosition): string | null {
+  if (typeof Game === "undefined" || typeof Game.map?.findRoute !== "function") return null;
+  if (creep.pos.roomName === target.roomName) return null;
+  if (hostileRooms().size === 0) return null;
+  const corridor = safeRouteRooms(creep.pos.roomName, target.roomName);
+  if (!corridor || corridor.length < 2) return null;
+  const next = corridor[1];
+  return next === target.roomName ? null : next;
+}
+
 /** Direction (Screeps constant) for a unit step by (dx, dy), each in {-1, 0, 1}. */
 function stepDirection(dx: number, dy: number): DirectionConstant {
   if (dx === 0 && dy === -1) return TOP;
@@ -73,7 +100,18 @@ export function meteredMoveTo(creep: Creep, target: MoveTarget, opts?: MoveToOpt
  * step when the creep is stuck on an exit tile of its target's room.
  */
 export function travelTo(creep: Creep, target: MoveTarget, opts?: MoveToOpts): ScreepsReturnCode {
-  const pos = targetPos(target);
+  let pos = targetPos(target);
+
+  // Cross-room legs steer along the hostile-free corridor when one exists
+  // (see hostileAwareNextRoom) - the naive walker was the lens that kept
+  // marching miners into the stronghold corridor (t72972253).
+  const nextRoom = hostileAwareNextRoom(creep, pos);
+  if (nextRoom !== null) {
+    pos = new RoomPosition(25, 25, nextRoom);
+    target = pos;
+    opts = { ...opts, range: Math.max(opts?.range ?? 0, 20) };
+  }
+
   const { x, y } = creep.pos;
   const onExit = x === 0 || x === 49 || y === 0 || y === 49;
 

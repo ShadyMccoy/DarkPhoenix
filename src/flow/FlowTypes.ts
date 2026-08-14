@@ -123,6 +123,12 @@ export interface FlowSink {
 
   /** For construction sites: build progress remaining */
   progressRemaining?: number;
+
+  /** For construction sites: the structure being built (the ledger's durable
+   *  structureType). "spawn" in a spawnless owned room marks a FOUNDING site,
+   *  which prices at the founding rung and absorbs at the founding pace
+   *  (owner 2026-08-13; primitives.FOUNDING_COMPLETION_FRACTION). */
+  structureType?: string;
 }
 
 // =============================================================================

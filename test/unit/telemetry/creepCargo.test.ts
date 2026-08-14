@@ -66,7 +66,7 @@ describe("core segment: creepCargo - the balance sheet's last named gap (v38)", 
       miner1: mkCreep("miner1", 0)
     } as any;
     const c = core();
-    expect(c.version, "a new field is a schema change").to.equal(39);
+    expect(c.version, "a new field is a schema change").to.equal(40); // v40: controllerAllocations publish export
     expect(c.creepCargo).to.equal(2000);
   });
 

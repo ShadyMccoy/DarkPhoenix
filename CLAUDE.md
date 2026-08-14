@@ -104,10 +104,13 @@ whose operators are corps. Read order for architecture truth:
 - ALL economic formulas live in `economy/primitives.ts`. No module reimplements
   them (the kind-conformance suite enforces this to 1e-9).
 - Sink values are a strict ladder (spawn 100 > new-spawn-site 85 >
-  controller ≤80 > construction 70 > controller floor 40 > storage 1) — never
-  nudge one value in isolation (enforced: `test/unit/economy/goals.test.ts`
-  rung-by-rung chain pin + `assertValuationInvariants` at compile; incident
-  detail lives in the pin's docblock).
+  claim-pump controller 82 > controller ≤80 > construction 70 > controller
+  floor 40 > storage 1; claim-pump = an owned storage-less room's controller
+  while a bank stands somewhere, owner 2026-08-13 "few corps more valuable
+  than pumping up a new claim room") — never nudge one value in isolation
+  (enforced: `test/unit/economy/goals.test.ts` rung-by-rung chain pin +
+  `assertValuationInvariants` at compile; incident detail lives in the pin's
+  docblock).
 
 ## Trap list (each of these has burned a session)
 

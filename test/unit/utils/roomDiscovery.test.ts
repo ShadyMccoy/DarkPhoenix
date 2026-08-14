@@ -560,3 +560,111 @@ describe("utils/RoomDiscovery - unmark dwell (audit t72943612: the W40N43 flap s
     expect(g.Memory.roomIntel.W1N1.hostileWindows, "the closed window is still retained").to.have.length(1);
   });
 });
+
+/**
+ * HOSTILE-AWARE CORRIDOR (the stronghold-grinder incident, t72972253).
+ *
+ * Measured: mining-W45N23-harvest-ca05, anchored to a W43N23 spawn, passed its
+ * transit-embargo gate on the safe southern corridor (findRoute W43N23->W45N23
+ * = [W44N23, W45N23]) - but the GLOBAL SPAWN POOL birthed every miner at
+ * W43N24, whose findRoute corridor is [W44N24, W45N24, W45N23]: straight
+ * through two live-marked stronghold rooms. ~10 miners at 650e died in ~1,700
+ * ticks, each death refreshing the marks its successor's gate never read.
+ * Three lenses (anchor gate, pool assignment, walker route) on one decision.
+ *
+ * The repair is ONE lens: the room router itself becomes hostile-aware.
+ * safeRouteRooms prices marked TRANSIT rooms out (endpoints exempt - working
+ * a hostile endpoint is the corp's own funding decision), so a workable
+ * detour HEALS the route, and routeIsDangerous means what it says: no
+ * hostile-free corridor exists at all.
+ */
+describe("utils/RoomDiscovery - hostile-aware corridor (safeRouteRooms heals, t72972253)", () => {
+  const g = globalThis as unknown as { Game?: any; Memory?: any };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+  let time = 90_000;
+
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  /**
+   * A two-corridor world: NORTH = [W44N24, W45N24, W45N23] (default pick),
+   * SOUTH = [W43N23, W44N23, W45N23]. The mock honors routeCallback the way
+   * the engine does: an Infinity room is excluded; if both corridors are
+   * excluded the route fails with ERR_NO_PATH (-2).
+   */
+  function gameWithCorridors(marks: Record<string, number>): { findRouteCalls: any[] } {
+    time += 1;
+    const roomIntel: Record<string, any> = {};
+    for (const room of Object.keys(marks)) {
+      roomIntel[room] = { lastVisit: 1, hostileUntil: marks[room] };
+    }
+    const calls: any[] = [];
+    const NORTH = ["W44N24", "W45N24"];
+    const SOUTH = ["W43N23", "W44N23"];
+    g.Memory = { roomIntel };
+    g.Game = {
+      time,
+      rooms: {},
+      map: {
+        findRoute: (from: string, to: string, opts?: any) => {
+          calls.push({ from, to, hasCallback: typeof opts?.routeCallback === "function" });
+          const cost = (r: string): number => (opts?.routeCallback ? opts.routeCallback(r, "") : 1);
+          const usable = (corridor: string[]): boolean => corridor.every(r => cost(r) !== Infinity);
+          const corridor = usable(NORTH) ? NORTH : usable(SOUTH) ? SOUTH : null;
+          if (!corridor) return -2;
+          return [...corridor, to].map(room => ({ room, exit: 1 }));
+        }
+      }
+    };
+    return { findRouteCalls: calls };
+  }
+
+  it("safeRouteRooms detours around marked transit rooms (the southern corridor heals ca05)", () => {
+    const { safeRouteRooms } = require("../../../src/utils/RoomDiscovery");
+    gameWithCorridors({ W44N24: time + 1400, W45N24: time + 1400 });
+    expect(safeRouteRooms("W43N24", "W45N23")).to.deep.equal(["W43N24", "W43N23", "W44N23", "W45N23"]);
+  });
+
+  it("routeIsDangerous is FALSE when a hostile-free detour exists (funding continues, walker detours)", () => {
+    gameWithCorridors({ W44N24: time + 1400, W45N24: time + 1400 });
+    expect(routeIsDangerous("W43N24", "W45N23"), "a safe corridor exists - the route heals").to.equal(false);
+  });
+
+  it("routeIsDangerous is TRUE when EVERY corridor crosses a mark (the true embargo)", () => {
+    gameWithCorridors({
+      W44N24: time + 1400,
+      W45N24: time + 1400,
+      W44N23: time + 1400 // the southern corridor is blocked too
+    });
+    expect(routeIsDangerous("W43N24", "W45N23"), "no hostile-free corridor").to.equal(true);
+  });
+
+  it("endpoint marks still bite regardless of corridors (layering preserved)", () => {
+    gameWithCorridors({ W45N23: time + 1400 });
+    expect(routeIsDangerous("W43N24", "W45N23"), "hostile TARGET room").to.equal(true);
+  });
+
+  it("no marks anywhere: the naive route stands and no callback pricing runs (fast path)", () => {
+    const { safeRouteRooms } = require("../../../src/utils/RoomDiscovery");
+    const { findRouteCalls } = gameWithCorridors({});
+    expect(safeRouteRooms("W43N24", "W45N23")).to.deep.equal(["W43N24", "W44N24", "W45N24", "W45N23"]);
+    expect(routeIsDangerous("W43N24", "W45N23")).to.equal(false);
+    expect(
+      findRouteCalls.some(c => c.hasCallback),
+      "no danger set - no hostile-aware pricing"
+    ).to.equal(false);
+  });
+
+  it("returns null when the router reports no hostile-free path (callers fall back naive)", () => {
+    const { safeRouteRooms } = require("../../../src/utils/RoomDiscovery");
+    gameWithCorridors({ W44N24: time + 1400, W45N24: time + 1400, W44N23: time + 1400 });
+    expect(safeRouteRooms("W43N24", "W45N23")).to.equal(null);
+  });
+});

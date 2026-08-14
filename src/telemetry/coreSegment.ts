@@ -72,6 +72,18 @@ export interface CoreTelemetry {
    */
   warchestTarget?: number;
   /**
+   * The plan's PUBLISHED per-room controller allocations
+   * (Memory.controllerAllocations, spec 38 phase B) - the record every
+   * runtime reader resolves through bank.plannedControllerFlow. Exported
+   * (v40) so the ledger's P12 reads the REAL publish instead of a corp's
+   * echo of its commission channel: measured t72991038, the home upgrading
+   * corp echoed planAllocated 15 while the publish carried 0 - the gauge
+   * printed a phantom "published 15.00" and a two-cycle ghost hunt followed.
+   * The corp-echo-vs-publish divergence is itself a finding this export
+   * makes measurable.
+   */
+  controllerAllocations?: Record<string, number>;
+  /**
    * Creep census. `total` is the ground truth (every creep in the game);
    * `tracked` is the sum of the per-role buckets (creeps claimed by a live
    * corp); `untracked = total - tracked` (orphans, recyclers, newborns not yet
@@ -672,7 +684,10 @@ export function updateCoreTelemetry(
     // v38 creepCargo - the balance sheet's last NAMED gap, and the leading candidate for the residual's -21.50 sign flip at t72875067
     // v39: links[] rows gain `perLink` - per-sender fires/sentRate/volleyAvg/
     // clampShare (the owner's per-link P&L split, 2026-08-10).
-    version: 39,
+    // v40: controllerAllocations - the spec-38 phase-B publish, verbatim, so
+    // P12 reads the real record instead of a corp's commission echo
+    // (t72991038: echo 15 vs publish 0, a two-cycle phantom fault).
+    version: 40,
     tick: Game.time,
     shard: Game.shard?.name || "shard0",
     cpu: {
@@ -692,6 +707,7 @@ export function updateCoreTelemetry(
       activeCorps: stats.activeCorps
     },
     ...(Memory.warchestTarget !== undefined ? { warchestTarget: Memory.warchestTarget } : {}),
+    ...(Memory.controllerAllocations !== undefined ? { controllerAllocations: Memory.controllerAllocations } : {}),
     creeps,
     creepCargo,
     bodyParts,

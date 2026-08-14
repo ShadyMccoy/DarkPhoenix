@@ -31,6 +31,7 @@ describe("economy/goals - the objective as input (spec 18 P1)", () => {
     expect(DEFAULT_VALUATION).to.deep.equal({
       spawn: 100,
       newSpawnSite: 85,
+      claimPumpController: 82, // owner 2026-08-13: the new-claim pump yields only to the founding site and spawn rungs
       controllerMax: 80,
       construction: 70,
       controllerStatic: 50,
@@ -62,6 +63,15 @@ describe("economy/goals - the objective as input (spec 18 P1)", () => {
     const ladder: [string, number][] = [
       ["spawn", v.spawn],
       ["newSpawnSite", v.newSpawnSite],
+      // The CLAIM-PUMP rung (owner 2026-08-13: "There should be few corps
+      // more valuable than pumping up a new claim room"): the controller of
+      // an owned room still developing to self-sufficiency (no storage yet)
+      // outranks every ordinary controller AND ordinary construction - RCL
+      // gates the new room's whole build-out (extensions, tower, storage),
+      // so pumping its level IS the unlock. Only the founding SITE itself
+      // and the spawn rung stand above it. Measured t72979146: the fresh
+      // W43N21 controller priced 61.2 - below a remote road site's 70.
+      ["claimPumpController", v.claimPumpController],
       ["controllerMax", v.controllerMax],
       ["construction", v.construction],
       ["controllerStatic", v.controllerStatic],

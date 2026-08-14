@@ -80,20 +80,35 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
   // that room's spawns.
   const roomState = new Map<string, { energyLeft: number; capacity: number; income: number; bankSurplus: number }>();
 
+  // Pass 1: the eligible pool rooms, and the POOL'S capacity ceiling. Body
+  // sizing used to follow the ANCHOR room's capacity - so every fleet
+  // anchored at a young room's spawn wished at its 550-1,300 ceiling and was
+  // bought as CONFETTI (measured t72984055: 300e 3-CARRY haulers, over and
+  // over, against 60-88-CARRY depot routes, while the saturated 12,900 home
+  // spawns built guards - 622 CARRY of fleet gap, 31.16 e/t of mouth rot).
+  // The global pool's own doctrine (owner 2026-07-25: any spawn may build
+  // any corp) extends to SIZING: the wish prices at the pool's best
+  // capacity; minCost floors still let a small spawn min-scale an urgent
+  // body, and per-spawn affordability keeps every purchase real.
+  const poolRooms: Room[] = [];
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     if (!room.controller?.my) continue;
-    const spawns = room.find(FIND_MY_SPAWNS);
-    if (spawns.length === 0) continue;
+    if (room.find(FIND_MY_SPAWNS).length === 0) continue;
     if (room.controller.level < FLOW_MIN_RCL) continue; // bootstrap owns the early game
+    poolRooms.push(room);
+  }
+  const poolCapacity = poolRooms.reduce((m, r) => Math.max(m, r.energyCapacityAvailable), 0);
 
-    // Collect this room's anchored demand at ITS capacity (body sizing follows
-    // the planner's nearest-spawn choice), then fold it into the global pool -
-    // even if this room has no free spawn right now, another room's free spawn
-    // may build it.
+  for (const room of poolRooms) {
+    const spawns = room.find(FIND_MY_SPAWNS);
+
+    // Collect this room's anchored demand at the POOL's capacity, then fold
+    // it into the global pool - even if this room has no free spawn right
+    // now, another room's free spawn may build it.
     const roomSpawnIds = new Set<string>(spawns.map(s => s.id as string));
     const demands = collectDemandsMatching(id => roomSpawnIds.has(id), {
-      energyCapacity: room.energyCapacityAvailable,
+      energyCapacity: poolCapacity,
       tick: Game.time,
       storageBacked: room.storage?.my === true
     });
@@ -104,7 +119,7 @@ export function runSpawnScheduling(registry: CorpRegistry): void {
     // reserve target. 0 while the warchest fills (producer-first); positive in
     // surplus, when a consumer buys priority proportional to it.
     const banked = room.storage?.my ? room.storage.store[RESOURCE_ENERGY] ?? 0 : 0;
-    roomState.set(roomName, {
+    roomState.set(room.name, {
       energyLeft: room.energyAvailable,
       capacity: room.energyCapacityAvailable,
       income: estimateIncome(registry, room),

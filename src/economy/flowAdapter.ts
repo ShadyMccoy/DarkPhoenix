@@ -264,7 +264,8 @@ export class FlowGraph {
     nodeId: string,
     position: Position,
     progressRemaining: number,
-    priority?: number
+    priority?: number,
+    structureType?: string
   ): void {
     const sink = createFlowSink(
       "construction",
@@ -282,6 +283,7 @@ export class FlowGraph {
       priority
     );
     sink.progressRemaining = progressRemaining;
+    sink.structureType = structureType;
     this.sinks.set(sink.id, sink);
   }
 
@@ -575,20 +577,35 @@ export function wartimeControllerValue(val: SinkValuation = DEFAULT_VALUATION): 
 
 function perInstanceSinkValue(
   kind: SinkKind,
-  sink: { gameId?: string; position: Position },
+  sink: { gameId?: string; position: Position; structureType?: string },
   val: SinkValuation = DEFAULT_VALUATION,
   /** Rooms under spec-33 wartime relegation - their controller prices at the
    *  ladder's floor rung instead of its remaining-progress band. */
-  wartimeRooms: ReadonlySet<string> = new Set()
+  wartimeRooms: ReadonlySet<string> = new Set(),
+  /** Owned rooms still developing to self-sufficiency (no storage yet) -
+   *  their controller prices at the CLAIM-PUMP rung (owner 2026-08-13:
+   *  "There should be few corps more valuable than pumping up a new claim
+   *  room"): above every ordinary controller and ordinary construction,
+   *  and never wartime-relegated (RCL gates the room's own build-out). */
+  claimPumpRooms: ReadonlySet<string> = new Set()
 ): number {
+  if (kind === "controller" && claimPumpRooms.has(sink.position.roomName)) {
+    return val.claimPumpController;
+  }
   if (kind === "controller" && wartimeRooms.has(sink.position.roomName)) {
     return wartimeControllerValue(val);
   }
-  if (kind === "construction" && typeof Game !== "undefined" && Game.getObjectById && sink.gameId) {
-    const site = Game.getObjectById(sink.gameId as Id<ConstructionSite>);
-    // ONE rule with the build pool's room ordering (goals.constructionSiteValue)
-    // so plan pricing and crew dispatch cannot drift apart.
-    if (site) return constructionSiteValue(site.structureType, val);
+  if (kind === "construction") {
+    // The ledger's durable structureType travels on the sink since the
+    // founding-pace work (owner 2026-08-13) - vision-free, so a founding
+    // spawn prices at its 85 rung even in harnesses and blind solves.
+    if (sink.structureType) return constructionSiteValue(sink.structureType, val);
+    if (typeof Game !== "undefined" && Game.getObjectById && sink.gameId) {
+      const site = Game.getObjectById(sink.gameId as Id<ConstructionSite>);
+      // ONE rule with the build pool's room ordering (goals.constructionSiteValue)
+      // so plan pricing and crew dispatch cannot drift apart.
+      if (site) return constructionSiteValue(site.structureType, val);
+    }
   }
   if (kind === "controller" && typeof Game !== "undefined" && Game.rooms) {
     const controller = Game.rooms[sink.position.roomName]?.controller;
@@ -1326,14 +1343,29 @@ export function buildColonyProblem(
   // absorbs at its own caps, and the residual banks - never the controller.
   // Exits cleanly when the colony backlog drains below the threshold.
   const colonyBacklog = constructionSites.reduce((sum, cs) => sum + (cs.progressRemaining ?? 0), 0);
+  const controllerRooms = graph
+    .getSinks()
+    .filter(s => s.type === "controller")
+    .map(s => s.position.roomName);
+  // CLAIM-PUMP rooms (owner 2026-08-13: "There should be few corps more
+  // valuable than pumping up a new claim room"): owned rooms still
+  // developing to self-sufficiency - a controller stands, no storage yet.
+  // Their controller prices at the claimPumpController rung and is EXEMPT
+  // from wartime relegation: RCL gates the room's own build-out (extensions,
+  // tower, the storage itself), so relegating the pump to fund construction
+  // elsewhere is self-defeating. Wartime keeps its charter for
+  // storage-backed (mature) rooms below.
+  //
+  // A CLAIM presumes a colony pumping it: the lens engages only when a bank
+  // stands SOMEWHERE (roomsWithStorage non-empty). A bootstrap home - the
+  // young colony's only, storage-less room - keeps the measured
+  // build-supersedes-upgrade doctrine (G6: construction 70 over the
+  // controller band; the RCL2->3 extension bottleneck) untouched.
+  const claimPumpRooms: ReadonlySet<string> =
+    roomsWithStorage.size > 0 ? new Set(controllerRooms.filter(r => !roomsWithStorage.has(r))) : new Set();
   const wartimeRooms: ReadonlySet<string> =
     colonyBacklog >= WARTIME_BACKLOG_THRESHOLD
-      ? new Set(
-          graph
-            .getSinks()
-            .filter(s => s.type === "controller")
-            .map(s => s.position.roomName)
-        )
+      ? new Set(controllerRooms.filter(r => roomsWithStorage.has(r)))
       : new Set();
 
   // SOURCE-LOCAL CLUSTERS (spec 25 phase 3, owner: "there shouldn't be any
@@ -1350,6 +1382,23 @@ export function buildColonyProblem(
     .getSinks()
     .filter(s => s.type === "storage")
     .map(s => s.position);
+  // Rooms we OWN, from the graph's own lens (controller sinks emit only for
+  // owned controllers). A FOUNDING room - claimed, storage-less - fell
+  // through the hub-room exemption below into the road-remote cluster class,
+  // and its 15k spawn site priced at the local source's 10 e/t while 979k
+  // sat banked (t72972253; owner 2026-08-13: "fund new rooms at like
+  // 100 e/t instead of 4"). Owned-room sites are bank-funded, full stop.
+  const ownedControllerRooms = new Set<string>(controllerRooms);
+  // FOUNDING sites: a spawn being built in a room with no standing spawn -
+  // the campaign's one payload. Absorbs at the founding pace below.
+  const spawnSinkRooms = new Set<string>(
+    graph
+      .getSinks()
+      .filter(s => s.type === "spawn")
+      .map(s => s.position.roomName)
+  );
+  const isFoundingSite = (s: { structureType?: string; position: Position }): boolean =>
+    s.structureType === "spawn" && !spawnSinkRooms.has(s.position.roomName);
   // Same phantom guard as minedSupply above - intel-only prospects are not
   // income and must not anchor a cluster (this was isMinedIncomeId's documented
   // "one home" rule re-implemented inline; audit finding economy-adapters/5).
@@ -1358,11 +1407,12 @@ export function buildColonyProblem(
   const sinkClusterSource = new Map<string, string>();
   if (storagePositions.length > 0) {
     for (const cs of constructionSites) {
-      // HUB-room sites are BANK-funded (G6: a home build-out may absorb the
-      // full surplus valve) - source-clustering is for the road-building
-      // REMOTES only (owner 2026-07-21), never a home site that merely sits
-      // near a source.
+      // HUB-room and OWNED-room sites are BANK-funded (G6: a home build-out
+      // may absorb the full surplus valve) - source-clustering is for the
+      // road-building REMOTES only (owner 2026-07-21), never a site in a
+      // room we own that merely sits near a source (the founding wedge).
       if (roomsWithStorage.has(cs.position.roomName)) continue;
+      if (ownedControllerRooms.has(cs.position.roomName)) continue;
       let bestId: string | null = null;
       let bestRate = 0;
       let bestD = Infinity;
@@ -1394,7 +1444,10 @@ export function buildColonyProblem(
   // The bank-funded pool budget covers only the UNclustered sites (spec 25 /
   // filed 2026-07-21: per-site floors summed to 50 e/t against a pool
   // absorbing ~7 - one horizon budget, pro-rata by remaining work).
-  const pooledSites = constructionSites.filter(s => !sinkClusterSource.has(s.id));
+  // Founding sites fund at their OWN pace (below) - counting their 15k in
+  // the pool would dilute every other site's pro-rata share of a crew that
+  // never builds them.
+  const pooledSites = constructionSites.filter(s => !sinkClusterSource.has(s.id) && !isFoundingSite(s));
   const poolRemaining = pooledSites.reduce((a, s) => a + (s.progressRemaining ?? 0), 0);
   const poolTravel =
     spawns.length === 0 || pooledSites.length === 0
@@ -1422,7 +1475,7 @@ export function buildColonyProblem(
       id: sink.id,
       kind,
       pos: sink.position,
-      value: perInstanceSinkValue(kind, sink, valuation, wartimeRooms),
+      value: perInstanceSinkValue(kind, sink, valuation, wartimeRooms, claimPumpRooms),
       capacity:
         kind === "spawn"
           ? // Overhead need PLUS the agenda's funding need (spec 11 phase 2,
@@ -1481,10 +1534,20 @@ export function buildColonyProblem(
               // site's spawn distance (the crew must finish the whole pool
               // within its buffered effective life). SOURCE-LOCAL sites
               // (owner: no residual) price at the local source's rate
-              // instead - the bigger builder eats the whole mine.
+              // instead - the bigger builder eats the whole mine. FOUNDING
+              // sites (spawn site, spawnless owned room) absorb at the
+              // founding pace: the colony's current objective surges at the
+              // drain law's ceiling, not the completion-horizon trickle
+              // (owner 2026-08-13, the 979k-bank / 4.2 e/t incident).
               sink.progressRemaining !== undefined
-                ? clusterCapacity(sink.id, sink.progressRemaining) ??
-                  (poolRemaining > 0 ? poolAbsorb * (sink.progressRemaining / poolRemaining) : Number.POSITIVE_INFINITY)
+                ? isFoundingSite(sink)
+                  ? projectAbsorbRate(
+                      sink.progressRemaining,
+                      spawns.length > 0 ? Math.min(...spawns.map(sp => dist(sp.pos, sink.position))) : 0,
+                      "founding"
+                    )
+                  : clusterCapacity(sink.id, sink.progressRemaining) ??
+                    (poolRemaining > 0 ? poolAbsorb * (sink.progressRemaining / poolRemaining) : Number.POSITIVE_INFINITY)
                 : Number.POSITIVE_INFINITY
             )
           : kind === "storage"
@@ -2237,8 +2300,14 @@ export class FlowEconomy {
    * Add a construction site dynamically (main.ts feeds newly-placed sites in
    * between full graph rebuilds).
    */
-  public addConstructionSite(id: string, nodeId: string, position: Position, progressRemaining: number): void {
-    this.graph.addConstructionSite(id, nodeId, position, progressRemaining);
+  public addConstructionSite(
+    id: string,
+    nodeId: string,
+    position: Position,
+    progressRemaining: number,
+    structureType?: string
+  ): void {
+    this.graph.addConstructionSite(id, nodeId, position, progressRemaining, undefined, structureType);
   }
 }
 

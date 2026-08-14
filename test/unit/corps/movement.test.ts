@@ -585,3 +585,95 @@ describe("penalizeUpgraderTiles (haul legs route around parked upgraders)", () =
     expect(() => penalizeUpgraderTiles("W9N9", m as any)).to.not.throw();
   });
 });
+
+/**
+ * HOSTILE-AWARE CROSS-ROOM TRAVEL (the stronghold-grinder incident,
+ * t72972253): the walker is the third lens of the route decision, and it was
+ * the naive one - miners born at W43N24 walked findRoute's default corridor
+ * [W44N24, W45N24] straight into live-marked stronghold rooms and died at a
+ * ~150-tick cadence. travelTo now steers cross-room legs along
+ * safeRouteRooms' hostile-free corridor when one exists (stepping room by
+ * room, the buster's own travel pattern); with no marks, or no safe
+ * corridor, or an in-room target, behavior is bit-identical to before.
+ */
+describe("travelTo (hostile-aware cross-room steering, t72972253)", () => {
+  const g = globalThis as unknown as { Game?: any; Memory?: any };
+  let savedGame: unknown;
+  let savedMemory: unknown;
+  let time = 95_000;
+
+  before(() => {
+    for (const [name, val] of Object.entries(DIRS)) (global as any)[name] = val;
+  });
+  beforeEach(() => {
+    savedGame = g.Game;
+    savedMemory = g.Memory;
+  });
+  afterEach(() => {
+    g.Game = savedGame;
+    g.Memory = savedMemory;
+  });
+
+  /** Two-corridor world (NORTH default, SOUTH detour), engine-faithful callback. */
+  function installWorld(marks: Record<string, number>): void {
+    time += 1;
+    const roomIntel: Record<string, any> = {};
+    for (const room of Object.keys(marks)) {
+      roomIntel[room] = { lastVisit: 1, hostileUntil: marks[room] };
+    }
+    const NORTH = ["W44N24", "W45N24"];
+    const SOUTH = ["W43N23", "W44N23"];
+    g.Memory = { roomIntel };
+    g.Game = {
+      time,
+      rooms: {},
+      map: {
+        findRoute: (_from: string, to: string, opts?: any) => {
+          const cost = (r: string): number => (opts?.routeCallback ? opts.routeCallback(r, "") : 1);
+          const usable = (c: string[]): boolean => c.every(r => cost(r) !== Infinity);
+          const corridor = usable(NORTH) ? NORTH : usable(SOUTH) ? SOUTH : null;
+          if (!corridor) return -2;
+          return [...corridor, to].map(room => ({ room, exit: 1 }));
+        }
+      }
+    };
+    (global as any).RoomPosition = function (this: any, x: number, y: number, roomName: string) {
+      this.x = x;
+      this.y = y;
+      this.roomName = roomName;
+      this.isEqualTo = (t: any) => t.x === x && t.y === y && (t.roomName === undefined || t.roomName === roomName);
+    };
+  }
+
+  it("steers a cross-room leg to the safe corridor's next room instead of the naive path", () => {
+    installWorld({ W44N24: time + 1400, W45N24: time + 1400 });
+    const creep = creepAt(35, 27, "W43N24");
+    travelTo(creep as any, pos(20, 16, "W45N23") as any);
+    expect(creep.calls.moveTo, "pathfinder used").to.not.equal(undefined);
+    expect(creep.calls.moveTo.roomName, "next hop is the SOUTH detour, not the stronghold").to.equal("W43N23");
+  });
+
+  it("keeps the original target when no marks exist (fast path, bit-identical)", () => {
+    installWorld({});
+    const creep = creepAt(35, 27, "W43N24");
+    const target = pos(20, 16, "W45N23");
+    travelTo(creep as any, target as any);
+    expect(creep.calls.moveTo.roomName).to.equal("W45N23");
+    expect(creep.calls.moveTo.x).to.equal(20);
+  });
+
+  it("falls back to the naive target when NO hostile-free corridor exists (funding gates own it)", () => {
+    installWorld({ W44N24: time + 1400, W45N24: time + 1400, W44N23: time + 1400, W43N23: time + 1400 });
+    const creep = creepAt(35, 27, "W43N24");
+    travelTo(creep as any, pos(20, 16, "W45N23") as any);
+    expect(creep.calls.moveTo.roomName, "no safe route - unchanged naive behavior").to.equal("W45N23");
+  });
+
+  it("does not steer the final leg (creep already in the target room)", () => {
+    installWorld({ W44N24: time + 1400 });
+    const creep = creepAt(10, 10, "W45N23");
+    travelTo(creep as any, pos(20, 16, "W45N23") as any);
+    expect(creep.calls.moveTo.roomName).to.equal("W45N23");
+    expect(creep.calls.moveTo.x, "real target, not a room-center waypoint").to.equal(20);
+  });
+});

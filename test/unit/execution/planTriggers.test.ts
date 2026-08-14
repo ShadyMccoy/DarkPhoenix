@@ -21,6 +21,7 @@ const base = (over: Partial<PlanTriggerSnapshot> = {}): PlanTriggerSnapshot => (
   expansionState: undefined,
   rclByRoom: { W1N1: 4 },
   spawnCount: 1,
+  hubResources: 2,
   ...over
 });
 
@@ -66,6 +67,16 @@ describe("plan triggers (spec 36 item 1: durable transitions force a replan)", (
     it("a spawn joining or leaving the census fires", () => {
       expect(planTriggerReason(base(), base({ spawnCount: 2 }))).to.equal("spawns:1->2");
       expect(planTriggerReason(base({ spawnCount: 2 }), base({ spawnCount: 1 }))).to.equal("spawns:2->1");
+    });
+
+    it("a HUB resource joining the node graph fires (storage/controller attach - t72968647)", () => {
+      // The frozen-graph incident: W43N24's storage joined the world but not
+      // the node graph, and even once attached (attachOwnedRoomHubResources)
+      // the 5000-tick planning cadence would have priced a storage-less world
+      // for up to a cadence more. A hub resource joining or leaving the
+      // persisted graph is a durable transition; the solve must follow it.
+      expect(planTriggerReason(base(), base({ hubResources: 3 }))).to.equal("hub-resources:2->3");
+      expect(planTriggerReason(base({ hubResources: 3 }), base())).to.equal("hub-resources:3->2");
     });
 
     it("an unchanged world fires nothing", () => {

@@ -264,3 +264,70 @@ describe("runSpawnScheduling - pooled two-spawn assignment", () => {
     expect(bySpawn.get("sPoor")).to.equal(low.id);
   });
 });
+
+/**
+ * THE POOL'S CAPACITY SIZES BODIES (the confetti incident, t72984055): body
+ * size was fixed at collect time from the ANCHOR room's energyCapacity, so
+ * every fleet anchored at a young room's spawn wished at its 550-1,300
+ * ceiling - measured: 300e 3-CARRY haulers bought over and over against
+ * 60-88-CARRY depot routes while the 12,900 home spawns built guards; 622
+ * CARRY parts of fleet gap, 31.16 e/t of mouth rot (L1 top line, three
+ * cycles rising). The global pool's own doctrine (owner 2026-07-25: any
+ * spawn may build any corp) extends to SIZING: the wish prices at the
+ * pool's best capacity; minCost floors still let a small spawn min-scale an
+ * urgent body, and per-spawn affordability keeps every purchase real.
+ */
+describe("runSpawnScheduling - the pool's capacity sizes bodies (t72984055)", () => {
+  beforeEach(() => {
+    setupGlobals();
+    resetCommissionHost();
+  });
+
+  it("a corp anchored at a 1,300-cap room wishes at the 12,900 pool ceiling", () => {
+    const HOME = "W1N1"; // mature: 12,900
+    const YOUNG = "W1N2"; // young: 1,300
+    const seenCapacities: number[] = [];
+    const registry = createCorpRegistry();
+    const mkSpawn = (id: string, room: string) => ({
+      id,
+      name: id,
+      pos: { x: 25, y: 25, roomName: room },
+      spawning: { name: "busy" } // nobody buys - this test is about the WISH
+    });
+    Game.rooms = {
+      [HOME]: {
+        name: HOME,
+        controller: { my: true, level: 8 },
+        energyAvailable: 12_900,
+        energyCapacityAvailable: 12_900,
+        storage: undefined,
+        find: (t: number) => (t === (global as any).FIND_MY_SPAWNS ? [mkSpawn("sHome", HOME)] : [])
+      },
+      [YOUNG]: {
+        name: YOUNG,
+        controller: { my: true, level: 4 },
+        energyAvailable: 1_300,
+        energyCapacityAvailable: 1_300,
+        storage: undefined,
+        find: (t: number) => (t === (global as any).FIND_MY_SPAWNS ? [mkSpawn("sYoung", YOUNG)] : [])
+      }
+    } as any;
+    Game.creeps = {} as any;
+
+    const corp = new ExtensionTenderCorp(`${YOUNG}-hauling`, "sYoung");
+    (corp as any).getPosition = () => ({ x: 25, y: 25, roomName: YOUNG });
+    (corp as any).getSpawnDemand = (ctx: { energyCapacity: number }): SpawnDemand[] => {
+      seenCapacities.push(ctx.energyCapacity);
+      return [];
+    };
+    seedCommissionStoreForTest("hauling-young", "tender", corp);
+
+    runSpawnScheduling(registry);
+
+    expect(seenCapacities.length, "the corp's demand was collected").to.be.greaterThan(0);
+    expect(
+      Math.max(...seenCapacities),
+      "the wish sizes at the POOL's best capacity, not the anchor's 1,300"
+    ).to.equal(12_900);
+  });
+});
