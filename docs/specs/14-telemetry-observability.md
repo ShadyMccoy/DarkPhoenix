@@ -14582,3 +14582,104 @@ P4 1.01x -> ~0.99x (FAIL -> ok). **Downstream must NOT move on this alone** -
 0.045 p/t is ~3% of the hauler shortfall; piles (32.34), forgone mining (80.31)
 and the controller (9.84 vs 63.00) moving here would falsify the chain as
 modelled, and would be reported as a miss.
+
+## Audit cycle t73003513 -> t73006507 (2026-08-14): guard homing VERIFIED, and the mouth that asks and is never answered
+
+**Post-deploy verification of the guard-homing binding (predictions made BEFORE
+the deploy, checked here one by one).**
+
+| prediction | actual | |
+|---|---|---|
+| `raidGuard-W43N23` targets 1 = W44N23 | targets 1 = **W44N23** | HIT (room-exact) |
+| `raidGuard-W43N24` targets 1 = W43N25 | targets 1 = **W43N25** | HIT (room-exact) |
+| `raidGuard-W43N21` targets 1 = W44N22 | gate `no-targets`, 0 | MISS - explained below |
+| total guards 10 -> 3 | **2** | near-miss, same cause |
+| parts 96 -> ~29 | **20** | near-miss, same cause |
+| defense 10.65 -> ~3.2 e/t | **1.65 e/t** | overshot, same cause |
+| P4 1.01x FAIL -> ~0.99x | **0.96x, FAIL -> WARN** | HIT - the plan is FEASIBLE again |
+
+The duplication is gone: three corps that each stamped the identical 3-room
+target set now hold one room each, disjointly, exactly as `nearestGuardHome`
+binds them.
+
+**The MISS is the code working, not the binding stranding a room.** W44N22's
+meter reads `raidDebt 78,980 -> 8,350` with `lastRaidSeen` age falling
+`8,844 -> 1,196`: a raid FIRED there ~1,200t ago (post-deploy), the sighting
+zeroed the mirror as designed, and the room has only re-accrued 8,350 against a
+65,000 ARM floor. W43N21's guard held the post, the raid came, the meter reset,
+and the guard liquidated through its stand-down grace - the full designed
+lifecycle in one window. The prediction assumed a static meter; meters are not
+static. **Prediction error owned: it was a statement about the world, not about
+the code, and the world moved.**
+
+**Defense overshot low (1.65 vs ~3.2 predicted) for the same reason** - only two
+rooms stayed armed, and the plan's own budget followed them down (4.16 -> 0.87),
+so the line is still ~1.9x its budget on a much smaller base.
+
+**The "downstream must NOT move" prediction FAILED, and is NOT claimed as a
+win.** Forgone mining 80.31 -> 55.26 e/t and pile decay 32.34 -> 42.77 e/t both
+moved hard. Confounds forbid attributing either to a 0.045 p/t guard fix: the
+window is 4.2x shorter (12,475t -> 2,994t) and samples the post-deploy regime
+only, the spec-50 sweep handicap ramped 0->5% across it, and mining capacity
+fell 205 -> 200 as three W45N25 sources went `funded->embargoed` (P1). The
+physically coherent reading is that MORE energy got mined (forgone down) and
+hauling still could not drain it (more sitting on the ground, decaying up) -
+which is the same chain as before, not a guard effect.
+
+### The new work item, traced end to end: H3 `mining-W43N22-harvest-cd94`
+
+A new ledger row fired, and it is the sharpest instance yet of the seam named
+last cycle - one source, confirmed at BOTH captures:
+
+```
+H3 chronic mouth: cd94 buffer 2294 -> 6495 GROWING, zero drain creeps at both captures
+```
+
+Traced from symptom to root, every step a read:
+
+1. **The plan is right.** cd94's commission declares `hauler: 32.12 parts /
+   21.42 workingParts` on one route - `source-cd94 -> controller-4adbcd97` at
+   **d=43**, and that sink is the CLAIM PUMP (priority 82, allocated 48 e/t).
+2. **The corp is right, and it is ASKING.** Its inner haul stamp reads
+   `carryNeeded 26, creeps 0, exit "asking", staged 6495`. Not a lens bug -
+   unlike the guard, this corp raises the demand every tick. (It had haulers
+   recently: `departs {full: 9}` since t73004257.)
+3. **The NOW plan carries it, flagged maximally urgent**: `hauler
+   mining-W43N22-harvest-cd94, minCost 300, mustFund true, blocking true` -
+   and `gate: "queued"`, **fifth** in a chained-precondition wall behind
+   ~7,100e of other must-fund buys (`after: ced6 <- d017 <- cee0 <- reserver`).
+4. **The spawns cannot answer.** Spawn1/2/3 sit at **0.99 utilization** (ceiling
+   0.333 p/t each) with idle attributed to `buy` latency alone.
+
+So the ask is real, correctly priced, correctly ranked - and physically
+unservable. The miner is held `buffer-full` at `heldFrac 0.996`.
+
+### The root under that: the bank does not reach the hungry spawns
+
+The colony is not short of energy. It is short of energy WHERE THE SPAWNS ARE:
+
+| room | storage | energyAvailable | feederActive | spawn util |
+|---|---|---|---|---|
+| W43N23 | **998,850** | 8,200 | true | 0.99 x3 |
+| W43N24 | 1,774 | **316** | true | 0.51 |
+| W43N21 | none | **102** | false | 0.57 |
+
+Spawn4 and Spawn5 idle on **`bank`** (556t and 421t of the window) - starved at
+102-316 energy - while ~1M sits banked one room away and three spawns run
+flat out. That is E4 (`idle capital 858,850 above reserve`) and P12
+(`published 15.00 vs the law's cap 100.00`) meeting the throughput ceiling from
+the other side: the pool's spare build capacity is in the poor rooms, and the
+energy is in the rich one.
+
+**Cycle verdict**: **fixed + verified** (guard homing - P4 FAIL -> WARN, the
+plan feasible again at 0.96x; defense 10.65 -> 1.65 e/t; duplication 10 -> 2
+bodies) + **named with data** (H3/cd94: the demand is asked, ranked mustFund
++blocking, and starved by spawn throughput; the throughput is idle in the two
+rooms the bank never reaches). TOP LINE is unchanged and worse in rate: L1 pile
+decay **42.77 e/t** (was 32.34). Fiscal FY4866-M10 and FY4867-M01 closed
+(handicap 3-4%, sweep cycle 6).
+
+**Explicitly NOT attempted**: the cross-room supply fix. It is a real change to
+the bankfeed/cross-hub path, this cycle already shipped a live-behaviour change,
+and the next cycle should start from a red test for "a spawn starved at 316e
+while a bank one room away holds 998k" rather than from a hypothesis.
