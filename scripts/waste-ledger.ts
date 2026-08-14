@@ -2476,7 +2476,23 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
     const upg = corps.find((c: any) => c.kind === "upgrade" && c.roomName === feederRoom);
     const banked = +(((core.rooms ?? []) as any[]).find(r => r.name === feederRoom)?.storageEnergy ?? 0);
     const relay = feeder?.sizing?.relayRate;
-    const ctrlSink = upg?.sizing?.planAllocated !== undefined ? { allocated: +upg.sizing.planAllocated } : undefined;
+    // THE REAL PUBLISH (core v40) outranks the corp's commission ECHO: at
+    // t72991038 the home upgrading corp echoed planAllocated 15 while
+    // Memory.controllerAllocations carried 0, and this gauge printed a
+    // phantom "published 15.00" + "RUNTIME FAULT" against a feeder that was
+    // faithfully relaying the real zero - a two-cycle ghost hunt. When both
+    // readings exist and disagree, the DIVERGENCE is the finding (two
+    // channels spec 38 phase B says cannot disagree by more than one
+    // solve's staleness) - it rides in the detail.
+    const publishedRec = (core as any).controllerAllocations as Record<string, number> | undefined;
+    const published = feederRoom !== undefined ? publishedRec?.[feederRoom] : undefined;
+    const echo = upg?.sizing?.planAllocated !== undefined ? +upg.sizing.planAllocated : undefined;
+    const echoDiverges =
+      published !== undefined && echo !== undefined && Math.abs(published - echo) > 0.5
+        ? `; CORP ECHO ${echo.toFixed(2)} != publish ${published.toFixed(2)} - commission channel stale (spec 38 seam)`
+        : "";
+    const ctrlSink =
+      published !== undefined ? { allocated: published } : echo !== undefined ? { allocated: echo } : undefined;
     if (ctrlSink && banked > 0) {
       const alloc = +ctrlSink.allocated || 0;
       const lawCap = bankFedControllerRate(banked, resolveReserve(cap));
@@ -2497,7 +2513,8 @@ export function computeLedger(cap: any, base: any): LedgerRow[] {
           `and the published allocation gets the residual` +
           (typeof relay === "number"
             ? `; feeder relay ${relay.toFixed(2)} ${relay + 1e-9 >= alloc ? ">= published (ONE VALVE holds)" : "< published - RUNTIME FAULT"}`
-            : "")
+            : "") +
+          echoDiverges
       });
     }
   }

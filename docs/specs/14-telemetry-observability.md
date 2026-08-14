@@ -14399,3 +14399,42 @@ carried this number since t72773737). Touches CorpPlanner fill order -
 fresh-context work, red-first from this capture (t72987947 committed).
 
 **Cycle verdict**: verified (4 predictions) + blocker named with data.
+
+## Audit cycle t72987947 -> t72991038 (2026-08-13): the phantom fault - the defect theory falsified, the instrument fixed
+
+**Window**: 3,091t. The score line: P7 collapsed to 0.10x (home delivering
+1.5 e/t), the bank re-filled to its 1M cap (slope +8.70) - and the cycle's
+investigation FALSIFIED the cycle-4 defect theory. The home controller's
+zero allocation is OWNER DESIGN, twice over: the plan's floor is
+danger-gated to zero by the 2026-08-04 ruling ("we don't need it UNLESS the
+controller is in danger of downgrading... Not the constant trickle"), and
+wartime construction-primacy (2026-08-05) relegates the home band while
+build-outs stand. The home upgrading fleet EOL'ing out under a zero
+allocation is ONE VALVE working. The score returns when the batches drain,
+and the score's FUTURE lives in the uncapped pump rooms (W43N21 at RCL 3,
+its supply line filling: stock 0 -> 416, dry share 0.705 -> 0.495).
+
+**The real defect was in the INSTRUMENT**: P12's "published" was a CORP
+ECHO - it read the upgrading corp's sizing.planAllocated (15) as the
+publish while Memory.controllerAllocations carried 0, printed a phantom
+"published 15.00" and a phantom "RUNTIME FAULT" against a feeder that was
+faithfully relaying the real zero, and sent two cycles hunting a ghost.
+The two channels (commission echo vs publish) disagreeing IS a spec-38
+phase-B seam finding of its own - now measurable.
+
+**Landed (observability-only; unit 2694 green; deployed)**: core segment
+v40 exports Memory.controllerAllocations verbatim; P12 reads the REAL
+publish (echo as fallback) and NAMES the echo-vs-publish divergence in its
+detail when the channels disagree.
+
+**Also this window**: confetti fix keeps verifying (F2 0.13 frac, best
+yet); L1 27.55 (flat); X6's first micro-fail is the pool-sizing change's
+one visible cost (a 2c-route hauler bought at 8c - 15 parts over 1,680t,
+negligible, now pinned by the gauge); c9f8/c9f9 re-funded as their
+corridor cleared (the healed lens again). Fiscal FY4865-M09-M10 closed
+(handicap 13-14%).
+
+**Cycle verdict**: falsified (the cycle-4 solver-defect theory) +
+instrumented (the gauge that misled). The spawn-claim honesty question
+(98.5 claimed vs ~70 measured) remains open as a PRICING refinement, not
+a starvation defect.
