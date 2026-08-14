@@ -225,3 +225,74 @@ describe("CoreBusterCorp eviction (hostile structures in owned rooms)", () => {
     expect(attacked, "no core in the room - the buster attacks the squatter spawn").to.deep.equal(["spawn"]);
   });
 });
+
+describe("CoreBusterCorp staffing lens (the t72811290 double-buy class)", () => {
+  beforeEach(install);
+
+  /** A mission creep staged exactly as executeSpawn stamps it (no targetRoom). */
+  function stageCreep(
+    corp: CoreBusterCorp,
+    name: string,
+    workType: "buster" | "strike",
+    opts: { spawning?: boolean; targetRoom?: string; recycling?: boolean } = {}
+  ): void {
+    (Game.creeps as any)[name] = {
+      name,
+      spawning: opts.spawning ?? false,
+      memory: {
+        corpId: corp.id,
+        workType,
+        spawnedBy: "spawning-W1N1",
+        ...(opts.targetRoom ? { targetRoom: opts.targetRoom } : {}),
+        ...(opts.recycling ? { recycling: true } : {})
+      },
+      room: { name: HOME }
+    };
+  }
+
+  it("does NOT re-demand a buster while one is still in the spawn (one body in the pipe IS one body staffed)", () => {
+    (Memory as any).roomIntel[REMOTE] = occupiedIntel({ corePresent: true });
+    const corp = new CoreBusterCorp(`${HOME}-coreBuster`, "spawn1");
+    stageCreep(corp, "b1", "buster", { spawning: true });
+    expect(corp.getSpawnDemand(ctx)).to.have.length(0);
+  });
+
+  it("does NOT re-demand a striker while one is still in the spawn", () => {
+    (Memory as any).roomIntel[REMOTE] = occupiedIntel({ corePresent: false });
+    const corp = new CoreBusterCorp(`${HOME}-coreBuster`, "spawn1");
+    stageCreep(corp, "s1", "strike", { spawning: true });
+    expect(corp.getSpawnDemand(ctx)).to.have.length(0);
+  });
+
+  it("a recycling buster still COUNTS as staffing (spec 61 row 1)", () => {
+    (Memory as any).roomIntel[REMOTE] = occupiedIntel({ corePresent: true });
+    const corp = new CoreBusterCorp(`${HOME}-coreBuster`, "spawn1");
+    stageCreep(corp, "b1", "buster", { recycling: true });
+    expect(corp.getSpawnDemand(ctx)).to.have.length(0);
+  });
+
+  it("roles are independent lenses: a buster in the pipe never staffs a striker post", () => {
+    const STRIP = "W1N3";
+    (Memory as any).roomIntel[REMOTE] = occupiedIntel({ corePresent: true });
+    (Memory as any).roomIntel[STRIP] = occupiedIntel({ corePresent: false });
+    const corp = new CoreBusterCorp(`${HOME}-coreBuster`, "spawn1");
+    stageCreep(corp, "b1", "buster", { spawning: true });
+    const demands = corp.getSpawnDemand(ctx);
+    expect(demands).to.have.length(1);
+    expect(demands[0].role).to.equal("striker");
+  });
+
+  it("wildcards discount per-role asks, never below zero: 2 kill targets, 1 assigned + 1 unassigned = quiet", () => {
+    const REMOTE2 = "W1N3";
+    (Memory as any).roomIntel[REMOTE] = occupiedIntel({ corePresent: true });
+    (Memory as any).roomIntel[REMOTE2] = occupiedIntel({ corePresent: true });
+    const corp = new CoreBusterCorp(`${HOME}-coreBuster`, "spawn1");
+    stageCreep(corp, "b1", "buster", { targetRoom: REMOTE });
+    stageCreep(corp, "b2", "buster");
+    expect(corp.getSpawnDemand(ctx)).to.have.length(0);
+
+    const REMOTE3 = "W1N4";
+    (Memory as any).roomIntel[REMOTE3] = occupiedIntel({ corePresent: true });
+    expect(corp.getSpawnDemand(ctx), "the wildcard covers ONE room, not all of them").to.have.length(1);
+  });
+});

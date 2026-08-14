@@ -53,10 +53,54 @@ function resetWorld(): void {
   (Memory as Record<string, unknown>).roomIntel = {};
 }
 
+const conformanceCommission = raidGuardKind.propose(world, [])[0];
+
 describeCorpKindConformance(raidGuardKind as never, {
   problem: world,
-  commission: raidGuardKind.propose(world, [])[0],
-  expectedSpawnPartsPerTick: 0 // auxiliary: off the planner's build-time budget
+  commission: conformanceCommission,
+  expectedSpawnPartsPerTick: 0, // auxiliary: off the planner's build-time budget
+  // Staffing world (specs 60 D + 61 rows 1-3): home spawn resolvable, ONE
+  // armed + recently-mined remote (so an unstaffed corp WOULD demand a
+  // guard), and one guard incumbent staged exactly as executeSpawn stamps a
+  // newborn - corpId + workType only, NO targetRoom (work() assigns that,
+  // and only to non-spawning creeps). One body in any lifecycle state covers
+  // the one armed room, so no further demand is correct in every state -
+  // the t72811290 double-buy class this kind shipped with (measured live
+  // 2026-08-14: three guards for one armed room off a multi-spawn pool).
+  staffing: {
+    role: "guard",
+    stage(state) {
+      resetWorld();
+      Game.getObjectById = ((id: string) =>
+        id === "spawn1"
+          ? {
+              id: "spawn1",
+              pos: { x: 25, y: 25, roomName: HOME },
+              owner: { username: "me" },
+              room: { name: HOME, controller: { my: true, level: 3 } }
+            }
+          : null) as never;
+      (Memory as Record<string, unknown>).roomIntel = {
+        W1N2: { lastVisit: 1, raidDebt: 70_000, lastHarvested: Game.time - 100 }
+      };
+      const corp = raidGuardKind.materialize(conformanceCommission, undefined);
+      Game.creeps.g1 = {
+        name: "g1",
+        spawning: state === "spawning",
+        ticksToLive: state === "spawning" ? undefined : 1400,
+        room: { name: HOME },
+        pos: { x: 20, y: 20, roomName: HOME },
+        moveTo: () => 0,
+        attack: () => 0,
+        memory: {
+          corpId: corp.id,
+          workType: "guard",
+          ...(state === "recycling" ? { recycling: true } : {})
+        }
+      } as never;
+      return corp;
+    }
+  }
 });
 
 describe("raidGuard kind on the corp framework", () => {

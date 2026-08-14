@@ -176,6 +176,80 @@ describe("RaidGuardCorp targets and demand (spec 13 phase 3)", () => {
   });
 });
 
+describe("RaidGuardCorp staffing lens (the t72811290 double-buy class)", () => {
+  beforeEach(install);
+
+  /** One armed, recently-mined target - the world every case below shares. */
+  function armRemote(room = REMOTE): void {
+    (Memory as any).roomIntel[room] = { lastVisit: 1, raidDebt: 70_000 };
+    installPlannedMine(room);
+  }
+
+  /** A guard creep staged exactly as executeSpawn stamps it (no targetRoom). */
+  function stageGuard(
+    corp: RaidGuardCorp,
+    name: string,
+    opts: { spawning?: boolean; targetRoom?: string; recycling?: boolean } = {}
+  ): void {
+    (Game.creeps as any)[name] = {
+      name,
+      spawning: opts.spawning ?? false,
+      memory: {
+        corpId: corp.id,
+        workType: "guard",
+        spawnedBy: "spawning-W1N1",
+        ...(opts.targetRoom ? { targetRoom: opts.targetRoom } : {}),
+        ...(opts.recycling ? { recycling: true } : {})
+      },
+      room: { name: HOME }
+    };
+  }
+
+  it("does NOT re-demand while its only guard is still in the spawn (one body in the pipe IS one body staffed)", () => {
+    // The screenshot bug (2026-08-14): the work lens read 0 covered for the
+    // whole ~30-tick build, the demand re-armed every tick, and the global
+    // spawn pool bought a fresh guard from each still-free spawn - three
+    // guards for one armed room.
+    armRemote();
+    const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
+    stageGuard(corp, "g1", { spawning: true });
+    expect(corp.getSpawnDemand(ctx)).to.have.length(0);
+  });
+
+  it("does NOT re-demand for a just-emerged guard work() has not assigned yet (wildcard rule)", () => {
+    armRemote();
+    const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
+    stageGuard(corp, "g1"); // live, unassigned
+    expect(corp.getSpawnDemand(ctx)).to.have.length(0);
+  });
+
+  it("a recycling guard still COUNTS as staffing (spec 61 row 1)", () => {
+    // A stand-down recycler discounts the ask until it dies - bounded by its
+    // walk home, and uniform with every other kind's staffing count.
+    armRemote();
+    const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
+    stageGuard(corp, "g1", { recycling: true });
+    expect(corp.getSpawnDemand(ctx)).to.have.length(0);
+  });
+
+  it("wildcards discount the ask, never below zero: 2 targets, 1 assigned + 1 in the pipe = quiet", () => {
+    const REMOTE2 = "W1N3";
+    armRemote();
+    armRemote(REMOTE2);
+    const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
+    stageGuard(corp, "g1", { targetRoom: REMOTE });
+    stageGuard(corp, "g2", { spawning: true });
+    expect(corp.getSpawnDemand(ctx)).to.have.length(0);
+    expect((corp as any).lastSizing.gate).to.equal("covered");
+
+    // The pipe body covers ONE room, not all of them: a third armed room
+    // still raises a real demand.
+    const REMOTE3 = "W1N4";
+    armRemote(REMOTE3);
+    expect(corp.getSpawnDemand(ctx)).to.have.length(1);
+  });
+});
+
 describe("RaidGuardCorp sizing stamp (the raid post-mortem lens, spec 14)", () => {
   beforeEach(install);
 

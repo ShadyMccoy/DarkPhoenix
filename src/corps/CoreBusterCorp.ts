@@ -230,11 +230,21 @@ export class CoreBusterCorp extends SpawnAnchoredCorp {
     const targets = this.missionTargets(spawn.room.name);
     const demands: SpawnDemand[] = [];
 
-    const coveredBusters = new Set(this.creepsOf("buster").map(c => c.memory.targetRoom));
+    // Staffing census, NOT the work roster (the t72811290 double-buy class,
+    // same lens as the raid guard): a body in the spawn pipe or not yet
+    // routed by runFleet counts, and each wildcard discounts one uncovered
+    // room's ask. Per workType, so a buster in the pipe never staffs a
+    // striker post.
+    const busters = this.staffingCensus("buster");
+    let busterWildcards = busters.wildcards;
     const busterBody = buildGuardBody(ctx.energyCapacity, 10); // ATTACK/MOVE pairs, up to 10
     if (busterBody.cost > 0) {
       for (const room of targets.attack) {
-        if (coveredBusters.has(room)) continue;
+        if (busters.covered.has(room)) continue;
+        if (busterWildcards > 0) {
+          busterWildcards--;
+          continue;
+        }
         demands.push({
           buyerCorpId: this.id,
           role: "buster",
@@ -250,11 +260,16 @@ export class CoreBusterCorp extends SpawnAnchoredCorp {
       }
     }
 
-    const coveredStrikers = new Set(this.creepsOf("strike").map(c => c.memory.targetRoom));
+    const strikers = this.staffingCensus("strike");
+    let strikerWildcards = strikers.wildcards;
     const strikerBody = buildReserverBody(ctx.energyCapacity, 2); // CLAIM+MOVE pairs
     if (strikerBody.cost > 0) {
       for (const room of targets.strike) {
-        if (coveredStrikers.has(room)) continue;
+        if (strikers.covered.has(room)) continue;
+        if (strikerWildcards > 0) {
+          strikerWildcards--;
+          continue;
+        }
         demands.push({
           buyerCorpId: this.id,
           role: "striker",

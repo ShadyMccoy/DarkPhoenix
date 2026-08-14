@@ -55,15 +55,7 @@ export interface StaffingFixture {
  * kind's fixture removes its entry; a new demand-exposing kind ships with a
  * fixture or takes an entry here in the same PR.
  */
-export const UNSTAFFED_KINDS = new Set([
-  "harvest",
-  "carry",
-  "upgrade",
-  "construction",
-  "tender",
-  "raidGuard",
-  "coreBuster"
-]);
+export const UNSTAFFED_KINDS = new Set(["harvest", "carry", "upgrade", "construction", "tender"]);
 
 export interface KindFixtures {
   /** A world in which the kind has something to do (auxiliaries: propose > 0). */

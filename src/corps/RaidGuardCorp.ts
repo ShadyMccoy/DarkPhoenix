@@ -67,7 +67,12 @@ export class RaidGuardCorp extends SpawnAnchoredCorp {
     super("raidGuard", nodeId, spawnId, customId);
   }
 
-  /** All claimed creeps - INCLUDING recycling ones (recycling counts as staffing). */
+  /**
+   * The WORK roster: active bodies only (a spawning creep cannot move), still
+   * INCLUDING recycling ones (they are driven home here). The demand side
+   * counts through {@link SpawnAnchoredCorp.staffingCensus} instead - the
+   * spawn pipe is staffing there.
+   */
   private getActiveCreeps(): Creep[] {
     return this.creepsOfWorkType("guard", { includeSpawning: false });
   }
@@ -179,14 +184,24 @@ export class RaidGuardCorp extends SpawnAnchoredCorp {
       return [];
     }
 
-    const covered = new Set(
-      this.getActiveCreeps()
-        .map(c => c.memory.targetRoom)
-        .filter((r): r is string => !!r)
-    );
+    // Staffing census, NOT the work roster (the t72811290 double-buy class,
+    // measured live 2026-08-14: three guards bought for one armed room off a
+    // multi-spawn pool while the first was still in the spawn). Bodies in the
+    // pipe and unassigned newborns count - work() routes wildcards to
+    // uncovered targets on their first active tick, so they discount the ask
+    // one-for-one instead of re-arming it.
+    const { covered, wildcards } = this.staffingCensus("guard");
     const uncovered = targets.filter(t => !covered.has(t));
-    if (uncovered.length === 0) {
-      this.lastSizing = { tick: ctx.tick, gate: "covered", targets: targets.length, debts };
+    const need = Math.max(0, uncovered.length - wildcards);
+    if (need === 0) {
+      this.lastSizing = {
+        tick: ctx.tick,
+        gate: "covered",
+        targets: targets.length,
+        uncovered: uncovered.length,
+        wildcards,
+        debts
+      };
       return [];
     }
 
@@ -200,11 +215,12 @@ export class RaidGuardCorp extends SpawnAnchoredCorp {
       gate: "demand",
       targets: targets.length,
       uncovered: uncovered.length,
+      wildcards,
       debts
     };
     const floor = buildGuardBody(390); // the 3-pair viable floor
 
-    return uncovered.map(() => ({
+    return Array.from({ length: need }, () => ({
       buyerCorpId: this.id,
       role: "guard" as const,
       // Ladder: above the miners' 100 band, below the reserver's 115.
