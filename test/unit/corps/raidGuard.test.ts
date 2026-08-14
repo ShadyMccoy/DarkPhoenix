@@ -176,6 +176,78 @@ describe("RaidGuardCorp targets and demand (spec 13 phase 3)", () => {
   });
 });
 
+describe("RaidGuardCorp home binding (the multi-home overlap, measured t73003513)", () => {
+  beforeEach(install);
+
+  /** Stage the colony's home spawns - the binding's input. */
+  function installHomes(...rooms: string[]): void {
+    (Game as any).spawns = {};
+    rooms.forEach((room, i) => {
+      (Game as any).spawns[`s${i}`] = { id: `spawn${i}`, room: { name: room }, pos: { x: 25, y: 25, roomName: room } };
+    });
+  }
+
+  it("only the NEAREST home guards a room two homes can both see", () => {
+    // MEASURED t73003513: three raidGuard corps (W43N23/W43N24/W43N21) each
+    // stamped the IDENTICAL target set {W43N25, W44N22, W44N23}, each read
+    // gate "covered", and each fielded its own guards - 10 guards / 96 parts
+    // for THREE armed rooms. The plan prices the rooms bound to their nearest
+    // home (raidGuardKind.propose, charged ONCE); the runtime fielded one per
+    // home. The account's defense line ran 10.65 e/t against a 4.16 budget.
+    const FAR = "W1N5"; // linear distance 3 from the remote; HOME is 1 away
+    installHomes(HOME, FAR);
+    (Memory as any).roomIntel[REMOTE] = { lastVisit: 1, raidDebt: 70_000 };
+    installPlannedMine();
+
+    const near = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
+    const far = new RaidGuardCorp(`${FAR}-raidGuard`, "spawn1");
+    expect(near.guardTargets(HOME), "the nearest home holds the post").to.deep.equal([REMOTE]);
+    expect(far.guardTargets(FAR), "the far home must NOT field a second guard").to.deep.equal([]);
+  });
+
+  it("ties break lexicographically - the same rule the commission prices with", () => {
+    // Equidistant homes: exactly one must claim the room, and it must be the
+    // one raidGuardKind.propose charged for it (sort by d, then room name).
+    const EAST = "W1N3"; // both W1N1 and W1N3 are 1 away from W1N2
+    installHomes(HOME, EAST);
+    (Memory as any).roomIntel[REMOTE] = { lastVisit: 1, raidDebt: 70_000 };
+    installPlannedMine();
+
+    const a = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
+    const b = new RaidGuardCorp(`${EAST}-raidGuard`, "spawn1");
+    const claimed = [...a.guardTargets(HOME), ...b.guardTargets(EAST)];
+    expect(claimed, "exactly one home claims a tied room").to.deep.equal([REMOTE]);
+    expect(a.guardTargets(HOME), "lexicographically smallest home wins the tie").to.deep.equal([REMOTE]);
+  });
+
+  it("the colony-wide UNION is unchanged - no armed room loses its guard", () => {
+    // The budget side (CommissionHost.guardedRoomsLens, flowAdapter) folds the
+    // lens over every home into a Set. Binding must not drop a room from that
+    // union - it only decides WHICH home fields the body.
+    const REMOTE2 = "W1N6"; // nearer the far home than to HOME
+    const FAR = "W1N5";
+    installHomes(HOME, FAR);
+    (Memory as any).roomIntel[REMOTE] = { lastVisit: 1, raidDebt: 70_000 };
+    (Memory as any).roomIntel[REMOTE2] = { lastVisit: 1, raidDebt: 70_000 };
+    installPlannedMine();
+    installPlannedMine(REMOTE2);
+
+    const near = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
+    const far = new RaidGuardCorp(`${FAR}-raidGuard`, "spawn1");
+    const union = new Set([...near.guardTargets(HOME), ...far.guardTargets(FAR)]);
+    expect([...union].sort(), "every armed room still has exactly one owner").to.deep.equal([REMOTE, REMOTE2].sort());
+    expect(near.guardTargets(HOME).length + far.guardTargets(FAR).length, "no double coverage").to.equal(2);
+  });
+
+  it("no discoverable homes (harness/no vision): today's behavior, never a silent stand-down", () => {
+    (Game as any).spawns = {};
+    (Memory as any).roomIntel[REMOTE] = { lastVisit: 1, raidDebt: 70_000 };
+    installPlannedMine();
+    const corp = new RaidGuardCorp(`${HOME}-raidGuard`, "spawn1");
+    expect(corp.guardTargets(HOME), "absent fact must not disarm the guard").to.deep.equal([REMOTE]);
+  });
+});
+
 describe("RaidGuardCorp staffing lens (the t72811290 double-buy class)", () => {
   beforeEach(install);
 

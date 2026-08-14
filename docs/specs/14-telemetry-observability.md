@@ -14438,3 +14438,84 @@ corridor cleared (the healed lens again). Fiscal FY4865-M09-M10 closed
 instrumented (the gauge that misled). The spawn-claim honesty question
 (98.5 claimed vs ~70 measured) remains open as a PRICING refinement, not
 a starvation defect.
+
+## Audit cycle t72991038 -> t73003513 (2026-08-14): the multi-home guard overlap - three corps, one target set, 10 bodies for 3 rooms
+
+**Found (segment 4, three stamps side by side).** Every raidGuard corp in the
+colony was guarding every armed room:
+
+```
+raidGuard-W43N23  creeps 3  parts 28  sizing {gate:"covered", targets:3, debts:{W43N25:99380, W44N22:78980, W44N23:65750}}
+raidGuard-W43N24  creeps 3  parts 30  sizing {gate:"covered", targets:3, debts:{W43N25:99380, W44N22:78980, W44N23:65750}}
+raidGuard-W43N21  creeps 4  parts 38  sizing {gate:"covered", targets:3, debts:{W43N25:99380, W44N22:78980, W44N23:65750}}
+```
+
+Three corps, the IDENTICAL three-room target set, each reading gate `covered`
+under its own lens - so no corp was misbehaving by its own rule. **10 guards /
+96 body parts standing for THREE armed rooms.** Colony account: defense 10.65
+e/t against a 4.16 budget (2.56x, -6.49 U).
+
+**The plan was never wrong.** `raidGuardKind.propose` already bound each room
+to its NEAREST home and charged it once (flow `infraInputs.guardedRooms: 3`);
+the runtime lens `guardTargetsFor(home)` is per-home and non-exclusive by
+design, because its two BUDGET consumers (CommissionHost's `guardedRoomsLens`,
+flowAdapter's `infraSpawnLoad`) fold it into a union - one guard priced per
+armed room. Nothing narrowed it on the BEHAVIOUR side, so every home in range
+fielded its own body. A pure fidelity gap: the price said 3, the runtime bought
+10. The kind's own docblock predicted it ("the runtime would field two guards
+there today... invisible in a single-colony world") - it became visible at
+three home rooms.
+
+**Why it cost more than its own line.** The colony is at its SPAWN THROUGHPUT
+ceiling, and that is the binding constraint on everything downstream:
+
+```
+partsLedger  capacity 1.667  budget 1.349  spent 1.432  dry TRUE
+P4           plan-implied 1.689 p/t vs 1.667 physical = 1.01x  (INFEASIBLE)
+  of which   defense (guards) 96p = 0.064 p/t - 3.8% of the whole colony's throughput
+```
+
+The chain the ledger reads end to end: spawn throughput is dry -> the hauler
+fleet is fielded 27-29% under plan (F1 haulers 1.007 vs 1.376 p/t; F2 1582p
+fielded vs 2231p declared) -> 10 of 23 miner ops sit pile-gated (E6) with
+31,422e on the ground (H1, hauler duty 0.83 - the haulers are BUSY, not idle)
+-> piles decay 32.34 e/t (L1, the ledger's TOP LINE) and the gated miners
+forgo 80.31 e/t of capacity (39%) -> the controller receives 9.84 e/t against
+a 63.00 plan (P7 0.32x, 5% of capacity against a >=50% target).
+
+Guards are not the top line. They are the cheapest *proven* claim on the line
+that is throttling it: returning ~67 parts takes plan-implied to 1.644 p/t,
+**below the 1.667 physical ceiling** - P4 flips from infeasible to feasible on
+this fix alone.
+
+**Landed (live-behaviour; unit 2713 green + trio; deployed).** One shared
+binding rule, `corps/guardHoming.nearestGuardHome` (pure: nearest by room-linear
+distance, lexicographic tie-break, out-of-range excluded), called by BOTH sides:
+`raidGuardKind.propose` (price, replacing its inline copy - byte-identical, its
+conformance stayed green) and `RaidGuardCorp.guardTargets` (behaviour, new).
+The armed-room lens is untouched, so both union consumers keep their totals -
+binding decides only WHICH home fields the body. No discoverable homes (harness,
+no vision) keeps the unbound behaviour: an absent fact must never stand a guard
+down.
+
+**Also landed this window** (found by inspection while reading the same corps,
+fixed red-first before the audit): the t72811290 double-buy class in raidGuard
+and coreBuster. Their demand lenses counted only ACTIVE bodies, so a guard still
+in the spawn was invisible and the demand re-armed for the whole ~30-tick build
+while the global spawn pool bought another copy from each free spawn. Now on
+`SpawnAnchoredCorp.staffingCensus` (counts the spawn pipe and recycling bodies;
+unassigned livings discount the ask as wildcards, ReservationCorp's rule). Both
+kinds carry staffing fixtures now - `UNSTAFFED_KINDS` 7 -> 5.
+
+**Predictions for verification (~200t post-deploy):** guards 10 -> 3 and parts
+96 -> ~29; the three corps' `targets` stamps sum to 3 instead of 3 each; defense
+line 10.65 -> ~3.2 e/t (under its 4.16 budget); P4 1.01x -> ~0.99x (FAIL -> ok).
+Downstream (piles, forgone mining, controller) should NOT be expected to move on
+this fix alone - 0.045 p/t is 3% of the hauler shortfall, and the top line stays
+L1.
+
+**Cycle verdict**: fixed (guard overlap, measured) + named-with-data (the top
+line: spawn throughput is the binding constraint; the hauler shortfall is
+spec 39's unread `commission.fleet` seam, now with F1/F2/E6/H1 all pointing at
+it from different sides). Confound on file: the spec-50 spawn-handicap sweep is
+live (cycle 6, ramping 0->3% across this window).

@@ -27,6 +27,7 @@
 
 import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import { GUARD_MINED_RECENCY, guardTargetsFor } from "../utils/raidMeter";
+import { nearestGuardHome, spawnHomeRooms } from "./guardHoming";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { GUARD } from "../spawn/demandLadder";
 import { buildGuardBody } from "../spawn/BodyBuilder";
@@ -78,14 +79,24 @@ export class RaidGuardCorp extends SpawnAnchoredCorp {
   }
 
   /**
-   * Rooms that currently want a guard - THE lens (utils/raidMeter
-   * `guardTargetsFor`), read here exactly as the commission's budget and the
-   * colony's infra deduction read it. Doctrine and rationale live at the lens;
-   * this delegation is what keeps "which rooms do we guard" and "what do we pay
-   * to guard them" from becoming two answers.
+   * Rooms THIS home guards: the armed-room lens (utils/raidMeter
+   * `guardTargetsFor` - read exactly as the commission's budget and the
+   * colony's infra deduction read it), narrowed to the rooms this home OWNS
+   * under the shared binding.
+   *
+   * The lens is per-home and non-exclusive by design (its budget consumers
+   * fold it into a union - one guard priced per armed room). Without the
+   * binding every home in range fielded its own body for the same room:
+   * measured t73003513, three corps stamping the identical 3-room target set,
+   * 10 guards / 96 parts standing for three rooms while the plan priced three.
+   * `nearestGuardHome` is the SAME rule raidGuardKind.propose prices with, so
+   * the two cannot drift.
    */
   public guardTargets(homeRoom: string): string[] {
-    return guardTargetsFor(homeRoom);
+    const targets = guardTargetsFor(homeRoom);
+    const homes = spawnHomeRooms();
+    if (homes.length === 0) return targets; // absent fact: never a silent stand-down
+    return targets.filter(target => nearestGuardHome(target, homes) === homeRoom);
   }
 
   public work(tick: number): void {

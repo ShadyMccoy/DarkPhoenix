@@ -22,8 +22,7 @@ import { SerializedCorp } from "../Corp";
 import { RaidGuardCorp, SerializedRaidGuardCorp } from "../RaidGuardCorp";
 import { buildGuardBody } from "../../spawn/BodyBuilder";
 import { roomGuardSpawnLoad } from "../../economy/primitives";
-import { roomLinearDistance } from "../../utils/RoomDiscovery";
-import { MAX_SCOUT_DISTANCE } from "../CorpConstants";
+import { nearestGuardHome } from "../guardHoming";
 
 /** The guard commission's binding: which home room, which spawn. */
 export interface RaidGuardAssignment {
@@ -53,18 +52,21 @@ export const raidGuardKind: CorpKind<RaidGuardCorp> = {
     //
     // Rooms bind to their NEAREST home (reservationKind's rule, same tiebreak),
     // so a room two homes can both see is charged ONCE and the corps' sum stays
-    // equal to `infraSpawnLoad`'s guard term. The runtime would field two guards
-    // there today - a multi-home coverage gap that predates this pricing and is
-    // invisible in a single-colony world; when it is fixed, this stays correct.
+    // equal to `infraSpawnLoad`'s guard term.
+    //
+    // The runtime used to ignore this binding and field one guard per home per
+    // room - measured t73003513: three corps, one identical 3-room target set,
+    // 10 guards / 96 parts against a plan of three (defense 10.65 e/t vs 4.16
+    // budget). The price was right and the behaviour was wrong, so the fix was
+    // to give both sides ONE binding: `nearestGuardHome` is now shared with
+    // RaidGuardCorp.guardTargets, and this loop is its price-side caller.
     const homes = [...homeSpawnsByRoom(problem)].map(([room, spawnId]) => ({ room, spawnId }));
+    const homeRooms = homes.map(h => h.room);
     const count = new Map<string, number>(); // home room -> rooms it pays to guard
     for (const target of [...new Set(problem.guardedRooms ?? [])].sort()) {
-      const home = homes
-        .map(h => ({ ...h, d: roomLinearDistance(h.room, target) }))
-        .filter(h => h.d <= MAX_SCOUT_DISTANCE)
-        .sort((a, b) => a.d - b.d || a.room.localeCompare(b.room))[0];
+      const home = nearestGuardHome(target, homeRooms);
       if (!home) continue;
-      count.set(home.room, (count.get(home.room) ?? 0) + 1);
+      count.set(home, (count.get(home) ?? 0) + 1);
     }
     return homes.map(({ room, spawnId }) =>
       perRoomAuxiliaryCommission(
