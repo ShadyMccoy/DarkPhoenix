@@ -77,6 +77,30 @@ export abstract class SpawnAnchoredCorp extends Corp {
     return creeps;
   }
 
+  /**
+   * Demand-side staffing census for a target-room fleet (guard, buster,
+   * striker): every body of `workType` INCLUDING the spawn pipe - one body in
+   * the pipe IS one body staffed (the t72811290 double-buy class; without it
+   * the demand re-arms for the whole ~30-tick build and every free spawn in
+   * the global pool buys another copy) - and INCLUDING recycling (spec 61 row
+   * 1: never filter memory.recycling out of a staffing count). Rooms with an
+   * assigned incumbent land in `covered`; unassigned livings - newborns
+   * work() has not routed yet, stand-down recyclers walking home - are
+   * `wildcards` that discount the ask one-for-one (ReservationCorp's rule,
+   * live t72401489+: the demand lens must see the newborns its own purchases
+   * create). work() keeps its own active-only roster: a spawning body cannot
+   * move, and that asymmetry is the staffsPost symmetry done right.
+   */
+  protected staffingCensus(workType: string): { covered: Set<string>; wildcards: number } {
+    const covered = new Set<string>();
+    let wildcards = 0;
+    for (const c of this.creepsOfWorkType(workType, { includeSpawning: true })) {
+      if (c.memory.targetRoom) covered.add(c.memory.targetRoom);
+      else wildcards++;
+    }
+    return { covered, wildcards };
+  }
+
   public serialize(): SerializedSpawnAnchoredCorp {
     return { ...super.serialize(), spawnId: this.spawnId };
   }

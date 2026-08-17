@@ -14438,3 +14438,328 @@ corridor cleared (the healed lens again). Fiscal FY4865-M09-M10 closed
 instrumented (the gauge that misled). The spawn-claim honesty question
 (98.5 claimed vs ~70 measured) remains open as a PRICING refinement, not
 a starvation defect.
+
+## Audit cycle t72991038 -> t73003513 (2026-08-14): the multi-home guard overlap - three corps, one target set, 10 bodies for 3 rooms
+
+**Found (segment 4, three stamps side by side).** Every raidGuard corp in the
+colony was guarding every armed room:
+
+```
+raidGuard-W43N23  creeps 3  parts 28  sizing {gate:"covered", targets:3, debts:{W43N25:99380, W44N22:78980, W44N23:65750}}
+raidGuard-W43N24  creeps 3  parts 30  sizing {gate:"covered", targets:3, debts:{W43N25:99380, W44N22:78980, W44N23:65750}}
+raidGuard-W43N21  creeps 4  parts 38  sizing {gate:"covered", targets:3, debts:{W43N25:99380, W44N22:78980, W44N23:65750}}
+```
+
+Three corps, the IDENTICAL three-room target set, each reading gate `covered`
+under its own lens - so no corp was misbehaving by its own rule. **10 guards /
+96 body parts standing for THREE armed rooms.** Colony account: defense 10.65
+e/t against a 4.16 budget (2.56x, -6.49 U).
+
+**The plan was never wrong.** `raidGuardKind.propose` already bound each room
+to its NEAREST home and charged it once (flow `infraInputs.guardedRooms: 3`);
+the runtime lens `guardTargetsFor(home)` is per-home and non-exclusive by
+design, because its two BUDGET consumers (CommissionHost's `guardedRoomsLens`,
+flowAdapter's `infraSpawnLoad`) fold it into a union - one guard priced per
+armed room. Nothing narrowed it on the BEHAVIOUR side, so every home in range
+fielded its own body. A pure fidelity gap: the price said 3, the runtime bought
+10. The kind's own docblock predicted it ("the runtime would field two guards
+there today... invisible in a single-colony world") - it became visible at
+three home rooms.
+
+**Why it cost more than its own line.** The colony is at its SPAWN THROUGHPUT
+ceiling, and that is the binding constraint on everything downstream:
+
+```
+partsLedger  capacity 1.667  budget 1.349  spent 1.432  dry TRUE
+P4           plan-implied 1.689 p/t vs 1.667 physical = 1.01x  (INFEASIBLE)
+  of which   defense (guards) 96p = 0.064 p/t - 3.8% of the whole colony's throughput
+```
+
+The chain the ledger reads end to end: spawn throughput is dry -> the hauler
+fleet is fielded 27-29% under plan (F1 haulers 1.007 vs 1.376 p/t; F2 1582p
+fielded vs 2231p declared) -> 10 of 23 miner ops sit pile-gated (E6) with
+31,422e on the ground (H1, hauler duty 0.83 - the haulers are BUSY, not idle)
+-> piles decay 32.34 e/t (L1, the ledger's TOP LINE) and the gated miners
+forgo 80.31 e/t of capacity (39%) -> the controller receives 9.84 e/t against
+a 63.00 plan (P7 0.32x, 5% of capacity against a >=50% target).
+
+Guards are not the top line. They are the cheapest *proven* claim on the line
+that is throttling it: returning ~67 parts takes plan-implied to 1.644 p/t,
+**below the 1.667 physical ceiling** - P4 flips from infeasible to feasible on
+this fix alone.
+
+**Landed (live-behaviour; unit 2713 green + trio; deployed).** One shared
+binding rule, `corps/guardHoming.nearestGuardHome` (pure: nearest by room-linear
+distance, lexicographic tie-break, out-of-range excluded), called by BOTH sides:
+`raidGuardKind.propose` (price, replacing its inline copy - byte-identical, its
+conformance stayed green) and `RaidGuardCorp.guardTargets` (behaviour, new).
+The armed-room lens is untouched, so both union consumers keep their totals -
+binding decides only WHICH home fields the body. No discoverable homes (harness,
+no vision) keeps the unbound behaviour: an absent fact must never stand a guard
+down.
+
+**Also landed this window** (found by inspection while reading the same corps,
+fixed red-first before the audit): the t72811290 double-buy class in raidGuard
+and coreBuster. Their demand lenses counted only ACTIVE bodies, so a guard still
+in the spawn was invisible and the demand re-armed for the whole ~30-tick build
+while the global spawn pool bought another copy from each free spawn. Now on
+`SpawnAnchoredCorp.staffingCensus` (counts the spawn pipe and recycling bodies;
+unassigned livings discount the ask as wildcards, ReservationCorp's rule). Both
+kinds carry staffing fixtures now - `UNSTAFFED_KINDS` 7 -> 5.
+
+**Predictions for verification (~200t post-deploy):** guards 10 -> 3 and parts
+96 -> ~29; the three corps' `targets` stamps sum to 3 instead of 3 each; defense
+line 10.65 -> ~3.2 e/t (under its 4.16 budget); P4 1.01x -> ~0.99x (FAIL -> ok).
+Downstream (piles, forgone mining, controller) should NOT be expected to move on
+this fix alone - 0.045 p/t is 3% of the hauler shortfall, and the top line stays
+L1.
+
+**Cycle verdict**: fixed (guard overlap, measured) + named-with-data (the top
+line: spawn throughput is the binding constraint; the hauler shortfall is
+spec 39's unread `commission.fleet` seam, now with F1/F2/E6/H1 all pointing at
+it from different sides). Confound on file: the spec-50 spawn-handicap sweep is
+live (cycle 6, ramping 0->3% across this window).
+
+### Gate attribution for the guard-homing deploy (same cycle): runt-economy is DRAW-VARIANT, not regressed
+
+The trio's `runt-economy` came back red on the pending change and would have
+blocked the deploy on a reading of the exit code alone. Attribution first
+(the protocol's rule), and the answer was variance:
+
+| build | draws | result |
+|---|---|---|
+| pre-change (6162cb4) | 2 | pass @ tick 440, pass @ tick 440 |
+| post-change (ee7e862) | 3 | **fail @ tick 1200**, pass @ tick 440, pass @ tick 440 |
+
+Identical code on both sides of the failure, so the cell is the variable, not
+the diff. Two independent confirmations:
+
+- **Direct measurement**: `grep -ci guard` over BOTH transcripts (the failing
+  post-change draw and a passing pre-change draw) returns **0**. No guard corp,
+  no guard demand, no guard console line - the changed code path never executed
+  in that world. It cannot be causal.
+- **Structural**: the cell stages ONE room (W0N0, RCL 2, no roomIntel), so
+  `guardTargetsFor` returns `[]`; and with a single home room
+  `nearestGuardHome` is the identity. The change is a provable no-op there.
+
+The failing draw's own stamps name the real trajectory: `harvest-1353` at
+**staffing 0** (its source never got a miner at all) while `harvest-70c9` sat
+`buffer-full` (2075 over a 2000 threshold) - a cold-start race that lost, which
+is exactly the class the cell's own diagnostic text describes. The pass path
+early-exits at tick 440 (~3m); a losing draw runs the full 1200 (~11m), so the
+runtime asymmetry is a tell, not a hang.
+
+**Recorded as a property of the cell**: `runt-economy` is a cold-start race with
+a binary outcome and should be read multi-draw (CLAUDE.md's multi-draw rule
+applies to it), never as a single-draw gate.
+
+**Guard-path verification** (the cell that actually fires the changed code):
+`def-t4-raid-guard-holds-the-remote` re-run green - `T4 defense 1/1, total 1/1`,
+all four assertions satisfied (guard fielded before the raid @1, raid lands
+@150, **guard kills the invader inside the window @174**, meter resets @151).
+It stages a single home, so the binding is identity there by construction -
+which is the point: the fix must not disturb the one-home world it was not
+written for.
+
+**Deployed** to `master` t73003513+ with the gate green (unit 2713,
+flow-handoff, storage-depot, def-t4; runt-economy acquitted above).
+
+**The prediction, sharp to the room name** (computed by running the shipped
+`nearestGuardHome` over the three measured homes and the three measured armed
+rooms - so verification is falsifiable, not a vibe):
+
+```
+  W43N25 -> W43N24        raidGuard-W43N23  targets 1  (W44N23)
+  W44N22 -> W43N21        raidGuard-W43N24  targets 1  (W43N25)
+  W44N23 -> W43N23        raidGuard-W43N21  targets 1  (W44N22)
+                          TOTAL 3 guards   (measured today: 10 / 96 parts)
+```
+
+Each corp's `sizing.targets` goes 3 -> 1; the surplus seven stand down through
+`GUARD_RECYCLE_GRACE` (100t) and recycle, so the fleet drains over ~100-150t and
+a +200t recapture covers it. Defense 10.65 -> ~3.2 e/t (under its 4.16 budget);
+P4 1.01x -> ~0.99x (FAIL -> ok). **Downstream must NOT move on this alone** -
+0.045 p/t is ~3% of the hauler shortfall; piles (32.34), forgone mining (80.31)
+and the controller (9.84 vs 63.00) moving here would falsify the chain as
+modelled, and would be reported as a miss.
+
+## Audit cycle t73003513 -> t73006507 (2026-08-14): guard homing VERIFIED, and the mouth that asks and is never answered
+
+**Post-deploy verification of the guard-homing binding (predictions made BEFORE
+the deploy, checked here one by one).**
+
+| prediction | actual | |
+|---|---|---|
+| `raidGuard-W43N23` targets 1 = W44N23 | targets 1 = **W44N23** | HIT (room-exact) |
+| `raidGuard-W43N24` targets 1 = W43N25 | targets 1 = **W43N25** | HIT (room-exact) |
+| `raidGuard-W43N21` targets 1 = W44N22 | gate `no-targets`, 0 | MISS - explained below |
+| total guards 10 -> 3 | **2** | near-miss, same cause |
+| parts 96 -> ~29 | **20** | near-miss, same cause |
+| defense 10.65 -> ~3.2 e/t | **1.65 e/t** | overshot, same cause |
+| P4 1.01x FAIL -> ~0.99x | **0.96x, FAIL -> WARN** | HIT - the plan is FEASIBLE again |
+
+The duplication is gone: three corps that each stamped the identical 3-room
+target set now hold one room each, disjointly, exactly as `nearestGuardHome`
+binds them.
+
+**The MISS is the code working, not the binding stranding a room.** W44N22's
+meter reads `raidDebt 78,980 -> 8,350` with `lastRaidSeen` age falling
+`8,844 -> 1,196`: a raid FIRED there ~1,200t ago (post-deploy), the sighting
+zeroed the mirror as designed, and the room has only re-accrued 8,350 against a
+65,000 ARM floor. W43N21's guard held the post, the raid came, the meter reset,
+and the guard liquidated through its stand-down grace - the full designed
+lifecycle in one window. The prediction assumed a static meter; meters are not
+static. **Prediction error owned: it was a statement about the world, not about
+the code, and the world moved.**
+
+**Defense overshot low (1.65 vs ~3.2 predicted) for the same reason** - only two
+rooms stayed armed, and the plan's own budget followed them down (4.16 -> 0.87),
+so the line is still ~1.9x its budget on a much smaller base.
+
+**The "downstream must NOT move" prediction FAILED, and is NOT claimed as a
+win.** Forgone mining 80.31 -> 55.26 e/t and pile decay 32.34 -> 42.77 e/t both
+moved hard. Confounds forbid attributing either to a 0.045 p/t guard fix: the
+window is 4.2x shorter (12,475t -> 2,994t) and samples the post-deploy regime
+only, the spec-50 sweep handicap ramped 0->5% across it, and mining capacity
+fell 205 -> 200 as three W45N25 sources went `funded->embargoed` (P1). The
+physically coherent reading is that MORE energy got mined (forgone down) and
+hauling still could not drain it (more sitting on the ground, decaying up) -
+which is the same chain as before, not a guard effect.
+
+### The new work item, traced end to end: H3 `mining-W43N22-harvest-cd94`
+
+A new ledger row fired, and it is the sharpest instance yet of the seam named
+last cycle - one source, confirmed at BOTH captures:
+
+```
+H3 chronic mouth: cd94 buffer 2294 -> 6495 GROWING, zero drain creeps at both captures
+```
+
+Traced from symptom to root, every step a read:
+
+1. **The plan is right.** cd94's commission declares `hauler: 32.12 parts /
+   21.42 workingParts` on one route - `source-cd94 -> controller-4adbcd97` at
+   **d=43**, and that sink is the CLAIM PUMP (priority 82, allocated 48 e/t).
+2. **The corp is right, and it is ASKING.** Its inner haul stamp reads
+   `carryNeeded 26, creeps 0, exit "asking", staged 6495`. Not a lens bug -
+   unlike the guard, this corp raises the demand every tick. (It had haulers
+   recently: `departs {full: 9}` since t73004257.)
+3. **The NOW plan carries it, flagged maximally urgent**: `hauler
+   mining-W43N22-harvest-cd94, minCost 300, mustFund true, blocking true` -
+   and `gate: "queued"`, **fifth** in a chained-precondition wall behind
+   ~7,100e of other must-fund buys (`after: ced6 <- d017 <- cee0 <- reserver`).
+4. **The spawns cannot answer.** Spawn1/2/3 sit at **0.99 utilization** (ceiling
+   0.333 p/t each) with idle attributed to `buy` latency alone.
+
+So the ask is real, correctly priced, correctly ranked - and physically
+unservable. The miner is held `buffer-full` at `heldFrac 0.996`.
+
+### The root under that: the bank does not reach the hungry spawns
+
+The colony is not short of energy. It is short of energy WHERE THE SPAWNS ARE:
+
+| room | storage | energyAvailable | feederActive | spawn util |
+|---|---|---|---|---|
+| W43N23 | **998,850** | 8,200 | true | 0.99 x3 |
+| W43N24 | 1,774 | **316** | true | 0.51 |
+| W43N21 | none | **102** | false | 0.57 |
+
+Spawn4 and Spawn5 idle on **`bank`** (556t and 421t of the window) - starved at
+102-316 energy - while ~1M sits banked one room away and three spawns run
+flat out. That is E4 (`idle capital 858,850 above reserve`) and P12
+(`published 15.00 vs the law's cap 100.00`) meeting the throughput ceiling from
+the other side: the pool's spare build capacity is in the poor rooms, and the
+energy is in the rich one.
+
+**Cycle verdict**: **fixed + verified** (guard homing - P4 FAIL -> WARN, the
+plan feasible again at 0.96x; defense 10.65 -> 1.65 e/t; duplication 10 -> 2
+bodies) + **named with data** (H3/cd94: the demand is asked, ranked mustFund
++blocking, and starved by spawn throughput; the throughput is idle in the two
+rooms the bank never reaches). TOP LINE is unchanged and worse in rate: L1 pile
+decay **42.77 e/t** (was 32.34). Fiscal FY4866-M10 and FY4867-M01 closed
+(handicap 3-4%, sweep cycle 6).
+
+**Explicitly NOT attempted**: the cross-room supply fix. It is a real change to
+the bankfeed/cross-hub path, this cycle already shipped a live-behaviour change,
+and the next cycle should start from a red test for "a spawn starved at 316e
+while a bank one room away holds 998k" rather than from a hypothesis.
+
+## Audit cycle t73006507 -> t73075460 (2026-08-14): last cycle's blocker self-healed; the INSTRUMENT was charging resets to forgone mining
+
+**The declared work item resolved itself, structurally.** Last cycle named
+"the bank does not reach the hungry spawns" and promised a red test first. Over
+the 68,953t gap the claim room MATURED and the symptom went with it:
+
+| | t73006507 | t73075460 |
+|---|---|---|
+| W43N21 storage | none | **6,626** (built one) |
+| W43N21 feederActive | false | **true** |
+| Spawn4 util / bank-idle | 0.51 / 556t | **0.82 / 185t** |
+| Spawn5 util / bank-idle | 0.57 / 421t | **0.90 / 86t** |
+| W43N23 storage | 998,850 | 821,242 (drawing down -2.58/t) |
+
+No fix was written for it: prod self-healed, and forcing last cycle's
+hypothesis into code would have been building for a world that no longer
+exists. Kept as a named class, not a patch.
+
+**A wrong turn worth recording (it nearly became the headline).** Differencing
+each harvest corp's `produced` and `delivered` across the pair gave "colony
+mines 100.38 e/t, delivers 20.89 - 79% LOST", with the home sources reading
+**0% keep**. That figure is GARBAGE and was discarded before it reached a
+conclusion: `delivered` sums a corp's INNER CarryCorps only
+(`corpsSegment.ts`), so link-served sources (cd90/cd92 evacuate by LINK) and
+sources drained by standalone `hauling-*` corps read zero BY CONSTRUCTION. The
+tell was arithmetic, not intuition - the ENERGY ACCOUNT independently says
+~100 e/t reaches the economy, so a 5x disagreement had to be the counter, not
+the colony. **Rule earned: a per-corp delivery ratio is only readable for
+sources whose evacuation is INSIDE the corp.**
+
+### The real find: `forgone mining` was charging counter resets as unmined capacity
+
+Chasing why forgone jumped 55.26 -> 94.62 e/t while the pile-gate stamps
+explained only 38.76 of it, the mined line turned out to be the problem:
+
+```js
+minedRate += Math.max(0, p - (prodBase.get(id) ?? 0)) / dt   // before
+```
+
+Its docblock covered corps ADDED mid-window (`?? 0` is exact) and corps RETIRED
+mid-window (an honest under-count) - but not a corp present in BOTH captures
+whose counter RESET. Commission ids are deterministic
+(`mining-{room}-harvest-{srcId}`), so a demobilized-and-recommissioned corp
+returns under the SAME id with `produced` restarted at 0. `Math.max(0, ...)`
+then booked it at **zero mined for the entire window**, and since
+`forgone = capacity - mined`, every rotted counter charged a full source-window
+to the account's headline target.
+
+Measured on this pair (68,953t): three corps reset - d017 80,630 -> 57,770,
+d019 77,170 -> 56,790, d01c 227,170 -> 106,238 - booking 0.00 e/t against a
+**provable floor of 3.20 e/t**.
+
+**Fixed (script-only, no bot change, no deploy).** A reset PROVES the corp was
+created inside the window, so its post-reset counter is a valid FLOOR, strictly
+better than zero; the clamp itself stays right for genuine negatives (the P8
+builder line clamps for the same reason, and its test still passes). The reset
+count is DISCLOSED beside the forgone line, because the pre-reset share is
+unrecoverable from two captures and must not be passed off as exact.
+`METHODOLOGY` 19 -> **20** in the same commit: revenue rises and forgone falls
+by exactly this amount against any #19 close, and those two lines alone are
+incomparable across the stamp.
+
+Effect on this window: forgone **94.62 -> 91.42**, gross mining
+**100.38 -> 103.58**, residual **-45.85 -> -42.65**.
+
+**Honest bound on the fix**: 3.20 of 94.62 e/t. Forgone mining is still 91.42
+e/t (47% of capacity) and still MISSES its ~0 target - the instrument was
+biased, not the whole story. What the corrected line now says cleanly is that
+~53 e/t of forgone has neither a pile-gate stamp nor a counter artifact behind
+it, and that is the next cycle's question.
+
+**Cycle verdict**: **instrumented** (the mined line survives a rebuild;
+methodology #20) + **falsified** (the delivery-ratio reading, killed by its own
+arithmetic before it shipped) + **self-healed** (last cycle's spawn-starvation
+blocker, recorded not patched). TOP LINE unchanged: L1 **35.53 e/t** named
+(pile decay 28.68, tombstones 5.11). New rows to carry forward: X6 FAIL (a
+hauler bought 24c for a 1.7c route, 14.5x), R1 at **9.90x** the priced raid tax
+(measured 13.75 e/t of attrition), and X5's fast-respawn signature
+(W43N21-hauling-4-26, 1600e at 21t).

@@ -33,6 +33,8 @@ const fixture = (name: string): any =>
   JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "fixtures", "telemetry", name), "utf8"));
 const cap72411542 = fixture("shard1-t72411542.json");
 const cap72404213 = fixture("shard1-t72404213.json");
+const cap72987947 = fixture("shard1-t72987947.json");
+const cap72991038 = fixture("shard1-t72991038.json");
 
 /**
  * Spec 15 phase 1 acceptance: the ledger reproduces the 2026-07-18 known
@@ -3324,5 +3326,78 @@ describe("TOP LINE picker ranks FAILs by the e/t they NAME (spec 58a, methodolog
   it("no binding line when the spawn has headroom", () => {
     const out = formatLedger([row("L1", "FAIL", 15.54), row("S5", "ok", undefined, 0.72)], 2, 1);
     expect(out).to.not.include("BINDING");
+  });
+});
+
+/**
+ * REVENUE vs the counter RESET (audit t73075460).
+ *
+ * `produced` is cumulative and reset-surviving via the commission store - but a
+ * corp that is DEMOBILIZED and re-commissioned comes back under the same
+ * deterministic id (`mining-{room}-harvest-{srcId}`) with its counter at ZERO.
+ * The mined line differenced the two captures under a `Math.max(0, ...)` clamp,
+ * so such a corp booked ZERO mined for the whole window - and since
+ * `forgone = capacity - mined`, every rotted counter inflated the account's
+ * headline forgone-mining target by a full source-window.
+ *
+ * The clamp itself is right (a negative delta is not negative mining - the P8
+ * builder line clamps for the same reason). What was missing is that a reset
+ * PROVES the corp was created inside the window, so its entire current counter
+ * accrued here: `produced` is a valid FLOOR, strictly better than zero.
+ *
+ * Measured live at t73075460 over a 68,953t window: three corps reset
+ * (d017 80,630 -> 57,770; d019 77,170 -> 56,790; d01c 227,170 -> 106,238),
+ * booking 0.00 e/t against a provable floor of 3.20 e/t - so "forgone mining
+ * 94.62 e/t, target ~0" was overstated by at least that much. The remaining
+ * under-count (production BEFORE the reset) is unrecoverable from two captures
+ * and is disclosed rather than guessed.
+ */
+describe("waste ledger - the mined line survives a corp counter reset (t73075460)", () => {
+  const harvestOf = (cap: any): any[] =>
+    (cap.data.corps.corps as any[]).filter(c => c.kind === "harvest" && c.produced !== undefined);
+
+  /** base -> cap pair where ONE harvest corp was rebuilt mid-window. */
+  const resetRig = (): { base: any; cap: any; floor: number; dt: number } => {
+    const base = JSON.parse(JSON.stringify(cap72987947));
+    const cap = JSON.parse(JSON.stringify(cap72991038));
+    const victim = harvestOf(cap)[0];
+    const twin = harvestOf(base).find(c => c.id === victim.id);
+    expect(twin, "fixtures must share a harvest corp id").to.not.equal(undefined);
+    // The rebuild: base carries a large lifetime counter, cap a small
+    // post-reset one. Every other corp is untouched.
+    twin.produced = 500_000;
+    victim.produced = 40_000;
+    const dt = cap.tick - base.tick;
+    return { base, cap, floor: 40_000 / dt, dt };
+  };
+
+  it("credits the post-reset counter as a floor instead of booking zero mined", () => {
+    const { base, cap, floor } = resetRig();
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    const actual = (label: string): number => {
+      const line = text.split("\n").find(l => l.includes(label))!;
+      return Number(line.match(/-?\d+\.\d\d/g)![1]);
+    };
+    // Same pair with the victim's counter merely FLAT (no reset, no rebuild):
+    // the only difference between the two runs is the reset, so the mined
+    // difference is exactly what the clamp was throwing away.
+    const flatBase = JSON.parse(JSON.stringify(base));
+    const flatCap = JSON.parse(JSON.stringify(cap));
+    const fb = harvestOf(flatBase).find(c => c.id === harvestOf(flatCap)[0].id)!;
+    fb.produced = harvestOf(flatCap)[0].produced;
+    const flatText = formatAccounts(flatCap, flatBase, computeLedger(flatCap, flatBase));
+    const flatMined = Number(
+      flatText.split("\n").find(l => l.includes("= gross mining"))!.match(/-?\d+\.\d\d/g)![1]
+    );
+    expect(
+      actual("= gross mining"),
+      "a rebuilt corp must credit its post-reset production, not zero"
+    ).to.be.greaterThan(flatMined + floor * 0.9);
+  });
+
+  it("DISCLOSES the reset rather than silently flooring it (the pre-reset share is unrecoverable)", () => {
+    const { base, cap } = resetRig();
+    const text = formatAccounts(cap, base, computeLedger(cap, base));
+    expect(text, "a floored reset must be visible beside the line it biases").to.match(/reset/i);
   });
 });

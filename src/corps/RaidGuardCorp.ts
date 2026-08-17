@@ -27,6 +27,7 @@
 
 import { SerializedSpawnAnchoredCorp, SpawnAnchoredCorp } from "./SpawnAnchoredCorp";
 import { GUARD_MINED_RECENCY, guardTargetsFor } from "../utils/raidMeter";
+import { nearestGuardHome, spawnHomeRooms } from "./guardHoming";
 import { SpawnDemand, SpawnDemandContext } from "../spawn/SpawnScheduler";
 import { GUARD } from "../spawn/demandLadder";
 import { buildGuardBody } from "../spawn/BodyBuilder";
@@ -67,20 +68,35 @@ export class RaidGuardCorp extends SpawnAnchoredCorp {
     super("raidGuard", nodeId, spawnId, customId);
   }
 
-  /** All claimed creeps - INCLUDING recycling ones (recycling counts as staffing). */
+  /**
+   * The WORK roster: active bodies only (a spawning creep cannot move), still
+   * INCLUDING recycling ones (they are driven home here). The demand side
+   * counts through {@link SpawnAnchoredCorp.staffingCensus} instead - the
+   * spawn pipe is staffing there.
+   */
   private getActiveCreeps(): Creep[] {
     return this.creepsOfWorkType("guard", { includeSpawning: false });
   }
 
   /**
-   * Rooms that currently want a guard - THE lens (utils/raidMeter
-   * `guardTargetsFor`), read here exactly as the commission's budget and the
-   * colony's infra deduction read it. Doctrine and rationale live at the lens;
-   * this delegation is what keeps "which rooms do we guard" and "what do we pay
-   * to guard them" from becoming two answers.
+   * Rooms THIS home guards: the armed-room lens (utils/raidMeter
+   * `guardTargetsFor` - read exactly as the commission's budget and the
+   * colony's infra deduction read it), narrowed to the rooms this home OWNS
+   * under the shared binding.
+   *
+   * The lens is per-home and non-exclusive by design (its budget consumers
+   * fold it into a union - one guard priced per armed room). Without the
+   * binding every home in range fielded its own body for the same room:
+   * measured t73003513, three corps stamping the identical 3-room target set,
+   * 10 guards / 96 parts standing for three rooms while the plan priced three.
+   * `nearestGuardHome` is the SAME rule raidGuardKind.propose prices with, so
+   * the two cannot drift.
    */
   public guardTargets(homeRoom: string): string[] {
-    return guardTargetsFor(homeRoom);
+    const targets = guardTargetsFor(homeRoom);
+    const homes = spawnHomeRooms();
+    if (homes.length === 0) return targets; // absent fact: never a silent stand-down
+    return targets.filter(target => nearestGuardHome(target, homes) === homeRoom);
   }
 
   public work(tick: number): void {
@@ -179,14 +195,24 @@ export class RaidGuardCorp extends SpawnAnchoredCorp {
       return [];
     }
 
-    const covered = new Set(
-      this.getActiveCreeps()
-        .map(c => c.memory.targetRoom)
-        .filter((r): r is string => !!r)
-    );
+    // Staffing census, NOT the work roster (the t72811290 double-buy class,
+    // measured live 2026-08-14: three guards bought for one armed room off a
+    // multi-spawn pool while the first was still in the spawn). Bodies in the
+    // pipe and unassigned newborns count - work() routes wildcards to
+    // uncovered targets on their first active tick, so they discount the ask
+    // one-for-one instead of re-arming it.
+    const { covered, wildcards } = this.staffingCensus("guard");
     const uncovered = targets.filter(t => !covered.has(t));
-    if (uncovered.length === 0) {
-      this.lastSizing = { tick: ctx.tick, gate: "covered", targets: targets.length, debts };
+    const need = Math.max(0, uncovered.length - wildcards);
+    if (need === 0) {
+      this.lastSizing = {
+        tick: ctx.tick,
+        gate: "covered",
+        targets: targets.length,
+        uncovered: uncovered.length,
+        wildcards,
+        debts
+      };
       return [];
     }
 
@@ -200,11 +226,12 @@ export class RaidGuardCorp extends SpawnAnchoredCorp {
       gate: "demand",
       targets: targets.length,
       uncovered: uncovered.length,
+      wildcards,
       debts
     };
     const floor = buildGuardBody(390); // the 3-pair viable floor
 
-    return uncovered.map(() => ({
+    return Array.from({ length: need }, () => ({
       buyerCorpId: this.id,
       role: "guard" as const,
       // Ladder: above the miners' 100 band, below the reserver's 115.

@@ -54,10 +54,53 @@ function resetWorld(): void {
   (Memory as Record<string, unknown>).roomIntel = {};
 }
 
+const conformanceCommission = coreBusterKind.propose(world, [])[0];
+
 describeCorpKindConformance(coreBusterKind as never, {
   problem: world,
-  commission: coreBusterKind.propose(world, [])[0],
-  expectedSpawnPartsPerTick: 0 // auxiliary: off the planner's build-time budget
+  commission: conformanceCommission,
+  expectedSpawnPartsPerTick: 0, // auxiliary: off the planner's build-time budget
+  // Staffing world (specs 60 D + 61 rows 1-3): home spawn resolvable, ONE
+  // occupied + sourced + core-sighted remote (so an unstaffed corp WOULD
+  // demand a buster), and one buster incumbent staged exactly as executeSpawn
+  // stamps a newborn - corpId + workType only, NO targetRoom (runFleet
+  // assigns that, and only to non-spawning creeps). One body in any lifecycle
+  // state covers the one kill target, so no further demand is correct in
+  // every state - the same t72811290 double-buy class as the raid guard.
+  staffing: {
+    role: "buster",
+    stage(state) {
+      resetWorld();
+      Game.getObjectById = ((id: string) =>
+        id === "spawn1"
+          ? {
+              id: "spawn1",
+              pos: { x: 25, y: 25, roomName: HOME },
+              owner: { username: "me" },
+              room: { name: HOME, controller: { my: true, level: 3 } }
+            }
+          : null) as never;
+      (Memory as Record<string, unknown>).roomIntel = {
+        W1N2: { lastVisit: 1, sourceCount: 1, invaderReservedUntil: Game.time + 5000, invaderCorePresent: true }
+      };
+      const corp = coreBusterKind.materialize(conformanceCommission, undefined);
+      Game.creeps.b1 = {
+        name: "b1",
+        spawning: state === "spawning",
+        ticksToLive: state === "spawning" ? undefined : 1400,
+        room: { name: HOME },
+        pos: { x: 20, y: 20, roomName: HOME },
+        moveTo: () => 0,
+        attack: () => 0,
+        memory: {
+          corpId: corp.id,
+          workType: "buster",
+          ...(state === "recycling" ? { recycling: true } : {})
+        }
+      } as never;
+      return corp;
+    }
+  }
 });
 
 describe("coreBuster kind on the corp framework", () => {

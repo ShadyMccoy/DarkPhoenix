@@ -306,8 +306,22 @@ import { AccountCategory } from "../src/economy/accountCategory";
  * WORTH floors therefore rise by standing cargo (~5-11k measured) against
  * any #18 close - the only figure this stamp moves, and it moves by
  * MEASUREMENT, not re-derivation.
+ *
+ * #20 (audit t73075460): THE MINED LINE SURVIVES A COUNTER RESET. A harvest
+ * corp that is demobilized and re-commissioned returns under the same
+ * deterministic id with `produced` restarted at 0; the differencing clamp
+ * booked it as ZERO mined for the whole window, and `forgone = capacity -
+ * mined` then charged a full source-window to the account's headline
+ * forgone-mining target for every rotted counter. A reset PROVES the corp was
+ * created inside the window, so its post-reset counter is credited as a FLOOR
+ * and the reset count is disclosed beside the forgone line (the pre-reset
+ * share is unrecoverable from two captures). Measured on the t73006507 ->
+ * t73075460 pair: 3 corps reset, 3.20 e/t of a 94.62 e/t forgone line
+ * recovered. Revenue rises and forgone falls by the same amount against any
+ * #19 close - so those two lines, and nothing else, are incomparable across
+ * the stamp.
  */
-export const METHODOLOGY = 19;
+export const METHODOLOGY = 20;
 
 export interface LedgerRow {
   id: string;
@@ -2826,8 +2840,34 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
   // at 0, so `?? 0` is exact. A corp in base but not cap retired mid-window:
   // its window production is lost - an honest UNDER-count, bounded by one
   // source-window.
+  // A corp in BOTH captures whose counter went DOWN was demobilized and
+  // re-commissioned mid-window: commission ids are deterministic
+  // (`mining-{room}-harvest-{srcId}`), so the rebuild answers to the same id
+  // with its counter restarted at zero. The old `Math.max(0, ...)` booked such
+  // a corp at ZERO mined for the entire window, and since
+  // `forgone = capacity - mined` that inflated the account's headline
+  // forgone-mining target by a full source-window per rotted counter.
+  //
+  // The reset PROVES the corp was created inside this window, so all of `p`
+  // accrued here: it is a valid FLOOR, strictly better than zero. What is
+  // genuinely unrecoverable from two captures is the production BEFORE the
+  // reset - so the floor is disclosed (see the forgone line) rather than
+  // passed off as exact. Measured t73075460 over 68,953t: three corps reset
+  // (d017 80,630 -> 57,770; d019 77,170 -> 56,790; d01c 227,170 -> 106,238)
+  // booking 0.00 against a provable floor of 3.20 e/t.
   let minedRate = 0;
-  if (minedKnown) for (const [id, p] of prodCap) minedRate += Math.max(0, p - (prodBase.get(id) ?? 0)) / dt;
+  let minedResets = 0;
+  if (minedKnown) {
+    for (const [id, p] of prodCap) {
+      const b = prodBase.get(id);
+      if (b !== undefined && p < b) {
+        minedResets += 1;
+        minedRate += p / dt; // floor: the whole post-reset counter is this window's
+        continue;
+      }
+      minedRate += Math.max(0, p - (b ?? 0)) / dt;
+    }
+  }
   const grossPlan = minedKnown
     ? Math.min(grossCapacity, minedRate)
     : Math.max(0, grossCapacity - (forgoneKnown ? forgone : 0));
@@ -3134,6 +3174,13 @@ export function formatAccounts(cap: any, base: any, rows: LedgerRow[]): string {
           L("- forgone (measured: capacity - mined)", -(grossCapacity - grossPlan), 4, 0, "cost"),
           ...(forgoneKnown
             ? [`      of which the miners' pile-gate stamps explain ${forgone.toFixed(2)} e/t (heldFrac)`]
+            : []),
+          ...(minedResets > 0
+            ? [
+                `      NOTE: ${minedResets} harvest corp(s) were REBUILT mid-window (counter reset to 0); ` +
+                  `each is credited its post-reset counter as a FLOOR, so mining here is an ` +
+                  `UNDER-count and forgone an OVER-count by their pre-reset share - unrecoverable from two captures.`
+              ]
             : []),
           L("= gross mining (measured mined)", grossPlan, 4, grossCapacity),
           ...(minedClamped
