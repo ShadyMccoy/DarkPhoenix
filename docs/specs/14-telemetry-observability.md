@@ -14683,3 +14683,83 @@ decay **42.77 e/t** (was 32.34). Fiscal FY4866-M10 and FY4867-M01 closed
 the bankfeed/cross-hub path, this cycle already shipped a live-behaviour change,
 and the next cycle should start from a red test for "a spawn starved at 316e
 while a bank one room away holds 998k" rather than from a hypothesis.
+
+## Audit cycle t73006507 -> t73075460 (2026-08-14): last cycle's blocker self-healed; the INSTRUMENT was charging resets to forgone mining
+
+**The declared work item resolved itself, structurally.** Last cycle named
+"the bank does not reach the hungry spawns" and promised a red test first. Over
+the 68,953t gap the claim room MATURED and the symptom went with it:
+
+| | t73006507 | t73075460 |
+|---|---|---|
+| W43N21 storage | none | **6,626** (built one) |
+| W43N21 feederActive | false | **true** |
+| Spawn4 util / bank-idle | 0.51 / 556t | **0.82 / 185t** |
+| Spawn5 util / bank-idle | 0.57 / 421t | **0.90 / 86t** |
+| W43N23 storage | 998,850 | 821,242 (drawing down -2.58/t) |
+
+No fix was written for it: prod self-healed, and forcing last cycle's
+hypothesis into code would have been building for a world that no longer
+exists. Kept as a named class, not a patch.
+
+**A wrong turn worth recording (it nearly became the headline).** Differencing
+each harvest corp's `produced` and `delivered` across the pair gave "colony
+mines 100.38 e/t, delivers 20.89 - 79% LOST", with the home sources reading
+**0% keep**. That figure is GARBAGE and was discarded before it reached a
+conclusion: `delivered` sums a corp's INNER CarryCorps only
+(`corpsSegment.ts`), so link-served sources (cd90/cd92 evacuate by LINK) and
+sources drained by standalone `hauling-*` corps read zero BY CONSTRUCTION. The
+tell was arithmetic, not intuition - the ENERGY ACCOUNT independently says
+~100 e/t reaches the economy, so a 5x disagreement had to be the counter, not
+the colony. **Rule earned: a per-corp delivery ratio is only readable for
+sources whose evacuation is INSIDE the corp.**
+
+### The real find: `forgone mining` was charging counter resets as unmined capacity
+
+Chasing why forgone jumped 55.26 -> 94.62 e/t while the pile-gate stamps
+explained only 38.76 of it, the mined line turned out to be the problem:
+
+```js
+minedRate += Math.max(0, p - (prodBase.get(id) ?? 0)) / dt   // before
+```
+
+Its docblock covered corps ADDED mid-window (`?? 0` is exact) and corps RETIRED
+mid-window (an honest under-count) - but not a corp present in BOTH captures
+whose counter RESET. Commission ids are deterministic
+(`mining-{room}-harvest-{srcId}`), so a demobilized-and-recommissioned corp
+returns under the SAME id with `produced` restarted at 0. `Math.max(0, ...)`
+then booked it at **zero mined for the entire window**, and since
+`forgone = capacity - mined`, every rotted counter charged a full source-window
+to the account's headline target.
+
+Measured on this pair (68,953t): three corps reset - d017 80,630 -> 57,770,
+d019 77,170 -> 56,790, d01c 227,170 -> 106,238 - booking 0.00 e/t against a
+**provable floor of 3.20 e/t**.
+
+**Fixed (script-only, no bot change, no deploy).** A reset PROVES the corp was
+created inside the window, so its post-reset counter is a valid FLOOR, strictly
+better than zero; the clamp itself stays right for genuine negatives (the P8
+builder line clamps for the same reason, and its test still passes). The reset
+count is DISCLOSED beside the forgone line, because the pre-reset share is
+unrecoverable from two captures and must not be passed off as exact.
+`METHODOLOGY` 19 -> **20** in the same commit: revenue rises and forgone falls
+by exactly this amount against any #19 close, and those two lines alone are
+incomparable across the stamp.
+
+Effect on this window: forgone **94.62 -> 91.42**, gross mining
+**100.38 -> 103.58**, residual **-45.85 -> -42.65**.
+
+**Honest bound on the fix**: 3.20 of 94.62 e/t. Forgone mining is still 91.42
+e/t (47% of capacity) and still MISSES its ~0 target - the instrument was
+biased, not the whole story. What the corrected line now says cleanly is that
+~53 e/t of forgone has neither a pile-gate stamp nor a counter artifact behind
+it, and that is the next cycle's question.
+
+**Cycle verdict**: **instrumented** (the mined line survives a rebuild;
+methodology #20) + **falsified** (the delivery-ratio reading, killed by its own
+arithmetic before it shipped) + **self-healed** (last cycle's spawn-starvation
+blocker, recorded not patched). TOP LINE unchanged: L1 **35.53 e/t** named
+(pile decay 28.68, tombstones 5.11). New rows to carry forward: X6 FAIL (a
+hauler bought 24c for a 1.7c route, 14.5x), R1 at **9.90x** the priced raid tax
+(measured 13.75 e/t of attrition), and X5's fast-respawn signature
+(W43N21-hauling-4-26, 1600e at 21t).
