@@ -364,6 +364,13 @@ signal").
   measured, not argued. Greedy's known myopia (it refuses negative-now
   capex natively) is exactly what deeper search exists to fix; no ROI
   side-logic gets bolted onto depth-zero to fake it.
+  **Performance scope** (owner 2026-08-18: "optimizing performance we
+  can figure out later — as long as we have a structurally sound
+  concept"): only two performance properties are STRUCTURE — the
+  anytime budget interface and the ledger-space state bound — because
+  retrofitting either is a rewrite. Everything else (pruning strategy,
+  beam widths, depth policy, memoization) is tuning, deferred until the
+  racing harness has data. Do not gold-plate the search.
 - **The plan's form never changes with depth**: funded instances with
   their P&L, plus the blocked frontier with REASONS (the porttender
   wedge — AFFORDABLE+IDLE against a 12,900 bank for 1,804 ticks,
