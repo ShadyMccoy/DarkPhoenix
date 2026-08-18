@@ -1,0 +1,178 @@
+# REBOOT — the v2 rewrite (2026-08-18)
+
+**Owner decision 2026-08-18: "I'm ready to blow it up and start over."** The
+codebase — not the colony. The live bot keeps running the last v1 build from
+`master` untouched; this branch line rebuilds the bot from an empty `src/`.
+Everything below is the why, the boundary, and the ladder.
+
+## Where the old world lives
+
+Nothing is lost. The full v1 tree (131 src files / ~45k lines, 288 test
+files / ~64k lines) remains:
+
+- on `master` — the deployed, live bot; still the thing running on shard1
+- in git history of this branch (the demolition commit's parent)
+- readable any time: `git show master:src/economy/primitives.ts` etc.
+
+`docs/` survives **in place** as the learning archive: ONTOLOGY, the 60+
+specs, the fiscal closes, and spec 14's session records describe v1 and are
+the reference library for v2 decisions. They are records now, not law — v2
+law starts in this file.
+
+## The disease (named from v1's own records, not vibes)
+
+v1 was not failing at Screeps. It reached RCL8 and GCL 32, founded rooms
+autonomously, and closed fiscal months at 100% coverage. What it was failing
+at was **cost of change**. The evidence is v1's own paperwork:
+
+1. **Two-lens drift.** Nearly every incident class reduces to two modules
+   deriving "the same" fact differently: demand-vs-work census (`staffsPost`
+   symmetry), the upgrader valve vs the plan allocation (the sign-flipped
+   throttle of 2026-08-02), the guard demand lens blind to its own purchases
+   in the spawn pipe (t72811290, three guards bought for one room). The
+   architecture *permitted* parallel derivations, so they multiplied, and a
+   conformance suite had to be built just to police the seams.
+2. **Compensating mechanisms.** Rules added at the symptom instead of the
+   mechanism: the remote gate took two patches across two incidents before
+   the mechanism itself was questioned (238 parts stranded); the
+   stock-grounded valve was built to fix an under-stating plan and later
+   throttled a correct one. The trap list is the graveyard of these — and
+   the fact that CLAUDE.md needed a trap list at all is the finding.
+3. **Instrument sprawl.** Legibility was bolted on because it wasn't built
+   in: 64k lines of tests over 45k of src, seven telemetry segments, a
+   13k-line session log (spec 14), a waste ledger with 20 methodology
+   revisions. The measurement apparatus grew until *reading it* was the
+   session's main cost — and it still let 47% of mining capacity go forgone
+   while every gauge was green enough.
+4. **Session-ergonomics collapse.** The doctrine payload required to touch
+   v1 safely (CLAUDE.md + ONTOLOGY + the trap list + the relevant specs)
+   outgrew what a session can hold. "Each of these has burned a session" is
+   written in v1's own agent playbook. When the safe-change checklist is
+   longer than the change, the codebase is the bug.
+5. **Scale fragility.** The analysis/graph machinery heap-killed the global
+   at two-room scale (t72933848) and had to be emergency-gated behind
+   `Memory.analysisGo`. 480 nodes of world model for a 3-room colony.
+
+## What was never the problem (doctrine that carries over)
+
+The economics and the strategy were right. v2 keeps, verbatim:
+
+- **One pure planner; operators at the edge.** The ONTOLOGY shape — a pure
+  economic plan, dumb executors. v1 drifted from it; v2 enforces it
+  structurally (below).
+- **Fidelity is the objective** (owner 2026-07-30): the plan is only worth
+  what the runtime faithfully implements. A plan-vs-actual gap is a P0 bug
+  at the seam, never something to valve around.
+- **Macro doctrine:** production over consumption; fund producers, bank to
+  the warchest, consumers burn the residual.
+- **The tender is a heartbeat** (owner 2026-08-06): spawn refill is an
+  axiom, not a variable. If it looks broken, fix *it*, never compensate
+  elsewhere.
+- **The sink ladder** — spawn > new-spawn-site > claim-pump > controller >
+  construction > controller floor > storage — one ordered list, moved only
+  as a list.
+- **Measured, not vibes:** multi-draw for tempo claims (±20-30% single-draw
+  variance is measured fact), plan-vs-actual reported side by side, the
+  grid ratchet as the success metric.
+- **Value-per-intent** (GRAND_STRATEGY) as the north star, unchanged.
+
+## The bet (what v2 does differently)
+
+v2's thesis: **every v1 disease above is a structural permission, and v2
+revokes the permission instead of policing the symptom.**
+
+1. **One snapshot, one reader of the game.** A single `World` value is
+   built from `Game.*` once per tick by one module. The planner and every
+   executor read *only* `World`. No other module may touch `Game`, `Memory`
+   raw, or live objects for *reading*. Two-lens drift becomes impossible to
+   write, not just forbidden — there is one lens.
+2. **The plan is the only state.** The plan is literal: jobs (mine this
+   source with N bodies of shape B, upgrade this controller, build this
+   site) and spawn orders derived as `target − (live + in-spawn)` — one
+   subtraction, in one place, counting the spawn pipe by construction (the
+   exact class of v1's last live bug). No corp objects, no per-module
+   lifecycle state, no derived caches in Memory. Memory holds: the plan,
+   creep→job assignments, intel. A global reset must be a non-event by
+   construction: everything else rebuilds from `World` each tick.
+3. **Executors are order-takers.** A creep runs its assigned job with a
+   per-kind runner (~30 lines each). Runners decide *actions*; one applier
+   module owns movement and is the only writer of game mutations. If a
+   runner needs to "decide" something economic, that decision belongs in
+   the planner — the runner asks nothing.
+4. **Fidelity instrumented from tick one.** The plan states its expected
+   e/t; a ~30-line ledger measures actuals and prints plan-vs-actual every
+   window. That one line is the whole telemetry system until it earns more.
+   Instruments are added when a question needs one, and deleted with the
+   question.
+5. **A size budget with teeth.** v2 src stays under ~3k lines until the
+   grid says the bot has out-earned v1's early tiers. Growth happens in the
+   planner's *vocabulary* (new job kinds, new sink rungs), not in new
+   mechanisms. A change that needs a trap-list entry to be safe is the
+   wrong change.
+6. **Tests assert outcomes, not internals.** The mockup/grid harness
+   (kept — it measures `dist/main.js` and never cared what's inside)
+   stages worlds and asserts milestones: RCL reached by tick T, spawn never
+   starved, plan-vs-actual within band. Unit tests exist only for pure
+   math (primitives, planner). Nothing pins internal shapes, so a refactor
+   breaks a test only when it breaks the bot.
+
+## The demolition boundary
+
+Deleted on this branch (recoverable from `master` forever):
+
+- `src/` — all of it. v2 rebuilds from `main.ts` up.
+- `test/unit/`, the old integration assertions, `test/grid/cells/` and the
+  v1 `baseline.json` ratchet — they specified v1's internals.
+- `scripts/` probes and audits that import v1 src (diag-*, waste-ledger,
+  base-lab, sim-real-rooms, …).
+
+Kept, because it is implementation-agnostic or it is data:
+
+- the mockup harness: `test/integration/helper.ts`, world staging
+  (`loadLayout`, `startAtRcl`, scenario/mods), the grid engine
+  (`test/grid/*.ts` minus cells), `scripts/grid.ts`, `probe-mockup.js`,
+  `setup-test-env.sh` (the isolated-vm trap it guards is real and
+  environmental)
+- `test/fixtures/` — captured real rooms, telemetry snapshots, incidents
+- the toolchain: webpack build → `dist/main.js`, rollup deploy, tsconfigs
+- `telemetry-app/` — reads live public segments; v1 emits them today
+- `docs/` — the archive, plus this file
+
+Formulas are ported, not imported: when v2 needs an economic formula that
+v1 hardened (amortized body cost, decay laws, the corrected
+`CONTROLLER_LEVELS` run), port it from
+`git show master:src/economy/primitives.ts` *with its docblock*, into v2's
+own `primitives.ts`, and pin it with a unit test. Never re-derive from
+memory what v1 already paid to verify.
+
+## The ladder
+
+Each rung is a mockup-verified milestone; the grid ratchet re-arms at M6
+with a fresh v2 baseline.
+
+- **M0 — toolchain proven.** `setup:test-env` + `probe:mockup` green in
+  this environment (guards the invisible runtime-bundle failure).
+- **M1 — cold start to RCL2.** Empty room, one spawn: workmen mine, feed
+  the spawn, upgrade. No starvation, RCL2 by a pinned tick. *(This
+  session's gate.)*
+- **M2 — division of labor.** Static miner + hauler split, extensions
+  filled (the tender heartbeat), RCL3 on the two-source room.
+- **M3 — the fidelity line.** Plan-vs-actual e/t printed and within a
+  pinned band across a full draw; variance harness revived for tempo
+  claims.
+- **M4 — the economy proper.** Storage, the sink ladder in the planner,
+  construction funded from surplus, warchest banking.
+- **M5 — beyond one room.** Remote mining and the reserver, priced by the
+  same planner, no special-case gates.
+- **M6 — the grid re-armed.** v2 baseline ratcheted; BOT LEVEL becomes the
+  success metric again.
+- **M7 — the adoption question.** Only after M6: how v2 takes over the
+  live colony (adopt v1's creeps/rooms on deploy, or respawn fresh) —
+  owner's call, on evidence.
+
+## The live rule
+
+`master` is the deployed bot and stays deployable. Nothing from the v2
+line deploys to the live account until M6 is green and the owner calls M7.
+Deploy scripts remain pointed at whatever branch is checked out — so the
+guard is procedural: **do not run `push-main` from the v2 line.**
