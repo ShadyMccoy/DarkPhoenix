@@ -597,6 +597,25 @@ points. The overall concept is still very much the same").
   the tail-risk deterrence floor (an owner-set obligation constant —
   measurable hazards like invader cadence price through `safe(place)`
   instead; awaiting the owner's ruling).
+- **The founding kernel** (owner 2026-08-18: "plan on building our
+  first spawn in a room and the container or pile in a shared location
+  between the controller and the spawn"): the first spawn and the
+  bank's first branch are CO-LOCATED, sited between the controller and
+  the production side — the two forever-repeating draws (tender's
+  refill, upgrader's feed) become steps, and every production chain has
+  one terminus. The bank's tile is DESIGNATED at tick one even while it
+  is a pile (the proto-bank is a place, not just a book entry); the
+  container replaces the pile when its capex clears the hurdle like any
+  investment. Doctrine gives the shape; pricing places the tile — 
+  candidate positions score in piece 7's currency (expected
+  flow×distance over terrain; v1's tenderReach/anchor sweep re-derived
+  from the logistics currency, inheriting the late lesson that remote
+  flows join the score once intel knows them). ONE founding procedure —
+  the respawn (M7), every claim's new-spawn-site, and the milestone
+  cells all pass through the same placement function; no founding mode,
+  per piece 6. This is the layout the live v1 colony EVOLVED into at
+  RCL4+ (storage beside spawn, the hub) promoted to the shape of the
+  first spawn.
 
 ## The demolition boundary
 
