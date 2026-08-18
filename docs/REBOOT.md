@@ -231,11 +231,29 @@ base class. Three ownership rules keep row-memory honest:
   state passes a high bar: derive the phase from the world wherever
   possible; a stored phase is planner-written and earns its place.
 
-**3. Every game method has one desk** (bet #3). Reads through the
-snapshot; writes through desks, one per method family; a lint rule bans
-`Game.*` and creep/structure method calls everywhere else — revoked at
-build time, not policed in review. Desks count intents, seeding
-value-per-intent accounting at the only chokepoints it can be true.
+**3. Every game verb has ONE owner — and where a verb has one corporate
+user, the corp IS its desk** (owner 2026-08-18: "the corp is the desk —
+harvest corp harvests, spawn corp spawns"). Code organizes as one
+vertical per corp kind: `corps/mine.ts` holds the kind's pricing branch,
+its runner, and — being its only user — the codebase's only
+`creep.harvest` call; `corps/spawning.ts` operates the spawns (the only
+`spawnCreep`, executing the planner's funded order; the tender heartbeat
+lives here when it arrives) and eventually carries its own row —
+parts/tick produced vs energy consumed, spawn utilization priced like
+everything else. Everything about a business sits in one small file.
+Two guardrails survive from the owner's earlier rulings:
+- **Universal verbs have no single corporate user** — move, transfer,
+  withdraw, pickup are every kind's; they live in the one shared desk
+  (movement policy stays in one place), or the spec-60 disease returns
+  as N per-kind copies of the same contract.
+- **The ROW never gains a method.** The vertical is the kind's CODE; the
+  corp's data stays a plain row. A kind = a row shape + a file.
+Every chokepoint — vertical or shared — stamps through one counting
+substrate (`issue(creep, verb, rc)`) so intent accounting and same-tick
+clobber detection stay whole; the lint rule bans game methods outside
+registered chokepoints, wherever they sit. WHICH body to buy next stays
+the planner's funding order — the spawning corp executes it (the one v1
+seam that already worked, given its corporate name).
 
 **4. Nodes become intel + plan-time pricing; expansion is emergent**
 (owner 2026-08-18: "one of the most important goals [is] for energy and
