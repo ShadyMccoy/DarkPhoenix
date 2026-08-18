@@ -152,9 +152,14 @@ with a fresh v2 baseline.
 
 - **M0 — toolchain proven.** `setup:test-env` + `probe:mockup` green in
   this environment (guards the invisible runtime-bundle failure).
+  **LANDED 2026-08-18.**
 - **M1 — cold start to RCL2.** Empty room, one spawn: workmen mine, feed
-  the spawn, upgrade. No starvation, RCL2 by a pinned tick. *(This
-  session's gate.)*
+  the spawn, upgrade. No starvation, RCL2 by a pinned tick.
+  **LANDED 2026-08-18** (`test/integration/v2-cold-start.test.ts`: RCL2
+  inside 600 ticks on the bare two-source room; first red taught the first
+  v2 economics lesson — duty-corrected saturation ordered a 12-body ramp
+  that starved the residual, now capped in the planner with the incident
+  in `RAMP_CAP`'s docblock).
 - **M2 — division of labor.** Static miner + hauler split, extensions
   filled (the tender heartbeat), RCL3 on the two-source room.
 - **M3 — the fidelity line.** Plan-vs-actual e/t printed and within a
