@@ -551,6 +551,53 @@ Screeps. We could pick a horizon like 50,000 or 100,000 ticks.").
   (GRAND_STRATEGY's north star as the objective's adult form). No
   redesign; a denominator arrives with its measurement.
 
+**9. The bank in the middle** (owner 2026-08-18: "from the very
+beginning, split production and consumption against the bank. All my
+energy production should go into the bank — typically buffered: a
+container by the mine, a pile or container or storage in the base. We
+use those banks to fund our consumption, like capex or controller
+points. The overall concept is still very much the same").
+- **Every corp trades with the bank, never with another corp.** The
+  position book (piece 1) gets its counterparty: producers fill,
+  consumers draw, nobody meets. Every chain is cut in half at a buffer
+  — production chains run source → mouth container → bank; consumption
+  chains run bank → spawn / controller / site — and matching
+  trivializes into a fill side and a draw side coupled by the balance.
+- **The bank is one logical entity with physical branches** — mouth
+  containers, piles, base storage, later the terminal — each with its
+  own HOLDING COST: a ground pile decays (v1's L1 class, ~35 e/t at its
+  worst, becomes the bank's own cost line), a container caps at 2k,
+  storage is nearly free. Containerizing a mouth is just capex that
+  cheapens banking — piece 5 machinery, nothing new. At t0 the bank is
+  degenerate (a pile, a workman's cargo); the SPLIT lives in the books
+  from tick one, before it lives in structures.
+- **The conservation identity, asserted every window:**
+  inflow − outflow = Δbalance + decay. Production fidelity and
+  consumption fidelity are separate F1 lines that must meet in the
+  middle; any gap is by construction a measurement bug or an unpriced
+  loss, named the tick it appears. (v1's waste ledger spent 20
+  methodology revisions reconstructing this reconciliation from
+  captures and still carried a −42.65 e/t residual; v2 gets it as a
+  structural invariant.) The bank was v1's EMERGENT accounting concept
+  — bankfeed, walked fill, "the bank cannot walk there", E4, ullage —
+  promoted here from accounting fiction to structural entity.
+- **Timing decouples — more anti-thrash:** investments draw from stock,
+  not live flow; a production dip cancels nothing half-built; a
+  consumer pause stalls no miner (buffers absorb at their holding
+  cost). Decisions read the balance; flows just do their jobs.
+- **The ladder retires into the bank's draw policy** (resolving the
+  piece-8 ladder discussion): obligations draw first (heartbeat
+  solvency, the controller floor — owed, not valued), hurdle-cleared
+  capital formation draws next (the hurdle: 1 control point per energy,
+  what direct upgrading yields — so v1's growth-over-consumption
+  ordering becomes a theorem, not a decree), the controller drains the
+  residual, and the WARCHEST is the bank's reserve band. v1's
+  seven-rung list was the fossil record of exactly this structure,
+  hand-approximated before the valuation theory existed. Open, parked:
+  the tail-risk deterrence floor (an owner-set obligation constant —
+  measurable hazards like invader cadence price through `safe(place)`
+  instead; awaiting the owner's ruling).
+
 ## The demolition boundary
 
 Deleted on this branch (recoverable from `master` forever):
