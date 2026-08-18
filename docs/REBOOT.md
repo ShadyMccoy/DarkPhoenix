@@ -83,9 +83,14 @@ own paperwork:
    outgrew what a session can hold. "Each of these has burned a session" is
    written in v1's own agent playbook. When the safe-change checklist is
    longer than the change, the codebase is the bug.
-5. **Scale fragility.** The analysis/graph machinery heap-killed the global
-   at two-room scale (t72933848) and had to be emergency-gated behind
-   `Memory.analysisGo`. 480 nodes of world model for a 3-room colony.
+5. **Rebuild fragility.** The analysis machinery that re-derived the
+   node graph heap-killed the global at two-room scale (t72933848) and
+   had to be emergency-gated behind `Memory.analysisGo`. The moral is
+   NOT the node count — 480 records is nothing (owner 2026-08-18: "I
+   wouldn't worry so much about the 480 nodes") — it is that the graph
+   was DERIVED state with its own rebuild loop that could disagree with
+   the world and die trying to catch up. Persist observations freely;
+   never persist what a pure function of them can answer.
 
 ## What was never the problem (doctrine that carries over)
 
