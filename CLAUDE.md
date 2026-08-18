@@ -23,9 +23,12 @@ with a test — never re-derive from memory what v1 already paid to verify.
    demand = target − (live + in-spawn), computed in one place. No mirror
    objects, no derived caches in Memory. A global reset must be a
    non-event.
-3. **Executors take orders.** Job runners decide actions; one applier owns
-   movement and mutations. An economic decision inside a runner belongs in
-   the planner.
+3. **Runners decide; desks act** (owner 2026-08-18). Game methods are
+   called ONLY by desk modules, one per method family (spawn desk,
+   creep-act desk, …), lint-enforced; desks count intents. An economic
+   decision inside a runner belongs in the planner. REBOOT.md "The
+   planning concept" holds the full shaped design (priced flow ledger,
+   typed corp rows as corp memory, desks).
 4. **Fidelity line from tick one:** the plan prints expected e/t next to
    measured actual. A gap is a P0 at the seam — never valve around it.
 5. **Sizing is solved once** (owner 2026-08-18). Bodies are derived by ONE

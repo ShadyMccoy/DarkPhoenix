@@ -143,11 +143,19 @@ the limit; the long-term is what we are optimizing for.
    sync gaps were the bugs. The name stays "corp" — the archive speaks it
    and the business metaphor earned its keep — but the moment a corp grows
    a method or a lifecycle, that is the disease returning.
-3. **Executors are order-takers.** A creep runs its assigned job with a
-   per-kind runner (~30 lines each). Runners decide *actions*; one applier
-   module owns movement and is the only writer of game mutations. If a
-   runner needs to "decide" something economic, that decision belongs in
-   the planner — the runner asks nothing.
+3. **Executors are order-takers; DESKS act** (owner 2026-08-18: "almost
+   all the game methods are gated behind some type of accessor —
+   controlled from a single point, like how spawns are controlled").
+   Per-kind runners (~30 lines each) decide *actions*; a small set of desk
+   modules — one per game-method family (spawn desk, creep-act desk; site
+   / tower / link desks arrive with their milestones) — are the ONLY
+   callers of game methods, lint-enforced alongside the read gate. The
+   write-side twin of law #1: reads have one gate (`world.ts`), writes
+   have one desk each. Desks also COUNT INTENTS at the chokepoint — the
+   value-per-intent accounting (spec 29's keystone, never built in v1)
+   exists structurally from day one. If a runner needs to "decide"
+   something economic, that decision belongs in the planner — the runner
+   asks nothing.
 4. **Fidelity instrumented from tick one.** The plan states its expected
    e/t; a ~30-line ledger measures actuals and prints plan-vs-actual every
    window. That one line is the whole telemetry system until it earns more.
@@ -177,6 +185,56 @@ the limit; the long-term is what we are optimizing for.
    Unit tests exist only for pure math (primitives, sizing, planner).
    Nothing pins internal shapes, so a refactor breaks a test only when it
    breaks the bot.
+
+## The planning concept (shaped with the owner, 2026-08-18)
+
+The conversation that produced these is the working agreement doing its
+job: concept before code. Three pieces, one picture.
+
+**1. The plan is a priced flow ledger.** A corp is a flow: move X e/t
+from a source to a sink rung (the ladder: spawn refill, controller,
+construction, storage), with bodies the sizing module derives from route
+and rate. Every row carries its own P&L — gross e/t, cost e/t (amortized
+bodies; CPU joins later), net — so efficiency is a COLUMN, not a hope.
+Funding: *between* rungs the ladder stays a strict ordered list (the
+axiom, no magic weights); *within* funding, spawn capacity goes to flows
+in net-descending order, and a negative-net flow is never funded (the
+worth-a-body discipline, structural — a 24-CARRY hauler on a 1.7-CARRY
+route prints its own negative net before it spawns). The fidelity line
+audits per ROW: claimed net vs measured, so a wrong model shows up in the
+row that is wrong. No persistent world graph — routes derive from the
+snapshot at replan (the 480-node apparatus that heap-killed v1 is not
+rebuilt). The concept ships complete (every row always prices); the rungs
+arrive with their milestones.
+
+**2. Corp kinds are a typed union; the row is the corp's memory.**
+`Corp = MineCorp | HaulCorp | UpgradeCorp | ...` — kind-specific fields
+live on the union member, the row lives in the plan, the plan lives in
+Memory: kind-specific persistence with zero new mechanism. Inheritance is
+rejected on the record: v1's seven subclasses each implemented every
+contract their own way, spec 60's conformance suite existed to police
+them into agreement, and #173 — the last PR before the reboot — was two
+subclasses disagreeing with five others about the spawn pipe. The union
+inverts it: M dispatch functions (sizeFor / priceFor / runnerFor) with N
+compiler-checked branches; shared behavior is a shared function, never a
+base class. Three ownership rules keep row-memory honest:
+- **Derivable facts are derived** at plan time, never cached (stale-cache
+  drift is the analysis-restart incident class). Stated exception:
+  STABILITY — the planner may read the previous row to keep a multi-valued
+  choice steady across replans.
+- **Measured history lives in the ledger, keyed by corp id** — never in
+  the corp (v1's corp-owned counters produced the counter-reset phantom:
+  a recommissioned corp booked a full window of false forgone mining).
+- **Only the planner writes rows.** Executors read; the ledger measures;
+  a creep's memory is its corp id and one hysteresis bit. Workflow/stage
+  state passes a high bar: derive the phase from the world wherever
+  possible; a stored phase is planner-written and earns its place.
+
+**3. Every game method has one desk** (bet #3). Reads through the
+snapshot; writes through desks, one per method family; a lint rule bans
+`Game.*` and creep/structure method calls everywhere else — revoked at
+build time, not policed in review. Desks count intents, seeding
+value-per-intent accounting at the only chokepoints it can be true.
 
 ## The demolition boundary
 
