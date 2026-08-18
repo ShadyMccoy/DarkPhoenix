@@ -510,6 +510,47 @@ budget, so value-per-intent is won or lost here.
   pricing currency (counted from day one; priced when the racing
   harness says it binds — the deferred-CPU ruling).
 
+**8. The objective: control points over a fixed horizon — kept simple
+on purpose** (owner 2026-08-18, closing the deferred "what does 'best'
+mean": "You don't need to overcomplicate things either. It's just
+Screeps. We could pick a horizon like 50,000 or 100,000 ticks.").
+- **Terminal value: the control-point stream.** Every energy upgraded
+  advances RCL and GCL at once, and GCL survives room loss and even
+  respawn — the only output that is real in the long term. The owner's
+  earlier pin ("mining without hauling doesn't result in any
+  upgrading") was this objective peeking through.
+- **The horizon is a constant: H = 100,000 ticks, flat, nothing counts
+  beyond it.** No discounting, no meta-optimization (a horizon-racing
+  harness was proposed and rejected the same day as gold-plating). An
+  investment's value = the stream it adds within H minus its cost;
+  payback beyond H is "never" — which is the archive's own idiom
+  (TRANSPORT_NETWORK: a relocation "pays back in ~100,000 ticks — which
+  is to say never"; v1's economists used this horizon implicitly, v2
+  writes the constant down). ~66 capital generations. Lives in
+  primitives with this docblock; moved only by ruling, and the
+  investment fidelity line ("did the link pay back?") is the standing
+  check that would motivate moving it.
+- **Survival is a constraint, not a goal.** Heartbeat solvency (and
+  later defense) FILTERS portfolios; value ranks the survivors. No
+  "value of not dying" fudge terms in the objective.
+- **Everything else is instrumental**, valued through H: RCL
+  thresholds, structures, claims are worth the stream they enable —
+  never scripted goals. Goals-as-checkpoints is mode-thinking; the
+  search discovers that RCL3-by-tick-X is on the best path, nobody
+  feeds it "reach RCL3".
+- **Jurisdictions: the ladder governs operating flow; the valuation
+  governs capital formation.** This tick's energy among standing sinks
+  follows the ladder, axiomatically, no search consulted. Capital
+  formation — bodies beyond replacement, structures, claims — follows
+  valuation over H. If deep search ever disagrees with the ladder's
+  ordering, it surfaces as a FINDING for the owner; the axiom is the
+  owner's to move, never the code's.
+- **Intents are the eventual denominator**: counted from day one at
+  the desks; when the 300-CPU wall binds, the objective matures to
+  control points PER INTENT — value-per-intent, literally
+  (GRAND_STRATEGY's north star as the objective's adult form). No
+  redesign; a denominator arrives with its measurement.
+
 ## The demolition boundary
 
 Deleted on this branch (recoverable from `master` forever):
