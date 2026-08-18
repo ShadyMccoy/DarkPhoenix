@@ -231,6 +231,18 @@ base class. Three ownership rules keep row-memory honest:
   state passes a high bar: derive the phase from the world wherever
   possible; a stored phase is planner-written and earns its place.
 
+The formal shape (settled 2026-08-18, second round): **the corp class
+exists — as an interface.** `price / run / requirement`, implemented
+statelessly by each kind's vertical, held in a registry the compiler
+checks for completeness. It implements, never extends; it is never
+instantiated — **the row is the instance.** And **variants are fields,
+never subclasses**: a mine corp's evacuation tier
+(`evac: drop | container | link`, `roaded`) is row data priced by one
+formula whose terms zero out, so the SAME row — same id, same ledger
+history — re-prices when its infrastructure matures. Subclassed variants
+would churn the corp's identity at every upgrade: the counter-reset
+phantom as architecture.
+
 **3. Every game verb has ONE owner — and where a verb has one corporate
 user, the corp IS its desk** (owner 2026-08-18: "the corp is the desk —
 harvest corp harvests, spawn corp spawns"). Code organizes as one
@@ -291,6 +303,28 @@ the fusion:
   with measured attrition carries it as a cost term (the R1 lesson:
   real raid losses ran ~10× the priced guess). Slot named now, built
   when there is data.
+
+**5. Corps own their capital — and that is what builds it** (owner
+2026-08-18: "the link harvester can own a link. Actually this is what
+would drive the construction of the link"). An exclusive asset — the
+source container, the source-side link — sits on its corp's books: build
+cost as capex, the 3% link tax or decay exposure as opex, all terms in
+the row's net. Ownership is the investment engine: the delta between a
+row's current variant and its best feasible one IS the ROI of the
+missing asset, and when its payback clears the build cost, the planner
+writes a construction row VALUED BY THE OWNING CORP'S IMPROVEMENT —
+funded through the same ladder-and-net ordering as everything else.
+Links and containers order themselves where a corp's books justify
+them; no RCL-triggered build scripts. This closes a named v1 class:
+assets nobody owned — the container demolished correctly-by-its-own-
+lights while another lens counted it (spec 54), the ownerless port
+buffer (spec 56), the balance sheet's `fixed` line that read "not
+measured" forever (spec 47). Boundaries: a SHARED asset belongs to the
+corp that operates the shared function (the hub-side link to the core's
+operator — today the spawning corp; roads enter the routes that use
+them as a cost term), and a verb with two corporate users (link send:
+source corps fire, the hub relays) lives in the shared desk per piece 3,
+each caller's sends stamped to its own corp.
 
 ## The demolition boundary
 
