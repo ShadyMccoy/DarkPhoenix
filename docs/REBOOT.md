@@ -202,10 +202,11 @@ in net-descending order, and a negative-net flow is never funded (the
 worth-a-body discipline, structural — a 24-CARRY hauler on a 1.7-CARRY
 route prints its own negative net before it spawns). The fidelity line
 audits per ROW: claimed net vs measured, so a wrong model shows up in the
-row that is wrong. No persistent world graph — routes derive from the
-snapshot at replan (the 480-node apparatus that heap-killed v1 is not
-rebuilt). The concept ships complete (every row always prices); new sinks
-arrive with their milestones.
+row that is wrong. No persistent DERIVED graph — routes, candidates and
+ROI derive at replan; what persists is observed INTEL (piece 4, which
+also holds why the 480-node apparatus is not coming back). The concept
+ships complete (every row always prices); new sinks arrive with their
+milestones.
 
 **2. Corp kinds are a typed union; the row is the corp's memory.**
 `Corp = MineCorp | HaulCorp | UpgradeCorp | ...` — kind-specific fields
@@ -235,6 +236,43 @@ snapshot; writes through desks, one per method family; a lint rule bans
 `Game.*` and creep/structure method calls everywhere else — revoked at
 build time, not policed in review. Desks count intents, seeding
 value-per-intent accounting at the only chokepoints it can be true.
+
+**4. Nodes become intel + plan-time pricing; expansion is emergent**
+(owner 2026-08-18: "one of the most important goals [is] for energy and
+corps to emergently 'flow' to new rooms"). v1's Node fused two things:
+observed facts and derived structure. The facts cannot be recomputed
+(vision is only where creeps are) so they persist; the structure can be
+recomputed, and v1 persisted it anyway — hence 480 nodes for 3 rooms,
+analysis passes to rebuild them, and the t72933848 heap-kill. v2 splits
+the fusion:
+- **Intel is what the one lens remembers seeing**: a flat record per SEEN
+  room — sources, controller state, hostiles, timestamp — written at the
+  read gate as a side effect of looking (`world.ts` is intel's one
+  writer). Facts only, never interpretations; everything derived happens
+  at plan time, windowed to reach. No analysis pass exists, so the class
+  that heap-killed v1 has nothing to kill. "Node" as a word retires with
+  the fusion.
+- **Emergence is the funding order, not a mechanism.** A remote source is
+  a mine row with a longer route and lower net; when home sources
+  saturate, the best unfunded row is in the next room, and corps flow
+  outward because the profitable frontier moved. Reservation is a
+  supporting row that doubles a remote's gross for a claimer's cost; a
+  claim is an investment flow toward the `new-spawn-site` sink the ladder
+  already holds. v1 needed spec 06 and hand-staged campaigns; v2's
+  version is a sort order.
+- **Scouting is the second stated exception** (stability is the first):
+  information cannot be priced by the nets it has not yet revealed, so
+  exploration is funded as COVERAGE — intel within reach kept fresher
+  than a horizon — axiom-priced like the tender heartbeat, and declared
+  as such rather than dressed up as emergent.
+- **Commute is a cost column, not a mechanism.** Bodies may spawn far
+  and walk (v1's bankfeed / walked fill, which founded W43N24 and
+  W43N21, become plain rows): a body that commutes C ticks amortizes
+  over 1500−C. The sketch's spawn-in-own-room assumption dies by M5.
+- **Risk joins the P&L when measured.** Intel records hostiles; a route
+  with measured attrition carries it as a cost term (the R1 lesson:
+  real raid losses ran ~10× the priced guess). Slot named now, built
+  when there is data.
 
 ## The demolition boundary
 
