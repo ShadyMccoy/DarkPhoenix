@@ -467,6 +467,49 @@ signal").
   BootstrapCorp class and the special-path interaction bug family (the
   emergency hold that silently blocked zero-node worlds).
 
+**7. Logistics is the war** (owner 2026-08-18: "most of the CPU and
+spawning is for carrying energy. We want to win on logistics… it's part
+of the dependency chain to cover distances"). The stakes in the live
+colony's own census: 1,068 of 2,127 standing body parts are CARRY —
+half the empire's mass is transport, and movement dominates the intent
+budget, so value-per-intent is won or lost here.
+- **Distance is a provisioned good, priced in one currency:** cost per
+  e/t·tile. Bodies pay PER TILE (terrain- and road-modified; v1
+  hardened 0.26%/tile), links pay FLAT per hop (3% + capex), terminals
+  flat per room (3.33%). Break-even distances fall out of the quotes
+  and the engine segments the network automatically — the pricing IS
+  the sophistication; no logistics module decides anything.
+- **Distance closes the dependency chain:** a gap resolves as
+  gap → transport candidate →
+  `carryParts(flow, distance, terrain, roaded)` → `spawnTime`. That
+  function is THE logistics formula — #148's route-sizing law
+  generalized — owned by the one sizing module and exhaustively
+  pinned. Most of what spawns, spawns because of distance; the chain
+  says so explicitly.
+- **Network design emerges across replans, without a network solver:**
+  every funded chain carries a route; routes overlay into a TRAFFIC
+  MAP; traffic generates next replan's infrastructure candidates (a
+  road segment's ROI = crossing flow × per-tile savings − upkeep; a
+  link candidate appears where flow × distance clears break-even;
+  containers at mouths; hub placement later, same overlay).
+  Plan-to-plan continuity like the stability rule — never map-state
+  inside the search — and sunk capital anti-thrashes the loop.
+- **The plan sizes fleets; the vertical dispatches them.** Plan-time:
+  how many CARRY parts exist for these gaps. Run-time, inside the haul
+  vertical, invisible behind the position-book boundary: which creep
+  goes where this tick — pooling, consolidation, backhaul (the empty
+  return leg is wasted capacity; spec 49's class). Dispatch can grow
+  sophisticated without the planner growing a line.
+- **The winning metric,** in the fidelity line from the day transport
+  lands: delivered e/t per CARRY part and per movement intent — the
+  desks already count the intents. v1's duty/idle taxonomy (H1,
+  atSink/enRoute) is the diagnostic archive, ported the day the number
+  disappoints.
+- **Open, deliberately:** dispatch algorithm quality (execution detail,
+  measured later, behind the boundary) and when intent COST enters the
+  pricing currency (counted from day one; priced when the racing
+  harness says it binds — the deferred-CPU ruling).
+
 ## The demolition boundary
 
 Deleted on this branch (recoverable from `master` forever):
