@@ -18,11 +18,11 @@ with a test — never re-derive from memory what v1 already paid to verify.
    or raw `Memory`. Planner and executors read only the `World` value. A
    second lens on the same fact is the v1 disease — don't write one.
 2. **The plan is the only state — and the plan IS the corps.** One
-   representation per thing (owner 2026-08-18): a corp is a row in the
-   plan (`Plan = { corps: Corp[] }`), never a class with a lifecycle;
-   demand = target − (live + in-spawn), computed in one place. No mirror
-   objects, no derived caches in Memory. A global reset must be a
-   non-event.
+   representation per thing (owner 2026-08-18): a corp instance is a
+   plain data record in the plan (`Plan = { corps: Corp[] }`), never an
+   object with a lifecycle; demand = target − (live + in-spawn), computed
+   in one place. No mirror objects, no derived caches in Memory. A global
+   reset must be a non-event.
 3. **Every game verb has one owner** (owner 2026-08-18: "harvest corp
    harvests, spawn corp spawns"). A verb with one corporate user lives in
    that corp kind's vertical (`corps/<kind>.ts` — pricing, runner, and

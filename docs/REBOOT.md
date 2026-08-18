@@ -134,11 +134,11 @@ the limit; the long-term is what we are optimizing for.
    **The corp and the plan are the same thing** (owner ruling 2026-08-18:
    "we don't want duplicate code or objects that represent the same thing
    — the plan and the corporation should kind of be the same thing"). One
-   representation per thing, the general form of law #1: a corp IS a row
+   representation per thing, the general form of law #1: a corp IS an instance
    in the plan — target, body, source, route, expected e/t — and the plan
    is nothing but the corps ledger (`Plan = { corps: Corp[] }`). A creep's
    memory names the corp that employs it; the census counts those
-   pointers; the spawner buys toward the row's target. v1 kept three
+   pointers; the spawner buys toward the instance's target. v1 kept three
    representations in sync (commission, corp object, census view) and the
    sync gaps were the bugs. The name stays "corp" — the archive speaks it
    and the business metaphor earned its keep — but the moment a corp grows
@@ -194,7 +194,7 @@ job: concept before code. Three pieces, one picture.
 **1. The plan is a priced flow ledger.** A corp is a flow: move X e/t
 from a source to a SINK — one of the ladder's steps: spawn refill,
 controller, construction, storage — with bodies the sizing module derives
-from route and rate. Every row carries its own P&L — gross e/t, cost e/t (amortized
+from route and rate. Every instance carries its own P&L — gross e/t, cost e/t (amortized
 bodies; CPU joins later), net — so efficiency is a COLUMN, not a hope.
 Funding: *between* sinks the ladder stays a strict ordered list (the
 axiom, no magic weights); *within* funding, spawn capacity goes to flows
@@ -202,15 +202,15 @@ in net-descending order, and a negative-net flow is never funded (the
 worth-a-body discipline, structural — a 24-CARRY hauler on a 1.7-CARRY
 route prints its own negative net before it spawns). The fidelity line
 audits per ROW: claimed net vs measured, so a wrong model shows up in the
-row that is wrong. No persistent DERIVED graph — routes, candidates and
+instance that is wrong. No persistent DERIVED graph — routes, candidates and
 ROI derive at replan; what persists is observed INTEL (piece 4, which
 also holds why the 480-node apparatus is not coming back). The concept
-ships complete (every row always prices); new sinks arrive with their
+ships complete (every instance always prices); new sinks arrive with their
 milestones.
 
-**2. Corp kinds are a typed union; the row is the corp's memory.**
+**2. Corp kinds are a typed union; the instance is the corp's memory.**
 `Corp = MineCorp | HaulCorp | UpgradeCorp | ...` — kind-specific fields
-live on the union member, the row lives in the plan, the plan lives in
+live on the union member, the instance lives in the plan, the plan lives in
 Memory: kind-specific persistence with zero new mechanism. Inheritance is
 rejected on the record: v1's seven subclasses each implemented every
 contract their own way, spec 60's conformance suite existed to police
@@ -218,15 +218,15 @@ them into agreement, and #173 — the last PR before the reboot — was two
 subclasses disagreeing with five others about the spawn pipe. The union
 inverts it: M dispatch functions (sizeFor / priceFor / runnerFor) with N
 compiler-checked branches; shared behavior is a shared function, never a
-base class. Three ownership rules keep row-memory honest:
+base class. Three ownership rules keep instance-memory honest:
 - **Derivable facts are derived** at plan time, never cached (stale-cache
   drift is the analysis-restart incident class). Stated exception:
-  STABILITY — the planner may read the previous row to keep a multi-valued
+  STABILITY — the planner may read the previous instance to keep a multi-valued
   choice steady across replans.
 - **Measured history lives in the ledger, keyed by corp id** — never in
   the corp (v1's corp-owned counters produced the counter-reset phantom:
   a recommissioned corp booked a full window of false forgone mining).
-- **Only the planner writes rows.** Executors read; the ledger measures;
+- **Only the planner writes instances.** Executors read; the ledger measures;
   a creep's memory is its corp id and one hysteresis bit. Workflow/stage
   state passes a high bar: derive the phase from the world wherever
   possible; a stored phase is planner-written and earns its place.
@@ -235,13 +235,15 @@ The formal shape (settled 2026-08-18, second round): **the corp class
 exists — as an interface.** `price / run / requirement`, implemented
 statelessly by each kind's vertical, held in a registry the compiler
 checks for completeness. It implements, never extends; it is never
-instantiated — **the row is the instance.** And **variants are fields,
-never subclasses**: a mine corp's evacuation tier
-(`evac: drop | container | link`, `roaded`) is row data priced by one
-formula whose terms zero out, so the SAME row — same id, same ledger
-history — re-prices when its infrastructure matures. Subclassed variants
-would churn the corp's identity at every upgrade: the counter-reset
-phantom as architecture.
+constructed at runtime — **the CORP INSTANCE is a plain data record in
+the plan** (owner naming, third round: "corp instance"; "row" retired as
+vague). The class is behavior, the instance is data, the plan is the set
+of living instances. And **variants are fields, never subclasses**: a
+mine corp's evacuation tier (`evac: drop | container | link`, `roaded`)
+is instance data priced by one formula whose terms zero out, so the SAME
+instance — same id, same ledger history — re-prices when its
+infrastructure matures. Subclassed variants would churn the corp's
+identity at every upgrade: the counter-reset phantom as architecture.
 
 **3. Every game verb has ONE owner — and where a verb has one corporate
 user, the corp IS its desk** (owner 2026-08-18: "the corp is the desk —
@@ -250,7 +252,7 @@ vertical per corp kind: `corps/mine.ts` holds the kind's pricing branch,
 its runner, and — being its only user — the codebase's only
 `creep.harvest` call; `corps/spawning.ts` operates the spawns (the only
 `spawnCreep`, executing the planner's funded order; the tender heartbeat
-lives here when it arrives) and eventually carries its own row —
+lives here when it arrives) and eventually carries its own instance —
 parts/tick produced vs energy consumed, spawn utilization priced like
 everything else. Everything about a business sits in one small file.
 Two guardrails survive from the owner's earlier rulings:
@@ -259,7 +261,7 @@ Two guardrails survive from the owner's earlier rulings:
   (movement policy stays in one place), or the spec-60 disease returns
   as N per-kind copies of the same contract.
 - **The ROW never gains a method.** The vertical is the kind's CODE; the
-  corp's data stays a plain row. A kind = a row shape + a file.
+  corp's data stays a plain instance. A kind = an instance shape + a file.
 Every chokepoint — vertical or shared — stamps through one counting
 substrate (`issue(creep, verb, rc)`) so intent accounting and same-tick
 clobber detection stay whole; the lint rule bans game methods outside
@@ -283,10 +285,10 @@ the fusion:
   that heap-killed v1 has nothing to kill. "Node" as a word retires with
   the fusion.
 - **Emergence is the funding order, not a mechanism.** A remote source is
-  a mine row with a longer route and lower net; when home sources
-  saturate, the best unfunded row is in the next room, and corps flow
+  a mine instance with a longer route and lower net; when home sources
+  saturate, the best unfunded instance is in the next room, and corps flow
   outward because the profitable frontier moved. Reservation is a
-  supporting row that doubles a remote's gross for a claimer's cost; a
+  supporting instance that doubles a remote's gross for a claimer's cost; a
   claim is an investment flow toward the `new-spawn-site` sink the ladder
   already holds. v1 needed spec 06 and hand-staged campaigns; v2's
   version is a sort order.
@@ -297,7 +299,7 @@ the fusion:
   as such rather than dressed up as emergent.
 - **Commute is a cost column, not a mechanism.** Bodies may spawn far
   and walk (v1's bankfeed / walked fill, which founded W43N24 and
-  W43N21, become plain rows): a body that commutes C ticks amortizes
+  W43N21, become plain instances): a body that commutes C ticks amortizes
   over 1500−C. The sketch's spawn-in-own-room assumption dies by M5.
 - **Risk joins the P&L when measured.** Intel records hostiles; a route
   with measured attrition carries it as a cost term (the R1 lesson:
@@ -309,10 +311,10 @@ the fusion:
 would drive the construction of the link"). An exclusive asset — the
 source container, the source-side link — sits on its corp's books: build
 cost as capex, the 3% link tax or decay exposure as opex, all terms in
-the row's net. Ownership is the investment engine: the delta between a
-row's current variant and its best feasible one IS the ROI of the
+the instance's net. Ownership is the investment engine: the delta between a
+corp instance's current variant and its best feasible one IS the ROI of the
 missing asset, and when its payback clears the build cost, the planner
-writes a construction row VALUED BY THE OWNING CORP'S IMPROVEMENT —
+writes a construction instance VALUED BY THE OWNING CORP'S IMPROVEMENT —
 funded through the same ladder-and-net ordering as everything else.
 Links and containers order themselves where a corp's books justify
 them; no RCL-triggered build scripts. This closes a named v1 class:
@@ -325,6 +327,58 @@ operator — today the spawning corp; roads enter the routes that use
 them as a cost term), and a verb with two corporate users (link send:
 source corps fire, the hub relays) lives in the shared desk per piece 3,
 each caller's sends stamped to its own corp.
+
+**6. The planner is a budgeted search engine over the ledger — and
+bootstrap is its first test, with no special mode** (owner 2026-08-18:
+corp instances have inputs and outputs, so "we want a GOAP or A*-style
+graph search of possible corp combinations to find the best one"; and
+on bootstrap: "a special mode would defeat the point and blur out the
+signal").
+- **Distributed pricing, tiny shared vocabulary.** Verticals price; the
+  engine only combines. Every corp instance declares `requires` and
+  `provides` from a deliberately frozen vocabulary — `spawnTime(p/t)`,
+  `energyAt(place, e/t)`, `asset(id)` to start; risk joins when measured
+  (piece 4). Growing this vocabulary is a constitutional event. The
+  engine holds no domain knowledge, so it cannot accumulate case logic —
+  it is too small to hide anything in.
+- **It searches the LEDGER space, never the map**: stocks, flows,
+  capacities, standing assets. Positions stay inside `price()`; the
+  moment tiles enter the search state, the 480-node apparatus is being
+  rebuilt inside the planner.
+- **Anytime and budgeted** (the t72933848 rule): a CPU/node budget in,
+  best-found-so-far out. The physical caps in primitives are admissible
+  optimistic bounds; dominance between portfolios prunes. **Depth is a
+  dial, and depth-zero IS the greedy clearing loop** — the early game
+  runs shallow; depth turns up where decisions branch (variants, capex
+  timing, claims). Lookahead must EARN its CPU: depths race in the grid
+  on staged scenarios, value found per CPU spent — planner quality is
+  measured, not argued. Greedy's known myopia (it refuses negative-now
+  capex natively) is exactly what deeper search exists to fix; no ROI
+  side-logic gets bolted onto depth-zero to fake it.
+- **The plan's form never changes with depth**: funded instances with
+  their P&L, plus the blocked frontier with REASONS (the porttender
+  wedge — AFFORDABLE+IDLE against a 12,900 bank for 1,804 ticks,
+  diagnosed forensically — becomes one printed line on the tick it
+  happens). The search is an implementation behind the plan, never a
+  black box instead of it; the fidelity line audits every depth the
+  same way.
+- **Incumbency is an engine semantic, not a courtesy**: a funded
+  instance keeps its funding unless a challenger clears it by a margin
+  (pinned from measurement). Same world + same ledger = same plan:
+  stable ordering everywhere, so plan diffs mean something.
+- **Deferred together by the owner**: the objective ("more on what
+  'best' means later") and the horizon it is evaluated over — one
+  conversation, to be had with the racing harness in hand.
+- **Bootstrap: the ordinary engine on an empty ledger.** One affordable
+  root instance (a floor-priced workman whose `requires` a bare spawn
+  meets), then the cascade — the same engine, unchanged, runs the RCL1
+  first tick and the GCL-32 empire. No cold-start flag exists in src for
+  a branch to read; cold and warm worlds enter the same entry point, and
+  the milestone cell asserts it. The survival sizing law is NOT a mode —
+  it is a pricing rule inside `price()` that parameterizes the root
+  candidate; the engine never knows the colony is newborn. Kills v1's
+  BootstrapCorp class and the special-path interaction bug family (the
+  emergency hold that silently blocked zero-node worlds).
 
 ## The demolition boundary
 
