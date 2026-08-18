@@ -585,6 +585,24 @@ points. The overall concept is still very much the same").
   not live flow; a production dip cancels nothing half-built; a
   consumer pause stalls no miner (buffers absorb at their holding
   cost). Decisions read the balance; flows just do their jobs.
+- **Plan in rates; stocks are jitter and alarms** (owner 2026-08-18:
+  "containers are too small to plan against — the ullage is too small;
+  we have to virtualize its capacity based on the production and
+  consumption rates"). A branch enters the plan as a STOCK only when
+  its time constant (capacity / flow through it) exceeds the planning
+  scale; otherwise it is a RATE JUNCTION the plan sees as (in-rate,
+  out-rate) with the job of keeping them matched. Mouth container:
+  2,000/10 e/t ≈ 200t → junction (the physical 2k smooths jitter and
+  fills hauler loads — execution's business). Storage: 1M/~20 e/t ≈
+  50,000t → stock (the warchest band, investment funding). The spawn's
+  300 classifies itself as the rate obligation the heartbeat always
+  was. One formula sorts every branch. The inversion is the payoff:
+  instantaneous container level EXITS the decision loop (v1's
+  three-worlds scar — core v37 sourceMouth: zero meant just-emptied,
+  never-filled, or overflowing — came from reading it) and enters the
+  ALARM loop: a stock trending monotonically across windows is a rate
+  mismatch, a plan-vs-actual gap, a P0 at the seam; overflow decay
+  self-reports through the conservation identity.
 - **The ladder retires into the bank's draw policy** (resolving the
   piece-8 ladder discussion): obligations draw first (heartbeat
   solvency, the controller floor — owed, not valued), hurdle-cleared
