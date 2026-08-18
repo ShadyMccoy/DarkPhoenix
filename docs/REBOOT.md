@@ -203,7 +203,26 @@ is piece 6's job, and the funded plan RECORDS each chain's flow edges
 per-stage without ownership. Ownership would have fragmented the hauler
 fleet per mine — the CARRY-sliver class v1 measured and killed (#150);
 a pooled haul instance serving several sources is natural under
-composition and impossible under ownership. Every instance carries its own P&L — gross e/t, cost e/t (amortized
+composition and impossible under ownership.
+
+**Corps trade in POSITIONS; transport clears the position book** (owner
+2026-08-18: "corps require hauling implicitly to cover energy + and −
+position gaps — but that could be provided in various concrete
+implementations and optimizations without affecting other corps
+directly"). A + position is energy provided at a place, a − position
+energy required there; transport demand is DERIVED from the netted gaps
+per place, never declared by name — no corp ever asks for a hauler.
+Whatever can move energy offers to cover gaps at its own price and
+constraints: haul corps, link corps, later the terminal (3.33%/room,
+v1-hardened) and the walked-bankfeed pattern — each a new kind plus a
+registry entry, touching no other corp. The boundary buys three things:
+extension without contact (what inheritance was reached for, delivered
+by the market); transport-internal optimization invisible to the rest
+of the economy (pooling, consolidation, backhaul — the spec-49 class,
+cleared inside the service); and an implementation-blind transport
+audit (the fidelity line measures gap coverage per place, identical
+whether bodies, links, or terminals moved it — swaps are safe because
+the instrument doesn't move). Every instance carries its own P&L — gross e/t, cost e/t (amortized
 bodies; CPU joins later), net — so efficiency is a COLUMN, not a hope.
 Funding: *between* sinks the ladder stays a strict ordered list (the
 axiom, no magic weights); *within* funding, spawn capacity goes to flows
@@ -419,7 +438,9 @@ signal").
 - **Chains are assembled backward from sinks** (GOAP's own move —
   search from the goal): progress needs `energyAt(controller)`, a haul
   stage provides it and requires `energyAt(source)`, a mine stage
-  provides that. The engine composes chains from independent instances
+  provides that. The clearing step NETS positions per place first
+  (piece 1's position book), then matches + to − through transport
+  candidates. The engine composes chains from independent instances
   and prices them END-TO-END — gross at the sink minus every stage's
   cost. Chains are 2–3 hops, so composition is cheap; an edge realized
   by link instead of bodies drops the fleet from that hop's cost
