@@ -191,10 +191,19 @@ the limit; the long-term is what we are optimizing for.
 The conversation that produced these is the working agreement doing its
 job: concept before code. Three pieces, one picture.
 
-**1. The plan is a priced flow ledger.** A corp is a flow: move X e/t
-from a source to a SINK — one of the ladder's steps: spawn refill,
-controller, construction, storage — with bodies the sizing module derives
-from route and rate. Every instance carries its own P&L — gross e/t, cost e/t (amortized
+**1. The plan is a priced flow ledger.** A corp instance is a STAGE of a
+flow — mining produces at a source, hauling moves, upgrading consumes at
+a sink (the ladder's steps: spawn refill, controller, construction,
+storage) — with bodies the sizing module derives from route and rate.
+The source→sink FLOW is a CHAIN the engine composes from independent
+stages (amended 2026-08-18, owner: "mining doesn't have to own the
+hauling — that might have been a convenient hack"); chain composition
+is piece 6's job, and the funded plan RECORDS each chain's flow edges
+(mine A → haul B → controller), so fidelity audits end-to-end and
+per-stage without ownership. Ownership would have fragmented the hauler
+fleet per mine — the CARRY-sliver class v1 measured and killed (#150);
+a pooled haul instance serving several sources is natural under
+composition and impossible under ownership. Every instance carries its own P&L — gross e/t, cost e/t (amortized
 bodies; CPU joins later), net — so efficiency is a COLUMN, not a hope.
 Funding: *between* sinks the ladder stays a strict ordered list (the
 axiom, no magic weights); *within* funding, spawn capacity goes to flows
@@ -366,9 +375,25 @@ signal").
   instance keeps its funding unless a challenger clears it by a margin
   (pinned from measurement). Same world + same ledger = same plan:
   stable ordering everywhere, so plan diffs mean something.
+- **Chains are assembled backward from sinks** (GOAP's own move —
+  search from the goal): progress needs `energyAt(controller)`, a haul
+  stage provides it and requires `energyAt(source)`, a mine stage
+  provides that. The engine composes chains from independent instances
+  and prices them END-TO-END — gross at the sink minus every stage's
+  bodies. Chains are 2–3 hops, so composition is cheap; a mine's
+  link variant simply deletes the haul stage from every chain through
+  its source (piece 5's ROI, restated).
 - **Deferred together by the owner**: the objective ("more on what
   'best' means later") and the horizon it is evaluated over — one
-  conversation, to be had with the racing harness in hand.
+  conversation, to be had with the racing harness in hand. One property
+  is pinned already (owner 2026-08-18: "mining without hauling doesn't
+  qualify as 'best' because it doesn't result in any upgrading"):
+  **value is realized at sinks only — production has no standalone
+  worth**; energy standing at a source is decay-exposed inventory, not
+  wealth. Corollary self-test: v1's "production over consumption"
+  doctrine must EMERGE from the objective (sinks cannot realize value
+  unsupplied), never be hand-coded; if it fails to emerge, the
+  objective is wrong.
 - **Bootstrap: the ordinary engine on an empty ledger.** One affordable
   root instance (a floor-priced workman whose `requires` a bare spawn
   meets), then the cascade — the same engine, unchanged, runs the RCL1
