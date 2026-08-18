@@ -5,6 +5,12 @@ codebase — not the colony. The live bot keeps running the last v1 build from
 `master` untouched; this branch line rebuilds the bot from an empty `src/`.
 Everything below is the why, the boundary, and the ladder.
 
+Revised later the same day in planning conversation with the owner — the
+dated rulings quoted through this document are that conversation's record,
+and the working agreement at the bottom governs how milestones proceed:
+**acceptance criteria are agreed with the owner before code is written
+toward them.**
+
 ## Where the old world lives
 
 Nothing is lost. The full v1 tree (131 src files / ~45k lines, 288 test
@@ -23,7 +29,35 @@ law starts in this file.
 
 v1 was not failing at Screeps. It reached RCL8 and GCL 32, founded rooms
 autonomously, and closed fiscal months at 100% coverage. What it was failing
-at was **cost of change**. The evidence is v1's own paperwork:
+at was **cost of change**. The owner's naming of it (2026-08-18): *"We kept
+thrashing with corporations that didn't have the right size bodies. That
+should've been a fundamentally solved issue. How come we have 64k lines of
+tests, but none of them seem to catch this?"*
+
+**Body sizing is the emblematic case.** The record shows the same defect
+landing repeatedly at new sites — haulers sized to spawn capacity instead
+of route (#148), the runt-miner equilibrium (spec 01), tanker
+over-provisioning (2026-07-27), a 24-CARRY hauler bought for a 1.7-CARRY
+route (X6, 2026-08-14, *after* the #148 fix) — while the test estate
+stayed green throughout. Why it missed, structurally:
+
+- **Tests pinned intentions, not economics.** A sizing test asserted the
+  code computed what the formula said. When the formula was the bug, the
+  test certified the bug — every wrong sizing rule shipped with a green
+  test enshrining it.
+- **Sizing derived in many places, so no test could own it.** Each corp
+  kind sized its own bodies from its own inputs; route, income, duty and
+  spawn capacity were never one function's job, so nothing could be
+  exhaustively pinned.
+- **Wrong bodies don't fail — they waste.** A 14.5×-oversized hauler
+  crashes nothing and still reaches the milestone in a staged world, so
+  both the unit suite and the "colony survives" integration tests pass
+  over it. Only the live waste ledger ever caught these — every sizing bug
+  in the archive has a live t-stamp and none has a test name. The estate
+  had no **economic oracle**.
+
+The general form, of which sizing is one instance — the evidence is v1's
+own paperwork:
 
 1. **Two-lens drift.** Nearly every incident class reduces to two modules
    deriving "the same" fact differently: demand-vs-work census (`staffsPost`
@@ -79,7 +113,10 @@ The economics and the strategy were right. v2 keeps, verbatim:
 ## The bet (what v2 does differently)
 
 v2's thesis: **every v1 disease above is a structural permission, and v2
-revokes the permission instead of policing the symptom.**
+revokes the permission instead of policing the symptom.** The objective
+the structure serves, in the owner's words (2026-08-18): **"we are chasing
+efficiency"** — energy not wasted on wrong bodies now, value-per-intent at
+the limit; the long-term is what we are optimizing for.
 
 1. **One snapshot, one reader of the game.** A single `World` value is
    built from `Game.*` once per tick by one module. The planner and every
@@ -94,6 +131,10 @@ revokes the permission instead of policing the symptom.**
    lifecycle state, no derived caches in Memory. Memory holds: the plan,
    creep→job assignments, intel. A global reset must be a non-event by
    construction: everything else rebuilds from `World` each tick.
+   **The corp survives as an idea, not an object** (owner-confirmed
+   2026-08-18): a priced unit of economic activity is a ROW in the plan —
+   target, body, route, expected e/t — never a thing that manages its own
+   lifecycle. The lifecycles are where the census and sizing drift lived.
 3. **Executors are order-takers.** A creep runs its assigned job with a
    per-kind runner (~30 lines each). Runners decide *actions*; one applier
    module owns movement and is the only writer of game mutations. If a
@@ -104,17 +145,30 @@ revokes the permission instead of policing the symptom.**
    window. That one line is the whole telemetry system until it earns more.
    Instruments are added when a question needs one, and deleted with the
    question.
-5. **A size budget with teeth.** v2 src stays under ~3k lines until the
+5. **Sizing is solved once** (owner ruling 2026-08-18: "that should've
+   been a fundamentally solved issue"). A body is derived by exactly ONE
+   pure module — (job's work requirement, route distance, energy budget)
+   → body — and every job kind calls it; a second sizing site anywhere in
+   src is the thrash coming back. The economics live inside it
+   (route-based CARRY, saturation-based WORK, the worth-a-body floor),
+   and it carries the exhaustive unit suite, pinned forever.
+6. **A size budget with teeth.** v2 src stays under ~3k lines until the
    grid says the bot has out-earned v1's early tiers. Growth happens in the
    planner's *vocabulary* (new job kinds, new sink rungs), not in new
    mechanisms. A change that needs a trap-list entry to be safe is the
    wrong change.
-6. **Tests assert outcomes, not internals.** The mockup/grid harness
-   (kept — it measures `dist/main.js` and never cared what's inside)
-   stages worlds and asserts milestones: RCL reached by tick T, spawn never
-   starved, plan-vs-actual within band. Unit tests exist only for pure
-   math (primitives, planner). Nothing pins internal shapes, so a refactor
-   breaks a test only when it breaks the bot.
+7. **Tests assert outcomes — WITH an economic oracle.** Survival alone is
+   the v1 oracle failure: wrong bodies don't fail, they waste, and every
+   staged world limps to its milestone anyway. So every milestone test
+   asserts efficiency too: (a) structural sanity — no spawned body whose
+   capability exceeds what the sizing module derives for its job,
+   recomputed independently in the test (the assertion that would have
+   caught the 24-CARRY hauler, by name); (b) a fidelity band —
+   plan-vs-actual e/t within a range pinned from a multi-draw baseline
+   (±20-30% single-draw variance is measured fact; no vibes numbers).
+   Unit tests exist only for pure math (primitives, sizing, planner).
+   Nothing pins internal shapes, so a refactor breaks a test only when it
+   breaks the bot.
 
 ## The demolition boundary
 
@@ -155,11 +209,15 @@ with a fresh v2 baseline.
   **LANDED 2026-08-18.**
 - **M1 — cold start to RCL2.** Empty room, one spawn: workmen mine, feed
   the spawn, upgrade. No starvation, RCL2 by a pinned tick.
-  **LANDED 2026-08-18** (`test/integration/v2-cold-start.test.ts`: RCL2
+  **LANDED 2026-08-18 as a survival gate** (`v2-cold-start.test.ts`: RCL2
   inside 600 ticks on the bare two-source room; first red taught the first
   v2 economics lesson — duty-corrected saturation ordered a 12-body ramp
   that starved the residual, now capped in the planner with the incident
-  in `RAMP_CAP`'s docblock).
+  in `RAMP_CAP`'s docblock). **DRAFT under the same day's rulings:** a
+  survival-only gate is the v1 oracle failure, so before M2 opens, this
+  cell gains the economic oracle — the structural sizing assertion and a
+  fidelity band pinned from a multi-draw baseline (bet #7). Criteria to be
+  owner-approved per the working agreement.
 - **M2 — division of labor.** Static miner + hauler split, extensions
   filled (the tender heartbeat), RCL3 on the two-source room.
 - **M3 — the fidelity line.** Plan-vs-actual e/t printed and within a
@@ -171,9 +229,30 @@ with a fresh v2 baseline.
   same planner, no special-case gates.
 - **M6 — the grid re-armed.** v2 baseline ratcheted; BOT LEVEL becomes the
   success metric again.
-- **M7 — the adoption question.** Only after M6: how v2 takes over the
-  live colony (adopt v1's creeps/rooms on deploy, or respawn fresh) —
-  owner's call, on evidence.
+- **M7 — the respawn.** Settled in advance (owner 2026-08-18: "we can
+  respawn the live colony if necessary — we're looking for the long-term"):
+  when M6 is green, v2 goes live by RESPAWN, fresh ground, cold start on
+  its own proven rails. Adoption-in-place machinery — inheriting v1's
+  creeps, memory and structures mid-flight — is never built; a whole class
+  of complexity deleted by ruling. The owner still calls the moment.
+
+## The working agreement (owner + sessions, 2026-08-18)
+
+Born from the reboot's own first misstep: the demolition and the M1 sketch
+were built at sprint pace on a confirmation the owner never actually gave
+(a lost question dialog). The owner's correction is the process now:
+*"don't you want to talk with me and plan it out first? Otherwise we might
+just rush into the same situation again."*
+
+1. **Plan before code.** Each milestone's acceptance criteria are agreed
+   with the owner BEFORE code is written toward it. The M1 sketch predates
+   this agreement and stands as draft until its upgraded criteria are
+   approved.
+2. **Rulings are recorded** — in this document, dated, in the owner's
+   words. A session acts on recorded rulings, not on inferred ones.
+3. **Bands are measured, then pinned.** Any efficiency band starts from a
+   multi-draw baseline run, never a chosen-looking number; it ratchets
+   only on new measurement.
 
 ## The live rule
 

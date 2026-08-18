@@ -25,11 +25,17 @@ with a test — never re-derive from memory what v1 already paid to verify.
    the planner.
 4. **Fidelity line from tick one:** the plan prints expected e/t next to
    measured actual. A gap is a P0 at the seam — never valve around it.
-5. **Size budget:** src stays under ~3k lines until the grid ratchet
+5. **Sizing is solved once** (owner 2026-08-18). Bodies are derived by ONE
+   pure module that every job kind calls; a second sizing site anywhere is
+   the v1 thrash coming back. Its unit suite is the exhaustive one.
+6. **Size budget:** src stays under ~3k lines until the grid ratchet
    (M6) says otherwise. Grow the planner's vocabulary, not new mechanisms.
    A change that needs a trap-list entry to be safe is the wrong change.
-6. **Tests assert outcomes** (milestones in the mockup, pure math units) —
-   never internal shapes.
+7. **Tests assert outcomes WITH an economic oracle** — survival alone is
+   the v1 failure (wrong bodies don't fail, they waste). Milestone cells
+   also assert: no body exceeding what the sizing module derives for its
+   job (recomputed in the test), and plan-vs-actual inside a band pinned
+   from a multi-draw baseline. Never pin internal shapes.
 
 Carried doctrine (see REBOOT.md "what was never the problem"): production
 over consumption; the tender heartbeat is an axiom; the sink ladder moves
@@ -46,6 +52,9 @@ multi-draw any tempo claim); value-per-intent is the north star.
   ENVIRONMENT, not a broken bot (the script's header documents it).
 - Gate: `npm run test-unit` + `npm run test-integration` (harness
   self-tests + the v2 milestone tests).
+- **Milestones are owner-gated** (REBOOT.md working agreement): acceptance
+  criteria are agreed with the owner BEFORE code is written toward them.
+  Rulings recorded in REBOOT.md are the record; don't act on inferred ones.
 - Write the failing test first; acceptance criteria live in tests only.
 - `test/mocha.opts` has `--bail`: a red run shows only the FIRST failure.
 - **The live rule: never run `push-main`/`deploy` from the v2 line** until
