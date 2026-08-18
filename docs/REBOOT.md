@@ -131,10 +131,18 @@ the limit; the long-term is what we are optimizing for.
    lifecycle state, no derived caches in Memory. Memory holds: the plan,
    creep→job assignments, intel. A global reset must be a non-event by
    construction: everything else rebuilds from `World` each tick.
-   **The corp survives as an idea, not an object** (owner-confirmed
-   2026-08-18): a priced unit of economic activity is a ROW in the plan —
-   target, body, route, expected e/t — never a thing that manages its own
-   lifecycle. The lifecycles are where the census and sizing drift lived.
+   **The corp and the plan are the same thing** (owner ruling 2026-08-18:
+   "we don't want duplicate code or objects that represent the same thing
+   — the plan and the corporation should kind of be the same thing"). One
+   representation per thing, the general form of law #1: a corp IS a row
+   in the plan — target, body, source, route, expected e/t — and the plan
+   is nothing but the corps ledger (`Plan = { corps: Corp[] }`). A creep's
+   memory names the corp that employs it; the census counts those
+   pointers; the spawner buys toward the row's target. v1 kept three
+   representations in sync (commission, corp object, census view) and the
+   sync gaps were the bugs. The name stays "corp" — the archive speaks it
+   and the business metaphor earned its keep — but the moment a corp grows
+   a method or a lifecycle, that is the disease returning.
 3. **Executors are order-takers.** A creep runs its assigned job with a
    per-kind runner (~30 lines each). Runners decide *actions*; one applier
    module owns movement and is the only writer of game mutations. If a

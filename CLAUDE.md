@@ -17,9 +17,12 @@ with a test — never re-derive from memory what v1 already paid to verify.
 1. **One snapshot.** `src/world.ts` is the only module that reads `Game.*`
    or raw `Memory`. Planner and executors read only the `World` value. A
    second lens on the same fact is the v1 disease — don't write one.
-2. **The plan is the only state.** Literal jobs + spawn orders; demand =
-   target − (live + in-spawn), computed in one place. No lifecycle objects,
-   no derived caches in Memory. A global reset must be a non-event.
+2. **The plan is the only state — and the plan IS the corps.** One
+   representation per thing (owner 2026-08-18): a corp is a row in the
+   plan (`Plan = { corps: Corp[] }`), never a class with a lifecycle;
+   demand = target − (live + in-spawn), computed in one place. No mirror
+   objects, no derived caches in Memory. A global reset must be a
+   non-event.
 3. **Executors take orders.** Job runners decide actions; one applier owns
    movement and mutations. An economic decision inside a runner belongs in
    the planner.
