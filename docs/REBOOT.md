@@ -248,11 +248,13 @@ constructed at runtime — **the CORP INSTANCE is a plain data record in
 the plan** (owner naming, third round: "corp instance"; "row" retired as
 vague). The class is behavior, the instance is data, the plan is the set
 of living instances. And **variants are fields, never subclasses**: a
-mine corp's evacuation tier (`evac: drop | container | link`, `roaded`)
-is instance data priced by one formula whose terms zero out, so the SAME
+transport instance's realization (`via: bodies | link`, `roaded`) is
+instance data priced by one formula whose terms zero out, so the SAME
 instance — same id, same ledger history — re-prices when its
-infrastructure matures. Subclassed variants would churn the corp's
-identity at every upgrade: the counter-reset phantom as architecture.
+infrastructure matures (the field moved from the mine to transport with
+the 2026-08-18 link retraction, piece 5 — the mine just produces).
+Subclassed variants would churn the corp's identity at every upgrade:
+the counter-reset phantom as architecture.
 
 **3. Every game verb has ONE owner — and where a verb has one corporate
 user, the corp IS its desk** (owner 2026-08-18: "the corp is the desk —
@@ -315,27 +317,38 @@ the fusion:
   real raid losses ran ~10× the priced guess). Slot named now, built
   when there is data.
 
-**5. Corps own their capital — and that is what builds it** (owner
-2026-08-18: "the link harvester can own a link. Actually this is what
-would drive the construction of the link"). An exclusive asset — the
-source container, the source-side link — sits on its corp's books: build
-cost as capex, the 3% link tax or decay exposure as opex, all terms in
-the instance's net. Ownership is the investment engine: the delta between a
-corp instance's current variant and its best feasible one IS the ROI of the
-missing asset, and when its payback clears the build cost, the planner
-writes a construction instance VALUED BY THE OWNING CORP'S IMPROVEMENT —
-funded through the same ladder-and-net ordering as everything else.
-Links and containers order themselves where a corp's books justify
-them; no RCL-triggered build scripts. This closes a named v1 class:
-assets nobody owned — the container demolished correctly-by-its-own-
-lights while another lens counted it (spec 54), the ownerless port
-buffer (spec 56), the balance sheet's `fixed` line that read "not
-measured" forever (spec 47). Boundaries: a SHARED asset belongs to the
-corp that operates the shared function (the hub-side link to the core's
-operator — today the spawning corp; roads enter the routes that use
-them as a cost term), and a verb with two corporate users (link send:
-source corps fire, the hub relays) lives in the shared desk per piece 3,
-each caller's sends stamped to its own corp.
+**5. Corps own their capital — and that is what builds it.** (First cut
+2026-08-18 had the link harvester owning its link; the owner retracted
+it the same day: "I back off the link mining corp idea. A good concept
+for the links is just to DISPLACE EXISTING HAULING. That generalizes to
+a lot of cases, including the source link.") The law stands; the link
+found its true owner:
+- **A link is a competing REALIZATION of a transport edge.** Any hop in
+  any chain can be realized by a body fleet (per-tile creep cost,
+  road-modified) or by capital (link: capex + 3% tax + cooldown
+  throughput). The cheaper realization wins the edge. One calculus
+  covers the source link, the controller link, and the border links v1
+  hand-built in spec 26 to meet remote flow at the door — displacement,
+  which v1 built as a mechanism and v2 prices.
+- **The link is TRANSPORT capital**, owned by the transport instance
+  whose edge it spans. Construction is funded by the DISPLACEMENT DELTA
+  on that edge's own books — body cost currently paid, minus tax and
+  capex amortization — through the same ladder-and-net ordering as
+  everything else. The haul business automates itself exactly where its
+  own P&L says bodies are the expensive way to move energy. When the
+  link stands, the edge's `via` flips in place: same instance, same
+  books, no identity churn. No RCL-triggered build scripts.
+- The general law is unchanged: an exclusive asset sits on its corp's
+  books, capex + opex as terms in the instance's net. This closes a
+  named v1 class: assets nobody owned — the container demolished
+  correctly-by-its-own-lights while another lens counted it (spec 54),
+  the ownerless port buffer (spec 56), the balance sheet's `fixed` line
+  that read "not measured" forever (spec 47). A SHARED asset belongs to
+  the corp that operates the shared function (the hub-side receiver,
+  shared by many edges, to the core's operator; roads enter the routes
+  that use them as a cost term), and a verb with two corporate users
+  (link send) lives in the shared desk per piece 3, each caller's sends
+  stamped to its own corp.
 
 **6. The planner is a budgeted search engine over the ledger — and
 bootstrap is its first test, with no special mode** (owner 2026-08-18:
@@ -387,9 +400,9 @@ signal").
   stage provides it and requires `energyAt(source)`, a mine stage
   provides that. The engine composes chains from independent instances
   and prices them END-TO-END — gross at the sink minus every stage's
-  bodies. Chains are 2–3 hops, so composition is cheap; a mine's
-  link variant simply deletes the haul stage from every chain through
-  its source (piece 5's ROI, restated).
+  cost. Chains are 2–3 hops, so composition is cheap; an edge realized
+  by link instead of bodies drops the fleet from that hop's cost
+  (piece 5's displacement, restated).
 - **Deferred together by the owner**: the objective ("more on what
   'best' means later") and the horizon it is evaluated over — one
   conversation, to be had with the racing harness in hand. One property
