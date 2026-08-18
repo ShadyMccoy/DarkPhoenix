@@ -248,13 +248,14 @@ constructed at runtime — **the CORP INSTANCE is a plain data record in
 the plan** (owner naming, third round: "corp instance"; "row" retired as
 vague). The class is behavior, the instance is data, the plan is the set
 of living instances. And **variants are fields, never subclasses**: a
-transport instance's realization (`via: bodies | link`, `roaded`) is
-instance data priced by one formula whose terms zero out, so the SAME
-instance — same id, same ledger history — re-prices when its
-infrastructure matures (the field moved from the mine to transport with
-the 2026-08-18 link retraction, piece 5 — the mine just produces).
-Subclassed variants would churn the corp's identity at every upgrade:
-the counter-reset phantom as architecture.
+haul instance's route grade (`roaded: boolean`) is instance data priced
+by one formula whose terms zero out, so the SAME instance — same id,
+same ledger history — re-prices as its route is paved. Subclassed
+variants would churn the corp's identity at every upgrade: the
+counter-reset phantom as architecture. (The link, first drafted here as
+a mine variant and then as a transport realization field, resolved
+further still: links are their own KIND, competing on the same edges —
+piece 5.)
 
 **3. Every game verb has ONE owner — and where a verb has one corporate
 user, the corp IS its desk** (owner 2026-08-18: "the corp is the desk —
@@ -323,32 +324,47 @@ it the same day: "I back off the link mining corp idea. A good concept
 for the links is just to DISPLACE EXISTING HAULING. That generalizes to
 a lot of cases, including the source link.") The law stands; the link
 found its true owner:
-- **A link is a competing REALIZATION of a transport edge.** Any hop in
-  any chain can be realized by a body fleet (per-tile creep cost,
-  road-modified) or by capital (link: capex + 3% tax + cooldown
-  throughput). The cheaper realization wins the edge. One calculus
-  covers the source link, the controller link, and the border links v1
-  hand-built in spec 26 to meet remote flow at the door — displacement,
-  which v1 built as a mechanism and v2 prices.
-- **The link is TRANSPORT capital**, owned by the transport instance
-  whose edge it spans. Construction is funded by the DISPLACEMENT DELTA
-  on that edge's own books — body cost currently paid, minus tax and
-  capex amortization — through the same ladder-and-net ordering as
-  everything else. The haul business automates itself exactly where its
-  own P&L says bodies are the expensive way to move energy. When the
-  link stands, the edge's `via` flips in place: same instance, same
-  books, no identity churn. No RCL-triggered build scripts.
-- The general law is unchanged: an exclusive asset sits on its corp's
-  books, capex + opex as terms in the instance's net. This closes a
-  named v1 class: assets nobody owned — the container demolished
-  correctly-by-its-own-lights while another lens counted it (spec 54),
-  the ownerless port buffer (spec 56), the balance sheet's `fixed` line
-  that read "not measured" forever (spec 47). A SHARED asset belongs to
-  the corp that operates the shared function (the hub-side receiver,
-  shared by many edges, to the core's operator; roads enter the routes
-  that use them as a cost term), and a verb with two corporate users
-  (link send) lives in the shared desk per piece 3, each caller's sends
-  stamped to its own corp.
+- **The link corp provides hauling, essentially** (owner, final form,
+  same day: "just like the haul corp does — but at different prices and
+  constraints"). Links are their own KIND, writing candidates against
+  the same edges the haul corp serves: haul offers any endpoints,
+  per-tile body cost, spawnTime consumption; the link corp offers fixed
+  endpoints, ~800/distance throughput, a 3% tax, and requires its
+  structure standing. The engine funds whichever wins the edge —
+  competition between kinds, no bundling, no realization field. One
+  calculus covers the source link, the controller link, and the border
+  links v1 hand-built in spec 26 to meet remote flow at the door —
+  displacement, which v1 built as a mechanism and v2 prices. And the
+  verb story simplifies: link-send now has ONE corporate user, so it
+  lives in the link corp's vertical per piece 3 — link corp sends.
+- **Sunk costs price as sunk — capital IS the anti-thrash** (owner:
+  "now that a link exists and paid for, that source is the 'cheaper'
+  one that wins in the planner unless something changes majorly"). The
+  BUILD decision prices at full cost: a candidate link carries its
+  capex and must beat hauling's displacement delta to fund. The
+  STANDING link prices at marginal cost — the 3% and nothing else — and
+  so wins its edge stably in every replan. "Something changes majorly"
+  has a precise meaning: a challenger displaces standing capital only
+  when its FULL-cost net beats the incumbent's MARGINAL-cost net.
+  Generalized deliberately: **living bodies are sunk capital too** — a
+  spawned fleet's cost is history and its marginal price near zero, so
+  standing chains hold their funding until bodies near expiry, and the
+  true re-decision happens at replacement time, at full cost again.
+  Thrash dies economy-wide as correct accounting, not as a hysteresis
+  rule. Companion rule: **pricing forgets sunk costs; the books never
+  do** — capex stays on the ledger so the audit can answer "did the
+  link pay back?" (realized displacement vs the projected delta:
+  investment gets its own fidelity line).
+- The general law is unchanged: corps own their capital; an exclusive
+  asset sits on its corp's books, capex + opex as terms in the
+  instance's net. This closes a named v1 class: assets nobody owned —
+  the container demolished correctly-by-its-own-lights while another
+  lens counted it (spec 54), the ownerless port buffer (spec 56), the
+  balance sheet's `fixed` line that read "not measured" forever (spec
+  47). A SHARED asset belongs to the corp that operates the shared
+  function (the hub-side receiver, shared by many senders, to the
+  core's operator; roads enter the routes that use them as a cost
+  term).
 
 **6. The planner is a budgeted search engine over the ledger — and
 bootstrap is its first test, with no special mode** (owner 2026-08-18:
@@ -391,10 +407,15 @@ signal").
   happens). The search is an implementation behind the plan, never a
   black box instead of it; the fidelity line audits every depth the
   same way.
-- **Incumbency is an engine semantic, not a courtesy**: a funded
-  instance keeps its funding unless a challenger clears it by a margin
-  (pinned from measurement). Same world + same ledger = same plan:
-  stable ordering everywhere, so plan diffs mean something.
+- **Incumbency mostly EMERGES from sunk-cost pricing** (piece 5):
+  standing capital — structures and living bodies alike — prices
+  marginal-forward, so funded chains hold until expiry or a
+  majorly-better challenger (full-cost net vs marginal-cost net). What
+  stays engineered is only determinism: same world + same ledger = same
+  plan, stable ordering everywhere, so unbuilt ties never flip-flop and
+  plan diffs mean something. A residual hysteresis margin exists as a
+  watch-item ONLY if measurement finds an oscillation the economics
+  fails to kill.
 - **Chains are assembled backward from sinks** (GOAP's own move —
   search from the goal): progress needs `energyAt(controller)`, a haul
   stage provides it and requires `energyAt(source)`, a mine stage
