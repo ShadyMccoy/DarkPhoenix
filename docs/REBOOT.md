@@ -170,7 +170,7 @@ the limit; the long-term is what we are optimizing for.
    and it carries the exhaustive unit suite, pinned forever.
 6. **A size budget with teeth.** v2 src stays under ~3k lines until the
    grid says the bot has out-earned v1's early tiers. Growth happens in the
-   planner's *vocabulary* (new job kinds, new sink rungs), not in new
+   planner's *vocabulary* (new corp kinds, new sinks), not in new
    mechanisms. A change that needs a trap-list entry to be safe is the
    wrong change.
 7. **Tests assert outcomes — WITH an economic oracle.** Survival alone is
@@ -192,11 +192,11 @@ The conversation that produced these is the working agreement doing its
 job: concept before code. Three pieces, one picture.
 
 **1. The plan is a priced flow ledger.** A corp is a flow: move X e/t
-from a source to a sink rung (the ladder: spawn refill, controller,
-construction, storage), with bodies the sizing module derives from route
-and rate. Every row carries its own P&L — gross e/t, cost e/t (amortized
+from a source to a SINK — one of the ladder's steps: spawn refill,
+controller, construction, storage — with bodies the sizing module derives
+from route and rate. Every row carries its own P&L — gross e/t, cost e/t (amortized
 bodies; CPU joins later), net — so efficiency is a COLUMN, not a hope.
-Funding: *between* rungs the ladder stays a strict ordered list (the
+Funding: *between* sinks the ladder stays a strict ordered list (the
 axiom, no magic weights); *within* funding, spawn capacity goes to flows
 in net-descending order, and a negative-net flow is never funded (the
 worth-a-body discipline, structural — a 24-CARRY hauler on a 1.7-CARRY
@@ -204,7 +204,7 @@ route prints its own negative net before it spawns). The fidelity line
 audits per ROW: claimed net vs measured, so a wrong model shows up in the
 row that is wrong. No persistent world graph — routes derive from the
 snapshot at replan (the 480-node apparatus that heap-killed v1 is not
-rebuilt). The concept ships complete (every row always prices); the rungs
+rebuilt). The concept ships complete (every row always prices); new sinks
 arrive with their milestones.
 
 **2. Corp kinds are a typed union; the row is the corp's memory.**
@@ -267,7 +267,7 @@ memory what v1 already paid to verify.
 
 ## The ladder
 
-Each rung is a mockup-verified milestone; the grid ratchet re-arms at M6
+Each milestone is mockup-verified; the grid ratchet re-arms at M6
 with a fresh v2 baseline.
 
 - **M0 — toolchain proven.** `setup:test-env` + `probe:mockup` green in
