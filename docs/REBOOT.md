@@ -899,6 +899,76 @@ in the scenario files and their asserted replays — once built.
    touches live. M1's gate and the working agreement stand. The bot's
    cutover from `plan.ts` to the engine is its own owner-gated event.
 
+### The corp contract (agreed 2026-08-22, second conversation)
+
+The engine-facing shape of every corp kind, set by the owner: *"the bot
+classes themselves must be structured to accept game assets (eg from
+the planner) and give back some kind of scaling ie input & output
+function. This is super important."* The broker: *"Planner provides —
+it lives between the world and the corps. Either our fake synthetic
+world or in the real world."* What a kind sees: *"just the assets.
+It's kind of part of their contract."* Implementation detail was
+delegated to the session, worked through priced examples, and closed:
+*"Yeah I think you've got the picture."* The record:
+
+- **`quote(handoff) → Offer`, pure.** The handoff is a typed record of
+  assets — game objects INCLUDING the kind's currently-assigned creeps
+  (sunk capital enters as handed assets) — plus planner-derived terms
+  (route cost, body budget: the planner relaying other contracts'
+  attributes, e.g. the spawn estate's capacity). The handoff type IS
+  the kind's contract; a kind sees nothing else — no World, no plan,
+  no Game.
+- **The Offer is the scaling function as data**: a list of STEPS, one
+  step = one body (or structure), each declaring marginal
+  requires/provides rates in the frozen vocabulary. Saturation is the
+  schedule ending; diminishing returns are declining marginal
+  provides; `backedBy` marks a step already embodied, which quotes
+  ~zero — incumbency and anti-thrash as a cheap first step, no engine
+  machinery.
+- **A body step's requires carries its full bill**: spawn machine time
+  (`spawnTime` p/t) AND its parts bill (`energyAt` the spawn's bank
+  branch, cost/1500). The spawning kind sells pure capacity (1/3 p/t
+  per spawn). No double count, and the tender heartbeat becomes an
+  identity: refill obligation = Σ funded parts bills, drawn first.
+- **The engine loop, six verbs:** anchored quotes → net positions per
+  place (bank as counterparty) → publish gaps → transport quotes →
+  compose chains end-to-end → fund increments in marginal-net order
+  under capacity and solvency, emitting the plan and the frontier with
+  arithmetic reasons.
+- **The solvency filter realizes the root.** Piece 8's
+  heartbeat-solvency constraint, applied to each chain's ramp: on an
+  empty ledger only the workman's one-body chain can fund itself, so
+  the floor-priced root EMERGES — no flag, no mode (piece 6 made
+  concrete). The workman joins v0's kind set as the fused converter,
+  always quoting, outcompeted the moment specialist chains are
+  solvent and cheaper. Harvest thereby gains a second corporate user
+  and becomes a shared function per law 3's own rule.
+- **Recorded retirements:** nearer-sources-first ordering and M1's
+  RAMP_CAP both fall out of merit-order funding — the buy order IS the
+  merit order, so the ramp cannot starve the residual by construction.
+
+### Development steps (2026-08-22)
+
+1. **Engine core** (`src/engine/`, `src/corps/`, `src/sizing.ts` —
+   counts in the src budget): offer/vocabulary types, the ONE sizing
+   module (law 5's home), quote functions for workman / mine / haul /
+   upgrade / spawning, chain composition + merit funding + frontier.
+   Suites: synthetic-kind market tests (clearing correctness with
+   made-up schedules), the exhaustive sizing suite, the worked
+   550-budget example pinned, the cascade staged across ledgers
+   (empty → workman; income standing → specialists displace). The
+   live bot keeps shipping `plan.ts` untouched.
+2. **Lab scaffold** (`lab/`): `npm run lab`, scenario JSON
+   round-tripping the editor, map editing, world assembly (real path
+   distances over terrain), replan-on-edit.
+3. **Views + stepping:** match graph / position matrix / frontier
+   panels, P&L inspector, believer stepping, plan diffs; the
+   bootstrap-cascade scenario checked in as the first certification.
+4. **Phase 2:** `asset(id)`, the link kind, depth-1.
+
+The bot's cutover from `plan.ts` to the engine is a separate
+owner-gated event once the lab has certified the design.
+
 ## The scenario ladder (DRAFT 2026-08-18 — awaiting owner markup)
 
 Shaped in-session, reorganized per the owner: **tied to behaviors and
