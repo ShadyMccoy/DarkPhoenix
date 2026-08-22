@@ -13,36 +13,59 @@ toward them.**
 
 ## The mental model (one picture)
 
-**Places are NODES; corps are EDGES; the plan is the funded subgraph;
-the bank is the node in the middle; the engine chooses which subgraph
-to fund.**
+**Corps are NODES; matched inputs and outputs are EDGES; the plan is
+the funded match set; the bank is energy's counterparty; the engine
+chooses which matches to fund.** (Owner refinement 2026-08-18: the
+graph is not geographic — "the edges represent the relationships
+between corps, matched inputs and outputs.")
 
-- **A node is a place with positions in every corp input and output**
-  (owner 2026-08-18: "not just energy — all corp inputs and outputs"):
-  energy at mouths, branches and the controller; spawnTime at spawns;
-  safety per room; intel coverage; standing assets — and CONTROL POINTS
-  at the controller, the one terminal commodity. A node's position is a
-  VECTOR over commodities, and the position book is a sparse MATRIX
-  (nodes × commodities) — most nodes carry one or two nonzero
-  components, and the energy column is the dense one, which is why the
-  pictures get drawn in energy (owner: "a matrix or vector rather than
-  a scalar — conceptually easier to envision for energy"). Clearing
-  nets per commodity column; the conservation identity holds per
-  column too — energy balances through the bank, spawnTime balances
-  into births, and control points is the absorbing column that only
-  accumulates: the objective, stated as linear algebra.
-- **A corp edge is a converter between commodities**: mine consumes
-  spawnTime and produces energy@mouth; spawning consumes energy and
-  produces spawnTime; haul and link move energy at different prices;
-  upgrade consumes energy and produces control points; guard produces
-  safe@room; scout produces coverage. The economy is ONE multi-commodity
-  flow graph refining everything toward control points within the
-  horizon — energy is just the most-traded intermediate good. Minerals,
-  labs and boosts slot in later as commodities and converters with zero
-  new machinery (GRAND_STRATEGY's mineral thesis becomes plannable).
-- Commodities differ in transportability, and the graph says so: energy
-  hauls; spawnTime travels only EMBODIED in the creeps it built; safety
-  and coverage are place-bound services.
+- **Every corp exposes PORTS** — each port is (commodity, rate, place).
+  An in-place converter has co-located ports (mine: spawnTime-in +
+  energy-out, both at its mouth) — no movement, no self-loop weirdness.
+  The spawning corp bridges COMMODITY space (energy in → spawnTime
+  out); its output matches every corp's body-input port, delivery being
+  the creep's walk, embodiment priced into the match. Multiple corps at
+  one game position are simply multiple nodes — the tile was never the
+  identity.
+- **Geography is an attribute of the match, not the graph's skeleton.**
+  Co-located ports match free; distant ENERGY ports match only through
+  transport — and since every energy match routes through the bank
+  (piece 9), transport corps WORK FOR THE BANK: their ports are bank
+  branches, and hauling/linking is the bank moving stock between its
+  own branches. Energy's graph stays radial (hub-and-spoke), never
+  pairwise.
+- **Three views, one model:** the abstract match graph (what the engine
+  walks — GOAP's backward chaining is "goal port ← matching outputs ←
+  those corps' inputs ← …", and the funded plan IS the match set piece
+  1 records); the position matrix (ports netted by place × commodity —
+  where clearing and the conservation identity live, per column); and
+  the energy projection (the geographic picture: mouths → bank →
+  controller — the dense column rendered spatially, right for
+  intuition, a view rather than the model).
+
+- **The commodities span all corp inputs and outputs** (owner
+  2026-08-18: "not just energy"): energy; spawnTime; safety per room;
+  intel coverage; standing assets — and CONTROL POINTS, the one
+  terminal commodity. **Every corp is a converter**: mine turns
+  spawnTime into energy@mouth; spawning turns energy into spawnTime;
+  haul and link move energy at different prices; upgrade turns energy
+  into control points; guard makes safe@room; scout makes coverage. One
+  multi-commodity economy refining everything toward control points
+  within the horizon — energy is just the most-traded intermediate
+  good. Minerals, labs and boosts slot in later as commodities and
+  converters with zero new machinery. Commodities differ in
+  transportability and the ports say so: energy hauls; spawnTime
+  travels only EMBODIED in the creeps it built; safety and coverage are
+  place-bound services.
+- **The position matrix is the aggregation view**: net all ports by
+  (place × commodity) and each place holds a VECTOR of positions — a
+  sparse matrix whose dense column is energy, which is why the pictures
+  get drawn in energy (owner: "a matrix or vector rather than a scalar
+  — conceptually easier to envision for energy"). Clearing nets per
+  commodity column; the conservation identity holds per column too —
+  energy balances through the bank, spawnTime balances into births, and
+  control points is the absorbing column that only accumulates: the
+  objective, stated as linear algebra.
 - **The graph is transient** — assembled at each replan from candidates
   the corp classes price, discarded after clearing. Persistent state is
   three things only: World (this tick's snapshot), Intel (places seen),
