@@ -1,5 +1,11 @@
 # Colony Economy Ontology
 
+> **v1 ARCHIVE (2026-08-18).** This describes the v1 bot, which lives on
+> `master` and still runs the live colony. On the v2 line it is reference,
+> not law — [REBOOT.md](REBOOT.md) governs. The *economic* vocabulary here
+> (sources, sinks, flows, the pricing doctrine) remains the domain truth;
+> the *implementation* entities (corps, commissions, nodes) are v1's.
+
 The domain model the bot is built on: the entities, the economic primitives,
 the corp-as-operator abstraction, the three architectural layers and their
 boundaries, and the contract a new corp kind signs.

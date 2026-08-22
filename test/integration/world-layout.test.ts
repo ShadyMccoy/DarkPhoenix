@@ -7,7 +7,7 @@ import {
   layoutFromNodeFixture,
   NodeFixture,
 } from "./loadLayout";
-import { E75N8_TERRAIN_PATTERN } from "../unit/spatial/fixtures/real-room-terrain";
+import { E75N8_TERRAIN_PATTERN } from "./fixtures/real-room-terrain";
 
 // test/fixtures/*.json - required (tsconfig.test.json is CommonJS, no resolveJsonModule)
 // eslint-disable-next-line @typescript-eslint/no-var-requires

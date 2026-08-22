@@ -1,5 +1,10 @@
 # Task Specs
 
+> **v1 ARCHIVE (2026-08-18).** These specs specified the v1 bot (on
+> `master`, still live). On the v2 line they are the learning archive —
+> mine them for measured evidence and owner rulings; do not implement from
+> them. [../REBOOT.md](../REBOOT.md) governs v2.
+
 Detailed, self-contained specifications for the next tranche of work. Each spec
 defines its goal, design, file-level changes, and — most importantly — the
 **acceptance tests**: a task is DONE exactly when its listed tests pass (and
