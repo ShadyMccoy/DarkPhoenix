@@ -800,6 +800,69 @@ just rush into the same situation again."*
    multi-draw baseline run, never a chosen-looking number; it ratchets
    only on new measurement.
 
+## Next: the graph lab (owner 2026-08-18, session close)
+
+*"What we will do next is build a mini-game GUI that will visually
+represent the graph and GOAP search, that we can iterate on
+interactively to refine the mental model and engine."*
+
+The proven v1 methodology (extension-sim, base-lab: build the
+mini-game, develop the intuition, then commit the design) — with v2's
+structural upgrade: **the engine is pure, so the lab hosts the REAL
+engine.** Pricing, clearing, search are functions of plain data; the
+GUI drives the same modules the bot ships. One implementation, two
+hosts, no lab/production divergence — the lab is the engine's first
+certification host. Staging worlds, stepping replans, watching the
+match graph and the blocked frontier render: that is the mental model
+(the preamble) made touchable, and the engine's design iterated at GUI
+speed before any mockup run.
+
+Sequencing: the lab comes before/alongside the certification ladder
+below; the M1 code gate and the working agreement stand unchanged.
+
+## The scenario ladder (DRAFT 2026-08-18 — awaiting owner markup)
+
+Shaped in-session, reorganized per the owner: **tied to behaviors and
+abilities — one certification suite per corp kind; one behavior may
+need several scenarios.** Preserved here as draft; criteria finalize
+per the working agreement before code toward them.
+
+- **Method:** isolation by WORLD STAGING, never bot stubbing — the
+  whole bot runs in every scenario; the world is shaped so one behavior
+  is the only interesting thing to do (e.g. hauling certified in a
+  sourceless room with a pre-filled container). Every scenario carries
+  four signal layers: outcome band (multi-draw), standing invariants
+  (conservation identity, sizing oracle, no starvation, blocked
+  reasons), the mechanic's PREDICTED signature (thresholds from
+  primitives asserted in sim), and stability (plan diffs quiescent).
+- **Tier 1 — ability certifications:** sizing (the property gauntlet +
+  named regressions: the 24-CARRY hauler, #148, the runt floor);
+  spawning (order execution 1:1, the double-buy stage, survival regime,
+  throughput under load); harvesting (saturation, spots-constrained,
+  regen honesty, the deposit); hauling (route sizing at 5/15/30,
+  roaded reprice, pooling/no-fragmentation, jitter); upgrading (draw
+  discipline, points=energy identity, floor obligation under
+  scarcity); building (funded instances only, rate band, asset lands
+  on books); banking (conservation under staged flows, branch
+  classification, draw-order under scarcity); later: scouting,
+  linking (volley discipline + displacement at predicted break-even),
+  reserving/claiming, defense (pending the deterrence-floor ruling).
+- **Tier 2 — composition certifications:** the chain (with FAULT
+  INJECTION: a deliberately weak stage, asserting per-stage F1 names
+  the culprit); the specialization flip at predicted capacity; the
+  link-vs-haul market; the bootstrap cascade (the engine's first mini
+  test, no modes); the investment loop (hurdle → build → books →
+  payback audited).
+- **Tier 3 — campaign certifications:** easy cold start to RCL3; the
+  runt world on harsh captured terrain; the remote; claim-and-found.
+  The grid ratchet wraps tier 3; BOT LEVEL v2 resumes.
+- **Certification order = development order:** sizing → spawning →
+  harvesting → hauling → banking → upgrading → building → compositions
+  → the rest. A behavior is certified before its dependents are built.
+- Old estate reuse: bootstrap→cold start; flow-handoff→the flip;
+  storage-depot→banking/investment; runt-economy→the runt world;
+  remote-mining→the remote; tower-defense→defense.
+
 ## The live rule
 
 `master` is the deployed bot and stays deployable. Nothing from the v2

@@ -64,6 +64,9 @@ multi-draw any tempo claim); value-per-intent is the north star.
 - **Milestones are owner-gated** (REBOOT.md working agreement): acceptance
   criteria are agreed with the owner BEFORE code is written toward them.
   Rulings recorded in REBOOT.md are the record; don't act on inferred ones.
+- **Next up (owner 2026-08-18): the graph lab** — an interactive GUI
+  hosting the REAL (pure) engine to render the match graph and GOAP
+  search. See REBOOT.md "Next: the graph lab" before starting anything.
 - Write the failing test first; acceptance criteria live in tests only.
 - `test/mocha.opts` has `--bail`: a red run shows only the FIRST failure.
 - **The live rule: never run `push-main`/`deploy` from the v2 line** until
