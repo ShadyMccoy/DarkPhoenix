@@ -11,6 +11,59 @@ and the working agreement at the bottom governs how milestones proceed:
 **acceptance criteria are agreed with the owner before code is written
 toward them.**
 
+## The mental model (one picture)
+
+**Places are NODES; corps are EDGES; the plan is the funded subgraph;
+the bank is the node in the middle; the engine chooses which subgraph
+to fund.**
+
+- **A node is a place with positions in every corp input and output**
+  (owner 2026-08-18: "not just energy — all corp inputs and outputs"):
+  energy at mouths, branches and the controller; spawnTime at spawns;
+  safety per room; intel coverage; standing assets — and CONTROL POINTS
+  at the controller, the one terminal commodity. A node's position is a
+  VECTOR over commodities, and the position book is a sparse MATRIX
+  (nodes × commodities) — most nodes carry one or two nonzero
+  components, and the energy column is the dense one, which is why the
+  pictures get drawn in energy (owner: "a matrix or vector rather than
+  a scalar — conceptually easier to envision for energy"). Clearing
+  nets per commodity column; the conservation identity holds per
+  column too — energy balances through the bank, spawnTime balances
+  into births, and control points is the absorbing column that only
+  accumulates: the objective, stated as linear algebra.
+- **A corp edge is a converter between commodities**: mine consumes
+  spawnTime and produces energy@mouth; spawning consumes energy and
+  produces spawnTime; haul and link move energy at different prices;
+  upgrade consumes energy and produces control points; guard produces
+  safe@room; scout produces coverage. The economy is ONE multi-commodity
+  flow graph refining everything toward control points within the
+  horizon — energy is just the most-traded intermediate good. Minerals,
+  labs and boosts slot in later as commodities and converters with zero
+  new machinery (GRAND_STRATEGY's mineral thesis becomes plannable).
+- Commodities differ in transportability, and the graph says so: energy
+  hauls; spawnTime travels only EMBODIED in the creeps it built; safety
+  and coverage are place-bound services.
+- **The graph is transient** — assembled at each replan from candidates
+  the corp classes price, discarded after clearing. Persistent state is
+  three things only: World (this tick's snapshot), Intel (places seen),
+  Plan (the funded ledger).
+- **Two loops.** Every tick: execution of standing orders — snapshot →
+  runners → desks → ledger; no thinking. Every replan (~20–50t): the
+  budget meeting — classes submit priced candidates, the engine pays
+  obligations, funds chains backward from the sinks as packages against
+  the hurdle, leaves the residual to the controller, and prints the
+  blocked frontier with reasons.
+- **Search depth = how many not-yet-existing prerequisites a plan may
+  chain through.** Depth-0 funds only what can run today (bootstrap
+  lives entirely here); depth-1 plans through one build (the link); a
+  claim is depth-2+. Deeper search is permission to plan through
+  construction.
+- The human handle: a holding company's budget meeting. Treasury (the
+  bank), divisions (corp classes) submitting mini-P&Ls, a CFO with one
+  fixed rule (the engine), dividends to the controller, an auditor (the
+  fidelity line), and books that must balance to the energy (the
+  conservation identity).
+
 ## Where the old world lives
 
 Nothing is lost. The full v1 tree (131 src files / ~45k lines, 288 test
