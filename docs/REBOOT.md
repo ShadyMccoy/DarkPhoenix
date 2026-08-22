@@ -820,6 +820,85 @@ speed before any mockup run.
 Sequencing: the lab comes before/alongside the certification ladder
 below; the M1 code gate and the working agreement stand unchanged.
 
+### The lab requirements (agreed 2026-08-22)
+
+Shaped in requirements conversation with the owner; five forks put,
+five ruled, recorded here per the working agreement (the owner naming
+this section the record: "sure"). The engine of record is the planning
+concept (pieces 1–9); the lab is its first host and first
+certification. Acceptance criteria will live where they always do —
+in the scenario files and their asserted replays — once built.
+
+**Rulings (owner 2026-08-22):**
+
+- **Result over search.** On plan-only vs stepped sequences: *"both.
+  ultimately the search is less interesting than the result, generally
+  speaking."* Both modes exist — inspect a single replan, and step a
+  sequence — and the screen's star is the RESULT: the funded plan, its
+  per-instance P&L, the blocked frontier with reasons, and the plan
+  diff between replans. The search trace remains an engine OUTPUT
+  (data: candidates considered, prices, prune/fund decisions,
+  best-so-far per budget step — it is what makes the frontier's
+  reasons and the certification replayable), but its visualization is
+  a drill-down, never the main event.
+- **The map is editable.** *"I'd like to be able to edit the map as
+  well to place, move, and update properties on game elements, eg
+  spawns, storages, buildings, energy sources."* The energy projection
+  is therefore not a render but the scenario EDITOR: place, move,
+  delete spawns, sources, containers/storage, the controller, the
+  designated bank tile; edit their properties (stocks, capacities,
+  level). Terrain loads from captured fixtures; a terrain brush is a
+  nice-to-have. **Edits reprice live**: every edit re-runs the replan
+  (depth-0 is cheap), so the match graph, the positions and the
+  frontier react as elements move — distance as a priced good
+  (piece 7) made touchable.
+- **v0 scope agreed:** kinds mine / haul / upgrade / spawning, plus
+  the bank as counterparty; commodities energy + spawnTime; depth-0.
+  First scenario: the bootstrap cascade — piece 6's own designated
+  first test, watched on screen from an empty ledger. Lab phase 2:
+  `asset(id)`, the link kind, depth-1 — displacement and
+  capex-vs-hurdle become visible.
+- **Hand-vs-engine mode is deferred** (owner: "not critical"). The
+  proposed play-against-the-planner scoring mode is not a
+  requirement; revisit only if the objective conversation wants an
+  instrument.
+- **Tech settled** (owner: "sounds good. sure if react helps go for
+  it."): a static browser page — the engine bundled by the existing
+  toolchain (`npm run lab`), no server, nothing live to talk to.
+  React is permitted for the GUI where it speeds iteration; any such
+  dependency is lab-only, never imported from `src/`.
+
+**Requirements (first round, carried):**
+
+1. **The engine is the deliverable; the GUI derives nothing.** Engine
+   modules are plain-data pure functions in `src/` (the
+   `primitives.ts` convention — screeps-type-free), bundled into the
+   lab and imported by the bot alike: one implementation, two hosts.
+   If the GUI needs a fact the engine does not expose, the engine
+   grows an output field — a GUI-side derivation is the two-lens
+   disease in a new host.
+2. **The map is input and projection, never search state.** The editor
+   edits the WORLD; a pure world-assembly step derives places and
+   route costs (real path distances over terrain) for the engine,
+   which searches ledger space only. The 480-node door stays shut at
+   the GUI too.
+3. **Scenario files round-trip through the editor** (load → edit →
+   save): map + element properties + bank stocks + ledger + previous
+   plan + horizon, plain JSON, checked in. They double as the engine's
+   unit-test fixtures (deterministic replay asserted — same world +
+   same ledger = same plan, per piece 6) and converge toward mockup
+   staging so a lab scenario can graduate into a mockup cell.
+4. **Stepping is a believer world**: it applies the plan's own
+   expected rates, ages bodies, advances the spawn pipe. Plan-vs-
+   actual is zero there by construction, so the lab certifies
+   ACCOUNTING — conservation identity, P&L composition, funding order,
+   determinism, plan quiescence — and never fidelity. No lab number is
+   quotable as a measured band; the mockup remains the truth host.
+5. **Boundaries.** The GUI lives outside `src/` (top-level `lab/`) and
+   is exempt from the ~3k src budget; the engine counts. The lab never
+   touches live. M1's gate and the working agreement stand. The bot's
+   cutover from `plan.ts` to the engine is its own owner-gated event.
+
 ## The scenario ladder (DRAFT 2026-08-18 — awaiting owner markup)
 
 Shaped in-session, reorganized per the owner: **tied to behaviors and
