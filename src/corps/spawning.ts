@@ -42,12 +42,19 @@ export interface TenderHandoff {
    * founding kernel, real once extensions spread. */
   estateRadius: number;
   bodyBudget: number;
+  /** Ceiling on the obligation the schedule must be able to carry — the
+   * broker's bound (total source income plus the live fleet's bills). */
+  obligationEt: number;
   creeps: ViewCreep[];
 }
 
-/** Enough schedule to cover any plausible obligation; unfunded tail steps
- * simply never fund. */
-const TENDER_SCHEDULE = 4;
+/** Floor on the quoted schedule; the obligation ceiling sizes the rest.
+ * A CONSTANT schedule was the finding: intake capped at 4 bodies while
+ * the heartbeat scales with the fleet — the schedule is a sizing
+ * decision (law 5), never a const. Hard cap keeps a silly world from
+ * quoting an army; beyond it `tender short` prints. */
+const TENDER_SCHEDULE_FLOOR = 4;
+const TENDER_SCHEDULE_CAP = 12;
 
 export function quoteTender(h: TenderHandoff): Offer | null {
   const steps: Step[] = [];
@@ -62,7 +69,12 @@ export function quoteTender(h: TenderHandoff): Offer | null {
   }
   const body = tenderBody(h.bodyBudget);
   if (body) {
-    for (let i = steps.length; i < TENDER_SCHEDULE; i++) {
+    const perBody = haulRate(body.carry, h.estateRadius);
+    const wanted =
+      perBody > 0
+        ? Math.min(TENDER_SCHEDULE_CAP, Math.max(TENDER_SCHEDULE_FLOOR, Math.ceil(h.obligationEt / perBody)))
+        : TENDER_SCHEDULE_FLOOR;
+    for (let i = steps.length; i < wanted; i++) {
       steps.push({
         buys: body,
         provides: {},

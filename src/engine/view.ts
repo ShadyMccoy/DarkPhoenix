@@ -5,6 +5,7 @@
  * way (owner 2026-08-22: "either our fake synthetic world or in the real
  * world"). Corps never see this; they see only their handoffs.
  */
+import { BankBranchKind } from "../primitives";
 import { BodyShape } from "../sizing";
 import { PlaceId, StructureKind } from "./vocabulary";
 
@@ -34,6 +35,11 @@ export interface EconomyView {
   bank: PlaceId;
   /** Spendable energy on hand right now — what ramp solvency checks. */
   bankStock: number;
+  /** The bank's physical branch at the kernel (piece 9: one logical bank,
+   * physical branches each with its own holding cost): a PILE rots
+   * convexly, a CONTAINER holds 2000 for 0.1 e/t with overflow piling, a
+   * STORAGE holds the warchest free. */
+  bankBranch: BankBranchKind;
   /** Body budget: the spawn estate's capacity, relayed by the broker as a
    * term of the spawning contract. */
   bodyBudget: number;

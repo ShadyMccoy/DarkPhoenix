@@ -29,7 +29,12 @@
  * obligation; upfront is cash at purchase, checked by solvency and paid
  * by the believer's bank.
  */
+import { PROJECT_RATE_WINDOW } from "../primitives";
 import { CorpInstance, EnginePlan, Flows, FrontierLine, Offer, PlaceId, Step, addFlows } from "./vocabulary";
+
+/** How far ahead ramp solvency may count standing accumulation — one
+ * project window: the same near-term the build corp plans in. */
+const RAMP_WINDOW = PROJECT_RATE_WINDOW;
 
 /** One tradable unit on a stage's order book: a step of some offer, with
  * its capacity in the chain's delivered currency (e/t). */
@@ -82,6 +87,14 @@ export interface MarketInput {
    * broker. Backed steps quote zero (sunk pricing), so the funded-step
    * refill line alone understates the heartbeat. */
   standingBills?: number;
+  /** The live fleet's sustain machine time (Σ spawnTimeEt over live
+   * bodies) — seeds spawnUsed so the capacity constraint holds across
+   * replans instead of eroding as steps become backed. */
+  standingSpawnEt?: number;
+  /** The bank branch's holding cost at today's stock, from the broker
+   * (the market never sees branches — just the bill). Off the top of
+   * the residual: rot happens whether or not anything funds. */
+  holdingEt?: number;
   /** Stock the bank must hold or accumulate: open sites' remaining capex
    * plus every `awaiting stock` candidate's. While bankStock sits below
    * this, the residual BANKS instead of burning — the warchest as the
@@ -226,11 +239,18 @@ export function clear(input: MarketInput): EnginePlan {
   const srcUsed: Record<string, number> = {};
   const srcFundedBy: Record<string, string[]> = {};
   const closed = new Set<string>();
-  let spawnUsed = 0;
+  // Machine time starts at the LIVE fleet's sustain draw, not zero:
+  // backed steps quote sunk spawnTimeEt, so without this seed the
+  // capacity constraint eroded to nothing across replans — each replan
+  // saw a free spawn and funded more, without bound (stress-hunt
+  // confirmed finding, 2026-08-23; the standingBills pattern, applied to
+  // the spawnTime currency).
+  let spawnUsed = input.standingSpawnEt ?? 0;
   let delivered = 0;
   let refill = 0;
   let fees = 0;
   let standingEt = 0;
+  let standingFees = 0;
 
   const remainingOn = (sourceId: string | null): number => {
     if (sourceId === null) return Infinity;
@@ -249,7 +269,10 @@ export function clear(input: MarketInput): EnginePlan {
     fees += inc.feeEt;
     delivered += eff;
     lc.flow += eff;
-    if (inc.backed) standingEt += eff;
+    if (inc.backed) {
+      standingEt += eff;
+      standingFees += inc.feeEt;
+    }
     const srcId = lc.chain.sourceId;
     if (srcId !== null) {
       srcUsed[srcId] = (srcUsed[srcId] ?? 0) + eff;
@@ -284,11 +307,19 @@ export function clear(input: MarketInput): EnginePlan {
     /** Set when every prefix was unaffordable under the ramp bound. */
     rampBlocked?: boolean;
   }
+  // The ramp-solvency ceiling, CONTINUOUS: a bid's upfront must be
+  // buyable from stock plus ONE PROJECT WINDOW of standing accumulation
+  // (income net of the fleet's bills and the branch's rot). The old
+  // binary rule — any standing income lifts the bound entirely — let one
+  // 1.25 e/t workman authorize a 950e specialist chain the executor
+  // could not buy for a hundred chunks, while the plan refused the
+  // affordable workmen that would have grown the income (session
+  // finding 2026-08-23: the bootstrap stalled at one body forever).
+  // Cold start reduces to the old rule: no income, stock alone.
+  const accumulationEt = Math.max(standingIncome - (input.standingBills ?? 0) - (input.holdingEt ?? 0), 0);
+  const affordCeiling = input.bankStock + accumulationEt * RAMP_WINDOW;
   const bestBid = (lc: LiveChain): Bid | null => {
     if (closed.has(lc.chain.id) || lc.next >= lc.incs.length) return null;
-    // With no standing income, a bid is only as big as the stock that can
-    // buy it — the root emerges as the largest affordable prefix.
-    const rampBound = standingIncome <= EPS;
     const room = Math.max(remainingOn(lc.chain.sourceId), 0);
     let dCum = 0;
     let cost = 0;
@@ -301,7 +332,7 @@ export function clear(input: MarketInput): EnginePlan {
       cost += inc.upkeepEt + inc.feeEt;
       spawn += inc.spawnTimeEt;
       upfront += inc.upfront;
-      if (rampBound && upfront > input.bankStock + EPS) break;
+      if (upfront > affordCeiling + EPS) break;
       const eff = Math.min(dCum, room);
       const net = eff - cost;
       if (!bid || net > bid.net + EPS) {
@@ -338,7 +369,9 @@ export function clear(input: MarketInput): EnginePlan {
       frontier.push({
         offerId: cid,
         reason: "ramp insolvent",
-        detail: `needs ${best.upfront}e up front, ${input.bankStock}e on hand, no standing income`
+        detail:
+          `needs ${best.upfront}e up front, ${input.bankStock}e on hand ` +
+          `+ ${(affordCeiling - input.bankStock).toFixed(0)}e of near-term accumulation`
       });
       closed.add(cid);
       continue;
@@ -420,7 +453,7 @@ export function clear(input: MarketInput): EnginePlan {
   // next (its BURN drawing stock, only its bills riding the residual);
   // the warchest banks toward blocked investments; the controller drinks
   // what is left — the ladder as the bank's draw policy (piece 9).
-  let residual = delivered - refill - fees - (input.standingBills ?? 0);
+  let residual = delivered - refill - fees - (input.standingBills ?? 0) - (input.holdingEt ?? 0);
   let upgradeEt = 0;
   let standingUpgradeEt = 0;
   let buildEt = 0;
@@ -489,6 +522,7 @@ export function clear(input: MarketInput): EnginePlan {
       refill += inc.upkeepEt;
       fees += inc.feeEt;
       spawnUsed += inc.spawnTimeEt;
+      if (inc.backed) standingFees += inc.feeEt;
       if (sink.capital) {
         buildEt += inc.delivered;
         if (inc.backed) standingBuildEt += inc.delivered;
@@ -609,10 +643,12 @@ export function clear(input: MarketInput): EnginePlan {
       upgradeEt,
       buildEt,
       warchestEt,
+      holdingEt: input.holdingEt ?? 0,
       standingEt,
       standingUpgradeEt,
       standingBuildEt,
-      standingRefillEt: input.standingBills ?? 0
+      standingRefillEt: input.standingBills ?? 0,
+      standingFeesEt: standingFees
     }
   };
 }

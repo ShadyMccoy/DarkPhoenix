@@ -38,7 +38,8 @@ export const REASON_COLOR: Record<FrontierReason, string> = {
   "source saturated": "#6b7280",
   outcompeted: "#2a9d8f",
   "awaiting stock": "#c58a3b",
-  "tender short": "#e05555"
+  "tender short": "#e05555",
+  "capex unreachable": "#8a4b6b"
 };
 
 export interface LabEdge {

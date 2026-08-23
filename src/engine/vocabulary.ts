@@ -149,7 +149,13 @@ export type FrontierReason =
   | "awaiting stock"
   /** The tender schedule exhausted below the heartbeat obligation. An
    * uncovered heartbeat is never silent (the axiom, printed). */
-  | "tender short";
+  | "tender short"
+  /** A cleared investment whose capex lies beyond what this bank branch
+   * can physically accumulate — pile decay grows with the stock until it
+   * eats the whole saving stream (the asymptote at ~1000·stream). Never
+   * added to the warchest target: chasing it would pause the dividend
+   * forever. The printed line IS the case for the next branch. */
+  | "capex unreachable";
 
 /** The blocked frontier, always printed WITH reasons (piece 6): the first
  * unfunded step of an offer and the arithmetic that stopped it. */
@@ -203,6 +209,11 @@ export interface EnginePlan {
      * the warchest's target). Production over consumption, structural:
      * the controller's dividend pauses while the bank accumulates. */
     warchestEt: number;
+    /** The bank branch's holding cost at today's stock — pile decay
+     * (convex), container upkeep, overflow rot. Piece 9's "the bank's
+     * own cost line", off the top of the residual and debited by every
+     * cash reader. */
+    holdingEt: number;
     /** The LIVE fleet's share of deliveredEt: funded increments whose every
      * step is backed. The plan side above assumes full staffing; this is
      * what stands today — the believer's cash accounting reads it, and the
@@ -217,5 +228,11 @@ export interface EnginePlan {
      * replacement bill. Steady state has no expiry event — replacement is
      * this bill, paid continuously; the believer's cash flow reads it. */
     standingRefillEt: number;
+    /** Operating fees of BACKED funded steps — the standing link's tax,
+     * paid on flow that runs today. Without this line the tax vanished
+     * between the plan book and any cash reader: standingEt is gross of
+     * it (stress-hunt confirmed finding, 2026-08-23 — the full fix,
+     * loss-as-a-flow in the vocabulary, awaits an owner ruling). */
+    standingFeesEt: number;
   };
 }

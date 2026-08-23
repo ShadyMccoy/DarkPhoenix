@@ -175,6 +175,24 @@ describe("engine/market", () => {
     assert.equal(plan.frontier.find(f => f.offerId === "up")?.reason, "energy residual");
   });
 
+  it("seeds machine time with the LIVE fleet's sustain draw — the spawn constraint holds across replans", () => {
+    // Backed steps quote sunk spawnTimeEt, so without the seed each
+    // replan saw a free spawn and funded more without bound.
+    const fresh = chain("chain:new", "s1", [8], [step(8, { upkeep: 0.2, spawn: 0.2 })]);
+    const unconstrained = clear(input({ chains: [fresh], spawnCapacity: 1 / 3 }));
+    assert.lengthOf(unconstrained.corps, 1, "headroom: the chain funds");
+    const seeded = clear(input({ chains: [fresh], spawnCapacity: 1 / 3, standingSpawnEt: 0.3 }));
+    assert.lengthOf(seeded.corps, 0, "the live fleet already owns the machine");
+    assert.equal(seeded.frontier.find(f => f.offerId === "chain:new")?.reason, "spawn capacity");
+  });
+
+  it("reports the standing fleet's operating fees — the wire's tax reaches the cash reader", () => {
+    const wired = chain("chain:w", "s1", [10], [step(10, { backedBy: "pair", fee: 0.3 })]);
+    const plan = clear(input({ chains: [wired] }));
+    assert.closeTo(plan.expected.standingEt, 10, 1e-9);
+    assert.closeTo(plan.expected.standingFeesEt, 0.3, 1e-9, "gross earn minus this is the honest cash line");
+  });
+
   it("the position book flags funded demand with no match at its place — the controller-feed bug, pinned", () => {
     const prod = chain("chain:p", "s1", [10], [step(10, { upkeep: 1 })]);
     const orphanSteps: Step[] = [0, 1].map(() => ({

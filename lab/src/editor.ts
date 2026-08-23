@@ -170,7 +170,9 @@ export function renderMap(container: HTMLElement, s: Scenario, overlay: MapOverl
   // Open construction sites: the structure-to-be, hollow until built.
   for (const k of s.sites) marks += badge(k.x, k.y, "#b0803c", "▲");
   marks += badge(s.spawn.x, s.spawn.y, "#3f7cac", "S");
-  marks += badge(s.bank.x, s.bank.y, "#2a9d8f", "B");
+  // The bank badge names its branch: pile B, container C̶→"K", storage "T".
+  const bankLabel = s.bankBranch === "storage" ? "T" : s.bankBranch === "container" ? "K" : "B";
+  marks += badge(s.bank.x, s.bank.y, "#2a9d8f", bankLabel);
   if (s.controller) marks += badge(s.controller.x, s.controller.y, "#8e6bbf", "C");
 
   // Blocked routes go down first so a funded edge always wins the overlap.

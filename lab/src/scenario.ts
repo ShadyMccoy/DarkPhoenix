@@ -15,7 +15,7 @@
  * route through (owner 2026-08-23: "consolidate multiple haul routes into
  * one link outpost").
  */
-import { EXTENSION_CAPACITY } from "../../src/primitives";
+import { BankBranchKind, EXTENSION_CAPACITY } from "../../src/primitives";
 import { EconomyView, ViewCreep, ViewLink, ViewOutpost, ViewSite } from "../../src/engine/view";
 import { StructureKind } from "../../src/engine/vocabulary";
 
@@ -75,6 +75,9 @@ export interface Scenario {
   /** Standing extensions — each adds EXTENSION_CAPACITY to the estate's
    * body budget (Tier 1.2: bodyBudget is endogenous). */
   extensions: XY[];
+  /** The bank's physical branch at the kernel — a pile until the ladder's
+   * capex clears (Tier 1.3). */
+  bankBranch: BankBranchKind;
   bankStock: number;
   bodyBudget: number;
   /** Staged initial fleet (cascade B/C worlds stage living creeps). */
@@ -243,6 +246,7 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     tick,
     bank: "bank",
     bankStock,
+    bankBranch: s.bankBranch,
     bodyBudget: s.bodyBudget + EXTENSION_CAPACITY * s.extensions.length,
     spawnIds: ["spawn1"],
     estateRadius: Math.max(...estateStops.map(p => approachDist(dist, p))),
@@ -286,6 +290,7 @@ export function importSave(text: string): LabSave {
   raw.scenario.links = raw.scenario.links ?? [];
   raw.scenario.sites = raw.scenario.sites ?? [];
   raw.scenario.extensions = raw.scenario.extensions ?? [];
+  raw.scenario.bankBranch = raw.scenario.bankBranch ?? "pile";
   return {
     scenario: raw.scenario,
     creeps: raw.creeps ?? [],

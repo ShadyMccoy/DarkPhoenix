@@ -113,6 +113,8 @@ function realize(state: BelieverState, site: ScenarioSite): void {
   } else if (site.structure === "extension") {
     const at = freeTileNear(s, s.spawn, 4);
     if (at) s.extensions.push(at);
+  } else if (site.structure === "container" || site.structure === "storage") {
+    s.bankBranch = site.structure;
   }
 }
 
@@ -127,7 +129,11 @@ export function advanceChunk(state: BelieverState): EnginePlan {
 
   placeSites(state, plan);
 
-  let stock = state.bankStock + e.standingEt * DT - e.standingRefillEt * DT;
+  // Earn net of the sustain bill, the standing operating fees (the
+  // link's tax on flow that ran — without the debit the wire's loss was
+  // phantom cash), and the branch's holding cost (the pile ROTS while
+  // the warchest accumulates — piece 9's own cost line).
+  let stock = state.bankStock + (e.standingEt - e.standingRefillEt - e.standingFeesEt - e.holdingEt) * DT;
 
   // Capex leaves the bank as build flow: the standing burn pays sites
   // down in order, bounded by the stock the approvals reserved.

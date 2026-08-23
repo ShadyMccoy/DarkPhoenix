@@ -27,6 +27,7 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     tick: 100,
     bank: "bank",
     bankStock: 300,
+    bankBranch: "storage",
     bodyBudget: 300,
     spawnIds: ["sp1"],
     estateRadius: 1,
@@ -161,16 +162,19 @@ describe("engine/build — the investment pipeline", () => {
     assert.isOk(plan.frontier.find(f => f.reason === "awaiting stock"));
   });
 
-  it("prints `tender short` when the refill schedule cannot carry the heartbeat", () => {
-    // A big standing fleet owes a heavy sustain bill, but a spread estate
-    // (radius 30) caps tender intake at 4 bodies x ~1.67 e/t = 6.7 e/t.
+  it("prints `tender short` when even the derived refill schedule cannot carry the heartbeat", () => {
+    // The schedule now sizes itself to the obligation (a const schedule
+    // was the finding), but a spread estate (radius 30) caps intake at
+    // 12 bodies x ~1.67 = 20 e/t while twenty big haulers owe 33 e/t of
+    // sustain alone. Three spawns keep machine time from binding first.
     const bigHauler = { work: 0, carry: 25, move: 25 };
     const plan = replan(
       view({
         bodyBudget: 550,
         bankStock: 2000,
         estateRadius: 30,
-        creeps: Array.from({ length: 10 }, (_, i) => ({
+        spawnIds: ["sp1", "sp2", "sp3"],
+        creeps: Array.from({ length: 20 }, (_, i) => ({
           id: `bh${i}`,
           corp: "haul:srcA->bank",
           body: bigHauler,

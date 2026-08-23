@@ -84,7 +84,8 @@ export function renderPanels(container: HTMLElement, plan: EnginePlan, creeps: V
     `<div class="expected">plan: mined <b>${e.minedEt.toFixed(1)}</b> · delivered <b>${e.deliveredEt.toFixed(1)}</b> · ` +
     `refill <b>${e.refillEt.toFixed(2)}</b> · fees <b>${e.feesEt.toFixed(2)}</b> · ` +
     `upgrade <b>${e.upgradeEt.toFixed(1)}</b> · build <b>${e.buildEt.toFixed(1)}</b> · ` +
-    `warchest <b>${e.warchestEt.toFixed(1)}</b> · to bank <b>${leftover.toFixed(2)}</b> e/t</div>` +
+    `warchest <b>${e.warchestEt.toFixed(1)}</b> · holding <b>${e.holdingEt.toFixed(2)}</b> · ` +
+    `to bank <b>${leftover.toFixed(2)}</b> e/t</div>` +
     `<div class="expected">standing today: delivering <b>${e.standingEt.toFixed(1)}</b> · ` +
     `upgrading <b>${e.standingUpgradeEt.toFixed(1)}</b> · building <b>${e.standingBuildEt.toFixed(1)}</b> · ` +
     `sustain bill <b>${e.standingRefillEt.toFixed(2)}</b> e/t</div>` +

@@ -20,6 +20,7 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     tick: 100,
     bank: "bank",
     bankStock: 300,
+    bankBranch: "storage",
     bodyBudget: 300,
     spawnIds: ["sp1"],
     estateRadius: 1,

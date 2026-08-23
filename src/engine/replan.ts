@@ -24,6 +24,7 @@
  * wiring lives here and stays about a page.
  */
 import {
+  CONTAINER_COST,
   CREEP_LIFE,
   EXTENSION_CAPACITY,
   EXTENSION_COST,
@@ -32,7 +33,11 @@ import {
   LINK_LOSS,
   PART_COST,
   SOURCE_RATE,
+  STORAGE_COST,
+  branchHoldingEt,
   haulRate,
+  reachableStock,
+  spawnTimeEt,
   upkeepEt
 } from "../primitives";
 import { carryPartsFor, haulerBody } from "../sizing";
@@ -335,18 +340,22 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
   const spawning = quoteSpawning({ spawnIds: view.spawnIds });
   const spawnCapacity = spawning ? spawning.steps.reduce((sum, s) => sum + (s.provides.spawnTime ?? 0), 0) : 0;
 
+  // The live fleet's perpetual replacement bill — steady state has no
+  // expiry event, only this cash line. The market needs it too: the
+  // tender is sized to the WHOLE heartbeat, standing fleet included —
+  // and the fleet's sustain MACHINE TIME seeds the spawn constraint the
+  // same way (a capacity is a capacity in every currency).
+  const standingBills = view.creeps.reduce((sum, c) => sum + upkeepEt(c.body), 0);
+  const standingSpawnEt = view.creeps.reduce((sum, c) => sum + spawnTimeEt(c.body), 0);
+
   const tenderCreeps = assigned(view, ESTATE_CORP);
   const tenderOffer = quoteTender({
     bank: view.bank,
     estateRadius: view.estateRadius,
     bodyBudget: budget,
+    obligationEt: view.sources.length * SOURCE_RATE + standingBills,
     creeps: tenderCreeps
   });
-
-  // The live fleet's perpetual replacement bill — steady state has no
-  // expiry event, only this cash line. The market needs it too: the
-  // tender is sized to the WHOLE heartbeat, standing fleet included.
-  const standingBills = view.creeps.reduce((sum, c) => sum + upkeepEt(c.body), 0);
 
   const plan = clear({
     tick: view.tick,
@@ -357,6 +366,8 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     bankStock: view.bankStock,
     sourceCaps,
     standingBills,
+    standingSpawnEt,
+    holdingEt: branchHoldingEt(view.bankBranch, view.bankStock, view.bodyBudget),
     warchestTarget,
     tender: tenderOffer
       ? { offer: tenderOffer, capacities: tenderCapacities(tenderOffer, view.estateRadius, tenderCreeps) }
@@ -384,6 +395,30 @@ export function replan(view: EconomyView): EnginePlan {
   const awaiting: FrontierLine[] = [];
   let awaitingCapex = 0;
   let spendable = view.bankStock - committed;
+
+  // What the branch can physically accumulate to: the divertable stream
+  // (dividend + what already banks) feeds the pile, and decay grows with
+  // it until it eats the whole stream. A candidate beyond the asymptote
+  // prints `capex unreachable` and never joins the warchest target —
+  // chasing it would pause the dividend forever and never arrive.
+  const stream = base.expected.upgradeEt + base.expected.warchestEt + base.expected.holdingEt;
+  const reach = reachableStock(view.bankBranch, stream, view.bodyBudget);
+  const noteAwaiting = (offerId: string, capex: number, detail: string): void => {
+    if (committed + awaitingCapex + capex > reach + 1e-9) {
+      awaiting.push({
+        offerId,
+        reason: "capex unreachable",
+        detail: `${capex}e capex beyond this ${view.bankBranch} branch's ~${Math.round(reach)}e ceiling — ${detail}`
+      });
+    } else {
+      awaiting.push({
+        offerId,
+        reason: "awaiting stock",
+        detail: `${capex}e capex, ${Math.max(spendable, 0).toFixed(0)}e spendable — ${detail}`
+      });
+      awaitingCapex += capex;
+    }
+  };
   const isSitePlace = (p: PlaceId): boolean => view.sites.some(s => s.at === p);
   const siteEdges = new Set<string>();
   for (const s of view.sites) if (s.edge) siteEdges.add(`${s.edge.from}->${s.edge.to}`);
@@ -430,12 +465,7 @@ export function replan(view: EconomyView): EnginePlan {
       spendable -= capex;
       approvals.push({ structure: "link", edge: { from: gap.from, to: gap.to }, at: gap.from, capex, detail });
     } else {
-      awaiting.push({
-        offerId: cand.id,
-        reason: "awaiting stock",
-        detail: `${capex}e capex, ${Math.max(spendable, 0).toFixed(0)}e spendable — ${detail}`
-      });
-      awaitingCapex += capex;
+      noteAwaiting(cand.id, capex, detail);
     }
   }
 
@@ -459,12 +489,40 @@ export function replan(view: EconomyView): EnginePlan {
         spendable -= EXTENSION_COST;
         approvals.push({ structure: "extension", at: view.bank, capex: EXTENSION_COST, detail });
       } else {
-        awaiting.push({
-          offerId: "extension:estate",
-          reason: "awaiting stock",
-          detail: `${EXTENSION_COST}e capex, ${Math.max(spendable, 0).toFixed(0)}e spendable — ${detail}`
-        });
-        awaitingCapex += EXTENSION_COST;
+        noteAwaiting("extension:estate", EXTENSION_COST, detail);
+      }
+    }
+  }
+
+  // The bank-branch ladder (Tier 1.3): capex that cheapens banking
+  // (piece 9 — "containerizing a mouth is just capex that cheapens
+  // banking"). Priced at TODAY'S stock — greedy depth-0's known myopia,
+  // recorded: it sees the rot it suffers now, never the warchest it will
+  // want tomorrow. One rung at a time; an open branch site defers the
+  // next look.
+  if (!view.sites.some(s => s.structure === "container" || s.structure === "storage")) {
+    const rung =
+      view.bankBranch === "pile"
+        ? {
+            structure: "container" as const,
+            capex: CONTAINER_COST,
+            after: branchHoldingEt("container", view.bankStock, view.bodyBudget)
+          }
+        : view.bankBranch === "container"
+        ? { structure: "storage" as const, capex: STORAGE_COST, after: 0 }
+        : null;
+    if (rung) {
+      const saving = base.expected.holdingEt - rung.after;
+      if (saving * HORIZON > rung.capex) {
+        const detail =
+          `${rung.structure} saves ${saving.toFixed(2)} e/t of holding: ` +
+          `${(saving * HORIZON).toFixed(0)}e over H beats ${rung.capex}e capex`;
+        if (rung.capex <= spendable + 1e-9) {
+          spendable -= rung.capex;
+          approvals.push({ structure: rung.structure, at: view.bank, capex: rung.capex, detail });
+        } else {
+          noteAwaiting(`${rung.structure}:bank`, rung.capex, detail);
+        }
       }
     }
   }
