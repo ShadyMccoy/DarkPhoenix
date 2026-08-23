@@ -1044,6 +1044,180 @@ conversation happens); the replacement-scale displacement rule
 pricing spawnTime in merit once p/t binds; per-RCL link-count
 scarcity (the REAL reason outposts consolidate in the game).
 
+### Tier 1 landed — and the findings ledger (2026-08-23 overnight session; DRAFT, awaiting owner review)
+
+The four Tier-1 items landed in order (build corp + approvals, extensions,
+bank branches, roads — commits #176–#179 on the reboot branch), each with
+its engine suite; the believer now plays the whole arc headless in ~26
+chunks (certified in `test/unit/believer.test.ts`): cold start → ramp →
+extension → container → warchest under real rot → link approval → site →
+construction TIME → displacement → steady 16.9 e/t dividend, with
+storage's unreachability printed every replan. A 15-agent adversarial
+stress-hunt ran against the pre-session HEAD; its confirmed findings are
+folded in below. **Nothing in this section is a ruling** — it is the
+session's record of what broke, the arithmetic, and what each break
+revealed. Items marked ⚖ deviate from or extend recorded doctrine and
+need the owner's explicit ratification or reversal.
+
+**Breaks that forced structural changes (landed, each pinned by a test):**
+
+1. **A candidate structure on the order book strands its edge.** The
+   funded-but-unbuilt link sat FIRST in the book (cheapest marginal), so
+   the workable haul options behind it never funded and the flow stopped
+   for the whole construction window. Reveal: the book may trade only
+   what can move energy TODAY; investment is a separate plan section —
+   `plan.approvals` — decided against the funded plan's own traffic
+   (piece 7's "traffic generates candidates", literally).
+2. **Without a warchest, no capex can EVER accumulate.** The controller
+   drank the whole residual every replan, so stock never grew and every
+   investment starved. Piece 9 names the reserve band; it is now
+   structural: the target is Σ `awaiting stock` capex plus open sites'
+   remaining — no constant. ⚖ v1's macro doctrine ("bank to the
+   warchest, consumers burn the residual") is implemented as
+   divert-EVERYTHING while below target, which lapses the upgrade fleet
+   during accumulation and rebuys it after — visible fleet churn in the
+   lab. Whether standing burners should keep drinking during
+   accumulation is the owner's call.
+3. **Zeno's construction site.** Deriving the burn as remaining/window
+   re-priced a shrinking remainder each replan: geometric decay, a site
+   that never finishes (33→16.7→8.3→… e/t, watched live). Reveal: a
+   steady-state ledger cannot price completion time at all; the rate
+   base must be the project's TOTAL (constant over its life), and the
+   deeper completion-time economics wait for depth.
+4. **Living fleets were immortal incumbents — twice.** Sunk-quote
+   ordering (backed = 0 cost) meant the standing link could never take
+   its edge back from the haul fleet it beat, in round 3 AND inside the
+   order book. Reveal: the roadmap's own flagged "replacement-scale
+   displacement rule": in a steady-state ledger replacement is
+   continuous, so ordering prices bodies at their amortized bill;
+   backed-first survives as the TIEBREAK (anti-thrash intact). ⚖ This
+   reads piece 5's "until bodies near expiry" as "replacement time is
+   always, a little" — ratify or bound it.
+5. **#148 was not wired into the haul quote.** Bodies sized to budget on
+   sliver flows (the 24-CARRY class, alive in v2) inflated edge unit
+   costs so badly a 10000e link pair "won" a 2 e/t trickle at dist 5.
+   Reveal: `haulerBodyFor(flow, dist, budget)` — each marginal body sized
+   to the flow still uncovered; the candidate comparison prices the
+   incumbent at the IDEAL fleet, never the quantized one.
+6. **The residual let the controller drink owed bills** (stress-hunt,
+   confirmed). Backed steps quote sunk-zero, so `refill` alone
+   understated the heartbeat by the standing fleet's amortized
+   replacement; the believer's bank drained at exactly that rate until
+   pinned. Same class, spawn currency: `spawnUsed` started at zero each
+   replan, so the capacity constraint eroded as steps became backed.
+   Reveal: every standing obligation seeds its constraint —
+   standingBills off the residual, standingSpawnEt into the machine, and
+   `standingFeesEt` exported so the wire's tax reaches cash readers.
+7. **Whole-step sinks strand sub-quantum residual forever** — and
+   quantization noise swallowed counterfactual deltas whole (a +2 e/t
+   extension gain read as Δ=0). Reveal: the last sink step funds
+   PARTIALLY (utilization < 1 was already first-class); the controller
+   drains the residual exactly. ⚖ Alters the worked-550 fixture's pinned
+   numbers (upgrade 16 → 244/15, five steps).
+8. **The survival budget is a regime, not a flag.** An any-creep-alive
+   test deadlocked the cold start the moment the tender (the only
+   affordable body) hired; sizing to instantaneous stock instead bred
+   runt cohorts on every dip (spec-01's equilibrium, re-observed).
+   Reveal: v1's law with "staffed" meaning PRODUCTION staffed — capacity
+   when income can refill the estate, cash-in-hand floored at the
+   spawn's 300 when production is dead.
+9. **The binary ramp filter stalls the mid-bootstrap.** Any standing
+   income lifted the solvency bound entirely, so one 1.25 e/t workman
+   authorized a 950e specialist chain the executor could not buy for a
+   hundred chunks — while the plan refused the affordable workmen that
+   would have grown the income. Reveal: ramp solvency is CONTINUOUS —
+   upfront ≤ stock + one project window of standing accumulation (net
+   of bills and rot). Cold start reduces to the old stock-only rule.
+10. **The estate is the bank's zeroth branch.** Charging pile rot on the
+    whole bankStock ate the bootstrap workman's ~1 e/t net (the spawn's
+    own 300 "rotted") and stalled the colony at one body forever.
+    Reveal: spawn + extension stores are decay-free VESSELS — exactly
+    bodyBudget worth — and the convexity applies only to the ground
+    share above them.
+11. **Pile decay bounds the reachable warchest** (the asymptote at
+    vault + 1000·stream — v1's convexity docblock, promoted to a
+    solvency law). Chasing capex beyond it would pause the dividend
+    FOREVER and never arrive; the engine now prints `capex unreachable`
+    and keeps the controller drinking. Storage (30000e) is genuinely
+    unreachable for a 2-source container-branch economy — the printed
+    line is the standing exhibit for the flow-funded-capex ruling below.
+
+**Design-level findings awaiting owner rulings (recorded, not acted on):**
+
+- **Losses are flows, not fees** (stress-hunt, confirmed 0.95): the
+  link's 3% rides as a scalar `feeEt` while `provides` stays gross, so
+  the position book never sees the loss and every cash reader must
+  remember a side-channel (the believer forgot: 45e/chunk of phantom
+  cash per trunked source — patched with `standingFeesEt`, but the
+  honest fix is `provides: 0.97·flow` so the book itself enforces it,
+  which also fixes the trunk slices charging tax on QUOTED rather than
+  allocated flow). A vocabulary change — constitutional event.
+- **Flow-funded capex.** "Investments draw from stock" meets the decay
+  asymptote: big capex (storage, multi-link campaigns) physically cannot
+  accumulate as stock in a pre-storage world — yet a build site absorbs
+  at rate r just fine, funded from the divertable stream with stock as
+  the BUFFER, not the prerequisite. Real colonies build storage exactly
+  this way. Needs a ruling on the approval gate (rate-solvency vs
+  stock-solvency) and on project pacing.
+- **Per-edge quantization is #150 at plan time** (stress-hunt, 0.92):
+  each (from→to) pair ceil()s its own fleet, so three same-direction
+  sources buy more CARRY than one pooled fleet needs. Sizing the last
+  body to the remainder (landed) shrinks the sliver but the cross-edge
+  ceil remains: transport should quote a FLEET against the netted
+  position book, with body→edge assignment behind the dispatch boundary
+  (piece 7 already says dispatch lives there).
+- **The radial bank is a waypoint tax** (0.9): a source 2 tiles from the
+  controller pays the full source→bank→controller round trip because the
+  view carries only star distances. Bank-as-counterparty (ledger truth)
+  vs bank-as-waypoint (routing assertion) — the model needs a
+  place-to-place distance function before Tier 3; the book stays cut at
+  the bank financially either way.
+- **The reserver is unquotable** (0.9): sourceCaps are broker constants;
+  no Offer can MULTIPLY another corp's provides. Tier 3's "pure
+  multiplier corp" needs either a `capacityAt(source)` commodity
+  (vocabulary event) or caps as functions of funded steps.
+- **Succession is inexpressible**: ttl reaches quotes only as a display
+  note; a dying miner quotes as full standing capital to its last tick,
+  and its replacement cannot coexist with it in the schedule (slots
+  conflate simultaneity with succession). Fine for the believer (no
+  expiry by ruling); blocks the mockup cutover (Tier 2) — the vocabulary
+  needs an `expiresIn`/spawn-lead treatment there.
+- **Spots and eviction**: standing room is a quote-side headcount, not a
+  market constraint — a runt miner from a poorer era occupies a 1-spot
+  source forever (quote exhaustion is a silent close, no frontier line),
+  and piece 5's challenger arithmetic has no eviction implementation.
+  Needs substitution steps or spot-capacity clearing.
+- **Incumbency is keyed to corp-id strings**: creeps re-hand only to
+  identically-named offers, so a route re-assignment (outpost coming
+  online) culls a working fleet instead of letting it compete on the new
+  edge; relatedly the outpost via/direct choice is a fresh-body
+  heuristic OUTSIDE the book (it should be two competing chains on one
+  sourceId). Re-handing should be by capability-at-place.
+- **Commute is still priced at zero** (0.85): a 150-tile remote chain
+  quotes ~+4.6 e/t and nets ~0 — bodies amortize over 1500 regardless of
+  posting walk. v1's `effectiveLife` awaits its port into the sizing
+  handoffs (piece 4 named the column; Tier 3 needs it).
+- **energyAt is vessel-blind** (0.85): a 0-CARRY miner "feeds" a link it
+  physically cannot load; the book calls it balanced. Vessel typing (or
+  loading `requires`) is a frozen-vocabulary change — flagged before
+  Tier 2 makes it a live fidelity gap.
+- **Assorted, smaller**: the tender's machine time can be preempted by
+  producers in the spawnTime currency (obligations-first is
+  energy-only); spawnTime is a placeless scalar (blocks multi-room);
+  the hurdle exists only inside candidate arithmetic — a no-sink world
+  still funds production at full merit (value realization needs the
+  backward direction or a shadow price); swamp roads (5× build, 5× gain)
+  are invisible to route-level pricing; the extension counterfactual
+  bumps budget but not estateRadius (under-prices the heartbeat's
+  growth); builder bodies amortize over 1500t for ~300t projects (the
+  believer's cash pays full price, only the P&L flatters); depth-0
+  differencing is blind behind the ramp filter (a too-poor world can't
+  SEE that an extension would pay).
+
+**Budget note:** src stands at 3020 lines against the ~3k budget; the
+overage is docblock prose carrying the session's incident record in
+place. Trim or ratify.
+
 ## The scenario ladder (DRAFT 2026-08-18 — awaiting owner markup)
 
 Shaped in-session, reorganized per the owner: **tied to behaviors and
