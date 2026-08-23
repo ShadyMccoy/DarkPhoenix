@@ -7,6 +7,8 @@
   "scripts": {
     "lint": "eslint \"src/**/*.ts\"",
     "build": "webpack",
+    "lab": "tsc -p lab --noEmit && webpack --config lab/webpack.config.js && node -e \"console.log('lab built: run npm run lab:serve')\"",
+    "lab:serve": "node scripts/lab-serve.js",
     "push-main": "rollup -c --environment DEST:main",
     "push-pserver": "rollup -c --environment DEST:pserver",
     "push-season": "rollup -c --environment DEST:season",

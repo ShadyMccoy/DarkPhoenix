@@ -126,9 +126,7 @@ export function snapshot(): World {
       y: src.pos.y,
       energy: src.energy,
       spots: sourceSpots(src),
-      distToSpawn: anchor
-        ? Math.max(Math.abs(src.pos.x - anchor.x), Math.abs(src.pos.y - anchor.y))
-        : 25
+      distToSpawn: anchor ? Math.max(Math.abs(src.pos.x - anchor.x), Math.abs(src.pos.y - anchor.y)) : 25
     }));
 
     const refills: RefillTarget[] = [];

@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "target": "ES2018",
+    "lib": ["ES2018", "DOM"],
+    "strict": true,
+    "noImplicitReturns": true,
+    "sourceMap": true,
+    "allowSyntheticDefaultImports": true
+  },
+  "//": "Only the engine-side src modules are included: this typecheck FAILS if anything the lab hosts ever references a game global — the one-implementation-two-hosts guarantee, enforced.",
+  "include": [
+    "src/**/*",
+    "../src/engine/**/*",
+    "../src/corps/**/*",
+    "../src/sizing.ts",
+    "../src/primitives.ts"
+  ]
+}

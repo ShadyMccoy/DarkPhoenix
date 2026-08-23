@@ -820,6 +820,230 @@ speed before any mockup run.
 Sequencing: the lab comes before/alongside the certification ladder
 below; the M1 code gate and the working agreement stand unchanged.
 
+### The lab requirements (agreed 2026-08-22)
+
+Shaped in requirements conversation with the owner; five forks put,
+five ruled, recorded here per the working agreement (the owner naming
+this section the record: "sure"). The engine of record is the planning
+concept (pieces 1–9); the lab is its first host and first
+certification. Acceptance criteria will live where they always do —
+in the scenario files and their asserted replays — once built.
+
+**Rulings (owner 2026-08-22):**
+
+- **Result over search.** On plan-only vs stepped sequences: *"both.
+  ultimately the search is less interesting than the result, generally
+  speaking."* Both modes exist — inspect a single replan, and step a
+  sequence — and the screen's star is the RESULT: the funded plan, its
+  per-instance P&L, the blocked frontier with reasons, and the plan
+  diff between replans. The search trace remains an engine OUTPUT
+  (data: candidates considered, prices, prune/fund decisions,
+  best-so-far per budget step — it is what makes the frontier's
+  reasons and the certification replayable), but its visualization is
+  a drill-down, never the main event.
+- **The map is editable.** *"I'd like to be able to edit the map as
+  well to place, move, and update properties on game elements, eg
+  spawns, storages, buildings, energy sources."* The energy projection
+  is therefore not a render but the scenario EDITOR: place, move,
+  delete spawns, sources, containers/storage, the controller, the
+  designated bank tile; edit their properties (stocks, capacities,
+  level). Terrain loads from captured fixtures; a terrain brush is a
+  nice-to-have. **Edits reprice live**: every edit re-runs the replan
+  (depth-0 is cheap), so the match graph, the positions and the
+  frontier react as elements move — distance as a priced good
+  (piece 7) made touchable.
+- **v0 scope agreed:** kinds mine / haul / upgrade / spawning, plus
+  the bank as counterparty; commodities energy + spawnTime; depth-0.
+  First scenario: the bootstrap cascade — piece 6's own designated
+  first test, watched on screen from an empty ledger. Lab phase 2:
+  `asset(id)`, the link kind, depth-1 — displacement and
+  capex-vs-hurdle become visible.
+- **Hand-vs-engine mode is deferred** (owner: "not critical"). The
+  proposed play-against-the-planner scoring mode is not a
+  requirement; revisit only if the objective conversation wants an
+  instrument.
+- **Tech settled** (owner: "sounds good. sure if react helps go for
+  it."): a static browser page — the engine bundled by the existing
+  toolchain (`npm run lab`), no server, nothing live to talk to.
+  React is permitted for the GUI where it speeds iteration; any such
+  dependency is lab-only, never imported from `src/`.
+
+**Requirements (first round, carried):**
+
+1. **The engine is the deliverable; the GUI derives nothing.** Engine
+   modules are plain-data pure functions in `src/` (the
+   `primitives.ts` convention — screeps-type-free), bundled into the
+   lab and imported by the bot alike: one implementation, two hosts.
+   If the GUI needs a fact the engine does not expose, the engine
+   grows an output field — a GUI-side derivation is the two-lens
+   disease in a new host.
+2. **The map is input and projection, never search state.** The editor
+   edits the WORLD; a pure world-assembly step derives places and
+   route costs (real path distances over terrain) for the engine,
+   which searches ledger space only. The 480-node door stays shut at
+   the GUI too.
+3. **Scenario files round-trip through the editor** (load → edit →
+   save): map + element properties + bank stocks + ledger + previous
+   plan + horizon, plain JSON, checked in. They double as the engine's
+   unit-test fixtures (deterministic replay asserted — same world +
+   same ledger = same plan, per piece 6) and converge toward mockup
+   staging so a lab scenario can graduate into a mockup cell.
+4. **Stepping is a believer world — steady-state, like the plan
+   itself** (owner correction 2026-08-23: "we're just doing abstract
+   steady state planning"): it applies the plan's own standing rates
+   as cash. A live body persists; its replacement IS its amortized
+   bill, paid continuously — there is no expiry event, and unfunded
+   staffing lapses because the plan stopped renewing it. Discrete ttl
+   churn and the spawn pipe are execution's business, measured at the
+   mockup. Plan-vs-actual is zero here by construction, so the lab
+   certifies ACCOUNTING — conservation identity, P&L composition,
+   funding order, determinism, plan quiescence — and never fidelity.
+   No lab number is quotable as a measured band; the mockup remains
+   the truth host.
+5. **Boundaries.** The GUI lives outside `src/` (top-level `lab/`) and
+   is exempt from the ~3k src budget; the engine counts. The lab never
+   touches live. M1's gate and the working agreement stand. The bot's
+   cutover from `plan.ts` to the engine is its own owner-gated event.
+
+### The corp contract (agreed 2026-08-22, second conversation)
+
+The engine-facing shape of every corp kind, set by the owner: *"the bot
+classes themselves must be structured to accept game assets (eg from
+the planner) and give back some kind of scaling ie input & output
+function. This is super important."* The broker: *"Planner provides —
+it lives between the world and the corps. Either our fake synthetic
+world or in the real world."* What a kind sees: *"just the assets.
+It's kind of part of their contract."* Implementation detail was
+delegated to the session, worked through priced examples, and closed:
+*"Yeah I think you've got the picture."* The record:
+
+- **`quote(handoff) → Offer`, pure.** The handoff is a typed record of
+  assets — game objects INCLUDING the kind's currently-assigned creeps
+  (sunk capital enters as handed assets) — plus planner-derived terms
+  (route cost, body budget: the planner relaying other contracts'
+  attributes, e.g. the spawn estate's capacity). The handoff type IS
+  the kind's contract; a kind sees nothing else — no World, no plan,
+  no Game.
+- **The Offer is the scaling function as data**: a list of STEPS, one
+  step = one body (or structure), each declaring marginal
+  requires/provides rates in the frozen vocabulary. Saturation is the
+  schedule ending; diminishing returns are declining marginal
+  provides; `backedBy` marks a step already embodied, which quotes
+  ~zero — incumbency and anti-thrash as a cheap first step, no engine
+  machinery.
+- **A body step's requires carries its full bill**: spawn machine time
+  (`spawnTime` p/t) AND its parts bill (`energyAt` the spawn's bank
+  branch, cost/1500). The spawning kind sells pure capacity (1/3 p/t
+  per spawn). No double count, and the tender heartbeat becomes an
+  identity: refill obligation = Σ funded parts bills, drawn first.
+- **The engine loop, six verbs:** anchored quotes → net positions per
+  place (bank as counterparty) → publish gaps → transport quotes →
+  compose chains end-to-end → fund increments in marginal-net order
+  under capacity and solvency, emitting the plan and the frontier with
+  arithmetic reasons.
+- **The solvency filter realizes the root.** Piece 8's
+  heartbeat-solvency constraint, applied to each chain's ramp: on an
+  empty ledger only the workman's one-body chain can fund itself, so
+  the floor-priced root EMERGES — no flag, no mode (piece 6 made
+  concrete). The workman joins v0's kind set as the fused converter,
+  always quoting, outcompeted the moment specialist chains are
+  solvent and cheaper. Harvest thereby gains a second corporate user
+  and becomes a shared function per law 3's own rule.
+- **Recorded retirements:** nearer-sources-first ordering and M1's
+  RAMP_CAP both fall out of merit-order funding — the buy order IS the
+  merit order, so the ramp cannot starve the residual by construction.
+- **The tender is the spawning corp's own body** (owner 2026-08-23:
+  "Hauling is specifically for energy logistics between corps. The
+  tender is a specialist corp for filling extensions and spawns and
+  it's a corp with body requirements just like others. Although a
+  very simple one. It could be folded into the spawn corp itself." —
+  folded in). The spawning vertical prices TWO services: machine time
+  (the standing structures) and refill intake (tender bodies, sized by
+  the one sizing module to the funded obligation over the estate's
+  radius). Haul quotes never cover the spawn estate; the heartbeat's
+  carrier is the spawning corp's own fleet, and its cost is one more
+  line of the obligation paid first.
+
+### Development steps (2026-08-22)
+
+1. **Engine core** (`src/engine/`, `src/corps/`, `src/sizing.ts` —
+   counts in the src budget): offer/vocabulary types, the ONE sizing
+   module (law 5's home), quote functions for workman / mine / haul /
+   upgrade / spawning, chain composition + merit funding + frontier.
+   Suites: synthetic-kind market tests (clearing correctness with
+   made-up schedules), the exhaustive sizing suite, the worked
+   550-budget example pinned, the cascade staged across ledgers
+   (empty → workman; income standing → specialists displace). The
+   live bot keeps shipping `plan.ts` untouched.
+2. **Lab scaffold** (`lab/`): `npm run lab`, scenario JSON
+   round-tripping the editor, map editing, world assembly (real path
+   distances over terrain), replan-on-edit.
+3. **Views + stepping:** match graph / position matrix / frontier
+   panels, P&L inspector, believer stepping, plan diffs; the
+   bootstrap-cascade scenario checked in as the first certification.
+4. **Phase 2:** `asset(id)`, the link kind, depth-1.
+   **Landed 2026-08-23 with the clearing-order refactor** (owner:
+   "let's do the gap derivation refactor along with the link corp",
+   after the position book caught a hand-wired matching hole): the
+   broker nets anchored offers first and DERIVES the gaps — nothing
+   hand-wires a match, and the book stays the tripwire. Transport
+   stages are ORDER BOOKS: haul bodies and link volleys compete on
+   the same edge, standing capital first, then cheapest marginal
+   unit — piece 5's "the engine funds whichever wins the edge" is
+   literally the sort. The link kind prices the piece verbatim: a
+   standing pair quotes marginal (the 3% tax, zero spawn time), a
+   candidate quotes full cost (tax + capex/HORIZON) with its capex
+   gated by stock (investments draw from stock — piece 9), so the
+   network segments by distance with no logistics module deciding.
+   H = 100,000 now lives in primitives under its ruling docblock.
+
+The bot's cutover from `plan.ts` to the engine is a separate
+owner-gated event once the lab has certified the design.
+
+### The roadmap (agreed 2026-08-23)
+
+Ordered by dependency; every item rides the standing machinery —
+quotes, order books, capex over HORIZON, the position book — so each
+is a vertical plus a registry entry, as the concept promised. Two
+rulings recorded with it: **the map and graph are room-agnostic**
+(owner: "the map and graph is pretty much room agnostic" — rooms are
+walls the editor draws, never model structure), and **link outposts
+consolidate haul routes** (owner: "consolidate multiple haul routes
+into one link outpost given such a map" — a free-standing link is its
+own PLACE, a bank branch in waiting: short collector hauls converge
+on it, one trunk hop covers them all, and the book audits the joint).
+
+**Tier 1 — make the economy real:**
+1. Build corp — the missing verb; retires the believer as interim
+   builder. Unlocks the rest of the tier.
+2. Extensions as investment — bodyBudget becomes ENDOGENOUS: an
+   extension is a 3000e candidate whose payoff is bigger quotable
+   bodies; the spawn estate grows itself the way the link cleared
+   its hurdle, and spread-out estates raise the heartbeat's price.
+3. Bank branches as real places — containers and storage with
+   capacity and holding costs (piece 9's branch classification, pile
+   decay as the bank's own line, the warchest band on screen).
+4. Roads — a route-cost modifier from the traffic overlay, making
+   every edge a three-way market (bodies off-road / on-road / link).
+
+**Tier 2 — the cutover (M2, then M3):** runners execute the engine's
+plan in the mockup, `plan.ts` retires, the M1 cell re-passes; then
+the fidelity line measures actuals against expected/standing — the
+believer certifies accounting, the mockup audits it.
+
+**Tier 3 — beyond one room:** scout (coverage, axiom-priced) →
+remote mining + the reserve corp (a pure multiplier corp) → claim /
+new-spawn-site (the first depth-2 chain; the founding-kernel
+placement function) → guard + tower with `safe(place)` (awaiting the
+deterrence-floor ruling).
+
+**Cross-cutting, pulled in when measurement demands:** the real depth
+dial and the racing harness (where the deferred objective
+conversation happens); the replacement-scale displacement rule
+(standing fleets are currently immortal incumbents in steady state);
+pricing spawnTime in merit once p/t binds; per-RCL link-count
+scarcity (the REAL reason outposts consolidate in the game).
+
 ## The scenario ladder (DRAFT 2026-08-18 — awaiting owner markup)
 
 Shaped in-session, reorganized per the owner: **tied to behaviors and
