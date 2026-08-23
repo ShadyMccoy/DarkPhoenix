@@ -8,6 +8,7 @@
 import { EnginePlan } from "../../src/engine/vocabulary";
 import { BodyShape } from "../../src/sizing";
 import { ViewCreep } from "../../src/engine/view";
+import { REASON_COLOR } from "./graph";
 
 export function fmtBody(b: BodyShape | null): string {
   if (!b) return "—";
@@ -17,15 +18,6 @@ export function fmtBody(b: BodyShape | null): string {
   if (b.move) parts.push(`${b.move}M`);
   return parts.join(" ");
 }
-
-const REASON_COLOR: Record<string, string> = {
-  "net<0": "#b3543a",
-  "spawn capacity": "#3f7cac",
-  "energy residual": "#c9a227",
-  "ramp insolvent": "#8e6bbf",
-  "source saturated": "#6b7280",
-  outcompeted: "#2a9d8f"
-};
 
 export function renderPanels(container: HTMLElement, plan: EnginePlan, creeps: ViewCreep[]): void {
   const rows = plan.corps

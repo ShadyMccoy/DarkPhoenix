@@ -10,6 +10,7 @@ import { EnginePlan } from "../../src/engine/vocabulary";
 import { ViewCreep } from "../../src/engine/view";
 import { bodyCost } from "../../src/primitives";
 import { TOOLS, Tool, renderMap } from "./editor";
+import { KIND_COLOR, edgesFor } from "./graph";
 import { renderPanels } from "./panels";
 import { PLAIN, SWAMP, Scenario, WALL, assemble, cellAt, exportSave, importSave, setCell } from "./scenario";
 import { bootstrapScenario } from "./scenarios";
@@ -25,9 +26,18 @@ interface LabState {
   cp: number;
   tool: Tool;
   seq: number;
+  /** Draw the blocked frontier on the map, not just in the panel. */
+  showBlocked: boolean;
+  showLabels: boolean;
 }
 
-function fresh(scenario: Scenario): LabState {
+/** View prefs survive a reset — they describe the lens, not the world. */
+interface ViewPrefs {
+  showBlocked: boolean;
+  showLabels: boolean;
+}
+
+function fresh(scenario: Scenario, prefs: ViewPrefs = { showBlocked: true, showLabels: true }): LabState {
   return {
     scenario,
     creeps: scenario.creeps.map(c => ({ ...c })),
@@ -35,7 +45,9 @@ function fresh(scenario: Scenario): LabState {
     tick: 0,
     cp: 0,
     tool: "select",
-    seq: 1
+    seq: 1,
+    showBlocked: prefs.showBlocked,
+    showLabels: prefs.showLabels
   };
 }
 
@@ -145,9 +157,21 @@ function renderTools(): void {
   );
 }
 
+/** The legend is generated from the same KIND_COLOR the map draws with. */
+function renderLegend(): void {
+  const swatches = (Object.keys(KIND_COLOR) as (keyof typeof KIND_COLOR)[])
+    .map(k => `<span class="key"><i style="background:${KIND_COLOR[k]}"></i>${k}</span>`)
+    .join("");
+  $("legend").innerHTML =
+    swatches +
+    `<span class="key dim"><i class="dash"></i>understaffed / blocked</span>` +
+    `<span class="key dim">width = gross e/t</span>`;
+}
+
 function render(): void {
   const plan = currentPlan();
-  renderMap($("map"), state.scenario, null, applyTool);
+  const edges = edgesFor(state.scenario, plan, state.showBlocked);
+  renderMap($("map"), state.scenario, { selected: null, edges, showLabels: state.showLabels }, applyTool);
   renderPanels($("panels"), plan, state.creeps);
   $("status").textContent =
     `t${state.tick} · bank ${Math.round(state.bankStock)}e · ` +
@@ -156,12 +180,29 @@ function render(): void {
   ($("bodyBudget") as HTMLInputElement).value = String(state.scenario.bodyBudget);
 }
 
+function toggle(id: string, read: () => boolean, write: (v: boolean) => void): void {
+  const b = $(id);
+  const paint = (): void => {
+    if (read()) b.classList.add("on");
+    else b.classList.remove("on");
+  };
+  b.addEventListener("click", () => {
+    write(!read());
+    paint();
+    render();
+  });
+  paint();
+}
+
 function wire(): void {
   renderTools();
+  renderLegend();
+  toggle("toggleBlocked", () => state.showBlocked, v => (state.showBlocked = v));
+  toggle("toggleLabels", () => state.showLabels, v => (state.showLabels = v));
   $("advance1").addEventListener("click", () => advance(1));
   $("advance10").addEventListener("click", () => advance(10));
   $("reset").addEventListener("click", () => {
-    state = fresh(state.scenario);
+    state = fresh(state.scenario, { showBlocked: state.showBlocked, showLabels: state.showLabels });
     render();
   });
   $("bankStock").addEventListener("change", ev => {
