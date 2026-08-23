@@ -32,6 +32,7 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     sites: [],
     roads: [],
     wireOptions: [],
+    stationOptions: [],
     ...over
   };
 }

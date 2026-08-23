@@ -65,6 +65,26 @@ export interface EconomyView {
   roads: ViewRoad[];
   /** The placement search's priced wire options, per edge. */
   wireOptions: ViewWireOption[];
+  /** The network plan's SHARED collection stations: M1..MN short-haul
+   * into one link, which fires to the bank hub (the branching tree —
+   * owner 2026-08-24). Proposed only where links are too scarce for
+   * private mouths. */
+  stationOptions: ViewStationOption[];
+  /** The estate's link allowance (per-RCL scarcity, staged). Absent =
+   * unlimited. */
+  linkBudget?: number;
+}
+
+/** A proposed shared collection station from the network plan. */
+export interface ViewStationOption {
+  /** Deterministic id from its member sources — `station:a+b+c`. */
+  id: string;
+  /** Member sources with their short collector legs (range approx). */
+  sources: { id: PlaceId; collectRange: number }[];
+  /** Chebyshev range from the station to the bank hub. */
+  range: number;
+  missingHub: boolean;
+  hubRoom?: string;
 }
 
 export interface ViewRoad {

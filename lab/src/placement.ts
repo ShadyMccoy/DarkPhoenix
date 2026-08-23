@@ -12,7 +12,8 @@
  * range subject to room legality; the deeper searches (shared outposts
  * under a link budget, relay chains, border handoffs) build on this.
  */
-import { ROOM_SIZE, chebyshev } from "../../src/primitives";
+import { HORIZON, LINK_COST, LINK_LOSS, ROOM_SIZE, SOURCE_RATE, chebyshev } from "../../src/primitives";
+import { haulFleetBillEt } from "../../src/sizing";
 import { Scenario, WALL, XY, cellAt, placeTile } from "./scenario";
 
 export function roomOf(p: XY): string {
@@ -109,4 +110,147 @@ export function wireStations(s: Scenario, fromPlace: string, toPlace: string): W
     }
   }
   return best;
+}
+
+/** A shared station's deterministic tile: near the members' centroid,
+ * on a free tile that stands FREE — outside every place's reach-2 mouth
+ * zone, so the assembly classifies it as an OUTPOST (its own place, the
+ * trunk machinery's precondition), never as some source's mouth. Argmin
+ * of the summed collector ranges; the believer re-derives the same
+ * answer at build time. */
+export function stationTile(s: Scenario, sourceIds: string[]): XY | null {
+  const tiles = sourceIds.map(id => placeTile(s, id)).filter((t): t is XY => t !== null);
+  if (tiles.length === 0) return null;
+  const cx = Math.round(tiles.reduce((a, t) => a + t.x, 0) / tiles.length);
+  const cy = Math.round(tiles.reduce((a, t) => a + t.y, 0) / tiles.length);
+  const freeStanding = (p: XY): boolean =>
+    !taken(s, p.x, p.y) &&
+    s.sources.every(k => chebyshev(k, p) > 2) &&
+    chebyshev(s.bank, p) > 2 &&
+    (s.controller === null || chebyshev(s.controller, p) > 2);
+  let best: XY | null = null;
+  let bestScore = Infinity;
+  for (let dx = -4; dx <= 4; dx++) {
+    for (let dy = -4; dy <= 4; dy++) {
+      const p = { x: cx + dx, y: cy + dy };
+      if (p.x < 0 || p.y < 0 || p.y >= s.terrain.length || p.x >= (s.terrain[0]?.length ?? 0)) continue;
+      if (!freeStanding(p)) continue;
+      const score = tiles.reduce((a, t) => a + chebyshev(t, p), 0) * 100 + Math.abs(dx) + Math.abs(dy);
+      if (score < bestScore) {
+        bestScore = score;
+        best = p;
+      }
+    }
+  }
+  return best;
+}
+
+export interface StationPlan {
+  id: string;
+  tile: XY;
+  sources: { id: string; collectRange: number }[];
+  range: number;
+  missingHub: boolean;
+  hubRoom: string;
+}
+
+export interface NetworkPlan {
+  /** Sources whose whole link is worth spending: private adjacent mouth. */
+  mouths: string[];
+  /** The branching trees: M1..MN short-haul into one shared station. */
+  stations: StationPlan[];
+}
+
+/**
+ * The NETWORK plan (owner 2026-08-24: the optimal placements form "a
+ * sort of branching tree structure with M1..MN hauling to L1 which
+ * transfers back to the link at the bank"). Links are SCARCE — the
+ * per-RCL allowance, staged as `linkBudget` — so allocation is greedy
+ * by VALUE PER LINK: a private mouth (zero haul labor) where a whole
+ * link is worth one source, a shared collection station (short
+ * collector legs, one sender) where it is not. Capacity binds per
+ * sender (800/range ≥ Σ member flow); legality binds per room.
+ * Collector legs are Chebyshev-approximated (recorded; real paths when
+ * the traffic overlay walks tiles).
+ */
+export function planNetwork(s: Scenario, srcDistToBank: Record<string, number>): NetworkPlan {
+  const budget = s.linkBudget - s.links.length - s.sites.filter(k => k.structure === "link").length;
+  const eligible = s.sources.filter(src => wireStations(s, src.id, "bank") !== null);
+  const flowOf = (): number => SOURCE_RATE;
+  const directBill = (id: string): number => haulFleetBillEt(flowOf(), srcDistToBank[id] ?? 50, false);
+
+  interface Candidate {
+    kind: "mouth" | "station";
+    sources: string[];
+    tile: XY | null;
+    range: number;
+    collect: Record<string, number>;
+    links: number;
+    value: number;
+  }
+  const candidates: Candidate[] = [];
+  for (const src of eligible) {
+    const w = wireStations(s, src.id, "bank");
+    if (!w) continue;
+    const links = (w.missingMouth ? 1 : 0) + (w.missingHub ? 1 : 0);
+    const value = directBill(src.id) - LINK_LOSS * flowOf() - (links * LINK_COST) / HORIZON;
+    candidates.push({ kind: "mouth", sources: [src.id], tile: w.mouth, range: w.range, collect: {}, links, value });
+  }
+  // Shared stations: every pair/triple of near neighbors (Chebyshev ≤ 14).
+  for (let i = 0; i < eligible.length; i++) {
+    for (let j = i + 1; j < eligible.length; j++) {
+      const group2 = [eligible[i], eligible[j]];
+      for (const group of [group2, ...eligible.slice(j + 1).map(third => [...group2, third])]) {
+        const tiles = group.map(g => placeTile(s, g.id)).filter((t): t is XY => t !== null);
+        if (tiles.length !== group.length) continue;
+        if (Math.max(...tiles.map(a => Math.max(...tiles.map(b => chebyshev(a, b))))) > 14) continue;
+        const ids = group.map(g => g.id).sort();
+        const tile = stationTile(s, ids);
+        if (!tile) continue;
+        const hubW = wireStations(s, group[0].id, "bank");
+        if (!hubW || roomOf(tile) !== hubW.hubRoom) continue;
+        const range = Math.max(chebyshev(tile, hubW.hub), 1);
+        const flow = flowOf() * group.length;
+        if (800 / range + 1e-9 < flow) continue;
+        const collect: Record<string, number> = {};
+        let value = -((1 + (hubW.missingHub ? 1 : 0)) * LINK_COST) / HORIZON - LINK_LOSS * flow;
+        for (const g of group) {
+          const t = placeTile(s, g.id);
+          collect[g.id] = Math.max(chebyshev(t ?? tile, tile), 1);
+          value += directBill(g.id) - haulFleetBillEt(flowOf(), collect[g.id], false);
+        }
+        const links = 1 + (hubW.missingHub ? 1 : 0);
+        candidates.push({ kind: "station", sources: ids, tile, range, collect, links, value });
+      }
+    }
+  }
+  candidates.sort(
+    (a, b) => b.value / b.links - a.value / a.links || a.sources.join("+").localeCompare(b.sources.join("+"))
+  );
+
+  const used = new Set<string>();
+  let left = budget;
+  const plan: NetworkPlan = { mouths: [], stations: [] };
+  let hubCharged = s.links.some(l => chebyshev(l, s.bank) <= 2);
+  for (const c of candidates) {
+    if (c.value <= 0 || c.sources.some(id => used.has(id))) continue;
+    const needed = c.links - (hubCharged && c.links > 1 ? 1 : 0);
+    if (needed > left) continue;
+    left -= needed;
+    if (needed >= c.links && c.links > 1) hubCharged = true;
+    for (const id of c.sources) used.add(id);
+    if (c.kind === "mouth") plan.mouths.push(c.sources[0]);
+    else {
+      const w = wireStations(s, c.sources[0], "bank");
+      plan.stations.push({
+        id: `station:${c.sources.join("+")}`,
+        tile: c.tile as XY,
+        sources: c.sources.map(id => ({ id, collectRange: c.collect[id] })),
+        range: c.range,
+        missingHub: w?.missingHub ?? true,
+        hubRoom: w?.hubRoom ?? roomOf(c.tile as XY)
+      });
+    }
+  }
+  return plan;
 }

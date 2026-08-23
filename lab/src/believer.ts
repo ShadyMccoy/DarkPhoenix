@@ -17,7 +17,7 @@ import { replan } from "../../src/engine/replan";
 import { EnginePlan } from "../../src/engine/vocabulary";
 import { ViewCreep } from "../../src/engine/view";
 import { bodyCost } from "../../src/primitives";
-import { wireStations } from "./placement";
+import { stationTile, wireStations } from "./placement";
 import { Scenario, ScenarioSite, WALL, XY, assemble, cellAt, placeTile as scenarioPlaceTile } from "./scenario";
 
 /** One believer chunk: the replan cadence's order of magnitude. */
@@ -67,7 +67,10 @@ function placeSites(state: BelieverState, plan: EnginePlan): void {
   const s = state.scenario;
   for (const a of plan.approvals) {
     if (a.edge && s.sites.some(k => k.edge && k.edge.from === a.edge?.from && k.edge.to === a.edge?.to)) continue;
-    const anchor = placeTile(s, a.at);
+    // A shared station's place does not exist yet — the search names its
+    // tile deterministically from the member sources.
+    const anchor =
+      a.at.indexOf("station:") === 0 ? stationTile(s, a.at.slice("station:".length).split("+")) : placeTile(s, a.at);
     if (!anchor) continue;
     const tile = freeTileNear(s, anchor) ?? anchor;
     s.sites.push({
@@ -89,6 +92,22 @@ function placeSites(state: BelieverState, plan: EnginePlan): void {
 function realize(state: BelieverState, site: ScenarioSite): void {
   const s = state.scenario;
   if (site.structure === "link") {
+    if (site.edge && site.edge.from.indexOf("station:") === 0) {
+      // The branching tree's shared station: one link at the searched
+      // centroid tile (it becomes an OUTPOST place next assembly, and
+      // the standing trunk machinery routes the members through it),
+      // plus the bank hub if this project paid for one.
+      const ids = site.edge.from.slice("station:".length).split("+");
+      const at = stationTile(s, ids);
+      if (at && !s.links.some(l => l.x === at.x && l.y === at.y)) {
+        s.links.push({ id: `link${s.links.length + 1}`, x: at.x, y: at.y });
+      }
+      if (Math.round(site.total / 5000) > 1) {
+        const w = wireStations(s, ids[0], "bank");
+        if (w?.missingHub) s.links.push({ id: `link${s.links.length + 1}`, x: w.hub.x, y: w.hub.y });
+      }
+      return;
+    }
     const w = site.edge ? wireStations(s, site.edge.from, site.edge.to) : null;
     if (w) {
       if (w.missingMouth) s.links.push({ id: `link${s.links.length + 1}`, x: w.mouth.x, y: w.mouth.y });

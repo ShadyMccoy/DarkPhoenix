@@ -18,9 +18,17 @@
  * one link outpost").
  */
 import { BankBranchKind, EXTENSION_CAPACITY, chebyshev } from "../../src/primitives";
-import { EconomyView, ViewCreep, ViewLink, ViewOutpost, ViewSite, ViewWireOption } from "../../src/engine/view";
+import {
+  EconomyView,
+  ViewCreep,
+  ViewLink,
+  ViewOutpost,
+  ViewSite,
+  ViewStationOption,
+  ViewWireOption
+} from "../../src/engine/view";
 import { StructureKind } from "../../src/engine/vocabulary";
-import { roomOf as placementRoomOf, wireStations as placementWireStations } from "./placement";
+import { planNetwork, roomOf as placementRoomOf, wireStations as placementWireStations } from "./placement";
 
 /** Default dimensions for a fresh map — not a bound. */
 export const SIZE = 50;
@@ -86,6 +94,9 @@ export interface Scenario {
   roads: { from: string; to: string }[];
   bankStock: number;
   bodyBudget: number;
+  /** The estate's link allowance — the per-RCL scarcity, staged (RCL8
+   * grants 6). The network plan allocates these greedily. */
+  linkBudget: number;
   /** Staged initial fleet (cascade B/C worlds stage living creeps). */
   creeps: ViewCreep[];
 }
@@ -257,19 +268,30 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     });
   }
 
-  // The placement search's priced wire options: one per production edge
-  // and the controller feed. Absent entries are ILLEGAL wires (a room
-  // border between the stations) — the engine then leaves those edges
-  // on bodies, which is the ruling made arithmetic.
+  // The NETWORK plan (owner 2026-08-24): links are scarce, so the
+  // search allocates them — private mouths where a whole link is worth
+  // one source, shared collection stations (the branching tree) where
+  // it is not. Mouth-assigned sources get per-edge wire options; tree
+  // members get their station; everyone else stays on bodies.
+  const srcDistToBank: Record<string, number> = {};
+  for (const src of s.sources) srcDistToBank[src.id] = approachDist(dist, src);
+  const net = planNetwork(s, srcDistToBank);
   const wireOptions: ViewWireOption[] = [];
-  for (const src of s.sources) {
-    const w = placementWireStations(s, src.id, "bank");
-    if (w) wireOptions.push({ from: src.id, to: "bank", range: w.range, missingMouth: w.missingMouth, missingHub: w.missingHub, hubRoom: w.hubRoom });
+  for (const id of net.mouths) {
+    const w = placementWireStations(s, id, "bank");
+    if (w) wireOptions.push({ from: id, to: "bank", range: w.range, missingMouth: w.missingMouth, missingHub: w.missingHub, hubRoom: w.hubRoom });
   }
   if (s.controller) {
     const w = placementWireStations(s, "bank", "ctrl");
     if (w) wireOptions.push({ from: "bank", to: "ctrl", range: w.range, missingMouth: w.missingMouth, missingHub: w.missingHub, hubRoom: w.hubRoom });
   }
+  const stationOptions: ViewStationOption[] = net.stations.map(st => ({
+    id: st.id,
+    sources: st.sources,
+    range: st.range,
+    missingHub: st.missingHub,
+    hubRoom: st.hubRoom
+  }));
   // A site within arm's reach of the bank IS the bank's place — its burn
   // meets the bank's supply with no transport stage; anywhere else it is
   // its own place the transport market must cover.
@@ -318,7 +340,9 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     outposts,
     sites,
     roads,
-    wireOptions
+    wireOptions,
+    stationOptions,
+    linkBudget: s.linkBudget
   };
 }
 
@@ -351,6 +375,7 @@ export function importSave(text: string): LabSave {
   raw.scenario.extensions = raw.scenario.extensions ?? [];
   raw.scenario.bankBranch = raw.scenario.bankBranch ?? "pile";
   raw.scenario.roads = raw.scenario.roads ?? [];
+  raw.scenario.linkBudget = raw.scenario.linkBudget ?? 6;
   return {
     scenario: raw.scenario,
     creeps: raw.creeps ?? [],

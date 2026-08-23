@@ -29,6 +29,7 @@ function farSourceWorld(): BelieverState {
     extensions: [],
     bankBranch: "pile",
     roads: [],
+    linkBudget: 6,
     bankStock: 300,
     bodyBudget: 550,
     creeps: []
@@ -37,6 +38,51 @@ function farSourceWorld(): BelieverState {
 }
 
 describe("lab/believer — the investment loop", () => {
+  it("builds the branching tree under a scarce link budget: collectors into one station, one trunk to the hub", () => {
+    const scenario: Scenario = {
+      name: "tree",
+      terrain: emptyTerrain(50, 50),
+      spawn: { x: 35, y: 36 },
+      bank: { x: 36, y: 36 },
+      controller: { x: 38, y: 38 },
+      sources: [
+        { id: "m1", x: 12, y: 10 },
+        { id: "m2", x: 10, y: 16 },
+        { id: "m3", x: 16, y: 7 }
+      ],
+      links: [],
+      sites: [],
+      extensions: [],
+      bankBranch: "storage",
+      roads: [],
+      linkBudget: 2,
+      bankStock: 30000,
+      bodyBudget: 550,
+      creeps: []
+    };
+    const state: BelieverState = { scenario, creeps: [], bankStock: 30000, tick: 0, cp: 0, seq: 1 };
+
+    let treed = false;
+    for (let i = 0; i < 50 && !treed; i++) {
+      advanceChunk(state);
+      treed = state.scenario.links.length >= 2 && state.scenario.sites.length === 0 && i > 2;
+    }
+    assert.isTrue(treed, "station and hub stand");
+    assert.equal(state.scenario.links.length, 2, "the budget held: exactly two links");
+
+    const plan = planFor(state);
+    const corps = new Map(plan.corps.map(c => [c.id, c]));
+    const outpost = plan.corps.find(c => c.kind === "link" && c.id.indexOf("outpost:") > 0);
+    assert.isOk(outpost, "the station assembled as an OUTPOST and the trunk holds it");
+    const outpostPlace = outpost!.id.slice("link:".length).split("->")[0];
+    for (const m of ["m1", "m2", "m3"]) {
+      assert.isOk(corps.get(`haul:${m}->${outpostPlace}`), `${m} short-hauls into the station`);
+      assert.isUndefined(corps.get(`haul:${m}->bank`), `${m} runs no direct route`);
+    }
+    assert.isEmpty(plan.violations, "the book audits the joint");
+    assert.isAbove(state.cp, 0, "and the dividend flows");
+  });
+
   it("cold start → warchest → site → build → displacement, with construction time in the middle", () => {
     const state = farSourceWorld();
     let sawWarchest = false;

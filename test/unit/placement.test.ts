@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { roomOf, wireStations } from "../../lab/src/placement";
+import { planNetwork, roomOf, wireStations } from "../../lab/src/placement";
 import { replan } from "../../src/engine/replan";
 import { Scenario, assemble, emptyTerrain, setCell } from "../../lab/src/scenario";
 
@@ -24,6 +24,7 @@ function world(over: Partial<Scenario> = {}): Scenario {
     extensions: [],
     bankBranch: "storage",
     roads: [],
+    linkBudget: 6,
     bankStock: 30000,
     bodyBudget: 550,
     creeps: [],
@@ -110,6 +111,37 @@ describe("lab/placement — rooms and the station search", () => {
     assert.isOk(w, "the standing west hub must not doom the east room to bodies");
     assert.equal(roomOf(w!.hub), "R1_0", "a fresh hub on the east side");
     assert.isTrue(w!.missingHub, "paid for, not reused");
+  });
+
+  it("scarce links buy the BRANCHING TREE: one shared station for the cluster, not private mouths", () => {
+    // Three clustered sources, a budget of TWO links (station + hub).
+    // Private mouths would want four; the network plan consolidates:
+    // M1..M3 short-haul into one station, which fires to the bank hub
+    // (owner 2026-08-24, the tree made arithmetic).
+    const s = world({
+      linkBudget: 2,
+      bank: { x: 36, y: 36 },
+      spawn: { x: 35, y: 36 },
+      controller: { x: 39, y: 39 },
+      sources: [
+        { id: "m1", x: 12, y: 10 },
+        { id: "m2", x: 10, y: 16 },
+        { id: "m3", x: 16, y: 7 }
+      ]
+    });
+    const dists = { m1: 25, m2: 24, m3: 27 };
+    const net = planNetwork(s, dists);
+    assert.isEmpty(net.mouths, "no source is worth a private link under this budget");
+    assert.lengthOf(net.stations, 1, "one shared station serves the cluster");
+    assert.deepEqual(net.stations[0].sources.map(x => x.id).sort(), ["m1", "m2", "m3"]);
+    assert.isAtMost(Math.max(...net.stations[0].sources.map(x => x.collectRange)), 8, "short collector legs");
+    assert.isAtLeast(800 / net.stations[0].range, 30, "the sender's ration covers all three flows");
+
+    // And the assembly hands the engine exactly this: no per-source wire
+    // options, one station option.
+    const view = assemble(s, [], s.bankStock, 0);
+    assert.isEmpty(view.wireOptions.filter(w => w.to === "bank"));
+    assert.lengthOf(view.stationOptions, 1);
   });
 
   it("reuses standing stations: hub built once, the next wire is mouth-only capex", () => {

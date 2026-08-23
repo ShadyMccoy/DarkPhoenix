@@ -48,6 +48,7 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
       { from: "srcA", to: "bank", range: 10, missingMouth: true, missingHub: true },
       { from: "srcB", to: "bank", range: 25, missingMouth: true, missingHub: true }
     ],
+    stationOptions: [],
     ...over
   };
 }

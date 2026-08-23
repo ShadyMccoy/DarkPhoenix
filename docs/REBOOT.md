@@ -1270,7 +1270,24 @@ the warchest share one stock with no reservation between them — hires
 can dip the bank below committed capex (the warchest re-diverts and
 self-heals, but the burst is visible fleet churn).
 
-**Budget note:** src stands at ~3.1k lines against the ~3k budget; the
+**Addendum (owner 2026-08-24, second ruling):** "some optimal
+placements would involve a sort of branching tree structure with M1..MN
+hauling to L1 which transfers back to the link at the bank." Landed:
+links become SCARCE (`linkBudget`, the per-RCL allowance staged as a
+scenario knob), and the placement search grows from per-edge stations
+into a NETWORK PLAN — greedy by value-per-link, a private adjacent
+mouth where one source is worth a whole link, a shared collection
+station where it is not. The station stands free of every mouth zone,
+so the assembly classifies it as an OUTPOST and the standing trunk
+machinery routes the members through it: the tree is collectors →
+station → hub, certified end-to-end on the believer under a budget of
+two links. A wire that clears its hurdle but not the allowance prints
+`link budget` — never the warchest: no amount of saving mints another
+link. Collector legs are Chebyshev-approximated (recorded; real paths
+when the traffic overlay walks tiles), and the mouth's own loading
+still rides the vessel-blindness finding.
+
+**Budget note:** src stands at ~3.2k lines against the ~3k budget; the
 overage is docblock prose carrying the session's incident record in
 place. Trim or ratify.
 

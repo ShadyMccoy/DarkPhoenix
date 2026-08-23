@@ -150,6 +150,10 @@ export type FrontierReason =
   /** The tender schedule exhausted below the heartbeat obligation. An
    * uncovered heartbeat is never silent (the axiom, printed). */
   | "tender short"
+  /** A wire that clears its hurdle but would exceed the estate's link
+   * allowance (the per-RCL scarcity, staged as a budget) — the network
+   * plan must consolidate instead of wiring every edge privately. */
+  | "link budget"
   /** A cleared investment whose capex lies beyond what this bank branch
    * can physically accumulate — pile decay grows with the stock until it
    * eats the whole saving stream (the asymptote at ~1000·stream). Never

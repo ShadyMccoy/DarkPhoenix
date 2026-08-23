@@ -29,6 +29,7 @@ import {
   EXTENSION_COST,
   HORIZON,
   LINK_CAPACITY,
+  LINK_COST,
   LINK_LOSS,
   ROAD_COST_PER_TILE,
   ROAD_UPKEEP_ET_PER_TILE,
@@ -403,8 +404,6 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
 }
 
 export function replan(view: EconomyView): EnginePlan {
-  const linkAt = (place: PlaceId): ViewLink | null => view.links.find(l => l.at === place) ?? null;
-
   // Open sites' remaining capex is already the bank's to hold: if hires
   // dipped the stock below it, the warchest tops it back up.
   const committed = view.sites.reduce((sum, s) => sum + s.remaining, 0);
@@ -421,6 +420,14 @@ export function replan(view: EconomyView): EnginePlan {
   const awaiting: FrontierLine[] = [];
   let awaitingCapex = 0;
   const paidHubRooms = new Set<string>();
+  // The link allowance (per-RCL scarcity, staged): standing links, links
+  // in open sites, and this replan's approvals all draw one pool. A wire
+  // that clears its hurdle but not the allowance prints `link budget` —
+  // never the warchest: no amount of saving mints another link.
+  const linkBudget = view.linkBudget ?? Infinity;
+  let linksUsed =
+    view.links.length +
+    view.sites.filter(k => k.structure === "link").reduce((n, k) => n + Math.round(k.total / LINK_COST), 0);
   let spendable = view.bankStock - committed;
 
   // What the branch can physically accumulate to: the divertable stream
@@ -497,11 +504,24 @@ export function replan(view: EconomyView): EnginePlan {
     const candUnit = st && throughput > 1e-9 ? (st.cost.upkeepEt + (st.cost.feeEt ?? 0)) / throughput : Infinity;
     if (cand && st && candUnit + 1e-9 < incumbentUnit) {
       const capex = st.cost.upfront;
+      const linksNeeded = Math.round(capex / LINK_COST);
       const detail =
         `link ${candUnit.toFixed(4)}/unit beats bodies ${incumbentUnit.toFixed(4)}/unit ` +
         `on ${gap.from}->${gap.to} (${corp.pnl.grossEt.toFixed(1)} e/t, range ${wire?.range ?? 0})`;
+      if (linksUsed + linksNeeded > linkBudget) {
+        awaiting.push({
+          offerId: cand.id,
+          reason: "link budget",
+          detail: `${linksNeeded} link(s) wanted, ${Math.max(
+            linkBudget - linksUsed,
+            0
+          )} of ${linkBudget} left — ${detail}`
+        });
+        continue;
+      }
       if (capex <= spendable + 1e-9) {
         spendable -= capex;
+        linksUsed += linksNeeded;
         if (wire?.missingHub) paidHubRooms.add(wire.hubRoom ?? "");
         approvals.push({ structure: "link", edge: { from: gap.from, to: gap.to }, at: gap.from, capex, detail });
       } else {
@@ -528,6 +548,58 @@ export function replan(view: EconomyView): EnginePlan {
           noteAwaiting(`road:${gap.from}->${gap.to}`, capex, detail);
         }
       }
+    }
+  }
+
+  // The BRANCHING TREE (owner 2026-08-24): a shared collection station —
+  // M1..MN short-haul into one link, which fires to the bank hub. The
+  // network plan proposes these only where links are too scarce for
+  // private mouths; the market still decides on the funded traffic: the
+  // saving is the incumbents' fleet bills minus the short collector
+  // fleets, the tax, and the capex over H.
+  for (const st of view.stationOptions) {
+    if (siteEdges.has(`${st.id}->bank`)) continue;
+    const members = st.sources
+      .map(m => ({ m, corp: base.corps.find(c => c.id === `haul:${m.id}->bank`) }))
+      .filter(x => x.corp && x.corp.pnl.grossEt > 1e-9);
+    if (members.length === 0) continue;
+    const missingHub = st.missingHub && !paidHubRooms.has(st.hubRoom ?? "");
+    const linksNeeded = 1 + (missingHub ? 1 : 0);
+    const capex = linksNeeded * LINK_COST;
+    let flow = 0;
+    let saving = -capex / HORIZON;
+    for (const x of members) {
+      const gap = gapByOffer.get(x.corp!.id);
+      const gross = x.corp!.pnl.grossEt;
+      flow += gross;
+      saving +=
+        haulFleetBillEt(gross, gap?.dist ?? 50, gap?.roaded ?? false) -
+        haulFleetBillEt(gross, x.m.collectRange, false) -
+        LINK_LOSS * gross;
+    }
+    if (LINK_CAPACITY / Math.max(st.range, 1) + 1e-9 < flow) continue;
+    if (saving <= 0) continue;
+    const detail =
+      `${st.id} collects ${members.map(x => x.m.id).join("+")} (${flow.toFixed(0)} e/t, range ${st.range}): ` +
+      `saves ${saving.toFixed(3)} e/t over the direct fleets`;
+    if (linksUsed + linksNeeded > linkBudget) {
+      awaiting.push({
+        offerId: st.id,
+        reason: "link budget",
+        detail: `${linksNeeded} link(s) wanted, ${Math.max(
+          linkBudget - linksUsed,
+          0
+        )} of ${linkBudget} left — ${detail}`
+      });
+      continue;
+    }
+    if (capex <= spendable + 1e-9) {
+      spendable -= capex;
+      linksUsed += linksNeeded;
+      if (missingHub) paidHubRooms.add(st.hubRoom ?? "");
+      approvals.push({ structure: "link", edge: { from: st.id, to: "bank" }, at: st.id, capex, detail });
+    } else {
+      noteAwaiting(st.id, capex, detail);
     }
   }
 
