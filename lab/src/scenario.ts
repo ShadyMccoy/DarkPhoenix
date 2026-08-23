@@ -17,7 +17,7 @@
  * route through (owner 2026-08-23: "consolidate multiple haul routes into
  * one link outpost").
  */
-import { BankBranchKind, EXTENSION_CAPACITY, chebyshev } from "../../src/primitives";
+import { BankBranchKind, EXTENSION_CAPACITY } from "../../src/primitives";
 import {
   EconomyView,
   ViewCreep,

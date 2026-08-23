@@ -1392,10 +1392,19 @@ pair/triple ≤ 20 enumeration can name (sI/sN joined trees no candidate
 enumerated; approvals price the enumerated tree, the settled trunk
 earns the re-seated one; books clear either way). Whole-supply slices
 still strand sub-slice remainders (4.8 e/t idle can't seat a 10 e/t
-member). Best-outpost-only per source. The route heuristic still prices
-roads at zero — a road paved for a direct route strands when routing
-flips via. Widening enumeration (M1..MN groups, second stations,
-partial slices) are the next rungs, owner-gated.
+member). Best-outpost-only per source: a source whose best trunk is
+full falls to bodies, never to the second-best standing trunk. The
+route heuristic still prices roads at zero — a road paved for a direct
+route strands when routing flips via. Membership is judged by two
+oracles that can disagree at the margin (approval: fleet-bill staircase
+on Chebyshev legs; routing: smooth haulUnit on real paths — one member
+in a swampy pocket can be planned in and routed out). And the believer's
+realize() re-derives the search on the MUTATED world: a re-search that
+nulls or shifts at completion burns the project's capex with nothing
+(or the wrong thing) standing — the honest fix is the approval carrying
+its priced tiles as plan state, an owner conversation. Widening
+enumeration (M1..MN groups, second stations, partial slices,
+second-choice trunks) are the next rungs, owner-gated.
 
 **Budget note:** src stands at ~3.2k lines against the ~3k budget; the
 overage is docblock prose carrying the session's incident record in

@@ -265,7 +265,14 @@ export interface NetworkPlan {
  * the traffic overlay walks tiles).
  */
 export function planNetwork(s: Scenario, srcDistToBank: Record<string, number>): NetworkPlan {
-  const budget = s.linkBudget - s.links.length - s.sites.filter(k => k.structure === "link").length;
+  // In-flight link sites reserve their WHOLE link count — a station
+  // project realizes total/LINK_COST links (station + maybe hub), and
+  // counting it as one freed a phantom budget slot for its entire
+  // construction window (review finding).
+  const budget =
+    s.linkBudget -
+    s.links.length -
+    s.sites.filter(k => k.structure === "link").reduce((a, k) => a + Math.max(Math.round(k.total / LINK_COST), 1), 0);
   const eligible = s.sources.filter(src => wireStations(s, src.id, "bank") !== null);
   const flowOf = (): number => SOURCE_RATE;
   const directBill = (id: string): number => haulFleetBillEt(flowOf(), srcDistToBank[id] ?? 50, false);

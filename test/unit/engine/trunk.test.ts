@@ -65,6 +65,39 @@ describe("engine/trunk — the tree keeps its far members", () => {
     assert.isEmpty(plan.violations, "the book audits the joint");
   });
 
+  it("a full best trunk spills to the SECOND-best standing trunk, never straight to bodies", () => {
+    // Two standing trunks; every source prefers O1 (shortest legs), and
+    // its ration (800/39 = 20.5) seats exactly two. The third source's
+    // second choice O2 still saves over its 36-tile direct route —
+    // best-only admission sent it to bodies with O2 idle (review
+    // finding: a regression against the old per-outpost fallthrough).
+    const plan = replan(
+      view({
+        links: [
+          { id: "hubB", at: "bank", room: "R0_0", x: 43, y: 25 },
+          { id: "L1", at: "outpost:L1", room: "R0_0", x: 4, y: 25 },
+          { id: "L2", at: "outpost:L2", room: "R0_0", x: 10, y: 32 }
+        ],
+        outposts: [
+          { place: "outpost:L1", distToSource: { s1: 5, s2: 5, s3: 4 } },
+          { place: "outpost:L2", distToSource: { s1: 14, s2: 12, s3: 7 } }
+        ],
+        sources: [
+          { id: "s1", spots: 3, distToBank: 42 },
+          { id: "s2", spots: 3, distToBank: 42 },
+          { id: "s3", spots: 3, distToBank: 36 }
+        ]
+      })
+    );
+    const corps = new Map(plan.corps.map(c => [c.id, c]));
+    assert.isOk(corps.get("haul:s1->outpost:L1"), "s1 seats on its best trunk");
+    assert.isOk(corps.get("haul:s2->outpost:L1"), "s2 seats on its best trunk");
+    assert.isOk(corps.get("haul:s3->outpost:L2"), "s3 spills to the second-best trunk");
+    assert.isUndefined(corps.get("haul:s3->bank"), "no body fleet while a paying trunk stands idle");
+    assert.equal(corps.get("link:outpost:L2->bank")?.target, 1, "the second trunk carries its slice");
+    assert.isEmpty(plan.violations, "the book audits both joints");
+  });
+
   it("a source with a standing direct wire never rides a tree: 3% flat beats leg + tax + tax", () => {
     // wired's own mouth->hub pair stands. The body-unit heuristic saw
     // direct bodies at 26 tiles vs a 3-tile collector leg and pulled it

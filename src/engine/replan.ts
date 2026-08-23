@@ -192,14 +192,20 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     return { place, pair, slices: [], remaining: LINK_CAPACITY / range };
   };
   const trunks = new Map<string, TrunkPlan>();
+  interface ViaOption {
+    outpostPlace: PlaceId;
+    dSrc: number;
+    saving: number;
+  }
   interface ViaCandidate {
     srcId: string;
     mineOptions: StageOption[];
     supply: number;
     directDist: number;
-    outpostPlace: PlaceId;
-    dSrc: number;
-    saving: number;
+    /** Every paying trunk, best saving first — a full best trunk spills
+     * to the next, never straight to bodies while a paying trunk stands
+     * idle (best-only admission was a regression the review caught). */
+    options: ViaOption[];
   }
   const viaCandidates: ViaCandidate[] = [];
   interface PendingVia {
@@ -255,7 +261,6 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     srcRecords.push({ srcId: src.id, mineOptions, supply, distToBank: src.distToBank, workman });
     if (!mineOptions) continue;
 
-    let best: ViaCandidate | null = null;
     const directUnit = haulUnit(src.distToBank);
     // A source with a STANDING direct wire never rides a tree: its
     // direct marginal is the same 3% tax with no collector leg, so via
@@ -264,6 +269,7 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     // the trunks — a double-taxed relay that also stole slices from
     // the genuinely-displacing members (caught in the forest re-run).
     const directWire = linkPair(view, src.id, view.bank);
+    const options: ViaOption[] = [];
     for (const op of directWire ? [] : view.outposts) {
       const dSrc = op.distToSource[src.id];
       if (dSrc === undefined) continue;
@@ -272,21 +278,13 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
         if (t) trunks.set(op.place, t);
       }
       if (!trunks.has(op.place)) continue;
-      const unit = haulUnit(dSrc) + LINK_LOSS;
-      const saving = directUnit - unit;
-      if (saving > 1e-9 && (!best || saving > best.saving)) {
-        best = {
-          srcId: src.id,
-          mineOptions,
-          supply,
-          directDist: src.distToBank,
-          outpostPlace: op.place,
-          dSrc,
-          saving
-        };
-      }
+      const saving = directUnit - (haulUnit(dSrc) + LINK_LOSS);
+      if (saving > 1e-9) options.push({ outpostPlace: op.place, dSrc, saving });
     }
-    if (best) viaCandidates.push(best);
+    if (options.length > 0) {
+      options.sort((a, b) => b.saving - a.saving || (a.outpostPlace < b.outpostPlace ? -1 : 1));
+      viaCandidates.push({ srcId: src.id, mineOptions, supply, directDist: src.distToBank, options });
+    }
   }
 
   // Slice admission, by MERIT: the biggest TOTAL displaced saving
@@ -295,24 +293,29 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
   // ration sheds the cheapest direct haul — never whoever happened to
   // iterate last. Whole-supply only; the shed fall to their direct
   // books.
-  viaCandidates.sort((a, b) => b.saving * b.supply - a.saving * a.supply || (a.srcId < b.srcId ? -1 : 1));
+  viaCandidates.sort(
+    (a, b) => b.options[0].saving * b.supply - a.options[0].saving * a.supply || (a.srcId < b.srcId ? -1 : 1)
+  );
   const viaSeated = new Set<string>();
   for (const c of viaCandidates) {
-    const t = trunks.get(c.outpostPlace);
-    if (!t || t.remaining + 1e-9 < c.supply) continue;
-    const collector = transportBook({ from: c.srcId, to: c.outpostPlace, dist: c.dSrc, flow: c.supply });
-    if (collector.length === 0) continue;
-    viaSeated.add(c.srcId);
-    pendingVia.push({
-      srcId: c.srcId,
-      mineOptions: c.mineOptions,
-      collector,
-      outpostPlace: c.outpostPlace,
-      sliceIdx: t.slices.length,
-      flow: c.supply
-    });
-    t.slices.push({ sourceId: c.srcId, flow: c.supply });
-    t.remaining -= c.supply;
+    for (const o of c.options) {
+      const t = trunks.get(o.outpostPlace);
+      if (!t || t.remaining + 1e-9 < c.supply) continue;
+      const collector = transportBook({ from: c.srcId, to: o.outpostPlace, dist: o.dSrc, flow: c.supply });
+      if (collector.length === 0) continue;
+      viaSeated.add(c.srcId);
+      pendingVia.push({
+        srcId: c.srcId,
+        mineOptions: c.mineOptions,
+        collector,
+        outpostPlace: o.outpostPlace,
+        sliceIdx: t.slices.length,
+        flow: c.supply
+      });
+      t.slices.push({ sourceId: c.srcId, flow: c.supply });
+      t.remaining -= c.supply;
+      break;
+    }
   }
 
   // The chains array assembles in the SOURCE ORDER the market clears

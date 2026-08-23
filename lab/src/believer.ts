@@ -65,8 +65,22 @@ function freeTileNear(s: Scenario, tile: XY, maxR = 2): XY | null {
  * the project. One site per approval, at its `at` place. */
 function placeSites(state: BelieverState, plan: EnginePlan): void {
   const s = state.scenario;
+  const stationMembers = (place: string): string[] =>
+    place.indexOf("station:") === 0 ? place.slice("station:".length).split("+") : [];
   for (const a of plan.approvals) {
     if (a.edge && s.sites.some(k => k.edge && k.edge.from === a.edge?.from && k.edge.to === a.edge?.to)) continue;
+    // A station under construction suppresses any station approval
+    // SHARING a member, not just its exact id: mid-build occupancy can
+    // drift the search's kept set, and the drifted id re-approved a
+    // second station for the same cluster while the first was still
+    // paying (review finding).
+    if (
+      a.edge &&
+      stationMembers(a.edge.from).length > 0 &&
+      s.sites.some(k => k.edge && stationMembers(k.edge.from).some(m => stationMembers(a.edge!.from).includes(m)))
+    ) {
+      continue;
+    }
     // A shared station's place does not exist yet — the search names its
     // tile deterministically from the member sources.
     const anchor =
