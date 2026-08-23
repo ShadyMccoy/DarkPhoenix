@@ -196,30 +196,47 @@ export function planNetwork(s: Scenario, srcDistToBank: Record<string, number>):
     const value = directBill(src.id) - LINK_LOSS * flowOf() - (links * LINK_COST) / HORIZON;
     candidates.push({ kind: "mouth", sources: [src.id], tile: w.mouth, range: w.range, collect: {}, links, value });
   }
-  // Shared stations: every pair/triple of near neighbors (Chebyshev ≤ 14).
+  // Shared stations: pairs/triples of neighbors (Chebyshev ≤ 20 — an
+  // ENUMERATION bound only; the collector bills price the legs, so long
+  // legs price themselves out). A member whose own contribution is
+  // negative (near sources: tax + collector ≥ direct bill) is DROPPED
+  // rather than sinking the cluster — a station needs two members that
+  // each genuinely pay.
+  const seenStations = new Set<string>();
   for (let i = 0; i < eligible.length; i++) {
     for (let j = i + 1; j < eligible.length; j++) {
       const group2 = [eligible[i], eligible[j]];
       for (const group of [group2, ...eligible.slice(j + 1).map(third => [...group2, third])]) {
         const tiles = group.map(g => placeTile(s, g.id)).filter((t): t is XY => t !== null);
         if (tiles.length !== group.length) continue;
-        if (Math.max(...tiles.map(a => Math.max(...tiles.map(b => chebyshev(a, b))))) > 14) continue;
-        const ids = group.map(g => g.id).sort();
-        const tile = stationTile(s, ids);
+        if (Math.max(...tiles.map(a => Math.max(...tiles.map(b => chebyshev(a, b))))) > 20) continue;
+        const allIds = group.map(g => g.id).sort();
+        const tile = stationTile(s, allIds);
         if (!tile) continue;
         const hubW = wireStations(s, group[0].id, "bank");
         if (!hubW || roomOf(tile) !== hubW.hubRoom) continue;
         const range = Math.max(chebyshev(tile, hubW.hub), 1);
-        const flow = flowOf() * group.length;
-        if (800 / range + 1e-9 < flow) continue;
         const collect: Record<string, number> = {};
-        let value = -((1 + (hubW.missingHub ? 1 : 0)) * LINK_COST) / HORIZON - LINK_LOSS * flow;
+        const kept: string[] = [];
+        let memberValue = 0;
         for (const g of group) {
           const t = placeTile(s, g.id);
-          collect[g.id] = Math.max(chebyshev(t ?? tile, tile), 1);
-          value += directBill(g.id) - haulFleetBillEt(flowOf(), collect[g.id], false);
+          const leg = Math.max(chebyshev(t ?? tile, tile), 1);
+          const contribution = directBill(g.id) - haulFleetBillEt(flowOf(), leg, false) - LINK_LOSS * flowOf();
+          if (contribution <= 0) continue;
+          collect[g.id] = leg;
+          kept.push(g.id);
+          memberValue += contribution;
         }
+        if (kept.length < 2) continue;
+        const flow = flowOf() * kept.length;
+        if (800 / range + 1e-9 < flow) continue;
+        const ids = kept.sort();
+        const key = ids.join("+");
+        if (seenStations.has(key)) continue;
+        seenStations.add(key);
         const links = 1 + (hubW.missingHub ? 1 : 0);
+        const value = memberValue - (links * LINK_COST) / HORIZON;
         candidates.push({ kind: "station", sources: ids, tile, range, collect, links, value });
       }
     }

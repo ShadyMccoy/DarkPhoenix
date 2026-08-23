@@ -190,14 +190,16 @@ export function advanceChunk(state: BelieverState): EnginePlan {
   for (const [, group] of ordered) {
     for (;;) {
       let cost = 0;
-      const hires: { corpId: string; body: NonNullable<(typeof group)[number]["body"]> }[] = [];
+      const hires: { corpId: string; body: (typeof group)[number]["hires"][number] }[] = [];
       for (const corp of group) {
-        if (corp.kind === "link") continue;
-        if (!corp.body) continue;
+        // The plan's hire list, body by body — the fleet may end in a
+        // remainder-sized runt, and hiring the FIRST body for every slot
+        // overshot the quoted machine time (the forest stall).
         const live = state.creeps.filter(c => c.corp === corp.id).length;
-        if (corp.target - live > 0) {
-          cost += bodyCost(corp.body);
-          hires.push({ corpId: corp.id, body: corp.body });
+        const body = corp.hires[live - corp.backed];
+        if (body) {
+          cost += bodyCost(body);
+          hires.push({ corpId: corp.id, body });
         }
       }
       if (hires.length === 0 || cost > state.bankStock) break;

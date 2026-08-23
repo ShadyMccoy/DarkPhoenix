@@ -1287,6 +1287,54 @@ link. Collector legs are Chebyshev-approximated (recorded; real paths
 when the traffic overlay walks tiles), and the mouth's own loading
 still rides the vessel-blindness finding.
 
+**Addendum 2 (2026-08-24, the forest stall):** staging the wide world the
+tree ruling asks for (two 3-source clusters, six spread singles, one
+spawn, budget six) found the economy that plans BOTH trees at t0 and then
+never builds either — 100+ chunks at zero build progress. Root-caused to
+three separate breaks, each a model lesson:
+
+- **The plan under-specified its own fleet** (law 4, at the executor
+  seam). A quote may size its LAST body to the flow remainder (the
+  sizing law's runt), but `CorpInstance` carried ONE `body`, so the
+  believer hired `target − live` copies of the first — 0.0013 p/t of
+  sustain over the quote per runted route. At a saturated spawn that
+  0.0027 p/t total tipped the next seed over capacity. Fixed
+  structurally: the instance now carries `hires` — the bought bodies in
+  funded-step order — and the executor hires exactly that list. One
+  representation of the fleet, plan-side (law 2 applied to bodies).
+- **Zero-marginal machine time could be refused.** With the seed alone
+  over capacity, the strict spawn check broke even increments demanding
+  ZERO machine time — backed steps whose sustain is already seeded. One
+  epsilon of overshoot defunded every sink, culled the fleets, culled
+  the TENDER (the axiom!), and the next plan re-bought everything: a
+  period-2 hire/cull oscillation, forever. The checks now gate only
+  increments that demand machine time; a seed over capacity prints one
+  `spawn capacity` line on `spawning:capacity` instead of cascading —
+  signalled, never valved (law 4).
+- **The ladder applies to the MACHINE currency** (the bonfire finding's
+  fix, first rung): capital sinks' spawn needs are now RESERVED before
+  phase-2 production bids consume the machine — without it a
+  machine-bound world re-spends every freed p/t on more mining and its
+  approved builds stall. The tender (obligations) outranks the reserve;
+  the dividend's own share still awaits the owner's ruling.
+
+With the three landed the forest closes end-to-end: both stations build,
+two bank hubs share across rooms (west hub serves the west tree AND
+sK's private wire), six links on a budget of six, and the dividend
+flows. Also landed while staging it: the station-cluster enumeration
+radius is a bound only (Chebyshev ≤ 20) and a member whose own
+contribution prices negative is DROPPED rather than sinking its
+cluster (a station needs two members that each genuinely pay). Design
+finding, recorded not valved: the network plan approved
+`station:e1+e2+e3`, but once the station STOOD the standing market
+repriced e3's edge marginally and kept it on direct bodies (the leg +
+3% tax lost to the shorter direct route) — the t0 tree and the settled
+routing can disagree at the margin, because candidate pricing is
+tree-at-once and standing pricing is edge-by-edge. The plan stays
+honest either way (the book audits clean); whether the CANDIDATE should
+price member-by-member against the standing alternative is an owner
+call.
+
 **Budget note:** src stands at ~3.2k lines against the ~3k budget; the
 overage is docblock prose carrying the session's incident record in
 place. Trim or ratify.

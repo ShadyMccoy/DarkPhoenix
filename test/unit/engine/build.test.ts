@@ -121,7 +121,7 @@ describe("engine/build — the investment pipeline", () => {
     // 16.67 e/t burn: one 4W builder (20 e/t capacity), trimmed.
     const build = corps.get("build:s1");
     assert.isOk(build, "the build corp exists for the site");
-    assert.deepEqual(build?.body, { work: 4, carry: 1, move: 1 });
+    assert.deepEqual(build?.hires[0], { work: 4, carry: 1, move: 1 });
     assert.equal(build?.target, 1);
     assert.closeTo(withSite.expected.buildEt, 5000 / 300, 1e-9);
 

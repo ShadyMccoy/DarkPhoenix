@@ -38,7 +38,7 @@ export function renderPanels(container: HTMLElement, plan: EnginePlan, creeps: V
       // Structures back steps without being creeps — standing counts too.
       const live = Math.max(creeps.filter(k => k.corp === c.id).length, c.backed);
       return (
-        `<tr><td class="id">${c.id}</td><td>${fmtBody(c.body)}</td>` +
+        `<tr><td class="id">${c.id}</td><td>${fmtBody(c.hires[0] ?? null)}</td>` +
         `<td class="num">${live}/${c.target}</td>` +
         `<td class="flows">${fmtFlows(c.inputs)}</td>` +
         `<td class="flows">${fmtFlows(c.outputs)}</td>` +

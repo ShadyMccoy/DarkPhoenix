@@ -122,7 +122,14 @@ export interface CorpPnl {
 export interface CorpInstance {
   id: string;
   kind: CorpKindName;
-  body: BodyShape | null;
+  /** The bodies still to hire, in funded-step order — the fleet's tail
+   * after its backed heads. A quote may size the LAST body to the flow
+   * remainder (sizing law), so one body field cannot describe the fleet:
+   * an executor hiring `target − live` copies of the first overshoots the
+   * quoted machine time by the runt difference — enough, at a saturated
+   * spawn, to tip the seed over capacity and cull the very fleet the plan
+   * re-buys next round (the forest stall, session finding 2026-08-24). */
+  hires: BodyShape[];
   target: number;
   /** Of `target`, how many are already-living handed assets. */
   backed: number;

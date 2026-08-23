@@ -236,6 +236,37 @@ export function clear(input: MarketInput): EnginePlan {
   // confirmed finding, 2026-08-23; the standingBills pattern, applied to
   // the spawnTime currency).
   let spawnUsed = input.standingSpawnEt ?? 0;
+  // The seed can EXCEED capacity (executor rounding, a lost extension).
+  // The capacity checks below gate only increments that DEMAND machine
+  // time: a live body's sustain is already seeded, so refusing its
+  // zero-marginal step recovers nothing — it defunds and culls a fleet
+  // the plan re-buys next round. The strict form turned a 0.0007 p/t
+  // overshoot into a whole-economy cull, tender included, oscillating
+  // forever (the forest stall, session finding 2026-08-24). The overshoot
+  // itself is signalled once, here — never valved silent (law 4).
+  if (spawnUsed > input.spawnCapacity + EPS) {
+    frontier.push({
+      offerId: "spawning:capacity",
+      reason: "spawn capacity",
+      detail:
+        `standing sustain ${spawnUsed.toFixed(4)} p/t exceeds the machine's ` +
+        `${input.spawnCapacity.toFixed(4)} p/t — fleet unsustainable; new bodies blocked`
+    });
+  }
+  // The ladder applies to the MACHINE currency too (piece 9's order,
+  // stress-hunt finding "obligations-first is energy-only"): CAPITAL
+  // sinks' spawn needs are RESERVED before new production bids consume
+  // the machine — without this, a machine-bound world re-spends every
+  // freed p/t on more mining and its approved builds stall forever (the
+  // forest demo sat 100 chunks at zero build progress). The tender
+  // (obligations) outranks the reserve; the dividend's own share still
+  // awaits the owner's ruling.
+  let capitalReserve = 0;
+  for (const sink of input.sinks) {
+    if (!sink.capital) continue;
+    for (const inc of chainIncrements(sink.stages)) capitalReserve += inc.spawnTimeEt;
+  }
+  capitalReserve = Math.min(capitalReserve, Math.max(input.spawnCapacity - spawnUsed, 0));
   let delivered = 0;
   let refill = 0;
   let fees = 0;
@@ -390,11 +421,14 @@ export function clear(input: MarketInput): EnginePlan {
       closed.add(cid);
       continue;
     }
-    if (spawnUsed + best.spawnTimeEt > input.spawnCapacity + EPS) {
+    if (best.spawnTimeEt > EPS && spawnUsed + best.spawnTimeEt > input.spawnCapacity - capitalReserve + EPS) {
       frontier.push({
         offerId: cid,
         reason: "spawn capacity",
-        detail: `needs ${best.spawnTimeEt.toFixed(4)} p/t, ${(input.spawnCapacity - spawnUsed).toFixed(4)} p/t free`
+        detail:
+          `needs ${best.spawnTimeEt.toFixed(4)} p/t, ` +
+          `${Math.max(input.spawnCapacity - capitalReserve - spawnUsed, 0).toFixed(4)} p/t free` +
+          (capitalReserve > EPS ? ` (${capitalReserve.toFixed(4)} reserved for construction)` : "")
       });
       closed.add(cid);
       continue;
@@ -415,7 +449,7 @@ export function clear(input: MarketInput): EnginePlan {
     const t = input.tender;
     for (let i = 0; i < t.offer.steps.length && tenderIntake < heartbeat() - EPS; i++) {
       const s = t.offer.steps[i];
-      if (spawnUsed + s.cost.spawnTimeEt > input.spawnCapacity + EPS) {
+      if (s.cost.spawnTimeEt > EPS && spawnUsed + s.cost.spawnTimeEt > input.spawnCapacity + EPS) {
         frontier.push({
           offerId: t.offer.id,
           reason: "spawn capacity",
@@ -458,7 +492,7 @@ export function clear(input: MarketInput): EnginePlan {
       // A capital burn is a stock draw the approval already reserved;
       // only the bills are a claim on this tick's flow.
       const draw = (sink.capital ? 0 : inc.delivered) + inc.upkeepEt + inc.feeEt;
-      if (spawnUsed + inc.spawnTimeEt > input.spawnCapacity + EPS) {
+      if (inc.spawnTimeEt > EPS && spawnUsed + inc.spawnTimeEt > input.spawnCapacity + EPS) {
         frontier.push({
           offerId: sinkOffer.id,
           reason: "spawn capacity",
@@ -528,6 +562,8 @@ export function clear(input: MarketInput): EnginePlan {
     if (flow > EPS) allocateChain(sink.stages, fundedPerStage, flow);
   };
 
+  // Capital sinks now draw the machine share reserved for them.
+  capitalReserve = 0;
   for (const sink of input.sinks) if (sink.capital) drawSink(sink);
 
   // The warchest diversion: while the bank sits below its reserve target
@@ -570,7 +606,7 @@ export function clear(input: MarketInput): EnginePlan {
     let gross = 0;
     let cost = 0;
     let backed = 0;
-    let body: Step["buys"] | null = null;
+    const hires: NonNullable<Step["buys"]>[] = [];
     const inputs: Flows = {};
     const outputs: Flows = {};
     for (const i of f.steps) {
@@ -585,13 +621,13 @@ export function clear(input: MarketInput): EnginePlan {
       if (s.cost.spawnTimeEt > 0) addFlows(inputs, { spawnTime: s.cost.spawnTimeEt });
       if (s.cost.upkeepEt + fee > 0) addFlows(inputs, { energyAt: { [input.bank]: s.cost.upkeepEt + fee } });
       if (s.backedBy) backed += 1;
-      else if (!body && s.buys) body = s.buys;
+      else if (s.buys) hires.push(s.buys);
     }
     if (f.offer.kind === "mine" || f.offer.kind === "workman") minedEt += gross;
     corps.push({
       id: f.offer.id,
       kind: f.offer.kind,
-      body: body ?? null,
+      hires,
       target: f.steps.length,
       backed,
       chain: f.chain,
