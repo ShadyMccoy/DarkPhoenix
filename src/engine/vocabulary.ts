@@ -28,6 +28,16 @@ export interface Flows {
   controlPoints?: number;
 }
 
+/** Merge marginal flows — the market sums a corp's funded steps with this. */
+export function addFlows(into: Flows, from: Flows): void {
+  if (from.spawnTime) into.spawnTime = (into.spawnTime ?? 0) + from.spawnTime;
+  if (from.controlPoints) into.controlPoints = (into.controlPoints ?? 0) + from.controlPoints;
+  for (const place of Object.keys(from.energyAt ?? {})) {
+    const at = into.energyAt ?? (into.energyAt = {});
+    at[place] = (at[place] ?? 0) + (from.energyAt as Record<PlaceId, number>)[place];
+  }
+}
+
 /** The ownership bill of one step. Backed steps carry zeros: sunk capital
  * prices as sunk (the books keeping capex history are the ledger's job,
  * never the quote's — REBOOT.md piece 5). */
@@ -83,6 +93,11 @@ export interface CorpInstance {
    * ownership (piece 1's flow edges). */
   chain: string | null;
   pnl: CorpPnl;
+  /** The corp's traded flows, summed over funded steps — every commodity,
+   * not just energy. Inputs fold the ownership bill in (machine time, and
+   * the parts bill drawn at the bank), so a row's in/out IS its contract. */
+  inputs: Flows;
+  outputs: Flows;
 }
 
 export type FrontierReason =

@@ -89,6 +89,10 @@ describe("lab/scenario", () => {
     const withBlocked = edgesFor(s, plan, true);
     const blocked = withBlocked.filter(e => !e.funded);
     assert.isNotEmpty(blocked, "the insolvent specialist chains draw as blocked");
+    assert.isTrue(
+      blocked.some(e => e.id.indexOf("chain:") === 0 && e.reason === "ramp insolvent"),
+      "whole-chain frontier lines land on the map, not just per-offer ones"
+    );
     for (const b of blocked) {
       assert.isOk(b.reason, "a blocked edge carries the engine's own reason");
       assert.isTrue(

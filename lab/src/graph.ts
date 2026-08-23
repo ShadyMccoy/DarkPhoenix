@@ -107,13 +107,23 @@ function anchorsFor(s: Scenario, offerId: string): { from: XY; to: XY; bow: numb
     case "spawning":
       // The tender shuttles bank → spawn estate; capacity has no place.
       return rest === "estate" ? { from: s.bank, to: s.spawn, bow: 0 } : null;
+    case "chain": {
+      // Frontier lines for whole chains carry the chain id:
+      // `chain:<srcId>:<variant>`. Both variants run source → bank; they
+      // bow like their funded counterparts so rivals stay side by side.
+      const cut = rest.lastIndexOf(":");
+      if (cut < 0) return null;
+      const src = sourceXY(s, rest.slice(0, cut));
+      return src ? { from: src, to: s.bank, bow: rest.slice(cut + 1) === "workman" ? -1 : 1 } : null;
+    }
     default:
       return null;
   }
 }
 
 function kindOf(offerId: string): CorpKindName | null {
-  const [kind] = splitKind(offerId);
+  const [kind, rest] = splitKind(offerId);
+  if (kind === "chain") return rest.endsWith(":workman") ? "workman" : "haul";
   return kind in KIND_COLOR ? (kind as CorpKindName) : null;
 }
 

@@ -5,7 +5,7 @@
  * conservation check. Everything shown is an ENGINE OUTPUT field — the
  * GUI derives nothing (graph-lab requirement #1).
  */
-import { EnginePlan } from "../../src/engine/vocabulary";
+import { EnginePlan, Flows } from "../../src/engine/vocabulary";
 import { BodyShape } from "../../src/sizing";
 import { ViewCreep } from "../../src/engine/view";
 import { REASON_COLOR } from "./graph";
@@ -19,6 +19,22 @@ export function fmtBody(b: BodyShape | null): string {
   return parts.join(" ");
 }
 
+function shortPlace(p: string): string {
+  return p.indexOf("mouth:") === 0 ? p.slice("mouth:".length) : p;
+}
+
+/** Every commodity a corp trades, rendered generically — engine fields
+ * verbatim, whatever the vocabulary grows to hold. */
+export function fmtFlows(f: Flows): string {
+  const parts: string[] = [];
+  for (const place of Object.keys(f.energyAt ?? {})) {
+    parts.push(`${(f.energyAt as Record<string, number>)[place].toFixed(1)}e@${shortPlace(place)}`);
+  }
+  if (f.spawnTime) parts.push(`${f.spawnTime.toFixed(3)}p/t`);
+  if (f.controlPoints) parts.push(`${f.controlPoints.toFixed(1)}CP`);
+  return parts.length > 0 ? parts.join(" + ") : "—";
+}
+
 export function renderPanels(container: HTMLElement, plan: EnginePlan, creeps: ViewCreep[]): void {
   const rows = plan.corps
     .map(c => {
@@ -26,8 +42,8 @@ export function renderPanels(container: HTMLElement, plan: EnginePlan, creeps: V
       return (
         `<tr><td class="id">${c.id}</td><td>${fmtBody(c.body)}</td>` +
         `<td class="num">${live}/${c.target}</td>` +
-        `<td class="num">${c.pnl.grossEt.toFixed(2)}</td>` +
-        `<td class="num">${c.pnl.costEt.toFixed(2)}</td>` +
+        `<td class="flows">${fmtFlows(c.inputs)}</td>` +
+        `<td class="flows">${fmtFlows(c.outputs)}</td>` +
         `<td class="num strong">${c.pnl.netEt.toFixed(2)}</td></tr>`
       );
     })
@@ -46,7 +62,7 @@ export function renderPanels(container: HTMLElement, plan: EnginePlan, creeps: V
   container.innerHTML =
     `<h2>The plan <span class="dim">t${plan.tick}</span></h2>` +
     `<table class="corps"><thead><tr><th>corp</th><th>body</th><th>live/target</th>` +
-    `<th>gross e/t</th><th>cost e/t</th><th>net e/t</th></tr></thead><tbody>${rows}</tbody></table>` +
+    `<th>in</th><th>out</th><th>net e/t</th></tr></thead><tbody>${rows}</tbody></table>` +
     `<div class="expected">plan: mined <b>${e.minedEt.toFixed(1)}</b> · delivered <b>${e.deliveredEt.toFixed(1)}</b> · ` +
     `refill <b>${e.refillEt.toFixed(2)}</b> · upgrade <b>${e.upgradeEt.toFixed(1)}</b> · ` +
     `to bank <b>${leftover.toFixed(2)}</b> e/t</div>` +

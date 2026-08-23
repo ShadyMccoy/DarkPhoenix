@@ -61,6 +61,15 @@ describe("engine/replan", () => {
     assert.deepEqual(corps.get("upgrade:ctrl")?.body, { work: 4, carry: 1, move: 1 });
     assert.equal(plan.frontier.find(f => f.offerId === "upgrade:ctrl")?.reason, "energy residual");
 
+    // Generic in/out on the instance: every commodity, engine-computed.
+    const haulA = corps.get("haul:mouthA->bank");
+    assert.closeTo(haulA?.inputs.energyAt?.["mouthA"] ?? 0, 12.5, 1e-9, "draws at the mouth");
+    assert.closeTo(haulA?.outputs.energyAt?.["bank"] ?? 0, 12.5, 1e-9, "provides at the bank");
+    assert.isAbove(haulA?.inputs.spawnTime ?? 0, 0, "machine time is an input");
+    const up = corps.get("upgrade:ctrl");
+    assert.closeTo(up?.outputs.controlPoints ?? 0, 16, 1e-9);
+    assert.closeTo(up?.inputs.energyAt?.["bank"] ?? 0, 16 + 4 * (500 / 1500), 1e-9, "burn plus the parts bill");
+
     assert.closeTo(plan.expected.deliveredEt, 20, 1e-9);
     assert.closeTo(plan.expected.upgradeEt, 16, 1e-9);
     // The heartbeat identity: refill obligation == Σ funded parts bills.

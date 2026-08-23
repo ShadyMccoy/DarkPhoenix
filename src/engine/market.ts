@@ -23,7 +23,7 @@
  * rather than deadlocking against incumbents — the stranded remainder is
  * plainly visible as mined-vs-delivered surplus, first lab question.
  */
-import { CorpInstance, EnginePlan, Flows, FrontierLine, Offer, PlaceId, Step } from "./vocabulary";
+import { CorpInstance, EnginePlan, Flows, FrontierLine, Offer, PlaceId, Step, addFlows } from "./vocabulary";
 
 export interface ChainStage {
   offer: Offer;
@@ -308,9 +308,35 @@ export function clear(input: MarketInput): EnginePlan {
     for (let k = 0; k < best.count; k++) fundInc(best.lc, best.lc.incs[best.lc.next]);
   }
 
+  // The heartbeat's carrier funds BEFORE the controller drinks (the ladder:
+  // obligations first — piece 9): tender intake to cover the whole refill
+  // obligation (owner 2026-08-23 — the spawning corp's own bodies, never a
+  // haul job). Each funded tender adds its own bill to the obligation it
+  // serves, so the loop runs until intake covers it.
+  const heartbeat = (): number => refill + (input.standingBills ?? 0);
+  if (input.tender && heartbeat() > EPS) {
+    const t = input.tender;
+    let intake = 0;
+    for (let i = 0; i < t.offer.steps.length && intake < heartbeat() - EPS; i++) {
+      const s = t.offer.steps[i];
+      if (spawnUsed + s.cost.spawnTimeEt > input.spawnCapacity + EPS) {
+        frontier.push({
+          offerId: t.offer.id,
+          reason: "spawn capacity",
+          detail: `needs ${s.cost.spawnTimeEt.toFixed(4)} p/t, ${(input.spawnCapacity - spawnUsed).toFixed(4)} p/t free`
+        });
+        break;
+      }
+      fund(t.offer, null, i);
+      intake += t.capacities[i];
+      refill += s.cost.upkeepEt;
+      spawnUsed += s.cost.spawnTimeEt;
+    }
+  }
+
   // Consumption draws the residual: inflow minus every funded parts bill.
-  // Obligations (the bills) came first by construction; the controller
-  // drinks what is left — the ladder as the bank's draw policy (piece 9).
+  // Obligations (the bills, the tender) came first by construction; the
+  // controller drinks what is left — the ladder as the bank's draw policy.
   let residual = delivered - refill;
   let upgradeEt = 0;
   let standingUpgradeEt = 0;
@@ -343,33 +369,6 @@ export function clear(input: MarketInput): EnginePlan {
     }
   }
 
-  // The heartbeat's carrier funds last: tender intake to cover the whole
-  // refill obligation (owner 2026-08-23 — the spawning corp's own bodies,
-  // never a haul job). Each funded tender adds its own bill to the
-  // obligation it serves, so the loop runs until intake covers it. It
-  // settles after the residual, so its bill can overdraw the leftover by
-  // at most one small body for one replan — visible, repriced next pass.
-  const heartbeat = (): number => refill + (input.standingBills ?? 0);
-  if (input.tender && heartbeat() > EPS) {
-    const t = input.tender;
-    let intake = 0;
-    for (let i = 0; i < t.offer.steps.length && intake < heartbeat() - EPS; i++) {
-      const s = t.offer.steps[i];
-      if (spawnUsed + s.cost.spawnTimeEt > input.spawnCapacity + EPS) {
-        frontier.push({
-          offerId: t.offer.id,
-          reason: "spawn capacity",
-          detail: `needs ${s.cost.spawnTimeEt.toFixed(4)} p/t, ${(input.spawnCapacity - spawnUsed).toFixed(4)} p/t free`
-        });
-        break;
-      }
-      fund(t.offer, null, i);
-      intake += t.capacities[i];
-      refill += s.cost.upkeepEt;
-      spawnUsed += s.cost.spawnTimeEt;
-    }
-  }
-
   const corps: CorpInstance[] = [];
   let minedEt = 0;
   for (const f of funded.values()) {
@@ -377,10 +376,18 @@ export function clear(input: MarketInput): EnginePlan {
     let cost = 0;
     let backed = 0;
     let body: Step["buys"] | null = null;
+    const inputs: Flows = {};
+    const outputs: Flows = {};
     for (const i of f.steps) {
       const s = f.offer.steps[i];
       gross += flowMagnitude(s.provides);
       cost += s.cost.upkeepEt;
+      addFlows(outputs, s.provides);
+      addFlows(inputs, s.requires);
+      // Ownership is an input too: machine time, and the parts bill drawn
+      // at the bank branch.
+      if (s.cost.spawnTimeEt > 0) addFlows(inputs, { spawnTime: s.cost.spawnTimeEt });
+      if (s.cost.upkeepEt > 0) addFlows(inputs, { energyAt: { [input.bank]: s.cost.upkeepEt } });
       if (s.backedBy) backed += 1;
       else if (!body && s.buys) body = s.buys;
     }
@@ -392,7 +399,9 @@ export function clear(input: MarketInput): EnginePlan {
       target: f.steps.length,
       backed,
       chain: f.chain,
-      pnl: { grossEt: gross, costEt: cost, netEt: gross - cost }
+      pnl: { grossEt: gross, costEt: cost, netEt: gross - cost },
+      inputs,
+      outputs
     });
   }
   corps.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
