@@ -61,10 +61,11 @@ describe("engine/replan", () => {
     assert.deepEqual(corps.get("upgrade:ctrl")?.body, { work: 4, carry: 1, move: 1 });
     assert.equal(plan.frontier.find(f => f.offerId === "upgrade:ctrl")?.reason, "energy residual");
 
-    // Generic in/out on the instance: every commodity, engine-computed.
+    // Generic in/out on the instance: every commodity, ALLOCATED flow —
+    // the hauler's body could carry 12.5 e/t, but the source matches 10.
     const haulA = corps.get("haul:srcA->bank");
-    assert.closeTo(haulA?.inputs.energyAt?.["srcA"] ?? 0, 12.5, 1e-9, "draws at the mouth");
-    assert.closeTo(haulA?.outputs.energyAt?.["bank"] ?? 0, 12.5, 1e-9, "provides at the bank");
+    assert.closeTo(haulA?.inputs.energyAt?.["srcA"] ?? 0, 10, 1e-9, "draws what the mine matches");
+    assert.closeTo(haulA?.outputs.energyAt?.["bank"] ?? 0, 10, 1e-9, "delivers the same at the bank");
     assert.isAbove(haulA?.inputs.spawnTime ?? 0, 0, "machine time is an input");
     const up = corps.get("upgrade:ctrl");
     assert.closeTo(up?.outputs.controlPoints ?? 0, 16, 1e-9);
@@ -79,6 +80,12 @@ describe("engine/replan", () => {
     // The heartbeat identity: refill obligation == Σ funded parts bills.
     const bills = plan.corps.reduce((s, c) => s + c.pnl.costEt, 0);
     assert.closeTo(plan.expected.refillEt, bills, 1e-9);
+
+    // The position book: every place clears; the bank's net IS the
+    // leftover — the conservation identity as an engine invariant.
+    assert.isEmpty(plan.violations);
+    const bank = plan.positions.find(p => p.place === "bank");
+    assert.closeTo(bank?.netEt ?? NaN, plan.expected.deliveredEt - plan.expected.refillEt - plan.expected.upgradeEt, 1e-9);
 
     assert.deepEqual(replan(view({ bodyBudget: 550, bankStock: 2000 })), plan, "same view, same plan");
   });
@@ -135,6 +142,7 @@ describe("engine/replan", () => {
     const backedRate = 3 * workmanCycleRate(workman, 10);
     assert.closeTo(plan.expected.deliveredEt, 20, 1e-9, "both sources at cap: trim made the shares exact");
     assert.closeTo(plan.expected.standingEt, backedRate, 1e-9, "the live fleet's share reported as standing");
+    assert.isEmpty(plan.violations, "trimmed chains still clear the book — allocation, not capacity, is what nets");
     assert.notInclude(
       plan.frontier.map(f => f.reason),
       "ramp insolvent",

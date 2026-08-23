@@ -86,15 +86,19 @@ export function replan(view: EconomyView): EnginePlan {
   const sinks: SinkChain[] = [];
   if (view.controller) {
     const ctrl = view.controller;
+    // An adjacent controller self-loads AT the bank — its draw and the
+    // bank's supply meet at one place, so the book clears. A distant one
+    // draws at its own place and needs the feed hauled there.
+    const feed = ctrl.distFromBank > 1 ? ctrl.id : view.bank;
     const upgrade = quoteUpgrade({
       controllerId: ctrl.id,
-      feed: ctrl.id,
+      feed,
       bodyBudget: view.bodyBudget,
       maxBurn: view.sources.length * SOURCE_RATE,
       creeps: assigned(view, `upgrade:${ctrl.id}`)
     });
     if (upgrade) {
-      const burns = upgrade.steps.map(s => s.requires.energyAt?.[ctrl.id] ?? 0);
+      const burns = upgrade.steps.map(s => s.requires.energyAt?.[feed] ?? 0);
       const stages: ChainStage[] = [];
       // An adjacent controller self-loads across the bank tile; a distant
       // one needs its feed hauled — the consumption side of the position

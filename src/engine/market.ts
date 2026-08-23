@@ -152,6 +152,15 @@ export function clear(input: MarketInput): EnginePlan {
     f.steps.push(stepIdx);
   };
 
+  // Allocated end-to-end flow per offer: every stage of a chain carries
+  // the chain's REALIZED flow, whatever its quoted capacity. The position
+  // book nets these — capacity idle is a corp's own business; unmatched
+  // flow is a plan bug.
+  const alloc = new Map<string, number>();
+  const allocAdd = (id: string, amount: number): void => {
+    alloc.set(id, (alloc.get(id) ?? 0) + amount);
+  };
+
   interface LiveChain {
     chain: ChainCandidate;
     incs: Inc[];
@@ -185,6 +194,7 @@ export function clear(input: MarketInput): EnginePlan {
   const fundInc = (lc: LiveChain, inc: Inc): void => {
     const eff = Math.min(inc.delivered, Math.max(remainingOn(lc.chain.sourceId), 0));
     for (const ref of inc.steps) fund(lc.chain.stages[ref.stage].offer, lc.chain.id, ref.step);
+    for (const stage of lc.chain.stages) allocAdd(stage.offer.id, eff);
     spawnUsed += inc.spawnTimeEt;
     refill += inc.upkeepEt;
     delivered += eff;
@@ -366,6 +376,7 @@ export function clear(input: MarketInput): EnginePlan {
         break;
       }
       for (const ref of inc.steps) fund(sink.stages[ref.stage].offer, null, ref.step);
+      for (const stage of sink.stages) allocAdd(stage.offer.id, inc.delivered);
       residual -= draw;
       refill += inc.upkeepEt;
       spawnUsed += inc.spawnTimeEt;
@@ -377,6 +388,13 @@ export function clear(input: MarketInput): EnginePlan {
   const corps: CorpInstance[] = [];
   let minedEt = 0;
   for (const f of funded.values()) {
+    // Utilization: allocated flow over quoted capacity. The rows state the
+    // trade that actually MATCHES — a whole body bought for a partial flow
+    // shows the flow; the idle capacity is the corp's own business. Bills
+    // and machine time stay full: the body is owned entirely either way.
+    let quoted = 0;
+    for (const i of f.steps) quoted += flowMagnitude(f.offer.steps[i].provides);
+    const u = quoted > EPS ? Math.min((alloc.get(f.offer.id) ?? quoted) / quoted, 1) : 0;
     let gross = 0;
     let cost = 0;
     let backed = 0;
@@ -385,10 +403,10 @@ export function clear(input: MarketInput): EnginePlan {
     const outputs: Flows = {};
     for (const i of f.steps) {
       const s = f.offer.steps[i];
-      gross += flowMagnitude(s.provides);
+      gross += flowMagnitude(s.provides) * u;
       cost += s.cost.upkeepEt;
-      addFlows(outputs, s.provides);
-      addFlows(inputs, s.requires);
+      addFlows(outputs, s.provides, u);
+      addFlows(inputs, s.requires, u);
       // Ownership is an input too: machine time, and the parts bill drawn
       // at the bank branch.
       if (s.cost.spawnTimeEt > 0) addFlows(inputs, { spawnTime: s.cost.spawnTimeEt });
@@ -411,10 +429,46 @@ export function clear(input: MarketInput): EnginePlan {
   }
   corps.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
+  // The position book (piece 1's second view), netted from the instances'
+  // own allocated rows: supply and demand per place, energy column. The
+  // bank is the counterparty and nets the leftover; any OTHER place with a
+  // residue means the plan funded a match that does not exist — the exact
+  // bug class this book exists to make impossible to miss.
+  const book: Record<string, { supply: number; demand: number }> = {};
+  const bookAt = (p: string): { supply: number; demand: number } => book[p] ?? (book[p] = { supply: 0, demand: 0 });
+  bookAt(input.bank);
+  for (const c of corps) {
+    const out = c.outputs.energyAt ?? {};
+    for (const p of Object.keys(out)) bookAt(p).supply += out[p];
+    const inn = c.inputs.energyAt ?? {};
+    for (const p of Object.keys(inn)) bookAt(p).demand += inn[p];
+  }
+  const positions = Object.keys(book)
+    .sort()
+    .map(place => ({
+      place,
+      supplyEt: book[place].supply,
+      demandEt: book[place].demand,
+      netEt: book[place].supply - book[place].demand
+    }));
+  const violations: string[] = [];
+  for (const row of positions) {
+    if (row.place === input.bank || Math.abs(row.netEt) <= 0.01) continue;
+    violations.push(
+      row.netEt < 0
+        ? `unmatched demand at ${row.place}: ${row.demandEt.toFixed(2)} e/t required, ${row.supplyEt.toFixed(
+            2
+          )} provided`
+        : `stranded supply at ${row.place}: ${row.supplyEt.toFixed(2)} e/t provided, ${row.demandEt.toFixed(2)} drawn`
+    );
+  }
+
   return {
     tick: input.tick,
     corps,
     frontier,
+    positions,
+    violations,
     expected: {
       minedEt,
       deliveredEt: delivered,

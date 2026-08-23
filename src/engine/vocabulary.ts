@@ -28,13 +28,14 @@ export interface Flows {
   controlPoints?: number;
 }
 
-/** Merge marginal flows — the market sums a corp's funded steps with this. */
-export function addFlows(into: Flows, from: Flows): void {
-  if (from.spawnTime) into.spawnTime = (into.spawnTime ?? 0) + from.spawnTime;
-  if (from.controlPoints) into.controlPoints = (into.controlPoints ?? 0) + from.controlPoints;
+/** Merge marginal flows, optionally scaled — the market sums a corp's
+ * funded steps with this, scaling trade by allocation (utilization). */
+export function addFlows(into: Flows, from: Flows, scale = 1): void {
+  if (from.spawnTime) into.spawnTime = (into.spawnTime ?? 0) + from.spawnTime * scale;
+  if (from.controlPoints) into.controlPoints = (into.controlPoints ?? 0) + from.controlPoints * scale;
   for (const place of Object.keys(from.energyAt ?? {})) {
     const at = into.energyAt ?? (into.energyAt = {});
-    at[place] = (at[place] ?? 0) + (from.energyAt as Record<PlaceId, number>)[place];
+    at[place] = (at[place] ?? 0) + (from.energyAt as Record<PlaceId, number>)[place] * scale;
   }
 }
 
@@ -116,10 +117,28 @@ export interface FrontierLine {
   detail: string;
 }
 
+/** One row of the position book: a place's energy column, netted over the
+ * funded plan's ALLOCATED flows. The bank is the counterparty and may net
+ * (its net IS the leftover); every other place must clear to ~zero, or the
+ * plan funded a match that does not exist. */
+export interface PositionRow {
+  place: PlaceId;
+  supplyEt: number;
+  demandEt: number;
+  netEt: number;
+}
+
 export interface EnginePlan {
   tick: number;
   corps: CorpInstance[];
   frontier: FrontierLine[];
+  /** The position matrix (REBOOT's second view), energy column per place. */
+  positions: PositionRow[];
+  /** Non-bank places that failed to clear: unmatched demand (funded
+   * consumption with no supply at that place) or stranded supply. A
+   * violation is an ENGINE BUG by construction — the suites pin this
+   * empty; the lab prints it in red. */
+  violations: string[];
   expected: {
     minedEt: number;
     deliveredEt: number;

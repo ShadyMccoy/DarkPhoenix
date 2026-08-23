@@ -140,6 +140,25 @@ describe("engine/market", () => {
     assert.isAtLeast(leftover, -1e-9);
   });
 
+  it("the position book flags funded demand with no match at its place — the controller-feed bug, pinned", () => {
+    // A burner drawing at "ctrl" with NO stage providing there: the market
+    // funds it (it cannot know the broker forgot the feeder), but the book
+    // refuses to stay quiet about it.
+    const prod = chain("chain:p", "s1", [10], [step(10, { upkeep: 1 })]);
+    const orphanSteps = [0, 1].map(() => ({
+      buys: { work: 2, carry: 1, move: 1 },
+      provides: { controlPoints: 4 },
+      requires: { energyAt: { ctrl: 4 } },
+      cost: { upfront: 300, upkeepEt: 0.2, spawnTimeEt: 0.003 }
+    }));
+    const sinks: SinkChain[] = [{ stages: [{ offer: { id: "up", kind: "upgrade", steps: orphanSteps }, capacities: [4, 4] }] }];
+    const plan = clear(input({ chains: [prod], sinks }));
+    assert.isNotEmpty(plan.violations);
+    assert.include(plan.violations[0], "unmatched demand at ctrl");
+    const ctrl = plan.positions.find(p => p.place === "ctrl");
+    assert.isBelow(ctrl?.netEt ?? 0, 0, "the book shows the hole");
+  });
+
   it("is deterministic: same input, same plan; order of candidates does not matter", () => {
     const a = chain("chain:a", "s1", [5], [step(5, { upkeep: 0.3 })]);
     const b = chain("chain:b", "s2", [5], [step(5, { upkeep: 0.4 })]);

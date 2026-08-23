@@ -53,6 +53,18 @@ export function renderPanels(container: HTMLElement, plan: EnginePlan, creeps: V
     )
     .join("");
 
+  const violations = plan.violations
+    .map(v => `<div class="fline"><span class="chip" style="background:#b3543a">book</span><span class="fdetail">${v}</span></div>`)
+    .join("");
+
+  const positions = plan.positions
+    .map(
+      p =>
+        `<tr><td class="id">${p.place}</td><td class="num">${p.supplyEt.toFixed(2)}</td>` +
+        `<td class="num">${p.demandEt.toFixed(2)}</td><td class="num strong">${p.netEt.toFixed(2)}</td></tr>`
+    )
+    .join("");
+
   const e = plan.expected;
   const leftover = e.deliveredEt - e.refillEt - e.upgradeEt;
   container.innerHTML =
@@ -64,6 +76,11 @@ export function renderPanels(container: HTMLElement, plan: EnginePlan, creeps: V
     `to bank <b>${leftover.toFixed(2)}</b> e/t</div>` +
     `<div class="expected">standing today: delivering <b>${e.standingEt.toFixed(1)}</b> · ` +
     `upgrading <b>${e.standingUpgradeEt.toFixed(1)}</b> · sustain bill <b>${e.standingRefillEt.toFixed(2)}</b> e/t</div>` +
+    (violations ? `<h2>Book violations</h2>${violations}` : "") +
+    `<h2>Positions</h2>` +
+    `<table class="corps"><thead><tr><th>place</th><th>supply e/t</th><th>demand e/t</th><th>net</th></tr></thead>` +
+    `<tbody>${positions}</tbody></table>` +
+    `<div class="expected dim">every place clears; the bank's net is the leftover — the conservation identity, live</div>` +
     `<h2>Blocked frontier</h2>` +
     (frontier || `<div class="dim">nothing blocked — every offer funded to its schedule's end</div>`);
 }

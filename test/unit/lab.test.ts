@@ -48,6 +48,7 @@ describe("lab/scenario", () => {
       plan.frontier.some(f => f.reason === "ramp insolvent"),
       "the specialist chains print why they cannot start"
     );
+    assert.isEmpty(plan.violations, "the staged world's plan clears its position book");
 
     assert.deepEqual(replan(assemble(s, [], s.bankStock, 0)), plan, "deterministic replay");
   });
