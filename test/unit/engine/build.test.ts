@@ -40,6 +40,7 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     links: [],
     outposts: [],
     sites: [],
+    roads: [],
     ...over
   };
 }
@@ -64,17 +65,22 @@ describe("engine/build — the investment pipeline", () => {
     assert.equal(corps.get("haul:srcB->bank")?.target, 2, "interim coverage holds");
     assert.isUndefined(corps.get("link:srcB->bank"), "nothing standing, nothing funded as transport");
 
-    // srcA (10 tiles): one 0.33 e/t hauler (0.033/unit) beats the
-    // candidate's 0.04/unit — no approval where distance doesn't justify.
-    assert.isUndefined(plan.approvals.find(a => a.edge?.from === "srcA"));
+    // srcA (10 tiles): one 0.27 e/t hauler beats the candidate's
+    // 0.04/unit — no WIRE where distance doesn't justify it. (The edge
+    // paves instead: the road is the near edge's winning investment.)
+    assert.isUndefined(plan.approvals.find(a => a.structure === "link" && a.edge?.from === "srcA"));
+    assert.isOk(plan.approvals.find(a => a.structure === "road" && a.edge?.from === "srcA"));
     assert.equal(corps.get("haul:srcA->bank")?.target, 1);
   });
 
   it("prints `awaiting stock` when the winning candidate outruns the bank, and the warchest diverts toward it", () => {
     const plan = replan(view({ bodyBudget: 550, bankStock: 2000 }));
 
-    assert.isEmpty(plan.approvals, "2000e cannot pay 10000e of capex");
-    const line = plan.frontier.find(f => f.reason === "awaiting stock");
+    assert.isEmpty(
+      plan.approvals.filter(a => a.structure === "link"),
+      "2000e cannot pay 10000e of capex (the near edge's cheap road may still clear)"
+    );
+    const line = plan.frontier.find(f => f.reason === "awaiting stock" && f.offerId === "link:srcB->bank");
     assert.isOk(line, "the blocked investment prints its reason");
     assert.include(line?.detail ?? "", "10000", "the arithmetic names the capex");
 

@@ -32,6 +32,8 @@ import {
   LINK_CAPACITY,
   LINK_LOSS,
   PART_COST,
+  ROAD_COST_PER_TILE,
+  ROAD_UPKEEP_ET_PER_TILE,
   SOURCE_RATE,
   STORAGE_COST,
   branchHoldingEt,
@@ -106,6 +108,7 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
    * Backed-first survives as the TIEBREAK: within equal steady-state
    * cost, standing capital holds — the anti-thrash piece 5 wanted. */
   const transportBook = (gap: HaulGap): StageOption[] => {
+    gap.roaded = view.roads.some(r => r.from === gap.from && r.to === gap.to);
     gapByOffer.set(`haul:${gap.from}->${gap.to}`, gap);
     const options: StageOption[] = [];
     const haul = quoteHaul({
@@ -367,7 +370,11 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     sourceCaps,
     standingBills,
     standingSpawnEt,
-    holdingEt: branchHoldingEt(view.bankBranch, view.bankStock, view.bodyBudget),
+    // The branch's rot plus the road network's upkeep: standing costs the
+    // bank pays whether or not anything funds.
+    holdingEt:
+      branchHoldingEt(view.bankBranch, view.bankStock, view.bodyBudget) +
+      view.roads.reduce((sum, r) => sum + r.dist * ROAD_UPKEEP_ET_PER_TILE, 0),
     warchestTarget,
     tender: tenderOffer
       ? { offer: tenderOffer, capacities: tenderCapacities(tenderOffer, view.estateRadius, tenderCreeps) }
@@ -431,16 +438,6 @@ export function replan(view: EconomyView): EnginePlan {
     // a candidate here would clear its hurdle on flow that will vanish.
     if (isSitePlace(gap.from) || isSitePlace(gap.to)) continue;
     if (siteEdges.has(`${gap.from}->${gap.to}`)) continue;
-    const cand = quoteLink({
-      gap: { from: gap.from, to: gap.to, dist: gap.dist, flow: corp.pnl.grossEt },
-      atFrom: linkAt(gap.from),
-      atTo: linkAt(gap.to)
-    });
-    if (!cand || cand.steps[0].backedBy) continue;
-    const st = cand.steps[0];
-    const throughput = st.provides.energyAt?.[gap.to] ?? 0;
-    if (throughput <= 1e-9) continue;
-    const candUnit = (st.cost.upkeepEt + (st.cost.feeEt ?? 0)) / throughput;
     // The incumbent prices at REPLACEMENT SCALE, not at its sunk quote
     // (the roadmap's replacement-scale displacement rule, pulled in by
     // measurement: a backed fleet quotes ~zero, which made living bodies
@@ -454,18 +451,52 @@ export function replan(view: EconomyView): EnginePlan {
     // can be fatter (quoted for schedule demand, funded for less), and
     // that idle CARRY is utilization waste, never a reason to buy wire.
     const idealPairs = carryPartsFor(corp.pnl.grossEt, gap.dist);
-    const replacementBill = (idealPairs * (PART_COST.carry + PART_COST.move)) / CREEP_LIFE;
+    const pairCost = PART_COST.carry + PART_COST.move;
+    const replacementBill =
+      (gap.roaded ? Math.ceil(idealPairs / 2) * (2 * PART_COST.carry + PART_COST.move) : idealPairs * pairCost) /
+      CREEP_LIFE;
     const incumbentUnit = replacementBill / corp.pnl.grossEt;
-    if (candUnit + 1e-9 >= incumbentUnit) continue;
-    const capex = st.cost.upfront;
-    const detail =
-      `link ${candUnit.toFixed(4)}/unit beats bodies ${incumbentUnit.toFixed(4)}/unit ` +
-      `on ${gap.from}->${gap.to} (${corp.pnl.grossEt.toFixed(1)} e/t)`;
-    if (capex <= spendable + 1e-9) {
-      spendable -= capex;
-      approvals.push({ structure: "link", edge: { from: gap.from, to: gap.to }, at: gap.from, capex, detail });
-    } else {
-      noteAwaiting(cand.id, capex, detail);
+
+    const cand = quoteLink({
+      gap: { from: gap.from, to: gap.to, dist: gap.dist, flow: corp.pnl.grossEt },
+      atFrom: linkAt(gap.from),
+      atTo: linkAt(gap.to)
+    });
+    const st = cand && !cand.steps[0].backedBy ? cand.steps[0] : null;
+    const throughput = st?.provides.energyAt?.[gap.to] ?? 0;
+    const candUnit = st && throughput > 1e-9 ? (st.cost.upkeepEt + (st.cost.feeEt ?? 0)) / throughput : Infinity;
+    if (cand && st && candUnit + 1e-9 < incumbentUnit) {
+      const capex = st.cost.upfront;
+      const detail =
+        `link ${candUnit.toFixed(4)}/unit beats bodies ${incumbentUnit.toFixed(4)}/unit ` +
+        `on ${gap.from}->${gap.to} (${corp.pnl.grossEt.toFixed(1)} e/t)`;
+      if (capex <= spendable + 1e-9) {
+        spendable -= capex;
+        approvals.push({ structure: "link", edge: { from: gap.from, to: gap.to }, at: gap.from, capex, detail });
+      } else {
+        noteAwaiting(cand.id, capex, detail);
+      }
+      continue;
+    }
+
+    // The road (Tier 1.4): the edge's third option — same fleet law,
+    // cheaper gait (2C:1M). Only where the wire did NOT clear: a paved
+    // route under a link is capex twice for one flow.
+    if (!gap.roaded) {
+      const roadedBill = (Math.ceil(idealPairs / 2) * (2 * PART_COST.carry + PART_COST.move)) / CREEP_LIFE;
+      const saving = replacementBill - roadedBill - gap.dist * ROAD_UPKEEP_ET_PER_TILE;
+      const capex = gap.dist * ROAD_COST_PER_TILE;
+      if (saving * HORIZON > capex) {
+        const detail =
+          `paving ${gap.from}->${gap.to} (${gap.dist} tiles) saves ${saving.toFixed(3)} e/t of fleet: ` +
+          `${(saving * HORIZON).toFixed(0)}e over H beats ${capex}e capex`;
+        if (capex <= spendable + 1e-9) {
+          spendable -= capex;
+          approvals.push({ structure: "road", edge: { from: gap.from, to: gap.to }, at: gap.from, capex, detail });
+        } else {
+          noteAwaiting(`road:${gap.from}->${gap.to}`, capex, detail);
+        }
+      }
     }
   }
 

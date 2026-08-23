@@ -55,12 +55,22 @@ export function haulerBody(budget: number): BodyShape | null {
  * hauler class: its idle capacity inflates the edge's unit cost, and a
  * mis-priced edge invites absurd challengers). Pairs cost the same per
  * CARRY at every size, so sizing to need loses nothing; budget and the
- * 25-pair body limit cap it.
+ * 50-part body limit cap it. A ROADED route runs 2C:1M (75e per CARRY
+ * against 100) — `roaded` is instance data priced by one formula whose
+ * terms shift, never a subclass (REBOOT piece 2, by name).
  */
-export function haulerBodyFor(flow: number, dist: number, budget: number): BodyShape | null {
+export function haulerBodyFor(flow: number, dist: number, budget: number, roaded = false): BodyShape | null {
+  if (flow <= 0) return null;
+  const need = Math.max(carryPartsFor(flow, dist), 1);
+  if (roaded) {
+    const roadUnitCost = 2 * PART_COST.carry + PART_COST.move;
+    if (budget < roadUnitCost) return null;
+    const roadUnits = Math.min(Math.ceil(need / 2), Math.floor(budget / roadUnitCost), 16);
+    return { work: 0, carry: 2 * roadUnits, move: roadUnits };
+  }
   const unitCost = PART_COST.carry + PART_COST.move;
-  if (budget < unitCost || flow <= 0) return null;
-  const units = Math.min(Math.max(carryPartsFor(flow, dist), 1), Math.floor(budget / unitCost), 25);
+  if (budget < unitCost) return null;
+  const units = Math.min(need, Math.floor(budget / unitCost), 25);
   return { work: 0, carry: units, move: units };
 }
 

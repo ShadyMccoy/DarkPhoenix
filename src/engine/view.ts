@@ -60,6 +60,15 @@ export interface EconomyView {
   /** Open construction sites — world state (site progress persists in the
    * game), never plan state. Each is a place the build corp burns at. */
   sites: ViewSite[];
+  /** Paved routes, with their route cost — bodies on them run 2C:1M and
+   * the bank pays their per-tile upkeep whether or not the edge funds. */
+  roads: ViewRoad[];
+}
+
+export interface ViewRoad {
+  from: PlaceId;
+  to: PlaceId;
+  dist: number;
 }
 
 export interface ViewSite {

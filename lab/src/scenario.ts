@@ -78,6 +78,9 @@ export interface Scenario {
   /** The bank's physical branch at the kernel — a pile until the ladder's
    * capex clears (Tier 1.3). */
   bankBranch: BankBranchKind;
+  /** Paved routes between places (Tier 1.4) — the roaded reprice; tiles
+   * stay the editor's business, the model prices the route. */
+  roads: { from: string; to: string }[];
   bankStock: number;
   bodyBudget: number;
   /** Staged initial fleet (cascade B/C worlds stage living creeps). */
@@ -193,6 +196,23 @@ function approachDist(dist: number[][], p: XY): number {
   return Number.isFinite(best) ? Math.max(best, 1) : w + h;
 }
 
+/** A place id's tile on the staged map — the same knowledge assemble()
+ * mints the ids from; one home, shared by the believer and assembly. */
+export function placeTile(s: Scenario, place: string): XY | null {
+  if (place === "bank") return s.bank;
+  if (place === "ctrl") return s.controller;
+  if (place.indexOf("outpost:") === 0) {
+    const l = s.links.find(k => `outpost:${k.id}` === place);
+    return l ? { x: l.x, y: l.y } : null;
+  }
+  if (place.indexOf("site:") === 0) {
+    const site = s.sites.find(k => `site:${k.id}` === place);
+    return site ? { x: site.x, y: site.y } : null;
+  }
+  const src = s.sources.find(k => k.id === place);
+  return src ? { x: src.x, y: src.y } : null;
+}
+
 /** Which place a link tile serves: the bank, a source, or the controller
  * within short reach — otherwise it stands free and becomes an OUTPOST,
  * its own place. */
@@ -238,6 +258,16 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
       edge: site.edge
     };
   });
+  // Paved routes carry their real path cost; an unresolvable endpoint
+  // (erased element) simply drops the road from the view.
+  const roads: { from: string; to: string; dist: number }[] = [];
+  for (const r of s.roads) {
+    const a = placeTile(s, r.from);
+    const b = placeTile(s, r.to);
+    if (!a || !b) continue;
+    roads.push({ from: r.from, to: r.to, dist: approachDist(distanceField(s.terrain, a), b) });
+  }
+
   // The estate: the scenario's staged base capacity plus what standing
   // extensions add; its radius is the FARTHEST refill stop — a spread
   // estate raises the heartbeat's price (roadmap Tier 1.2).
@@ -259,7 +289,8 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     creeps,
     links,
     outposts,
-    sites
+    sites,
+    roads
   };
 }
 
@@ -291,6 +322,7 @@ export function importSave(text: string): LabSave {
   raw.scenario.sites = raw.scenario.sites ?? [];
   raw.scenario.extensions = raw.scenario.extensions ?? [];
   raw.scenario.bankBranch = raw.scenario.bankBranch ?? "pile";
+  raw.scenario.roads = raw.scenario.roads ?? [];
   return {
     scenario: raw.scenario,
     creeps: raw.creeps ?? [],

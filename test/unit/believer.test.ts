@@ -28,6 +28,7 @@ function farSourceWorld(): BelieverState {
     sites: [],
     extensions: [],
     bankBranch: "pile",
+    roads: [],
     bankStock: 300,
     bodyBudget: 550,
     creeps: []

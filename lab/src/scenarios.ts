@@ -31,6 +31,7 @@ export function bootstrapScenario(): Scenario {
     sites: [],
     extensions: [],
     bankBranch: "pile",
+    roads: [],
     bankStock: 300,
     bodyBudget: 300,
     creeps: []

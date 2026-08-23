@@ -31,6 +31,7 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     links: [],
     outposts: [],
     sites: [],
+    roads: [],
     ...over
   };
 }

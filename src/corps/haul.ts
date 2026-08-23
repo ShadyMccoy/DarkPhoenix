@@ -17,6 +17,8 @@ export interface HaulGap {
   dist: number;
   /** e/t the gap needs moved. */
   flow: number;
+  /** A paved route: bodies run 2C:1M — the roaded reprice (Tier 1.4). */
+  roaded?: boolean;
 }
 
 export interface HaulHandoff {
@@ -48,7 +50,7 @@ export function quoteHaul(h: HaulHandoff): Offer | null {
   // at the quote): the fleet's last body shrinks to the remainder, so no
   // edge carries idle CARRY it must bill for.
   while (cum < flow) {
-    const body = haulerBodyFor(flow - cum, dist, h.bodyBudget);
+    const body = haulerBodyFor(flow - cum, dist, h.bodyBudget, h.gap.roaded);
     if (!body) break;
     const perBody = haulRate(body.carry, dist);
     if (perBody <= 0) break;

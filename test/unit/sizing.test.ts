@@ -60,6 +60,12 @@ describe("sizing", () => {
     assert.isNull(haulerBodyFor(0, 10, 550), "no flow, no body");
   });
 
+  it("reprices the roaded gait: 2C per MOVE, 75e per CARRY against 100 unpaved", () => {
+    assert.deepEqual(haulerBodyFor(10, 10, 550, true), { work: 0, carry: 4, move: 2 }, "same 4 CARRY, half the MOVE");
+    assert.deepEqual(haulerBodyFor(2, 5, 550, true), { work: 0, carry: 2, move: 1 }, "the floor unit is 2C1M");
+    assert.deepEqual(haulerBodyFor(200, 40, 99999, true), { work: 0, carry: 32, move: 16 }, "48-part cap");
+  });
+
   it("sizes builders: W-heavy at a fed site, floor at 200, capped at 10 WORK", () => {
     assert.isNull(builderBody(199));
     assert.deepEqual(builderBody(200), { work: 1, carry: 1, move: 1 });

@@ -17,7 +17,7 @@ import { replan } from "../../src/engine/replan";
 import { EnginePlan } from "../../src/engine/vocabulary";
 import { ViewCreep } from "../../src/engine/view";
 import { bodyCost } from "../../src/primitives";
-import { Scenario, ScenarioSite, WALL, XY, assemble, cellAt } from "./scenario";
+import { Scenario, ScenarioSite, WALL, XY, assemble, cellAt, placeTile as scenarioPlaceTile } from "./scenario";
 
 /** One believer chunk: the replan cadence's order of magnitude. */
 export const DT = 150;
@@ -35,22 +35,7 @@ export function planFor(state: BelieverState): EnginePlan {
   return replan(assemble(state.scenario, state.creeps, state.bankStock, state.tick));
 }
 
-/** Where a place id sits on the staged map — the same knowledge
- * assemble() mints the ids from. */
-function placeTile(s: Scenario, place: string): XY | null {
-  if (place === "bank") return s.bank;
-  if (place === "ctrl") return s.controller;
-  if (place.indexOf("outpost:") === 0) {
-    const l = s.links.find(k => `outpost:${k.id}` === place);
-    return l ? { x: l.x, y: l.y } : null;
-  }
-  if (place.indexOf("site:") === 0) {
-    const site = s.sites.find(k => `site:${k.id}` === place);
-    return site ? { x: site.x, y: site.y } : null;
-  }
-  const src = s.sources.find(k => k.id === place);
-  return src ? { x: src.x, y: src.y } : null;
-}
+const placeTile = scenarioPlaceTile;
 
 function freeTileNear(s: Scenario, tile: XY, maxR = 2): XY | null {
   for (let r = 1; r <= maxR; r++) {
@@ -115,6 +100,9 @@ function realize(state: BelieverState, site: ScenarioSite): void {
     if (at) s.extensions.push(at);
   } else if (site.structure === "container" || site.structure === "storage") {
     s.bankBranch = site.structure;
+  } else if (site.structure === "road" && site.edge) {
+    const e = site.edge;
+    if (!s.roads.some(r => r.from === e.from && r.to === e.to)) s.roads.push({ from: e.from, to: e.to });
   }
 }
 

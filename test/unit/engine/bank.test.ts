@@ -37,6 +37,7 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     links: [],
     outposts: [],
     sites: [],
+    roads: [],
     ...over
   };
 }
@@ -67,15 +68,22 @@ describe("engine/bank — branches and holding (Tier 1.3)", () => {
   });
 
   it("clears the container rung on decay savings, one rung at a time", () => {
-    const plan = replan(view({ bankStock: 6000 }));
+    // Edges pre-paved: road candidates would otherwise take the purse
+    // first — investments compete for one spendable stock, honestly.
+    const paved = [
+      { from: "srcA", to: "bank", dist: 10 },
+      { from: "srcB", to: "bank", dist: 12 }
+    ];
+    const plan = replan(view({ bankStock: 12000, roads: paved }));
     const rung = plan.approvals.find(a => a.structure === "container");
-    assert.isOk(rung, "6 e/t of rot vs 0.1 e/t of upkeep: the capex clears at a glance");
+    assert.isOk(rung, "11 e/t of rot vs 0.1 e/t of upkeep: the capex clears at a glance");
     assert.equal(rung?.capex, CONTAINER_COST);
     assert.isEmpty(plan.approvals.filter(a => a.structure === "storage"), "the ladder moves one rung at a time");
 
     const open = replan(
       view({
-        bankStock: 6000,
+        bankStock: 12000,
+        roads: paved,
         sites: [{ id: "c1", structure: "container", at: "bank", dist: 1, total: 5000, remaining: 3000 }]
       })
     );

@@ -70,6 +70,16 @@ export const CONTAINER_HOLD_ET = 5000 / 500 / 100;
  * more than 2000e on hand. */
 export const STORAGE_COST = 30000;
 
+/** Roads: 300e per plain tile to build; decay 100 hits per 1000 ticks at
+ * 100 hits repaired per energy — 0.001 e/t of upkeep per tile. On road,
+ * one MOVE carries TWO other parts at full speed (fatigue halves), so a
+ * roaded hauler runs 2C:1M — 75e per CARRY against 100 unpaved. Swamp
+ * roading (a 5x build for a 5x speedup) is invisible to route-level
+ * pricing — a recorded model gap until the traffic overlay walks real
+ * tiles. */
+export const ROAD_COST_PER_TILE = 300;
+export const ROAD_UPKEEP_ET_PER_TILE = 100 / 1000 / 100;
+
 export type BankBranchKind = "pile" | "container" | "storage";
 
 /**
