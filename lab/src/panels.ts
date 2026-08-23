@@ -28,6 +28,7 @@ export function fmtFlows(f: Flows): string {
   }
   if (f.spawnTime) parts.push(`${f.spawnTime.toFixed(3)}p/t`);
   if (f.controlPoints) parts.push(`${f.controlPoints.toFixed(1)}CP`);
+  if (f.progress) parts.push(`${f.progress.toFixed(1)}build`);
   return parts.length > 0 ? parts.join(" + ") : "—";
 }
 
@@ -66,17 +67,28 @@ export function renderPanels(container: HTMLElement, plan: EnginePlan, creeps: V
     )
     .join("");
 
+  const approvals = plan.approvals
+    .map(
+      a =>
+        `<div class="fline"><span class="chip" style="background:#2a9d8f">approved</span>` +
+        `<span class="fid">${a.structure} @ ${a.at} (${a.capex}e)</span><span class="fdetail">${a.detail}</span></div>`
+    )
+    .join("");
+
   const e = plan.expected;
-  const leftover = e.deliveredEt - e.refillEt - e.feesEt - e.upgradeEt;
+  const leftover = e.deliveredEt - e.refillEt - e.feesEt - e.upgradeEt - e.buildEt;
   container.innerHTML =
     `<h2>The plan <span class="dim">t${plan.tick}</span></h2>` +
     `<table class="corps"><thead><tr><th>corp</th><th>body</th><th>live/target</th>` +
     `<th>in</th><th>out</th><th>net e/t</th></tr></thead><tbody>${rows}</tbody></table>` +
     `<div class="expected">plan: mined <b>${e.minedEt.toFixed(1)}</b> · delivered <b>${e.deliveredEt.toFixed(1)}</b> · ` +
     `refill <b>${e.refillEt.toFixed(2)}</b> · fees <b>${e.feesEt.toFixed(2)}</b> · ` +
-    `upgrade <b>${e.upgradeEt.toFixed(1)}</b> · to bank <b>${leftover.toFixed(2)}</b> e/t</div>` +
+    `upgrade <b>${e.upgradeEt.toFixed(1)}</b> · build <b>${e.buildEt.toFixed(1)}</b> · ` +
+    `warchest <b>${e.warchestEt.toFixed(1)}</b> · to bank <b>${leftover.toFixed(2)}</b> e/t</div>` +
     `<div class="expected">standing today: delivering <b>${e.standingEt.toFixed(1)}</b> · ` +
-    `upgrading <b>${e.standingUpgradeEt.toFixed(1)}</b> · sustain bill <b>${e.standingRefillEt.toFixed(2)}</b> e/t</div>` +
+    `upgrading <b>${e.standingUpgradeEt.toFixed(1)}</b> · building <b>${e.standingBuildEt.toFixed(1)}</b> · ` +
+    `sustain bill <b>${e.standingRefillEt.toFixed(2)}</b> e/t</div>` +
+    (approvals ? `<h2>Approved investments</h2>${approvals}` : "") +
     (violations ? `<h2>Book violations</h2>${violations}` : "") +
     `<h2>Positions</h2>` +
     `<table class="corps"><thead><tr><th>place</th><th>supply e/t</th><th>demand e/t</th><th>net</th></tr></thead>` +

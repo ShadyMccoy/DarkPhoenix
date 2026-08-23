@@ -145,13 +145,34 @@ describe("engine/market", () => {
     const up: Offer = { id: "up", kind: "upgrade", steps: sinkSteps };
     const sinks: SinkChain[] = [{ stages: [stage(up, [4, 4, 4])] }];
     const plan = clear(input({ chains: [prod], sinks }));
-    assert.equal(plan.corps.find(c => c.id === "up")?.target, 2);
+    // Two full 4.2 e/t draws, then the third funds PARTIALLY at the 0.4
+    // left — the sink drains the residual exactly (nothing stranded).
+    assert.equal(plan.corps.find(c => c.id === "up")?.target, 3);
     assert.equal(plan.frontier.find(f => f.offerId === "up")?.reason, "energy residual");
-    assert.closeTo(plan.expected.upgradeEt, 8, 1e-9);
+    assert.closeTo(plan.expected.upgradeEt, 8.4, 1e-9);
     const bills = plan.corps.reduce((s, c) => s + c.pnl.costEt, 0);
     assert.closeTo(plan.expected.refillEt + plan.expected.feesEt, bills, 1e-9);
     const leftover = plan.expected.deliveredEt - plan.expected.refillEt - plan.expected.feesEt - plan.expected.upgradeEt;
     assert.isAtLeast(leftover, -1e-9);
+  });
+
+  it("charges the standing fleet's sustain stream against the residual — sunk quotes never let the controller drink owed bills", () => {
+    // A fully-backed producer quotes zero bills (sunk), but the bank
+    // still owes its replacement stream continuously (standingBills).
+    // Before the fix the residual read 10 e/t and the sink drank it all,
+    // draining the bank at exactly standingBills until pinned.
+    const backedProd = chain("chain:p", "s1", [10], [step(10, { backedBy: "m1" })]);
+    const sinkSteps: Step[] = [0, 1, 2, 3, 4].map(() => ({
+      buys: { work: 2, carry: 1, move: 1 },
+      provides: { controlPoints: 2 },
+      requires: { energyAt: { bank: 2 } },
+      cost: { upfront: 300, upkeepEt: 0.2, spawnTimeEt: 0.003 }
+    }));
+    const up: Offer = { id: "up", kind: "upgrade", steps: sinkSteps };
+    const plan = clear(input({ chains: [backedProd], sinks: [{ stages: [stage(up, [2, 2, 2, 2, 2])] }], standingBills: 3.2 }));
+    // Residual 10 − 3.2 = 6.8: three 2.2 e/t draws fit, the fourth prints.
+    assert.closeTo(plan.expected.upgradeEt, 6, 1e-9);
+    assert.equal(plan.frontier.find(f => f.offerId === "up")?.reason, "energy residual");
   });
 
   it("the position book flags funded demand with no match at its place — the controller-feed bug, pinned", () => {

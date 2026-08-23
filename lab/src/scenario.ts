@@ -15,7 +15,9 @@
  * route through (owner 2026-08-23: "consolidate multiple haul routes into
  * one link outpost").
  */
-import { EconomyView, ViewCreep, ViewLink, ViewOutpost } from "../../src/engine/view";
+import { EXTENSION_CAPACITY } from "../../src/primitives";
+import { EconomyView, ViewCreep, ViewLink, ViewOutpost, ViewSite } from "../../src/engine/view";
+import { StructureKind } from "../../src/engine/vocabulary";
 
 /** Default dimensions for a fresh map — not a bound. */
 export const SIZE = 50;
@@ -42,6 +44,19 @@ export interface ScenarioLink {
   y: number;
 }
 
+/** An open construction site — world state; progress survives a reset. */
+export interface ScenarioSite {
+  id: string;
+  structure: StructureKind;
+  x: number;
+  y: number;
+  /** Full project capex — the constant rate base. */
+  total: number;
+  remaining: number;
+  /** The edge whose approval created it, when it serves one. */
+  edge?: { from: string; to: string };
+}
+
 export interface Scenario {
   name: string;
   /** Rows of '.', '#', '~'. Height = rows, width = row length. */
@@ -51,9 +66,15 @@ export interface Scenario {
   bank: XY;
   controller: XY | null;
   sources: ScenarioSource[];
-  /** Standing link structures — placed by hand or built by the believer
-   * when the plan funds a candidate. */
+  /** Standing link structures — placed by hand or built by the build
+   * corp when a site completes. */
   links: ScenarioLink[];
+  /** Open construction sites — placed on plan approvals, burned down by
+   * the build corp, realized into structures at zero remaining. */
+  sites: ScenarioSite[];
+  /** Standing extensions — each adds EXTENSION_CAPACITY to the estate's
+   * body budget (Tier 1.2: bodyBudget is endogenous). */
+  extensions: XY[];
   bankStock: number;
   bodyBudget: number;
   /** Staged initial fleet (cascade B/C worlds stage living creeps). */
@@ -199,13 +220,32 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     for (const src of s.sources) distToSource[src.id] = approachDist(field, src);
     outposts.push({ place, distToBank: approachDist(dist, { x: l.x, y: l.y }), distToSource });
   }
+  // A site within arm's reach of the bank IS the bank's place — its burn
+  // meets the bank's supply with no transport stage; anywhere else it is
+  // its own place the transport market must cover.
+  const sites: ViewSite[] = s.sites.map(site => {
+    const d = approachDist(dist, site);
+    return {
+      id: site.id,
+      structure: site.structure,
+      at: d <= 1 ? "bank" : `site:${site.id}`,
+      dist: d,
+      total: site.total,
+      remaining: site.remaining,
+      edge: site.edge
+    };
+  });
+  // The estate: the scenario's staged base capacity plus what standing
+  // extensions add; its radius is the FARTHEST refill stop — a spread
+  // estate raises the heartbeat's price (roadmap Tier 1.2).
+  const estateStops = [s.spawn, ...s.extensions];
   return {
     tick,
     bank: "bank",
     bankStock,
-    bodyBudget: s.bodyBudget,
+    bodyBudget: s.bodyBudget + EXTENSION_CAPACITY * s.extensions.length,
     spawnIds: ["spawn1"],
-    estateRadius: approachDist(dist, s.spawn),
+    estateRadius: Math.max(...estateStops.map(p => approachDist(dist, p))),
     sources: s.sources.map(src => ({
       id: src.id,
       spots: spotsAt(s.terrain, src),
@@ -214,7 +254,8 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     controller: s.controller ? { id: "ctrl", distFromBank: approachDist(dist, s.controller) } : null,
     creeps,
     links,
-    outposts
+    outposts,
+    sites
   };
 }
 
@@ -243,6 +284,8 @@ export function importSave(text: string): LabSave {
     throw new Error("not a lab save: missing elements");
   }
   raw.scenario.links = raw.scenario.links ?? [];
+  raw.scenario.sites = raw.scenario.sites ?? [];
+  raw.scenario.extensions = raw.scenario.extensions ?? [];
   return {
     scenario: raw.scenario,
     creeps: raw.creeps ?? [],

@@ -17,6 +17,9 @@ import { tenderBody } from "../sizing";
 import { Offer, PlaceId, Step } from "../engine/vocabulary";
 import { ViewCreep } from "../engine/view";
 
+/** The estate's own corp id — the tender fleet's employer. */
+export const ESTATE_CORP = "spawning:estate";
+
 export interface SpawningHandoff {
   spawnIds: string[];
 }
@@ -70,7 +73,7 @@ export function quoteTender(h: TenderHandoff): Offer | null {
     }
   }
   if (steps.length === 0) return null;
-  return { id: "spawning:estate", kind: "spawning", steps };
+  return { id: ESTATE_CORP, kind: "spawning", steps };
 }
 
 /** Per-step intake capacity (e/t into structures) for the market. */

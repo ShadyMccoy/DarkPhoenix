@@ -28,6 +28,8 @@ export function bootstrapScenario(): Scenario {
       { id: "srcB", x: 43, y: 6 }
     ],
     links: [],
+    sites: [],
+    extensions: [],
     bankStock: 300,
     bodyBudget: 300,
     creeps: []

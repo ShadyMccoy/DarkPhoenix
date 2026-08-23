@@ -166,6 +166,9 @@ export function renderMap(container: HTMLElement, s: Scenario, overlay: MapOverl
     marks += hot + badge(src.x, src.y, "#c9a227", "E");
   }
   for (const l of s.links) marks += badge(l.x, l.y, "#d16ba5", "L");
+  for (const k of s.extensions) marks += badge(k.x, k.y, "#5b8bb0", "x");
+  // Open construction sites: the structure-to-be, hollow until built.
+  for (const k of s.sites) marks += badge(k.x, k.y, "#b0803c", "▲");
   marks += badge(s.spawn.x, s.spawn.y, "#3f7cac", "S");
   marks += badge(s.bank.x, s.bank.y, "#2a9d8f", "B");
   if (s.controller) marks += badge(s.controller.x, s.controller.y, "#8e6bbf", "C");

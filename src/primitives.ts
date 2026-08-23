@@ -17,6 +17,22 @@ export const SOURCE_SATURATION_WORK = SOURCE_RATE / HARVEST_POWER;
 /** One WORK part upgrades 1 e/t (progress == energy below RCL8). */
 export const UPGRADE_POWER = 1;
 
+/** One WORK part builds 5 progress/tick, consuming 5 energy/tick — one
+ * energy per progress point (v1's BUILD_ENERGY_PER_WORK, ported). Build
+ * absorbs energy five times as fast per WORK as upgrading does. */
+export const BUILD_POWER = 5;
+
+/**
+ * A construction project's planned burn window, in ticks: one source-regen
+ * period. A steady-state plan has no natural build RATE — completion timing
+ * is invisible to a rate ledger (session finding 2026-08-23, recorded in
+ * REBOOT's Tier-1 findings) — so the plan burns remaining/PROJECT_RATE_WINDOW:
+ * fast enough that a project spans a few replans, slow enough not to buy a
+ * burst fleet that idles the day it finishes. A tuning constant, not a law;
+ * the racing harness prices completion time properly when depth arrives.
+ */
+export const PROJECT_RATE_WINDOW = 300;
+
 export const CREEP_LIFE = 1500;
 export const CARRY_CAP = 50;
 
@@ -24,6 +40,13 @@ export const CARRY_CAP = 50;
  * part/tick. This is the spawnTime commodity's physical ceiling per spawn. */
 export const SPAWN_TICKS_PER_PART = 3;
 export const SPAWN_RATE = 1 / SPAWN_TICKS_PER_PART;
+
+/** An extension costs 3000e to build and holds 50e at RCL ≤ 6 (100 at
+ * RCL7, 200 at 8 — RCL gates are a recorded model gap until the world
+ * snapshot carries controller level). Each standing extension raises the
+ * spawn estate's body budget by its capacity. */
+export const EXTENSION_COST = 3000;
+export const EXTENSION_CAPACITY = 50;
 
 /** Link physics: 800 capacity per volley, cooldown = 1 tick per tile of
  * distance, 3% lost per send, 5000e to build. Throughput between a

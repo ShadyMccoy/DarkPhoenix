@@ -6,7 +6,7 @@
  * The link kind will compete on these same edges in phase 2.
  */
 import { bodyCost, haulRate, spawnTimeEt, upkeepEt } from "../primitives";
-import { haulerBody } from "../sizing";
+import { haulerBodyFor } from "../sizing";
 import { Offer, PlaceId, Step } from "../engine/vocabulary";
 import { ViewCreep } from "../engine/view";
 
@@ -44,19 +44,22 @@ export function quoteHaul(h: HaulHandoff): Offer | null {
     });
   }
 
-  const body = haulerBody(h.bodyBudget);
-  if (body) {
+  // Each marginal body is sized to the flow still uncovered (#148's law
+  // at the quote): the fleet's last body shrinks to the remainder, so no
+  // edge carries idle CARRY it must bill for.
+  while (cum < flow) {
+    const body = haulerBodyFor(flow - cum, dist, h.bodyBudget);
+    if (!body) break;
     const perBody = haulRate(body.carry, dist);
-    while (cum < flow && perBody > 0) {
-      cum += perBody;
-      steps.push({
-        buys: body,
-        provides: { energyAt: { [to]: perBody } },
-        requires: { energyAt: { [from]: perBody } },
-        cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },
-        note: `${body.carry}C over ${dist} tiles`
-      });
-    }
+    if (perBody <= 0) break;
+    cum += perBody;
+    steps.push({
+      buys: body,
+      provides: { energyAt: { [to]: perBody } },
+      requires: { energyAt: { [from]: perBody } },
+      cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },
+      note: `${body.carry}C over ${dist} tiles`
+    });
   }
 
   if (steps.length === 0) return null;

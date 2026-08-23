@@ -50,6 +50,21 @@ export function haulerBody(budget: number): BodyShape | null {
 }
 
 /**
+ * Hauler sized to A ROUTE AND ITS FLOW — #148's law actually applied at
+ * the quote (a budget-sized hauler on a sliver flow is the 24-CARRY-
+ * hauler class: its idle capacity inflates the edge's unit cost, and a
+ * mis-priced edge invites absurd challengers). Pairs cost the same per
+ * CARRY at every size, so sizing to need loses nothing; budget and the
+ * 25-pair body limit cap it.
+ */
+export function haulerBodyFor(flow: number, dist: number, budget: number): BodyShape | null {
+  const unitCost = PART_COST.carry + PART_COST.move;
+  if (budget < unitCost || flow <= 0) return null;
+  const units = Math.min(Math.max(carryPartsFor(flow, dist), 1), Math.floor(budget / unitCost), 25);
+  return { work: 0, carry: units, move: units };
+}
+
+/**
  * Upgrader: parks at the bank branch and self-feeds — WORK-heavy, one
  * CARRY buffer, one MOVE (the founding kernel co-locates bank and
  * controller draw, so the last leg is its own body). Floor [1W,1C,1M] at
@@ -60,6 +75,20 @@ export function upgraderBody(budget: number): BodyShape | null {
   const overhead = PART_COST.carry + PART_COST.move;
   if (budget < overhead + PART_COST.work) return null;
   const work = Math.min(15, Math.floor((budget - overhead) / PART_COST.work));
+  return { work, carry: 1, move: 1 };
+}
+
+/**
+ * Builder: parks at a FED site and burns BUILD_POWER (5) e/t per WORK — the
+ * same W-heavy shape as the upgrader, because the site's supply line is
+ * transport's job, never this body's. WORK capped at 10: one 10W body
+ * absorbs 50 e/t, more than any v0 project window asks for. Floor
+ * [1W,1C,1M] at 200.
+ */
+export function builderBody(budget: number): BodyShape | null {
+  const overhead = PART_COST.carry + PART_COST.move;
+  if (budget < overhead + PART_COST.work) return null;
+  const work = Math.min(10, Math.floor((budget - overhead) / PART_COST.work));
   return { work, carry: 1, move: 1 };
 }
 

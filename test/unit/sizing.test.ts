@@ -1,6 +1,15 @@
 import { assert } from "chai";
 import { bodyCost } from "../../src/primitives";
-import { carryPartsFor, haulerBody, minerBody, tenderBody, upgraderBody, workmanBody } from "../../src/sizing";
+import {
+  builderBody,
+  carryPartsFor,
+  haulerBody,
+  haulerBodyFor,
+  minerBody,
+  tenderBody,
+  upgraderBody,
+  workmanBody
+} from "../../src/sizing";
 
 /**
  * The exhaustive suite on THE sizing module (law 5). Every body any kind
@@ -40,6 +49,24 @@ describe("sizing", () => {
     assert.deepEqual(upgraderBody(99999), { work: 15, carry: 1, move: 1 }, "no body outdrinks a controller");
   });
 
+  it("sizes haulers to route AND flow: the 24-CARRY body on a sliver route dies here", () => {
+    // #148's law applied at the body, not just the fleet: the pairs a
+    // flow needs over a round trip, capped by budget and the part limit.
+    assert.deepEqual(haulerBodyFor(10, 10, 550), { work: 0, carry: 4, move: 4 }, "4 CARRY moves 10 e/t over 10 tiles");
+    assert.deepEqual(haulerBodyFor(2, 5, 550), { work: 0, carry: 1, move: 1 }, "a sliver flow buys the floor body");
+    assert.deepEqual(haulerBodyFor(10, 25, 550), { work: 0, carry: 5, move: 5 }, "budget caps what the route wants");
+    assert.deepEqual(haulerBodyFor(100, 30, 99999), { work: 0, carry: 25, move: 25 }, "50-part body limit");
+    assert.isNull(haulerBodyFor(10, 10, 99), "below the pair floor nothing is buyable");
+    assert.isNull(haulerBodyFor(0, 10, 550), "no flow, no body");
+  });
+
+  it("sizes builders: W-heavy at a fed site, floor at 200, capped at 10 WORK", () => {
+    assert.isNull(builderBody(199));
+    assert.deepEqual(builderBody(200), { work: 1, carry: 1, move: 1 });
+    assert.deepEqual(builderBody(550), { work: 4, carry: 1, move: 1 });
+    assert.deepEqual(builderBody(99999), { work: 10, carry: 1, move: 1 }, "one 10W body absorbs 50 e/t");
+  });
+
   it("sizes tenders: paired C+M, floor at 100, capped small — the estate is compact", () => {
     assert.isNull(tenderBody(99));
     assert.deepEqual(tenderBody(100), { work: 0, carry: 1, move: 1 });
@@ -48,7 +75,15 @@ describe("sizing", () => {
 
   it("every derived body fits its budget", () => {
     for (let budget = 100; budget <= 2000; budget += 50) {
-      const bodies = [workmanBody(budget), minerBody(budget), haulerBody(budget), upgraderBody(budget), tenderBody(budget)];
+      const bodies = [
+        workmanBody(budget),
+        minerBody(budget),
+        haulerBody(budget),
+        haulerBodyFor(7, 15, budget),
+        builderBody(budget),
+        upgraderBody(budget),
+        tenderBody(budget)
+      ];
       for (const body of bodies) {
         if (body) assert.isAtMost(bodyCost(body), budget, `budget ${budget}`);
       }

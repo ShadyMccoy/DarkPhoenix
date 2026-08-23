@@ -6,7 +6,7 @@
  * world"). Corps never see this; they see only their handoffs.
  */
 import { BodyShape } from "../sizing";
-import { PlaceId } from "./vocabulary";
+import { PlaceId, StructureKind } from "./vocabulary";
 
 /** A source IS its place: mined energy lands at the source's own id — no
  * separate "mouth" concept (owner 2026-08-23). */
@@ -51,6 +51,28 @@ export interface EconomyView {
   /** Free-standing links as collection branches (owner 2026-08-23):
    * places of their own that the broker may route sources through. */
   outposts: ViewOutpost[];
+  /** Open construction sites — world state (site progress persists in the
+   * game), never plan state. Each is a place the build corp burns at. */
+  sites: ViewSite[];
+}
+
+export interface ViewSite {
+  id: string;
+  structure: StructureKind;
+  /** The site's own place — or the bank itself when it sits at the kernel. */
+  at: PlaceId;
+  /** Route cost from the bank, tiles. */
+  dist: number;
+  /** The project's full capex — the burn rate derives from THIS, constant
+   * over the project's life. Deriving it from `remaining` made the rate
+   * proportional to a shrinking stock: geometric decay, a site that
+   * never finishes (the believer's Zeno site — session finding). */
+  total: number;
+  /** Energy still to burn into the structure. */
+  remaining: number;
+  /** The edge whose approval created this site, when it serves one —
+   * suppresses re-approval while construction runs. */
+  edge?: { from: PlaceId; to: PlaceId };
 }
 
 export interface ViewLink {

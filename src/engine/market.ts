@@ -58,6 +58,11 @@ export interface ChainCandidate {
  * The whole chain draws the residual — burn plus every stage's bill. */
 export interface SinkChain {
   stages: ChainStage[];
+  /** CAPITAL sinks (construction) draw their burn from STOCK — the
+   * approval already reserved it (piece 9: investments draw from stock,
+   * not live flow) — so only their BILLS ride the residual, and they fund
+   * before the controller drinks (the bank's draw policy). */
+  capital?: boolean;
 }
 
 export interface MarketInput {
@@ -77,6 +82,11 @@ export interface MarketInput {
    * broker. Backed steps quote zero (sunk pricing), so the funded-step
    * refill line alone understates the heartbeat. */
   standingBills?: number;
+  /** Stock the bank must hold or accumulate: open sites' remaining capex
+   * plus every `awaiting stock` candidate's. While bankStock sits below
+   * this, the residual BANKS instead of burning — the warchest as the
+   * reserve band (piece 9), production over consumption made structural. */
+  warchestTarget?: number;
 }
 
 interface OptRef {
@@ -151,7 +161,7 @@ function chainIncrements(stages: ChainStage[]): Inc[] {
 }
 
 function flowMagnitude(f: Flows): number {
-  let m = f.controlPoints ?? 0;
+  let m = (f.controlPoints ?? 0) + (f.progress ?? 0);
   for (const place of Object.keys(f.energyAt ?? {})) m += (f.energyAt as Record<string, number>)[place];
   return m;
 }
@@ -371,6 +381,7 @@ export function clear(input: MarketInput): EnginePlan {
   if (input.tender && heartbeat() > EPS) {
     const t = input.tender;
     let intake = 0;
+    let blocked = false;
     for (let i = 0; i < t.offer.steps.length && intake < heartbeat() - EPS; i++) {
       const s = t.offer.steps[i];
       if (spawnUsed + s.cost.spawnTimeEt > input.spawnCapacity + EPS) {
@@ -379,6 +390,7 @@ export function clear(input: MarketInput): EnginePlan {
           reason: "spawn capacity",
           detail: `needs ${s.cost.spawnTimeEt.toFixed(4)} p/t, ${(input.spawnCapacity - spawnUsed).toFixed(4)} p/t free`
         });
+        blocked = true;
         break;
       }
       fund(t.offer, null, i);
@@ -386,24 +398,45 @@ export function clear(input: MarketInput): EnginePlan {
       refill += s.cost.upkeepEt;
       spawnUsed += s.cost.spawnTimeEt;
     }
+    // An uncovered heartbeat is NEVER silent (the axiom, printed): the
+    // schedule ran out below the obligation — v1's silent under-coverage
+    // class, closed at the chokepoint.
+    if (!blocked && intake < heartbeat() - EPS) {
+      frontier.push({
+        offerId: t.offer.id,
+        reason: "tender short",
+        detail: `schedule exhausted at ${intake.toFixed(2)} e/t intake vs ${heartbeat().toFixed(2)} e/t obligation`
+      });
+    }
   }
 
   // Consumption draws the residual: inflow minus every funded bill and
-  // fee. Obligations came first by construction; the controller drinks
-  // what is left — the ladder as the bank's draw policy.
-  let residual = delivered - refill - fees;
+  // fee AND the live fleet's sustain stream. Backed steps quote
+  // sunk-zero, so `refill` alone understates the heartbeat by exactly
+  // the standing fleet's amortized replacement — omitting it here let
+  // the controller drink bills the bank still owed, draining it at
+  // standingBills e/t until pinned (stress-hunt confirmed finding,
+  // 2026-08-23). Obligations come off the top; capital formation funds
+  // next (its BURN drawing stock, only its bills riding the residual);
+  // the warchest banks toward blocked investments; the controller drinks
+  // what is left — the ladder as the bank's draw policy (piece 9).
+  let residual = delivered - refill - fees - (input.standingBills ?? 0);
   let upgradeEt = 0;
   let standingUpgradeEt = 0;
-  for (const sink of input.sinks) {
-    if (sink.stages.length === 0) continue;
+  let buildEt = 0;
+  let standingBuildEt = 0;
+  const drawSink = (sink: SinkChain): void => {
+    if (sink.stages.length === 0) return;
     const lastStage = sink.stages[sink.stages.length - 1];
     const sinkOffer = lastStage.options.length > 0 ? lastStage.options[0].offer : null;
-    if (!sinkOffer) continue;
+    if (!sinkOffer) return;
     const incs = chainIncrements(sink.stages);
     const fundedPerStage = sink.stages.map(() => 0);
     let flow = 0;
     for (const inc of incs) {
-      const draw = inc.delivered + inc.upkeepEt + inc.feeEt;
+      // A capital burn is a stock draw the approval already reserved;
+      // only the bills are a claim on this tick's flow.
+      const draw = (sink.capital ? 0 : inc.delivered) + inc.upkeepEt + inc.feeEt;
       if (spawnUsed + inc.spawnTimeEt > input.spawnCapacity + EPS) {
         frontier.push({
           offerId: sinkOffer.id,
@@ -413,11 +446,37 @@ export function clear(input: MarketInput): EnginePlan {
         break;
       }
       if (draw > residual + EPS) {
-        frontier.push({
-          offerId: sinkOffer.id,
-          reason: "energy residual",
-          detail: `step needs ${draw.toFixed(2)} e/t, residual ${residual.toFixed(2)} e/t`
-        });
+        // The last increment funds PARTIALLY: the burner scales to what
+        // is left (utilization < 1 — allocation machinery, first-class).
+        // Whole-step-only funding stranded the sub-quantum residual as
+        // stock forever, and quantization noise swallowed counterfactual
+        // deltas whole (session finding 2026-08-23).
+        const partial = residual - inc.upkeepEt - inc.feeEt;
+        if (!sink.capital && partial > EPS) {
+          for (const ref of inc.refs) {
+            const o = sink.stages[ref.stage].options[ref.option];
+            fund(o.offer, null, o.step);
+            fundedPerStage[ref.stage] = Math.max(fundedPerStage[ref.stage], ref.option + 1);
+          }
+          flow += partial;
+          residual = 0;
+          refill += inc.upkeepEt;
+          fees += inc.feeEt;
+          spawnUsed += inc.spawnTimeEt;
+          upgradeEt += partial;
+          if (inc.backed) standingUpgradeEt += partial;
+          frontier.push({
+            offerId: sinkOffer.id,
+            reason: "energy residual",
+            detail: `last step trims to ${partial.toFixed(2)} of ${inc.delivered.toFixed(2)} e/t — residual drained`
+          });
+        } else {
+          frontier.push({
+            offerId: sinkOffer.id,
+            reason: "energy residual",
+            detail: `step needs ${draw.toFixed(2)} e/t, residual ${residual.toFixed(2)} e/t`
+          });
+        }
         break;
       }
       for (const ref of inc.refs) {
@@ -430,11 +489,32 @@ export function clear(input: MarketInput): EnginePlan {
       refill += inc.upkeepEt;
       fees += inc.feeEt;
       spawnUsed += inc.spawnTimeEt;
-      upgradeEt += inc.delivered;
-      if (inc.backed) standingUpgradeEt += inc.delivered;
+      if (sink.capital) {
+        buildEt += inc.delivered;
+        if (inc.backed) standingBuildEt += inc.delivered;
+      } else {
+        upgradeEt += inc.delivered;
+        if (inc.backed) standingUpgradeEt += inc.delivered;
+      }
     }
     if (flow > EPS) allocateChain(sink.stages, fundedPerStage, flow);
+  };
+
+  for (const sink of input.sinks) if (sink.capital) drawSink(sink);
+
+  // The warchest diversion: while the bank sits below its reserve target
+  // (open capex plus awaiting candidates), the residual BANKS instead of
+  // burning. All of it — v1's macro doctrine ("fund producers, bank to
+  // the warchest, consumers burn the residual") as arithmetic. The lab
+  // will show the upgrade fleet lapse during accumulation; whether
+  // standing burners should keep drinking is a recorded open finding.
+  let warchestEt = 0;
+  if ((input.warchestTarget ?? 0) > input.bankStock + EPS && residual > EPS) {
+    warchestEt = residual;
+    residual = 0;
   }
+
+  for (const sink of input.sinks) if (!sink.capital) drawSink(sink);
 
   const corps: CorpInstance[] = [];
   let minedEt = 0;
@@ -518,6 +598,7 @@ export function clear(input: MarketInput): EnginePlan {
     tick: input.tick,
     corps,
     frontier,
+    approvals: [],
     positions,
     violations,
     expected: {
@@ -526,8 +607,11 @@ export function clear(input: MarketInput): EnginePlan {
       refillEt: refill,
       feesEt: fees,
       upgradeEt,
+      buildEt,
+      warchestEt,
       standingEt,
       standingUpgradeEt,
+      standingBuildEt,
       standingRefillEt: input.standingBills ?? 0
     }
   };
