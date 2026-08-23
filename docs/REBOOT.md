@@ -1209,7 +1209,14 @@ need the owner's explicit ratification or reversal.
   upgrade sink never staffs, and the surplus rots at the bank (~92 e/t
   of holding at t3600) while the escape route — wire — is itself gated
   behind builder bodies the machine cannot spawn; value realization
-  needs a reserved machine share or the backward clearing direction; spawnTime is a placeless scalar (blocks multi-room);
+  needs a reserved machine share or the backward clearing direction
+  (left unattended for 15k ticks the same world wires NINE edges and
+  containerizes the bank, yet still realizes zero CP: each freed p/t is
+  re-spent on more production and site-feed fleets, never the sink,
+  while the surplus rots at ~84 e/t above the container cap — the
+  steady state is a bonfire; five STAGED wires with no incumbent fleet
+  clear 76 e/t of upgrading instantly, so the lock is the incumbent
+  fleet plus production-first ordering, not the wire supply); spawnTime is a placeless scalar (blocks multi-room);
   the hurdle exists only inside candidate arithmetic — a no-sink world
   still funds production at full merit (value realization needs the
   backward direction or a shadow price); swamp roads (5× build, 5× gain)
