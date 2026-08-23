@@ -63,6 +63,8 @@ export interface EconomyView {
   /** Paved routes, with their route cost — bodies on them run 2C:1M and
    * the bank pays their per-tile upkeep whether or not the edge funds. */
   roads: ViewRoad[];
+  /** The placement search's priced wire options, per edge. */
+  wireOptions: ViewWireOption[];
 }
 
 export interface ViewRoad {
@@ -93,10 +95,30 @@ export interface ViewSite {
 export interface ViewLink {
   id: string;
   at: PlaceId;
+  /** The room cell this link stands in — a pair is legal only within
+   * one room (owner 2026-08-24). */
+  room: string;
+  x: number;
+  y: number;
 }
 
 export interface ViewOutpost {
   place: PlaceId;
   distToBank: number;
+  /** Chebyshev range to the bank's hub — the trunk's cooldown ration,
+   * terrain-immune (assembly-computed from the actual tiles). */
+  range: number;
   distToSource: Record<string, number>;
+}
+
+/** A PRICED wire option for one edge, from the placement search (lab
+ * assembly): the best legal station pair, its Chebyshev range, and
+ * which stations still need building. No option = no legal wire (a
+ * room border between the endpoints, or no free tiles). */
+export interface ViewWireOption {
+  from: PlaceId;
+  to: PlaceId;
+  range: number;
+  missingMouth: boolean;
+  missingHub: boolean;
 }

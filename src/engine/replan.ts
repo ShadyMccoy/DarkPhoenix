@@ -195,7 +195,7 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
         const dSrc = op.distToSource[src.id];
         if (dSrc === undefined) continue;
         const t = trunks.get(op.place);
-        const remaining = t ? t.remaining : LINK_CAPACITY / Math.max(op.distToBank, 1);
+        const remaining = t ? t.remaining : LINK_CAPACITY / Math.max(op.range, 1);
         if (remaining + 1e-9 < supply) continue;
         const unit = haulUnit(dSrc) + LINK_LOSS;
         if (unit + 1e-9 < directUnit && unit < bestUnit) {
@@ -211,7 +211,7 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
         const t = trunks.get(via.op.place) ?? {
           outpost: via.op,
           slices: [],
-          remaining: LINK_CAPACITY / Math.max(via.op.distToBank, 1)
+          remaining: LINK_CAPACITY / Math.max(via.op.range, 1)
         };
         pendingVia.push({
           srcId: src.id,
@@ -399,6 +399,7 @@ export function replan(view: EconomyView): EnginePlan {
   const approvals: Approval[] = [];
   const awaiting: FrontierLine[] = [];
   let awaitingCapex = 0;
+  let hubPaid = false;
   let spendable = view.bankStock - committed;
 
   // What the branch can physically accumulate to: the divertable stream
@@ -456,10 +457,15 @@ export function replan(view: EconomyView): EnginePlan {
     const replacementBill = haulFleetBillEt(corp.pnl.grossEt, gap.dist, gap.roaded ?? false);
     const incumbentUnit = replacementBill / corp.pnl.grossEt;
 
+    const wireOpt = view.wireOptions.find(w => w.from === gap.from && w.to === gap.to) ?? null;
+    // The hub is SHARED: once one approval this replan pays for it, the
+    // next edge's wire only needs its mouth station.
+    const wire = wireOpt && hubPaid && wireOpt.missingHub ? { ...wireOpt, missingHub: false } : wireOpt;
     const cand = quoteLink({
       gap: { from: gap.from, to: gap.to, dist: gap.dist, flow: corp.pnl.grossEt },
       atFrom: linkAt(gap.from),
-      atTo: linkAt(gap.to)
+      atTo: linkAt(gap.to),
+      wire
     });
     const st = cand && !cand.steps[0].backedBy ? cand.steps[0] : null;
     const throughput = st?.provides.energyAt?.[gap.to] ?? 0;
@@ -468,9 +474,10 @@ export function replan(view: EconomyView): EnginePlan {
       const capex = st.cost.upfront;
       const detail =
         `link ${candUnit.toFixed(4)}/unit beats bodies ${incumbentUnit.toFixed(4)}/unit ` +
-        `on ${gap.from}->${gap.to} (${corp.pnl.grossEt.toFixed(1)} e/t)`;
+        `on ${gap.from}->${gap.to} (${corp.pnl.grossEt.toFixed(1)} e/t, range ${wire?.range ?? 0})`;
       if (capex <= spendable + 1e-9) {
         spendable -= capex;
+        if (wire?.missingHub) hubPaid = true;
         approvals.push({ structure: "link", edge: { from: gap.from, to: gap.to }, at: gap.from, capex, detail });
       } else {
         noteAwaiting(cand.id, capex, detail);

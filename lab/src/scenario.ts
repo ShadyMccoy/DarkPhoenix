@@ -4,9 +4,11 @@
  * and its scenario files double as engine fixtures (graph-lab requirement
  * #3: round-trip through the editor, checked in, deterministic replays).
  *
- * Maps are any size (owner 2026-08-23), and ROOM-AGNOSTIC by ruling: a
- * "room" is walls the editor draws, never model structure. Dimensions
- * derive from the terrain itself.
+ * Maps are any size (owner 2026-08-23). The room-agnostic ruling was
+ * AMENDED (owner 2026-08-24): rooms enter as 50×50 LINK-LEGALITY cells
+ * — a link pair stands only within one room, its range is Chebyshev and
+ * terrain-immune, and lab/src/placement.ts searches station tiles. All
+ * other structure stays map-derived; walls remain editor terrain.
  *
  * Assembly is the pure world-assembly step of lab requirement #2: the map
  * is INPUT — real path distances derive here — and the engine still
@@ -15,9 +17,10 @@
  * route through (owner 2026-08-23: "consolidate multiple haul routes into
  * one link outpost").
  */
-import { BankBranchKind, EXTENSION_CAPACITY } from "../../src/primitives";
-import { EconomyView, ViewCreep, ViewLink, ViewOutpost, ViewSite } from "../../src/engine/view";
+import { BankBranchKind, EXTENSION_CAPACITY, chebyshev } from "../../src/primitives";
+import { EconomyView, ViewCreep, ViewLink, ViewOutpost, ViewSite, ViewWireOption } from "../../src/engine/view";
 import { StructureKind } from "../../src/engine/vocabulary";
+import { roomOf as placementRoomOf, wireStations as placementWireStations } from "./placement";
 
 /** Default dimensions for a fresh map — not a bound. */
 export const SIZE = 50;
@@ -227,21 +230,45 @@ export function linkPlace(s: Scenario, link: ScenarioLink): string | null {
 /** The pure world-assembly step: staged map in, EconomyView out. */
 export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, tick: number): EconomyView {
   const dist = distanceField(s.terrain, s.bank);
+  // Rooms are link-legality cells (owner 2026-08-24) — the placement
+  // module owns the geometry; assembly just tags what it exposes.
   const links: ViewLink[] = [];
   const outposts: ViewOutpost[] = [];
+  const bankHub = s.links.find(l => chebyshev(l, s.bank) <= 2) ?? s.bank;
   for (const l of s.links) {
     const at = linkPlace(s, l);
+    const room = placementRoomOf({ x: l.x, y: l.y });
     if (at) {
-      links.push({ id: l.id, at });
+      links.push({ id: l.id, at, room, x: l.x, y: l.y });
       continue;
     }
-    // Free-standing: an outpost — its own place, with its own distances.
+    // Free-standing: an outpost — its own place, with its own distances;
+    // its trunk ration is the CHEBYSHEV range to the bank's hub.
     const place = `outpost:${l.id}`;
-    links.push({ id: l.id, at: place });
+    links.push({ id: l.id, at: place, room, x: l.x, y: l.y });
     const field = distanceField(s.terrain, { x: l.x, y: l.y });
     const distToSource: Record<string, number> = {};
     for (const src of s.sources) distToSource[src.id] = approachDist(field, src);
-    outposts.push({ place, distToBank: approachDist(dist, { x: l.x, y: l.y }), distToSource });
+    outposts.push({
+      place,
+      distToBank: approachDist(dist, { x: l.x, y: l.y }),
+      range: Math.max(chebyshev({ x: l.x, y: l.y }, bankHub), 1),
+      distToSource
+    });
+  }
+
+  // The placement search's priced wire options: one per production edge
+  // and the controller feed. Absent entries are ILLEGAL wires (a room
+  // border between the stations) — the engine then leaves those edges
+  // on bodies, which is the ruling made arithmetic.
+  const wireOptions: ViewWireOption[] = [];
+  for (const src of s.sources) {
+    const w = placementWireStations(s, src.id, "bank");
+    if (w) wireOptions.push({ from: src.id, to: "bank", range: w.range, missingMouth: w.missingMouth, missingHub: w.missingHub });
+  }
+  if (s.controller) {
+    const w = placementWireStations(s, "bank", "ctrl");
+    if (w) wireOptions.push({ from: "bank", to: "ctrl", range: w.range, missingMouth: w.missingMouth, missingHub: w.missingHub });
   }
   // A site within arm's reach of the bank IS the bank's place — its burn
   // meets the bank's supply with no transport stage; anywhere else it is
@@ -290,7 +317,8 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     links,
     outposts,
     sites,
-    roads
+    roads,
+    wireOptions
   };
 }
 

@@ -17,6 +17,7 @@ import { replan } from "../../src/engine/replan";
 import { EnginePlan } from "../../src/engine/vocabulary";
 import { ViewCreep } from "../../src/engine/view";
 import { bodyCost } from "../../src/primitives";
+import { wireStations } from "./placement";
 import { Scenario, ScenarioSite, WALL, XY, assemble, cellAt, placeTile as scenarioPlaceTile } from "./scenario";
 
 /** One believer chunk: the replan cadence's order of magnitude. */
@@ -82,18 +83,16 @@ function placeSites(state: BelieverState, plan: EnginePlan): void {
 }
 
 /** A finished site realizes its structure. A link approval carries an
- * EDGE: both endpoints get a link where none stands within reach. An
+ * EDGE: the placement search names the exact station tiles (owner
+ * 2026-08-24 — the same search that priced the wire builds it). An
  * extension joins the estate around the spawn. */
 function realize(state: BelieverState, site: ScenarioSite): void {
   const s = state.scenario;
   if (site.structure === "link") {
-    const places = site.edge ? [site.edge.from, site.edge.to] : [];
-    for (const place of places) {
-      const tile = placeTile(s, place);
-      if (!tile) continue;
-      if (s.links.some(l => Math.max(Math.abs(l.x - tile.x), Math.abs(l.y - tile.y)) <= 2)) continue;
-      const at = freeTileNear(s, tile);
-      if (at) s.links.push({ id: `link${s.links.length + 1}`, x: at.x, y: at.y });
+    const w = site.edge ? wireStations(s, site.edge.from, site.edge.to) : null;
+    if (w) {
+      if (w.missingMouth) s.links.push({ id: `link${s.links.length + 1}`, x: w.mouth.x, y: w.mouth.y });
+      if (w.missingHub) s.links.push({ id: `link${s.links.length + 1}`, x: w.hub.x, y: w.hub.y });
     }
   } else if (site.structure === "extension") {
     const at = freeTileNear(s, s.spawn, 4);

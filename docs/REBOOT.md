@@ -1013,6 +1013,20 @@ into one link outpost given such a map" — a free-standing link is its
 own PLACE, a bank branch in waiting: short collector hauls converge
 on it, one trunk hop covers them all, and the book audits the joint).
 
+**AMENDED (owner 2026-08-24): "we need to break the room agnostic
+rule here. Yes I want to perform the spatial search to find the
+optimal link placements."** Rooms enter the model for what the game
+makes them: link-legality cells. A room is a 50×50 grid cell over the
+map; a link pair is legal only within one room; and link range is
+CHEBYSHEV — the wire fires through walls, so its cooldown ration
+(800/range) is terrain-immune while every haul path pays the detour.
+The placement search lives lab-side with the other spatial knowledge
+(world assembly owns the map; the engine still searches ledger space):
+it proposes STATION TILES — a mouth link in the source's reach, a hub
+link by the bank — and the assembly hands the engine priced wire
+options per edge. Maps otherwise stay any-size; walls stay the
+editor's terrain, never model structure.
+
 **Tier 1 — make the economy real:**
 1. Build corp — the missing verb; retires the believer as interim
    builder. Unlocks the rest of the tier.
@@ -1256,7 +1270,7 @@ the warchest share one stock with no reservation between them — hires
 can dip the bank below committed capex (the warchest re-diverts and
 self-heals, but the burst is visible fleet churn).
 
-**Budget note:** src stands at ~3040 lines against the ~3k budget; the
+**Budget note:** src stands at ~3.1k lines against the ~3k budget; the
 overage is docblock prose carrying the session's incident record in
 place. Trim or ratify.
 

@@ -120,8 +120,8 @@ describe("lab/scenario", () => {
     const v = assemble(s, [], s.bankStock, 0);
     assert.deepEqual(
       v.links.find(l => l.id === "LX"),
-      { id: "LX", at: "outpost:LX" },
-      "near no known place, the link is its own place"
+      { id: "LX", at: "outpost:LX", room: "R0_0", x: 25, y: 40 },
+      "near no known place, the link is its own place — room-tagged now"
     );
     const op = v.outposts.find(o => o.place === "outpost:LX");
     assert.isOk(op);

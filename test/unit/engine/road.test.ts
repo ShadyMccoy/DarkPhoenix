@@ -27,6 +27,7 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     outposts: [],
     sites: [],
     roads: [],
+    wireOptions: [],
     ...over
   };
 }
@@ -40,7 +41,12 @@ describe("engine/road — the three-way edge market", () => {
     assert.include(road?.detail ?? "", "over H", "the hurdle arithmetic explains itself");
 
     // A far edge the WIRE wins gets no road — capex twice for one flow.
-    const far = replan(view({ sources: [{ id: "srcB", spots: 3, distToBank: 25 }] }));
+    const far = replan(
+      view({
+        sources: [{ id: "srcB", spots: 3, distToBank: 25 }],
+        wireOptions: [{ from: "srcB", to: "bank", range: 25, missingMouth: true, missingHub: true }]
+      })
+    );
     assert.isOk(far.approvals.find(a => a.structure === "link" && a.edge?.from === "srcB"));
     assert.isUndefined(far.approvals.find(a => a.structure === "road" && a.edge?.from === "srcB"));
   });

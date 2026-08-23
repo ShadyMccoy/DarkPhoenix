@@ -41,6 +41,13 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     outposts: [],
     sites: [],
     roads: [],
+    // The placement search's output, staged: both edges have legal
+    // same-room station pairs at these ranges (no search runs on a pure
+    // engine view — the lab's assembly supplies this in real worlds).
+    wireOptions: [
+      { from: "srcA", to: "bank", range: 10, missingMouth: true, missingHub: true },
+      { from: "srcB", to: "bank", range: 25, missingMouth: true, missingHub: true }
+    ],
     ...over
   };
 }

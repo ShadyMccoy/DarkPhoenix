@@ -122,10 +122,22 @@ export function reachableStock(branch: BankBranchKind, streamEt: number, vaultFr
 export const EXTENSION_COST = 3000;
 export const EXTENSION_CAPACITY = 50;
 
+/** The game's room edge length: rooms are 50×50 cells, and they enter
+ * the model as LINK-LEGALITY cells (owner 2026-08-24, amending the
+ * room-agnostic ruling): a link pair may only stand within one room. */
+export const ROOM_SIZE = 50;
+
+/** Chebyshev range between tiles — link cooldown's own metric. The wire
+ * fires THROUGH walls: its ration is range, never path, which is why a
+ * canyon that triples the haul path never slows the wire. */
+export function chebyshev(a: { x: number; y: number }, b: { x: number; y: number }): number {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+}
+
 /** Link physics: 800 capacity per volley, cooldown = 1 tick per tile of
- * distance, 3% lost per send, 5000e to build. Throughput between a
- * standing pair is therefore ~800/distance e/t with the loss riding as a
- * per-flow tax (v1-hardened numbers; REBOOT piece 5). */
+ * RANGE (Chebyshev, terrain-immune), 3% lost per send, 5000e to build.
+ * Throughput between a standing pair is therefore ~800/range e/t with
+ * the loss riding as a per-flow tax (v1-hardened numbers; piece 5). */
 export const LINK_CAPACITY = 800;
 export const LINK_LOSS = 0.03;
 export const LINK_COST = 5000;

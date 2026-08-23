@@ -32,6 +32,7 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     outposts: [],
     sites: [],
     roads: [],
+    wireOptions: [],
     ...over
   };
 }
@@ -121,8 +122,8 @@ describe("engine/replan", () => {
         bodyBudget: 550,
         bankStock: 2000,
         links: [
-          { id: "L1", at: "srcB" },
-          { id: "L2", at: "bank" }
+          { id: "L1", at: "srcB", room: "R0_0", x: 0, y: 25 },
+          { id: "L2", at: "bank", room: "R0_0", x: 25, y: 25 }
         ]
       })
     );
@@ -165,10 +166,10 @@ describe("engine/replan", () => {
           { id: "src3", spots: 3, distToBank: 34 }
         ],
         links: [
-          { id: "L1", at: "outpost:L1" },
-          { id: "LB", at: "bank" }
+          { id: "L1", at: "outpost:L1", room: "R0_0", x: 10, y: 30 },
+          { id: "LB", at: "bank", room: "R0_0", x: 30, y: 30 }
         ],
-        outposts: [{ place: "outpost:L1", distToBank: 20, distToSource: { src1: 5, src2: 5, src3: 5 } }]
+        outposts: [{ place: "outpost:L1", distToBank: 20, range: 20, distToSource: { src1: 5, src2: 5, src3: 5 } }]
       })
     );
     const corps = byId(plan);
