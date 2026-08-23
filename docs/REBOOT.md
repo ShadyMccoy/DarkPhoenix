@@ -1220,7 +1220,12 @@ need the owner's explicit ratification or reversal.
   the hurdle exists only inside candidate arithmetic — a no-sink world
   still funds production at full merit (value realization needs the
   backward direction or a shadow price); swamp roads (5× build, 5× gain)
-  are invisible to route-level pricing; the extension counterfactual
+  are invisible to route-level pricing; link pairs are legal only WITHIN
+  one room, but the room-agnostic lab happily wires any two places — a
+  cross-room "wire" the game forbids — so Tier 3's view must carry room
+  membership, cross-border flow stays haul, and multi-hop relay chains
+  (buying back the 800/d throughput ration at extra capex and a second
+  3% tax) are unmodeled single-hop-only today; the extension counterfactual
   bumps budget but not estateRadius (under-prices the heartbeat's
   growth); builder bodies amortize over 1500t for ~300t projects (the
   believer's cash pays full price, only the P&L flatters); depth-0
