@@ -104,7 +104,7 @@ describe("engine/replan", () => {
 
     const backedRate = 3 * workmanCycleRate(workman, 10);
     assert.closeTo(plan.expected.deliveredEt, 20, 1e-9, "both sources at cap: trim made the shares exact");
-    assert.isAbove(backedRate, 3, "the standing fleet's share is real");
+    assert.closeTo(plan.expected.standingEt, backedRate, 1e-9, "the live fleet's share reported as standing");
     assert.notInclude(
       plan.frontier.map(f => f.reason),
       "ramp insolvent",

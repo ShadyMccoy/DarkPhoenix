@@ -160,6 +160,7 @@ export function clear(input: MarketInput): EnginePlan {
   let spawnUsed = 0;
   let delivered = 0;
   let refill = 0;
+  let standingEt = 0;
 
   const remainingOn = (sourceId: string | null): number => {
     if (sourceId === null) return Infinity;
@@ -240,6 +241,7 @@ export function clear(input: MarketInput): EnginePlan {
     spawnUsed += inc.spawnTimeEt;
     refill += inc.upkeepEt;
     delivered += eff;
+    if (inc.backed) standingEt += eff;
     if (srcId !== null) {
       srcUsed[srcId] = (srcUsed[srcId] ?? 0) + eff;
       const by = srcFundedBy[srcId] ?? (srcFundedBy[srcId] = []);
@@ -253,6 +255,7 @@ export function clear(input: MarketInput): EnginePlan {
   // drinks what is left — the ladder as the bank's draw policy (piece 9).
   let residual = delivered - refill;
   let upgradeEt = 0;
+  let standingUpgradeEt = 0;
   for (const sink of input.sinks) {
     for (let i = 0; i < sink.offer.steps.length; i++) {
       const s = sink.offer.steps[i];
@@ -278,6 +281,7 @@ export function clear(input: MarketInput): EnginePlan {
       refill += s.cost.upkeepEt;
       spawnUsed += s.cost.spawnTimeEt;
       upgradeEt += sink.burns[i];
+      if (s.backedBy) standingUpgradeEt += sink.burns[i];
     }
   }
 
@@ -312,6 +316,6 @@ export function clear(input: MarketInput): EnginePlan {
     tick: input.tick,
     corps,
     frontier,
-    expected: { minedEt, deliveredEt: delivered, refillEt: refill, upgradeEt }
+    expected: { minedEt, deliveredEt: delivered, refillEt: refill, upgradeEt, standingEt, standingUpgradeEt }
   };
 }

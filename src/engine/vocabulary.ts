@@ -111,5 +111,12 @@ export interface EnginePlan {
     /** Σ funded parts bills — the tender heartbeat's obligation. */
     refillEt: number;
     upgradeEt: number;
+    /** The LIVE fleet's share of deliveredEt: funded increments whose every
+     * step is backed. The plan side above assumes full staffing; this is
+     * what stands today — the believer's cash accounting reads it, and the
+     * fidelity line will print the pair side by side. */
+    standingEt: number;
+    /** The live fleet's share of upgradeEt — burns of funded backed steps. */
+    standingUpgradeEt: number;
   };
 }

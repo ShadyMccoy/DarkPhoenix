@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DarkPhoenix graph lab</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #14171d; color: #d7dbe2; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  header { display: flex; align-items: baseline; gap: 16px; padding: 10px 16px; border-bottom: 1px solid #2a2f38; }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: 0.4px; }
+  header .dim, .dim { color: #7d8590; }
+  main { display: grid; grid-template-columns: minmax(420px, 660px) 1fr; gap: 16px; padding: 16px; align-items: start; }
+  #map svg { width: 100%; height: auto; display: block; cursor: crosshair; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; align-items: center; }
+  button { background: #262c36; color: #d7dbe2; border: 1px solid #3a414d; border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+  button:hover { background: #303845; }
+  button.on { background: #3f7cac; border-color: #3f7cac; color: #fff; }
+  label { color: #9aa3af; }
+  input[type=number] { width: 80px; background: #1b2027; color: #d7dbe2; border: 1px solid #3a414d; border-radius: 4px; padding: 3px 6px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #9aa3af; margin: 18px 0 6px; }
+  table.corps { border-collapse: collapse; width: 100%; }
+  table.corps th, table.corps td { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid #262c36; }
+  table.corps th { color: #7d8590; font-weight: 600; font-size: 12px; }
+  td.num { font-variant-numeric: tabular-nums; }
+  td.id { color: #9ecbff; }
+  td.strong { color: #7ee2a8; }
+  .expected { margin-top: 8px; color: #9aa3af; }
+  .expected b { color: #d7dbe2; font-variant-numeric: tabular-nums; }
+  .fline { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+  .chip { font-size: 11px; font-weight: 700; color: #fff; border-radius: 3px; padding: 1px 6px; white-space: nowrap; }
+  .fid { color: #9ecbff; }
+  .fdetail { color: #7d8590; }
+  #status { font-variant-numeric: tabular-nums; }
+  textarea { width: 100%; height: 110px; background: #1b2027; color: #d7dbe2; border: 1px solid #3a414d; border-radius: 4px; font: 12px/1.4 monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DarkPhoenix graph lab</h1>
+  <span class="dim">the real engine, staged worlds, live replans</span>
+  <span id="status"></span>
+</header>
+<main>
+  <section>
+    <div class="bar" id="tools"></div>
+    <div id="map"></div>
+    <div class="bar">
+      <label>bank stock <input type="number" id="bankStock" step="50" min="0"></label>
+      <label>body budget <input type="number" id="bodyBudget" step="50" min="0"></label>
+      <button id="advance1">▶ 150t</button>
+      <button id="advance10">▶▶ 1500t</button>
+      <button id="reset">reset world</button>
+    </div>
+    <div class="bar">
+      <button id="export">export save</button>
+      <button id="import">import save</button>
+    </div>
+    <textarea id="io" spellcheck="false" placeholder="export writes here; paste a save and press import"></textarea>
+  </section>
+  <section id="panels"></section>
+</main>
+<script src="dist/lab.js"></script>
+</body>
+</html>
