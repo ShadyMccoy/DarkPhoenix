@@ -80,7 +80,8 @@ describe("lab/believer — the investment loop", () => {
       assert.isUndefined(corps.get(`haul:${m}->bank`), `${m} runs no direct route`);
     }
     assert.isEmpty(plan.violations, "the book audits the joint");
-    assert.isAbove(state.cp, 0, "and the dividend flows");
+    for (let i = 0; i < 8; i++) advanceChunk(state);
+    assert.isAbove(state.cp, 0, "and the dividend flows once the invest queue clears");
   });
 
   it("cold start → warchest → site → build → displacement, with construction time in the middle", () => {

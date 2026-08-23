@@ -52,7 +52,7 @@ import { quoteUpgrade } from "../corps/upgrade";
 import { quoteWorkman } from "../corps/workman";
 import { ChainCandidate, ChainStage, SinkChain, StageOption, clear } from "./market";
 import { EconomyView, ViewCreep, ViewLink, ViewOutpost } from "./view";
-import { Approval, EnginePlan, FrontierLine, Offer, PlaceId, Step } from "./vocabulary";
+import { Approval, EnginePlan, FrontierLine, Offer, PlaceId, Step, StructureKind } from "./vocabulary";
 
 function assigned(view: EconomyView, corpId: string): ViewCreep[] {
   return view.creeps.filter(c => c.corp === corpId);
@@ -461,6 +461,26 @@ export function replan(view: EconomyView): EnginePlan {
   const isSitePlace = (p: PlaceId): boolean => p !== view.bank && view.sites.some(s => s.at === p);
   const siteEdges = new Set<string>();
   for (const s of view.sites) if (s.edge) siteEdges.add(`${s.edge.from}->${s.edge.to}`);
+  // Candidates are COLLECTED first and the purse spends in MERIT order
+  // (net saving per capex e) — inline spending funded whichever corp id
+  // sorted first: four near roads drained the purse before the far
+  // wires that saved 3x as much (caught in the wide-world demo).
+  interface Proposal {
+    structure: StructureKind;
+    at: PlaceId;
+    edge?: { from: PlaceId; to: PlaceId };
+    offerId: string;
+    savingEt: number;
+    capex: number;
+    links: number;
+    /** 1 when a missing hub's link rides in `capex`/`links` — dropped at
+     * spend time if another approval already paid this room's hub. */
+    hubLinks: number;
+    hubRoom?: string;
+    detail: string;
+  }
+  const proposals: Proposal[] = [];
+
   for (const corp of base.corps) {
     if (corp.kind !== "haul") continue;
     const gap = gapByOffer.get(corp.id);
@@ -473,60 +493,39 @@ export function replan(view: EconomyView): EnginePlan {
     // The incumbent prices at REPLACEMENT SCALE, not at its sunk quote
     // (the roadmap's replacement-scale displacement rule, pulled in by
     // measurement: a backed fleet quotes ~zero, which made living bodies
-    // IMMORTAL incumbents — the link candidate could never fire once the
-    // haul fleet stood, and the investment loop never closed). In steady
-    // state replacement is continuous — the amortized bill IS the
-    // fleet's marginal cost — so the challenger meets that bill: piece
-    // 5's "the true re-decision happens at replacement time, at full
-    // cost", with replacement time being always, a little. The bill is
-    // the IDEAL fleet's, from the one logistics law — the funded fleet
-    // can be fatter (quoted for schedule demand, funded for less), and
-    // that idle CARRY is utilization waste, never a reason to buy wire.
+    // IMMORTAL incumbents). In steady state replacement is continuous —
+    // the amortized bill IS the fleet's marginal cost. The bill is the
+    // IDEAL fleet's, from the one logistics law.
     const replacementBill = haulFleetBillEt(corp.pnl.grossEt, gap.dist, gap.roaded ?? false);
     const incumbentUnit = replacementBill / corp.pnl.grossEt;
 
     const wireOpt = view.wireOptions.find(w => w.from === gap.from && w.to === gap.to) ?? null;
-    // The hub is SHARED per room: once one approval this replan pays
-    // for a room's hub, further wires through it are mouth-only capex.
-    const wire =
-      wireOpt && wireOpt.missingHub && paidHubRooms.has(wireOpt.hubRoom ?? "")
-        ? { ...wireOpt, missingHub: false }
-        : wireOpt;
     const standingPair = linkPair(view, gap.from, gap.to);
     const cand = quoteLink({
       gap: { from: gap.from, to: gap.to, dist: gap.dist, flow: corp.pnl.grossEt },
       atFrom: standingPair?.atFrom ?? null,
       atTo: standingPair?.atTo ?? null,
-      wire
+      wire: wireOpt
     });
     const st = cand && !cand.steps[0].backedBy ? cand.steps[0] : null;
     const throughput = st?.provides.energyAt?.[gap.to] ?? 0;
     const candUnit = st && throughput > 1e-9 ? (st.cost.upkeepEt + (st.cost.feeEt ?? 0)) / throughput : Infinity;
     if (cand && st && candUnit + 1e-9 < incumbentUnit) {
       const capex = st.cost.upfront;
-      const linksNeeded = Math.round(capex / LINK_COST);
-      const detail =
-        `link ${candUnit.toFixed(4)}/unit beats bodies ${incumbentUnit.toFixed(4)}/unit ` +
-        `on ${gap.from}->${gap.to} (${corp.pnl.grossEt.toFixed(1)} e/t, range ${wire?.range ?? 0})`;
-      if (linksUsed + linksNeeded > linkBudget) {
-        awaiting.push({
-          offerId: cand.id,
-          reason: "link budget",
-          detail: `${linksNeeded} link(s) wanted, ${Math.max(
-            linkBudget - linksUsed,
-            0
-          )} of ${linkBudget} left — ${detail}`
-        });
-        continue;
-      }
-      if (capex <= spendable + 1e-9) {
-        spendable -= capex;
-        linksUsed += linksNeeded;
-        if (wire?.missingHub) paidHubRooms.add(wire.hubRoom ?? "");
-        approvals.push({ structure: "link", edge: { from: gap.from, to: gap.to }, at: gap.from, capex, detail });
-      } else {
-        noteAwaiting(cand.id, capex, detail);
-      }
+      proposals.push({
+        structure: "link",
+        at: gap.from,
+        edge: { from: gap.from, to: gap.to },
+        offerId: cand.id,
+        savingEt: (incumbentUnit - candUnit) * corp.pnl.grossEt,
+        capex,
+        links: Math.round(capex / LINK_COST),
+        hubLinks: wireOpt?.missingHub ? 1 : 0,
+        hubRoom: wireOpt?.hubRoom,
+        detail:
+          `link ${candUnit.toFixed(4)}/unit beats bodies ${incumbentUnit.toFixed(4)}/unit ` +
+          `on ${gap.from}->${gap.to} (${corp.pnl.grossEt.toFixed(1)} e/t, range ${wireOpt?.range ?? 0})`
+      });
       continue;
     }
 
@@ -538,15 +537,19 @@ export function replan(view: EconomyView): EnginePlan {
       const saving = replacementBill - roadedBill - gap.dist * ROAD_UPKEEP_ET_PER_TILE;
       const capex = gap.dist * ROAD_COST_PER_TILE;
       if (saving * HORIZON > capex) {
-        const detail =
-          `paving ${gap.from}->${gap.to} (${gap.dist} tiles) saves ${saving.toFixed(3)} e/t of fleet: ` +
-          `${(saving * HORIZON).toFixed(0)}e over H beats ${capex}e capex`;
-        if (capex <= spendable + 1e-9) {
-          spendable -= capex;
-          approvals.push({ structure: "road", edge: { from: gap.from, to: gap.to }, at: gap.from, capex, detail });
-        } else {
-          noteAwaiting(`road:${gap.from}->${gap.to}`, capex, detail);
-        }
+        proposals.push({
+          structure: "road",
+          at: gap.from,
+          edge: { from: gap.from, to: gap.to },
+          offerId: `road:${gap.from}->${gap.to}`,
+          savingEt: saving - capex / HORIZON,
+          capex,
+          links: 0,
+          hubLinks: 0,
+          detail:
+            `paving ${gap.from}->${gap.to} (${gap.dist} tiles) saves ${saving.toFixed(3)} e/t of fleet: ` +
+            `${(saving * HORIZON).toFixed(0)}e over H beats ${capex}e capex`
+        });
       }
     }
   }
@@ -554,17 +557,14 @@ export function replan(view: EconomyView): EnginePlan {
   // The BRANCHING TREE (owner 2026-08-24): a shared collection station —
   // M1..MN short-haul into one link, which fires to the bank hub. The
   // network plan proposes these only where links are too scarce for
-  // private mouths; the market still decides on the funded traffic: the
-  // saving is the incumbents' fleet bills minus the short collector
-  // fleets, the tax, and the capex over H.
+  // private mouths; the market still decides on the funded traffic.
   for (const st of view.stationOptions) {
     if (siteEdges.has(`${st.id}->bank`)) continue;
     const members = st.sources
       .map(m => ({ m, corp: base.corps.find(c => c.id === `haul:${m.id}->bank`) }))
       .filter(x => x.corp && x.corp.pnl.grossEt > 1e-9);
     if (members.length === 0) continue;
-    const missingHub = st.missingHub && !paidHubRooms.has(st.hubRoom ?? "");
-    const linksNeeded = 1 + (missingHub ? 1 : 0);
+    const linksNeeded = 1 + (st.missingHub ? 1 : 0);
     const capex = linksNeeded * LINK_COST;
     let flow = 0;
     let saving = -capex / HORIZON;
@@ -579,62 +579,52 @@ export function replan(view: EconomyView): EnginePlan {
     }
     if (LINK_CAPACITY / Math.max(st.range, 1) + 1e-9 < flow) continue;
     if (saving <= 0) continue;
-    const detail =
-      `${st.id} collects ${members.map(x => x.m.id).join("+")} (${flow.toFixed(0)} e/t, range ${st.range}): ` +
-      `saves ${saving.toFixed(3)} e/t over the direct fleets`;
-    if (linksUsed + linksNeeded > linkBudget) {
-      awaiting.push({
-        offerId: st.id,
-        reason: "link budget",
-        detail: `${linksNeeded} link(s) wanted, ${Math.max(
-          linkBudget - linksUsed,
-          0
-        )} of ${linkBudget} left — ${detail}`
-      });
-      continue;
-    }
-    if (capex <= spendable + 1e-9) {
-      spendable -= capex;
-      linksUsed += linksNeeded;
-      if (missingHub) paidHubRooms.add(st.hubRoom ?? "");
-      approvals.push({ structure: "link", edge: { from: st.id, to: "bank" }, at: st.id, capex, detail });
-    } else {
-      noteAwaiting(st.id, capex, detail);
-    }
+    proposals.push({
+      structure: "link",
+      at: st.id,
+      edge: { from: st.id, to: "bank" },
+      offerId: st.id,
+      savingEt: saving,
+      capex,
+      links: linksNeeded,
+      hubLinks: st.missingHub ? 1 : 0,
+      hubRoom: st.hubRoom,
+      detail:
+        `${st.id} collects ${members.map(x => x.m.id).join("+")} (${flow.toFixed(0)} e/t, range ${st.range}): ` +
+        `saves ${saving.toFixed(3)} e/t over the direct fleets`
+    });
   }
 
   // The GLOBAL candidate: the next extension (roadmap Tier 1.2 —
-  // bodyBudget becomes endogenous). Its payoff is a change in EVERY
-  // quote, so no order book can price it; the planner differences whole
-  // plans instead — the counterfactual world at +50e budget, cleared by
-  // the same machinery — and applies the piece-9 hurdle literally:
-  // Δ(controller stream) over HORIZON against capex. One candidate at a
-  // time: an open extension site defers the next evaluation until the
-  // payoff is real (the estate grows sequentially, and quotes on the
-  // NEXT increment re-run against the grown estate).
-  if (!view.sites.some(s => s.structure === "extension")) {
+  // bodyBudget becomes endogenous), priced by differencing whole plans:
+  // the counterfactual +50e world, cleared by the same machinery, and
+  // the piece-9 hurdle literally. One at a time; an open extension site
+  // defers the next look until the payoff is real.
+  if (!view.sites.some(k => k.structure === "extension")) {
     const cf = assembleAndClear({ ...view, bodyBudget: view.bodyBudget + EXTENSION_CAPACITY }, committed).plan;
     const delta = cf.expected.upgradeEt - base.expected.upgradeEt;
     if (delta * HORIZON > EXTENSION_COST) {
-      const detail =
-        `+${EXTENSION_CAPACITY}e budget adds ${delta.toFixed(3)} CP/t: ` +
-        `${(delta * HORIZON).toFixed(0)}e over H beats ${EXTENSION_COST}e capex`;
-      if (EXTENSION_COST <= spendable + 1e-9) {
-        spendable -= EXTENSION_COST;
-        approvals.push({ structure: "extension", at: view.bank, capex: EXTENSION_COST, detail });
-      } else {
-        noteAwaiting("extension:estate", EXTENSION_COST, detail);
-      }
+      proposals.push({
+        structure: "extension",
+        at: view.bank,
+        offerId: "extension:estate",
+        savingEt: delta - EXTENSION_COST / HORIZON,
+        capex: EXTENSION_COST,
+        links: 0,
+        hubLinks: 0,
+        detail:
+          `+${EXTENSION_CAPACITY}e budget adds ${delta.toFixed(3)} CP/t: ` +
+          `${(delta * HORIZON).toFixed(0)}e over H beats ${EXTENSION_COST}e capex`
+      });
     }
   }
 
-  // The bank-branch ladder (Tier 1.3): capex that cheapens banking
-  // (piece 9 — "containerizing a mouth is just capex that cheapens
-  // banking"). Priced at TODAY'S stock — greedy depth-0's known myopia,
-  // recorded: it sees the rot it suffers now, never the warchest it will
-  // want tomorrow. One rung at a time; an open branch site defers the
-  // next look.
-  if (!view.sites.some(s => s.structure === "container" || s.structure === "storage")) {
+  // The bank-branch ladder (Tier 1.3): capex that cheapens banking,
+  // priced at TODAY'S stock (greedy myopia, recorded). One rung at a
+  // time; an open branch site defers the next look. Branch holding ONLY
+  // — expected.holdingEt also carries the road network's upkeep, which
+  // survives the build (review finding, the session's one HIGH).
+  if (!view.sites.some(k => k.structure === "container" || k.structure === "storage")) {
     const rung =
       view.bankBranch === "pile"
         ? {
@@ -646,23 +636,51 @@ export function replan(view: EconomyView): EnginePlan {
         ? { structure: "storage" as const, capex: STORAGE_COST, after: 0 }
         : null;
     if (rung) {
-      // Branch holding ONLY — expected.holdingEt also carries the road
-      // network's upkeep, which survives the build; crediting it as a
-      // saving approved storage on rot it could not remove (review
-      // finding, the session's one HIGH).
       const branchNow = branchHoldingEt(view.bankBranch, view.bankStock, view.bodyBudget);
       const saving = branchNow - rung.after;
       if (saving * HORIZON > rung.capex) {
-        const detail =
-          `${rung.structure} saves ${saving.toFixed(2)} e/t of holding: ` +
-          `${(saving * HORIZON).toFixed(0)}e over H beats ${rung.capex}e capex`;
-        if (rung.capex <= spendable + 1e-9) {
-          spendable -= rung.capex;
-          approvals.push({ structure: rung.structure, at: view.bank, capex: rung.capex, detail });
-        } else {
-          noteAwaiting(`${rung.structure}:bank`, rung.capex, detail);
-        }
+        proposals.push({
+          structure: rung.structure,
+          at: view.bank,
+          offerId: `${rung.structure}:bank`,
+          savingEt: saving - rung.capex / HORIZON,
+          capex: rung.capex,
+          links: 0,
+          hubLinks: 0,
+          detail:
+            `${rung.structure} saves ${saving.toFixed(2)} e/t of holding: ` +
+            `${(saving * HORIZON).toFixed(0)}e over H beats ${rung.capex}e capex`
+        });
       }
+    }
+  }
+
+  // THE SPEND, in merit order: net saving per capex e, deterministic
+  // tiebreak. Hub-sharing adjusts at spend time (per room); the link
+  // allowance and the purse gate as before.
+  proposals.sort((a, b) => b.savingEt / b.capex - a.savingEt / a.capex || a.offerId.localeCompare(b.offerId));
+  for (const prop of proposals) {
+    let capex = prop.capex;
+    let links = prop.links;
+    if (prop.hubLinks > 0 && paidHubRooms.has(prop.hubRoom ?? "")) {
+      capex -= prop.hubLinks * LINK_COST;
+      links -= prop.hubLinks;
+    }
+    if (links > 0 && linksUsed + links > linkBudget) {
+      awaiting.push({
+        offerId: prop.offerId,
+        reason: "link budget",
+        detail: `${links} link(s) wanted, ${Math.max(linkBudget - linksUsed, 0)} of ${linkBudget} left — ${prop.detail}`
+      });
+      continue;
+    }
+    if (capex <= spendable + 1e-9) {
+      spendable -= capex;
+      linksUsed += links;
+      if (prop.hubLinks > 0 && links === prop.links) paidHubRooms.add(prop.hubRoom ?? "");
+      approvals.push({ structure: prop.structure, at: prop.at, edge: prop.edge, capex, detail: prop.detail });
+    } else {
+      noteAwaiting(prop.offerId, capex, prop.detail);
     }
   }
 
