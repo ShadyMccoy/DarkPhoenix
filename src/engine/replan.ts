@@ -10,7 +10,7 @@
 import { SOURCE_RATE, upkeepEt } from "../primitives";
 import { quoteHaul } from "../corps/haul";
 import { quoteMine } from "../corps/mine";
-import { quoteSpawning } from "../corps/spawning";
+import { quoteSpawning, quoteTender, tenderCapacities } from "../corps/spawning";
 import { quoteUpgrade } from "../corps/upgrade";
 import { quoteWorkman } from "../corps/workman";
 import { ChainCandidate, SinkCandidate, clear } from "./market";
@@ -101,17 +101,30 @@ export function replan(view: EconomyView): EnginePlan {
   const spawning = quoteSpawning({ spawnIds: view.spawnIds });
   const spawnCapacity = spawning ? spawning.steps.reduce((sum, s) => sum + (s.provides.spawnTime ?? 0), 0) : 0;
 
-  const plan = clear({
+  const tenderCreeps = assigned(view, "spawning:estate");
+  const tenderOffer = quoteTender({
+    bank: view.bank,
+    estateRadius: view.estateRadius,
+    bodyBudget: view.bodyBudget,
+    creeps: tenderCreeps
+  });
+
+  // The live fleet's perpetual replacement bill — steady state has no
+  // expiry event, only this cash line. The market needs it too: the tender
+  // is sized to the WHOLE heartbeat, standing fleet included.
+  const standingBills = view.creeps.reduce((sum, c) => sum + upkeepEt(c.body), 0);
+
+  return clear({
     tick: view.tick,
     bank: view.bank,
     chains,
     sinks,
     spawnCapacity,
     bankStock: view.bankStock,
-    sourceCaps
+    sourceCaps,
+    standingBills,
+    tender: tenderOffer
+      ? { offer: tenderOffer, capacities: tenderCapacities(tenderOffer, view.estateRadius, tenderCreeps) }
+      : null
   });
-  // The live fleet's perpetual replacement bill — steady state has no
-  // expiry event, only this cash line (an engine output; GUIs derive nothing).
-  plan.expected.standingRefillEt = view.creeps.reduce((sum, c) => sum + upkeepEt(c.body), 0);
-  return plan;
 }

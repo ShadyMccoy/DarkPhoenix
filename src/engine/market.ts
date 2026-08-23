@@ -55,6 +55,15 @@ export interface MarketInput {
   bankStock: number;
   /** Regen caps by source id, e/t. */
   sourceCaps: Record<string, number>;
+  /** The spawning corp's refill-intake schedule: tender steps and their
+   * per-step capacity (e/t into the estate). Funded last, to cover the
+   * whole refill obligation. */
+  tender?: { offer: Offer; capacities: number[] } | null;
+  /** The live fleet's sustain bill (Σ amortized body costs), from the
+   * broker. Backed steps quote zero (sunk pricing), so the funded-step
+   * refill line alone understates the heartbeat — the tender must cover
+   * standing bills too. */
+  standingBills?: number;
 }
 
 interface StepRef {
@@ -334,6 +343,33 @@ export function clear(input: MarketInput): EnginePlan {
     }
   }
 
+  // The heartbeat's carrier funds last: tender intake to cover the whole
+  // refill obligation (owner 2026-08-23 — the spawning corp's own bodies,
+  // never a haul job). Each funded tender adds its own bill to the
+  // obligation it serves, so the loop runs until intake covers it. It
+  // settles after the residual, so its bill can overdraw the leftover by
+  // at most one small body for one replan — visible, repriced next pass.
+  const heartbeat = (): number => refill + (input.standingBills ?? 0);
+  if (input.tender && heartbeat() > EPS) {
+    const t = input.tender;
+    let intake = 0;
+    for (let i = 0; i < t.offer.steps.length && intake < heartbeat() - EPS; i++) {
+      const s = t.offer.steps[i];
+      if (spawnUsed + s.cost.spawnTimeEt > input.spawnCapacity + EPS) {
+        frontier.push({
+          offerId: t.offer.id,
+          reason: "spawn capacity",
+          detail: `needs ${s.cost.spawnTimeEt.toFixed(4)} p/t, ${(input.spawnCapacity - spawnUsed).toFixed(4)} p/t free`
+        });
+        break;
+      }
+      fund(t.offer, null, i);
+      intake += t.capacities[i];
+      refill += s.cost.upkeepEt;
+      spawnUsed += s.cost.spawnTimeEt;
+    }
+  }
+
   const corps: CorpInstance[] = [];
   let minedEt = 0;
   for (const f of funded.values()) {
@@ -372,9 +408,7 @@ export function clear(input: MarketInput): EnginePlan {
       upgradeEt,
       standingEt,
       standingUpgradeEt,
-      // The broker owns this line — it knows the live fleet; 0 when the
-      // market is driven directly (synthetic suites).
-      standingRefillEt: 0
+      standingRefillEt: input.standingBills ?? 0
     }
   };
 }

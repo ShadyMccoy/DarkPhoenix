@@ -952,6 +952,17 @@ delegated to the session, worked through priced examples, and closed:
 - **Recorded retirements:** nearer-sources-first ordering and M1's
   RAMP_CAP both fall out of merit-order funding — the buy order IS the
   merit order, so the ramp cannot starve the residual by construction.
+- **The tender is the spawning corp's own body** (owner 2026-08-23:
+  "Hauling is specifically for energy logistics between corps. The
+  tender is a specialist corp for filling extensions and spawns and
+  it's a corp with body requirements just like others. Although a
+  very simple one. It could be folded into the spawn corp itself." —
+  folded in). The spawning vertical prices TWO services: machine time
+  (the standing structures) and refill intake (tender bodies, sized by
+  the one sizing module to the funded obligation over the estate's
+  radius). Haul quotes never cover the spawn estate; the heartbeat's
+  carrier is the spawning corp's own fleet, and its cost is one more
+  line of the obligation paid first.
 
 ### Development steps (2026-08-22)
 

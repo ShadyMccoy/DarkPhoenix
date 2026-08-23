@@ -20,6 +20,7 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     bankStock: 300,
     bodyBudget: 300,
     spawnIds: ["sp1"],
+    estateRadius: 1,
     sources: [
       { id: "srcA", mouth: "mouthA", spots: 3, distToBank: 10 },
       { id: "srcB", mouth: "mouthB", spots: 3, distToBank: 25 }
@@ -49,6 +50,11 @@ describe("engine/replan", () => {
     assert.isUndefined(corps.get("workman:srcA"));
     const beaten = plan.frontier.filter(f => f.reason === "outcompeted").map(f => f.offerId);
     assert.includeMembers(beaten, ["chain:srcA:workman", "chain:srcB:workman"]);
+
+    // The heartbeat's carrier: one small tender covers the whole refill
+    // obligation across the co-located estate (owner 2026-08-23 ruling).
+    assert.equal(corps.get("spawning:estate")?.target, 1);
+    assert.deepEqual(corps.get("spawning:estate")?.body, { work: 0, carry: 2, move: 2 });
 
     // The residual funds four upgrader steps; the fifth prints its reason.
     assert.equal(corps.get("upgrade:ctrl")?.target, 4);

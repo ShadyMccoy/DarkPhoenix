@@ -133,6 +133,7 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     bankStock,
     bodyBudget: s.bodyBudget,
     spawnIds: ["spawn1"],
+    estateRadius: approachDist(dist, s.spawn),
     sources: s.sources.map(src => ({
       id: src.id,
       mouth: `mouth:${src.id}`,

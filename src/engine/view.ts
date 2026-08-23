@@ -38,6 +38,10 @@ export interface EconomyView {
    * term of the spawning contract. */
   bodyBudget: number;
   spawnIds: string[];
+  /** Route cost from the bank tile across the spawn estate — the tender's
+   * shuttle distance. ~1 under the founding kernel; real once extensions
+   * spread. */
+  estateRadius: number;
   sources: ViewSource[];
   controller: { id: string; distFromBank: number } | null;
   creeps: ViewCreep[];

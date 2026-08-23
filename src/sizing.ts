@@ -64,6 +64,19 @@ export function upgraderBody(budget: number): BodyShape | null {
 }
 
 /**
+ * Tender: the spawning corp's own refill body (owner 2026-08-23 — the
+ * tender is the spawn corp's, never a haul job). The estate is compact by
+ * the founding kernel, so the body stays small: paired C+M, at most two
+ * pairs; floor [1C,1M] at 100.
+ */
+export function tenderBody(budget: number): BodyShape | null {
+  const unitCost = PART_COST.carry + PART_COST.move;
+  if (budget < unitCost) return null;
+  const units = Math.min(2, Math.floor(budget / unitCost));
+  return { work: 0, carry: units, move: units };
+}
+
+/**
  * #148's route law, generalized — THE logistics formula: CARRY parts to
  * move `flow` e/t over a one-way distance of `dist` tiles (round trip
  * 2·dist, CARRY_CAP per part). Transport pricing quotes through here; the

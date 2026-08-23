@@ -38,7 +38,11 @@ describe("lab/scenario", () => {
 
     const plan = replan(view);
     const kinds = new Set(plan.corps.map(c => c.kind));
-    assert.deepEqual([...kinds].sort(), ["upgrade", "workman"], "empty ledger: the root and the sink, nothing else");
+    assert.deepEqual(
+      [...kinds].sort(),
+      ["spawning", "upgrade", "workman"],
+      "empty ledger: the root, the sink, and the heartbeat's tender"
+    );
     assert.isTrue(
       plan.frontier.some(f => f.reason === "ramp insolvent"),
       "the specialist chains print why they cannot start"

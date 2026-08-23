@@ -1,6 +1,6 @@
 import { assert } from "chai";
 import { bodyCost } from "../../src/primitives";
-import { carryPartsFor, haulerBody, minerBody, upgraderBody, workmanBody } from "../../src/sizing";
+import { carryPartsFor, haulerBody, minerBody, tenderBody, upgraderBody, workmanBody } from "../../src/sizing";
 
 /**
  * The exhaustive suite on THE sizing module (law 5). Every body any kind
@@ -40,9 +40,16 @@ describe("sizing", () => {
     assert.deepEqual(upgraderBody(99999), { work: 15, carry: 1, move: 1 }, "no body outdrinks a controller");
   });
 
+  it("sizes tenders: paired C+M, floor at 100, capped small — the estate is compact", () => {
+    assert.isNull(tenderBody(99));
+    assert.deepEqual(tenderBody(100), { work: 0, carry: 1, move: 1 });
+    assert.deepEqual(tenderBody(9999), { work: 0, carry: 2, move: 2 });
+  });
+
   it("every derived body fits its budget", () => {
     for (let budget = 100; budget <= 2000; budget += 50) {
-      for (const body of [workmanBody(budget), minerBody(budget), haulerBody(budget), upgraderBody(budget)]) {
+      const bodies = [workmanBody(budget), minerBody(budget), haulerBody(budget), upgraderBody(budget), tenderBody(budget)];
+      for (const body of bodies) {
         if (body) assert.isAtMost(bodyCost(body), budget, `budget ${budget}`);
       }
     }
