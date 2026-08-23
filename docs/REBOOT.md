@@ -888,12 +888,18 @@ in the scenario files and their asserted replays — once built.
    unit-test fixtures (deterministic replay asserted — same world +
    same ledger = same plan, per piece 6) and converge toward mockup
    staging so a lab scenario can graduate into a mockup cell.
-4. **Stepping is a believer world**: it applies the plan's own
-   expected rates, ages bodies, advances the spawn pipe. Plan-vs-
-   actual is zero there by construction, so the lab certifies
-   ACCOUNTING — conservation identity, P&L composition, funding order,
-   determinism, plan quiescence — and never fidelity. No lab number is
-   quotable as a measured band; the mockup remains the truth host.
+4. **Stepping is a believer world — steady-state, like the plan
+   itself** (owner correction 2026-08-23: "we're just doing abstract
+   steady state planning"): it applies the plan's own standing rates
+   as cash. A live body persists; its replacement IS its amortized
+   bill, paid continuously — there is no expiry event, and unfunded
+   staffing lapses because the plan stopped renewing it. Discrete ttl
+   churn and the spawn pipe are execution's business, measured at the
+   mockup. Plan-vs-actual is zero here by construction, so the lab
+   certifies ACCOUNTING — conservation identity, P&L composition,
+   funding order, determinism, plan quiescence — and never fidelity.
+   No lab number is quotable as a measured band; the mockup remains
+   the truth host.
 5. **Boundaries.** The GUI lives outside `src/` (top-level `lab/`) and
    is exempt from the ~3k src budget; the engine counts. The lab never
    touches live. M1's gate and the working agreement stand. The bot's

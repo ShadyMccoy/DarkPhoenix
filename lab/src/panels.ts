@@ -59,7 +59,7 @@ export function renderPanels(container: HTMLElement, plan: EnginePlan, creeps: V
     `refill <b>${e.refillEt.toFixed(2)}</b> · upgrade <b>${e.upgradeEt.toFixed(1)}</b> · ` +
     `to bank <b>${leftover.toFixed(2)}</b> e/t</div>` +
     `<div class="expected">standing today: delivering <b>${e.standingEt.toFixed(1)}</b> · ` +
-    `upgrading <b>${e.standingUpgradeEt.toFixed(1)}</b> e/t</div>` +
+    `upgrading <b>${e.standingUpgradeEt.toFixed(1)}</b> · sustain bill <b>${e.standingRefillEt.toFixed(2)}</b> e/t</div>` +
     `<h2>Blocked frontier</h2>` +
     (frontier || `<div class="dim">nothing blocked — every offer funded to its schedule's end</div>`);
 }

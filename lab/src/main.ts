@@ -16,7 +16,6 @@ import { bootstrapScenario } from "./scenarios";
 
 /** One believer chunk: the replan cadence's order of magnitude. */
 const DT = 150;
-const CREEP_LIFE = 1500;
 
 interface LabState {
   scenario: Scenario;
@@ -47,32 +46,43 @@ function currentPlan(): EnginePlan {
 }
 
 /**
- * The believer stepper, in CASH terms: only the LIVE fleet earns and burns
- * (the plan's standing rates — engine output, never a GUI derivation);
- * bodies cost their price at purchase, producers buy before sinks, and the
- * spawn's 1 e/t auto-regeneration to 300 keeps a dead world bootable —
- * the same physics the real cold start leans on.
+ * The believer stepper — STEADY STATE, like the plan itself (owner
+ * 2026-08-23: "we're just doing abstract steady state planning"). There is
+ * no expiry event: a live body persists and its replacement is its
+ * amortized bill (standingRefillEt), paid continuously as cash. Only the
+ * live fleet earns and burns, at the plan's standing rates — all engine
+ * outputs, nothing derived here. Staffing follows the plan: funded backed
+ * steps sustain, unfunded staffing lapses (the plan stopped renewing it),
+ * deficits hire while the bank affords the body. The spawn's 1 e/t
+ * auto-regeneration to 300 keeps an empty world bootable — the physics
+ * the real cold start leans on. Discrete ttl churn is execution's
+ * business, measured at the mockup, not modeled here.
  */
 function advance(chunks: number): void {
   for (let i = 0; i < chunks; i++) {
     const plan = currentPlan();
     const e = plan.expected;
-    // Earn at the standing rate; burn at the standing rate BOUNDED BY CASH
-    // — the plan may fund upgraders against planned inflow, but the
-    // believer's bank never overdraws (an upgrader with no energy idles).
     const earn = e.standingEt * DT;
-    const burn = Math.min(e.standingUpgradeEt * DT, Math.max(state.bankStock + earn, 0));
-    state.bankStock += earn - burn;
+    const sustain = e.standingRefillEt * DT;
+    const burn = Math.min(e.standingUpgradeEt * DT, Math.max(state.bankStock + earn - sustain, 0));
+    state.bankStock = Math.max(state.bankStock + earn - sustain - burn, 0);
     state.cp += burn;
     if (state.bankStock < 300) state.bankStock = Math.min(300, state.bankStock + DT);
-    state.creeps = state.creeps.map(c => ({ ...c, ttl: c.ttl - DT })).filter(c => c.ttl > 0);
+
+    // Staffing follows the plan: lapse what is no longer funded, then hire
+    // toward targets (producers before sinks) while the bank affords it.
+    const next: ViewCreep[] = [];
+    for (const corp of plan.corps) {
+      next.push(...state.creeps.filter(c => c.corp === corp.id).slice(0, corp.target));
+    }
+    state.creeps = next;
     const buyOrder = [...plan.corps].sort((a, b) => (a.chain === null ? 1 : 0) - (b.chain === null ? 1 : 0));
     for (const corp of buyOrder) {
       if (!corp.body) continue;
       const cost = bodyCost(corp.body);
       let live = state.creeps.filter(c => c.corp === corp.id).length;
       while (live < corp.target && cost <= state.bankStock) {
-        state.creeps.push({ id: `c${state.seq++}`, corp: corp.id, body: corp.body, ttl: CREEP_LIFE });
+        state.creeps.push({ id: `c${state.seq++}`, corp: corp.id, body: corp.body, ttl: 1500 });
         state.bankStock -= cost;
         live++;
       }

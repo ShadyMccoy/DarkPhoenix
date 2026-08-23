@@ -5,15 +5,18 @@
  * costs — so it cannot accumulate case logic (piece 6: the engine is too
  * small to hide anything in). The corp kinds price; this module combines.
  *
- * Depth-0 clearing IS the greedy merit-order loop: compose each chain's
- * stages into delivered increments, then fund increments best-first —
- * standing capital first (sunk holds its funding, piece 5), then by
- * marginal net descending — until a constraint closes each chain and
- * prints its frontier line. Funding checks, in order: source room,
- * marginal net, spawn machine time, ramp solvency (piece 8's heartbeat
- * constraint: with no standing income, a chain whose first increment
- * cannot be bought from stock can never close — the workman root emerges
- * here, no mode). Consumption then draws the residual, ladder-style.
+ * Depth-0 clearing IS the greedy merit-order loop, in two phases. Phase 1:
+ * standing capital holds its funding (piece 5) — every chain's leading
+ * fully-backed increments fund first. Phase 2: chains BID THEIR BEST
+ * MARGINAL PREFIX of remaining increments (the best scale, not the next
+ * lump — a degenerate sliver increment from stage quantization can never
+ * hide the profitable scale behind it), highest net funds, and a bid that
+ * fails a constraint closes its chain with the frontier line saying which
+ * arithmetic stopped it. Ramp solvency (piece 8's heartbeat constraint)
+ * binds at bid time: with no standing income a bid is only as big as the
+ * stock that can buy it, so the workman root emerges as the largest
+ * affordable prefix — no mode. Consumption then draws the residual,
+ * ladder-style.
  *
  * An increment that only half-fits its source funds TRIMMED (the body is
  * quantized, the flow is not): the challenger enters at reduced delivery
@@ -167,38 +170,108 @@ export function clear(input: MarketInput): EnginePlan {
     return (input.sourceCaps[sourceId] ?? Infinity) - (srcUsed[sourceId] ?? 0);
   };
 
-  // Merit loop: every iteration funds one increment or closes one chain,
-  // so it terminates. Ordering: standing capital first, then effective
-  // net descending, chain id as the deterministic tiebreak.
+  const fundInc = (lc: LiveChain, inc: Inc): void => {
+    const eff = Math.min(inc.delivered, Math.max(remainingOn(lc.chain.sourceId), 0));
+    for (const ref of inc.steps) fund(lc.chain.stages[ref.stage].offer, lc.chain.id, ref.step);
+    spawnUsed += inc.spawnTimeEt;
+    refill += inc.upkeepEt;
+    delivered += eff;
+    if (inc.backed) standingEt += eff;
+    const srcId = lc.chain.sourceId;
+    if (srcId !== null) {
+      srcUsed[srcId] = (srcUsed[srcId] ?? 0) + eff;
+      const by = srcFundedBy[srcId] ?? (srcFundedBy[srcId] = []);
+      if (!by.includes(lc.chain.id)) by.push(lc.chain.id);
+    }
+    lc.next += 1;
+  };
+
+  // Phase 1 — standing capital holds its funding (piece 5): every chain's
+  // leading fully-backed increments fund first, trimmed to their source.
+  for (const lc of live) {
+    while (lc.next < lc.incs.length && lc.incs[lc.next].backed) {
+      if (Math.min(lc.incs[lc.next].delivered, Math.max(remainingOn(lc.chain.sourceId), 0)) <= EPS) break;
+      fundInc(lc, lc.incs[lc.next]);
+    }
+  }
+
+  /** A chain's bid: the best PREFIX of its remaining increments, trimmed to
+   * the source room left. Bidding whole bundles keeps a degenerate sliver
+   * increment (a stage-quantization artifact) from hiding the profitable
+   * scale behind it — the bid is the best marginal SCALE, not the next
+   * lump. Still depth-0: no lookahead through anything unbuilt. */
+  interface Bid {
+    lc: LiveChain;
+    count: number;
+    eff: number;
+    upkeepEt: number;
+    spawnTimeEt: number;
+    upfront: number;
+    net: number;
+    /** Set when every prefix was unaffordable under the ramp bound: the
+     * chain cannot start from stock — piece 8's filter, at bid time. */
+    rampBlocked?: boolean;
+  }
+  const bestBid = (lc: LiveChain): Bid | null => {
+    if (closed.has(lc.chain.id) || lc.next >= lc.incs.length) return null;
+    // With no standing income, a bid is only as big as the stock that can
+    // buy it — the root emerges as the largest affordable prefix.
+    const rampBound = standingIncome <= EPS;
+    const room = Math.max(remainingOn(lc.chain.sourceId), 0);
+    let dCum = 0;
+    let upkeep = 0;
+    let spawn = 0;
+    let upfront = 0;
+    let bid: Bid | null = null;
+    for (let k = lc.next; k < lc.incs.length; k++) {
+      const inc = lc.incs[k];
+      dCum += inc.delivered;
+      upkeep += inc.upkeepEt;
+      spawn += inc.spawnTimeEt;
+      upfront += inc.upfront;
+      if (rampBound && upfront > input.bankStock + EPS) break;
+      const eff = Math.min(dCum, room);
+      const net = eff - upkeep;
+      if (!bid || net > bid.net + EPS) {
+        bid = { lc, count: k - lc.next + 1, eff, upkeepEt: upkeep, spawnTimeEt: spawn, upfront, net };
+      }
+    }
+    if (!bid) {
+      return { lc, count: 0, eff: 0, upkeepEt: 0, spawnTimeEt: 0, upfront, net: -Infinity, rampBlocked: true };
+    }
+    return bid;
+  };
+
+  // Phase 2 — the merit loop: chains bid their best prefix; the highest
+  // net funds; a bid that fails a constraint closes its chain with the
+  // frontier line saying which arithmetic stopped it.
   for (;;) {
-    let best: LiveChain | null = null;
-    let bestBacked = false;
-    let bestNet = -Infinity;
+    let best: Bid | null = null;
     for (const lc of live) {
-      if (closed.has(lc.chain.id) || lc.next >= lc.incs.length) continue;
-      const cand = lc.incs[lc.next];
-      const candEff = Math.min(cand.delivered, Math.max(remainingOn(lc.chain.sourceId), 0));
-      const candNet = candEff - cand.upkeepEt;
-      const better =
-        best === null ||
-        (cand.backed && !bestBacked) ||
-        (cand.backed === bestBacked &&
-          (candNet > bestNet + EPS || (Math.abs(candNet - bestNet) <= EPS && lc.chain.id < best.chain.id)));
-      if (better) {
-        best = lc;
-        bestBacked = cand.backed;
-        bestNet = candNet;
+      const bid = bestBid(lc);
+      if (!bid) continue;
+      if (
+        !best ||
+        bid.net > best.net + EPS ||
+        (Math.abs(bid.net - best.net) <= EPS && bid.lc.chain.id < best.lc.chain.id)
+      ) {
+        best = bid;
       }
     }
     if (!best) break;
 
-    const inc = best.incs[best.next];
-    const cid = best.chain.id;
-    const srcId = best.chain.sourceId;
-    const remaining = Math.max(remainingOn(srcId), 0);
-    const eff = Math.min(inc.delivered, remaining);
-
-    if (eff <= EPS) {
+    const cid = best.lc.chain.id;
+    const srcId = best.lc.chain.sourceId;
+    if (best.rampBlocked) {
+      frontier.push({
+        offerId: cid,
+        reason: "ramp insolvent",
+        detail: `needs ${best.upfront}e up front, ${input.bankStock}e on hand, no standing income`
+      });
+      closed.add(cid);
+      continue;
+    }
+    if (best.eff <= EPS) {
       const rivals = srcId ? (srcFundedBy[srcId] ?? []).filter(id => id !== cid) : [];
       frontier.push({
         offerId: cid,
@@ -209,45 +282,21 @@ export function clear(input: MarketInput): EnginePlan {
       closed.add(cid);
       continue;
     }
-    const net = eff - inc.upkeepEt;
-    if (net <= EPS) {
-      frontier.push({ offerId: cid, reason: "net<0", detail: `marginal net ${net.toFixed(2)} e/t` });
+    if (best.net <= EPS) {
+      frontier.push({ offerId: cid, reason: "net<0", detail: `best marginal net ${best.net.toFixed(2)} e/t` });
       closed.add(cid);
       continue;
     }
-    if (spawnUsed + inc.spawnTimeEt > input.spawnCapacity + EPS) {
+    if (spawnUsed + best.spawnTimeEt > input.spawnCapacity + EPS) {
       frontier.push({
         offerId: cid,
         reason: "spawn capacity",
-        detail: `needs ${inc.spawnTimeEt.toFixed(4)} p/t, ${(input.spawnCapacity - spawnUsed).toFixed(4)} p/t free`
+        detail: `needs ${best.spawnTimeEt.toFixed(4)} p/t, ${(input.spawnCapacity - spawnUsed).toFixed(4)} p/t free`
       });
       closed.add(cid);
       continue;
     }
-    if (standingIncome <= EPS && inc.upfront > input.bankStock + EPS) {
-      frontier.push({
-        offerId: cid,
-        reason: "ramp insolvent",
-        detail: `needs ${inc.upfront}e up front, ${input.bankStock}e on hand, no standing income`
-      });
-      closed.add(cid);
-      continue;
-    }
-
-    for (const ref of inc.steps) {
-      const stage = best.chain.stages[ref.stage];
-      fund(stage.offer, cid, ref.step);
-    }
-    spawnUsed += inc.spawnTimeEt;
-    refill += inc.upkeepEt;
-    delivered += eff;
-    if (inc.backed) standingEt += eff;
-    if (srcId !== null) {
-      srcUsed[srcId] = (srcUsed[srcId] ?? 0) + eff;
-      const by = srcFundedBy[srcId] ?? (srcFundedBy[srcId] = []);
-      if (!by.includes(cid)) by.push(cid);
-    }
-    best.next += 1;
+    for (let k = 0; k < best.count; k++) fundInc(best.lc, best.lc.incs[best.lc.next]);
   }
 
   // Consumption draws the residual: inflow minus every funded parts bill.
@@ -316,6 +365,16 @@ export function clear(input: MarketInput): EnginePlan {
     tick: input.tick,
     corps,
     frontier,
-    expected: { minedEt, deliveredEt: delivered, refillEt: refill, upgradeEt, standingEt, standingUpgradeEt }
+    expected: {
+      minedEt,
+      deliveredEt: delivered,
+      refillEt: refill,
+      upgradeEt,
+      standingEt,
+      standingUpgradeEt,
+      // The broker owns this line — it knows the live fleet; 0 when the
+      // market is driven directly (synthetic suites).
+      standingRefillEt: 0
+    }
   };
 }

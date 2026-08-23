@@ -7,7 +7,7 @@
  * same regen cap), and lets the market clear. Corps see only handoffs;
  * the market sees only schedules; domain wiring lives here and is ~a page.
  */
-import { SOURCE_RATE } from "../primitives";
+import { SOURCE_RATE, upkeepEt } from "../primitives";
 import { quoteHaul } from "../corps/haul";
 import { quoteMine } from "../corps/mine";
 import { quoteSpawning } from "../corps/spawning";
@@ -101,7 +101,7 @@ export function replan(view: EconomyView): EnginePlan {
   const spawning = quoteSpawning({ spawnIds: view.spawnIds });
   const spawnCapacity = spawning ? spawning.steps.reduce((sum, s) => sum + (s.provides.spawnTime ?? 0), 0) : 0;
 
-  return clear({
+  const plan = clear({
     tick: view.tick,
     bank: view.bank,
     chains,
@@ -110,4 +110,8 @@ export function replan(view: EconomyView): EnginePlan {
     bankStock: view.bankStock,
     sourceCaps
   });
+  // The live fleet's perpetual replacement bill — steady state has no
+  // expiry event, only this cash line (an engine output; GUIs derive nothing).
+  plan.expected.standingRefillEt = view.creeps.reduce((sum, c) => sum + upkeepEt(c.body), 0);
+  return plan;
 }

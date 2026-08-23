@@ -118,5 +118,9 @@ export interface EnginePlan {
     standingEt: number;
     /** The live fleet's share of upgradeEt — burns of funded backed steps. */
     standingUpgradeEt: number;
+    /** Cash to SUSTAIN the live fleet: every live body's amortized
+     * replacement bill. Steady state has no expiry event — replacement is
+     * this bill, paid continuously; the believer's cash flow reads it. */
+    standingRefillEt: number;
   };
 }
