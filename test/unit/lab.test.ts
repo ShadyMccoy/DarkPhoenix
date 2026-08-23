@@ -41,8 +41,8 @@ describe("lab/scenario", () => {
     const kinds = new Set(plan.corps.map(c => c.kind));
     assert.deepEqual(
       [...kinds].sort(),
-      ["spawning", "upgrade", "workman"],
-      "empty ledger: the root, the sink, and the heartbeat's tender"
+      ["haul", "spawning", "upgrade", "workman"],
+      "empty ledger: the root, the sink and its feeder, and the heartbeat's tender"
     );
     assert.isTrue(
       plan.frontier.some(f => f.reason === "ramp insolvent"),

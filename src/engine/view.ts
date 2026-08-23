@@ -8,13 +8,13 @@
 import { BodyShape } from "../sizing";
 import { PlaceId } from "./vocabulary";
 
+/** A source IS its place: mined energy lands at the source's own id — no
+ * separate "mouth" concept (owner 2026-08-23). */
 export interface ViewSource {
   id: string;
-  /** The mouth's place id — where mined energy lands before transport. */
-  mouth: PlaceId;
   spots: number;
-  /** Route cost to the bank tile, in tiles. Chebyshev estimate until step
-   * 2's world assembly lands real paths; the F1 line measures the gap. */
+  /** Route cost to the bank tile, in tiles — real paths from the lab's
+   * world assembly; the F1 line measures the model gap. */
   distToBank: number;
 }
 

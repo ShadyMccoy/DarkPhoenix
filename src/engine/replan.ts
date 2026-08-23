@@ -13,7 +13,7 @@ import { quoteMine } from "../corps/mine";
 import { quoteSpawning, quoteTender, tenderCapacities } from "../corps/spawning";
 import { quoteUpgrade } from "../corps/upgrade";
 import { quoteWorkman } from "../corps/workman";
-import { ChainCandidate, SinkCandidate, clear } from "./market";
+import { ChainCandidate, ChainStage, SinkChain, clear } from "./market";
 import { EconomyView, ViewCreep } from "./view";
 import { EnginePlan, Offer, PlaceId } from "./vocabulary";
 
@@ -36,24 +36,23 @@ export function replan(view: EconomyView): EnginePlan {
 
     const mine = quoteMine({
       sourceId: src.id,
-      mouth: src.mouth,
       spots: src.spots,
       bank: view.bank,
       bodyBudget: view.bodyBudget,
       creeps: assigned(view, `mine:${src.id}`)
     });
     if (mine) {
-      const mineCaps = capacitiesAt(mine, src.mouth);
+      const mineCaps = capacitiesAt(mine, src.id);
       const haul = quoteHaul({
         gap: {
-          from: src.mouth,
+          from: src.id,
           to: view.bank,
           dist: src.distToBank,
           flow: mineCaps.reduce((a, b) => a + b, 0)
         },
         bank: view.bank,
         bodyBudget: view.bodyBudget,
-        creeps: assigned(view, `haul:${src.mouth}->${view.bank}`)
+        creeps: assigned(view, `haul:${src.id}->${view.bank}`)
       });
       if (haul) {
         chains.push({
@@ -84,17 +83,38 @@ export function replan(view: EconomyView): EnginePlan {
     }
   }
 
-  const sinks: SinkCandidate[] = [];
+  const sinks: SinkChain[] = [];
   if (view.controller) {
+    const ctrl = view.controller;
     const upgrade = quoteUpgrade({
-      controllerId: view.controller.id,
-      bank: view.bank,
+      controllerId: ctrl.id,
+      feed: ctrl.id,
       bodyBudget: view.bodyBudget,
       maxBurn: view.sources.length * SOURCE_RATE,
-      creeps: assigned(view, `upgrade:${view.controller.id}`)
+      creeps: assigned(view, `upgrade:${ctrl.id}`)
     });
     if (upgrade) {
-      sinks.push({ offer: upgrade, burns: upgrade.steps.map(s => s.requires.energyAt?.[view.bank] ?? 0) });
+      const burns = upgrade.steps.map(s => s.requires.energyAt?.[ctrl.id] ?? 0);
+      const stages: ChainStage[] = [];
+      // An adjacent controller self-loads across the bank tile; a distant
+      // one needs its feed hauled — the consumption side of the position
+      // book, priced by the same kind and the same route law as mining.
+      if (ctrl.distFromBank > 1) {
+        const feeder = quoteHaul({
+          gap: {
+            from: view.bank,
+            to: ctrl.id,
+            dist: ctrl.distFromBank,
+            flow: burns.reduce((a, b) => a + b, 0)
+          },
+          bank: view.bank,
+          bodyBudget: view.bodyBudget,
+          creeps: assigned(view, `haul:${view.bank}->${ctrl.id}`)
+        });
+        if (feeder) stages.push({ offer: feeder, capacities: capacitiesAt(feeder, ctrl.id) });
+      }
+      stages.push({ offer: upgrade, capacities: burns });
+      sinks.push({ stages });
     }
   }
 

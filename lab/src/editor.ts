@@ -106,7 +106,7 @@ function renderEdge(e: LabEdge, showLabel: boolean): string {
   const a = center(e.from);
   const b = center(e.to);
 
-  // A corp that never leaves its tile (mining at the mouth) is a self-edge:
+  // A corp that never leaves its tile (mining at the source) is a self-edge:
   // ring the tile rather than drawing a zero-length line.
   if (e.from.x === e.to.x && e.from.y === e.to.y) {
     const ring = el("circle", {

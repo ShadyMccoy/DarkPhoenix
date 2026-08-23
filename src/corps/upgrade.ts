@@ -11,7 +11,8 @@ import { ViewCreep } from "../engine/view";
 
 export interface UpgradeHandoff {
   controllerId: string;
-  bank: PlaceId;
+  /** Where its energy must arrive — the controller-side feed point. */
+  feed: PlaceId;
   bodyBudget: number;
   /** Ceiling on useful burn — the world cannot upgrade more than it mines,
    * so the broker passes total source rate; the schedule ends there. */
@@ -30,7 +31,7 @@ export function quoteUpgrade(h: UpgradeHandoff): Offer | null {
     steps.push({
       backedBy: c.id,
       provides: { controlPoints: burn },
-      requires: { energyAt: { [h.bank]: burn } },
+      requires: { energyAt: { [h.feed]: burn } },
       cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
       note: `alive ttl=${c.ttl}`
     });
@@ -45,7 +46,7 @@ export function quoteUpgrade(h: UpgradeHandoff): Offer | null {
       steps.push({
         buys: body,
         provides: { controlPoints: burn },
-        requires: { energyAt: { [h.bank]: burn } },
+        requires: { energyAt: { [h.feed]: burn } },
         cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },
         note: `${body.work}W at the controller`
       });

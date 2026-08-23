@@ -7,7 +7,7 @@
  * off the plan; the frontier's reason is the engine's own word. The one
  * thing this file adds is what the engine has no opinion on — WHERE a place
  * id sits on the staged map — and that is the same lab-side knowledge
- * assemble() already uses to mint those ids (`mouth:<src>`, `bank`, `ctrl`).
+ * assemble() already uses to mint those ids (source ids, `bank`, `ctrl`).
  *
  * An edge is a corp: the flow it moves, drawn between the places it joins.
  * A production corp that never leaves its tile (mine) is a self-edge — the
@@ -63,12 +63,13 @@ function sourceXY(s: Scenario, id: string): XY | null {
   return src ? { x: src.x, y: src.y } : null;
 }
 
-/** Place id → tile, mirroring the ids assemble() mints. */
+/** Place id → tile, mirroring the ids assemble() mints. A source IS its
+ * place (owner 2026-08-23 — "mouth" retired), so anything that is not the
+ * bank or the controller resolves as a source id. */
 function placeXY(s: Scenario, place: string): XY | null {
   if (place === "bank") return s.bank;
   if (place === "ctrl") return s.controller;
-  if (place.indexOf("mouth:") === 0) return sourceXY(s, place.slice("mouth:".length));
-  return null;
+  return sourceXY(s, place);
 }
 
 /** Split on the FIRST colon only: a haul id nests place ids after its own. */

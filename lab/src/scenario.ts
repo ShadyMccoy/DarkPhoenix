@@ -114,7 +114,7 @@ export function spotsAt(terrain: string[], p: XY): number {
   return neighbors(p).filter(n => cellAt(terrain, n.x, n.y) !== WALL).length;
 }
 
-/** Best adjacent approach distance: the mouth's route cost to the bank. */
+/** Best adjacent approach distance: a source or controller's route cost to the bank. */
 function approachDist(dist: number[][], p: XY): number {
   let best = Infinity;
   for (const n of neighbors(p)) {
@@ -136,7 +136,6 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     estateRadius: approachDist(dist, s.spawn),
     sources: s.sources.map(src => ({
       id: src.id,
-      mouth: `mouth:${src.id}`,
       spots: spotsAt(s.terrain, src),
       distToBank: approachDist(dist, src)
     })),

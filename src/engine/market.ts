@@ -39,17 +39,20 @@ export interface ChainCandidate {
   stages: ChainStage[];
 }
 
-export interface SinkCandidate {
-  offer: Offer;
-  /** Per-step draw at the bank (burn, e/t). */
-  burns: number[];
+/** A consumption chain toward a sink: transport stages first, the burner
+ * last, capacities in the sink's burn currency (e/t at the feed point).
+ * The whole chain draws the residual — burn plus every stage's bill — so
+ * a distant controller pays for its feed like a distant source pays for
+ * its haul: same zipper, same route law, opposite direction. */
+export interface SinkChain {
+  stages: ChainStage[];
 }
 
 export interface MarketInput {
   tick: number;
   bank: PlaceId;
   chains: ChainCandidate[];
-  sinks: SinkCandidate[];
+  sinks: SinkChain[];
   /** Machine-time capacity, parts/tick (Σ spawning provides). */
   spawnCapacity: number;
   bankStock: number;
@@ -341,31 +344,33 @@ export function clear(input: MarketInput): EnginePlan {
   let upgradeEt = 0;
   let standingUpgradeEt = 0;
   for (const sink of input.sinks) {
-    for (let i = 0; i < sink.offer.steps.length; i++) {
-      const s = sink.offer.steps[i];
-      const draw = sink.burns[i] + s.cost.upkeepEt;
-      if (spawnUsed + s.cost.spawnTimeEt > input.spawnCapacity + EPS) {
+    if (sink.stages.length === 0) continue;
+    const sinkOffer = sink.stages[sink.stages.length - 1].offer;
+    const incs = chainIncrements({ id: `sink:${sinkOffer.id}`, sourceId: null, stages: sink.stages });
+    for (const inc of incs) {
+      const draw = inc.delivered + inc.upkeepEt;
+      if (spawnUsed + inc.spawnTimeEt > input.spawnCapacity + EPS) {
         frontier.push({
-          offerId: sink.offer.id,
+          offerId: sinkOffer.id,
           reason: "spawn capacity",
-          detail: `needs ${s.cost.spawnTimeEt.toFixed(4)} p/t, ${(input.spawnCapacity - spawnUsed).toFixed(4)} p/t free`
+          detail: `needs ${inc.spawnTimeEt.toFixed(4)} p/t, ${(input.spawnCapacity - spawnUsed).toFixed(4)} p/t free`
         });
         break;
       }
       if (draw > residual + EPS) {
         frontier.push({
-          offerId: sink.offer.id,
+          offerId: sinkOffer.id,
           reason: "energy residual",
           detail: `step needs ${draw.toFixed(2)} e/t, residual ${residual.toFixed(2)} e/t`
         });
         break;
       }
-      fund(sink.offer, null, i);
+      for (const ref of inc.steps) fund(sink.stages[ref.stage].offer, null, ref.step);
       residual -= draw;
-      refill += s.cost.upkeepEt;
-      spawnUsed += s.cost.spawnTimeEt;
-      upgradeEt += sink.burns[i];
-      if (s.backedBy) standingUpgradeEt += sink.burns[i];
+      refill += inc.upkeepEt;
+      spawnUsed += inc.spawnTimeEt;
+      upgradeEt += inc.delivered;
+      if (inc.backed) standingUpgradeEt += inc.delivered;
     }
   }
 

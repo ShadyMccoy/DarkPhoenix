@@ -1,5 +1,5 @@
 /**
- * corps/mine.ts — static mining: WORK sits at the mouth and drains the
+ * corps/mine.ts — static mining: WORK sits at the source and drains the
  * source. Provides energy AT THE MOUTH; getting it to the bank is the
  * transport market's business (positions, not hauler requests — piece 1).
  * Quote side only until the cutover brings the runner and the harvest
@@ -11,8 +11,8 @@ import { Offer, PlaceId, Step } from "../engine/vocabulary";
 import { ViewCreep } from "../engine/view";
 
 export interface MineHandoff {
+  /** The source's id doubles as its place: mined energy provides here. */
   sourceId: string;
-  mouth: PlaceId;
   spots: number;
   bank: PlaceId;
   bodyBudget: number;
@@ -29,7 +29,7 @@ export function quoteMine(h: MineHandoff): Offer | null {
     cum += rate;
     steps.push({
       backedBy: c.id,
-      provides: { energyAt: { [h.mouth]: rate } },
+      provides: { energyAt: { [h.sourceId]: rate } },
       requires: {},
       cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
       note: `alive ttl=${c.ttl}`
@@ -43,10 +43,10 @@ export function quoteMine(h: MineHandoff): Offer | null {
       cum += rate;
       steps.push({
         buys: body,
-        provides: { energyAt: { [h.mouth]: rate } },
+        provides: { energyAt: { [h.sourceId]: rate } },
         requires: {},
         cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },
-        note: `${body.work}W at the mouth`
+        note: `${body.work}W at the source`
       });
     }
   }

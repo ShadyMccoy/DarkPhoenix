@@ -22,8 +22,8 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     spawnIds: ["sp1"],
     estateRadius: 1,
     sources: [
-      { id: "srcA", mouth: "mouthA", spots: 3, distToBank: 10 },
-      { id: "srcB", mouth: "mouthB", spots: 3, distToBank: 25 }
+      { id: "srcA", spots: 3, distToBank: 10 },
+      { id: "srcB", spots: 3, distToBank: 25 }
     ],
     controller: { id: "ctrl", distFromBank: 5 },
     creeps: [],
@@ -42,9 +42,9 @@ describe("engine/replan", () => {
 
     assert.deepEqual(corps.get("mine:srcA")?.body, { work: 5, carry: 0, move: 1 });
     assert.equal(corps.get("mine:srcA")?.target, 1, "one 5W miner saturates a source");
-    assert.equal(corps.get("haul:mouthA->bank")?.target, 1, "10 tiles: one 5C hauler");
-    assert.equal(corps.get("haul:mouthB->bank")?.target, 2, "25 tiles: the same flow costs two");
-    assert.deepEqual(corps.get("haul:mouthA->bank")?.body, { work: 0, carry: 5, move: 5 });
+    assert.equal(corps.get("haul:srcA->bank")?.target, 1, "10 tiles: one 5C hauler");
+    assert.equal(corps.get("haul:srcB->bank")?.target, 2, "25 tiles: the same flow costs two");
+    assert.deepEqual(corps.get("haul:srcA->bank")?.body, { work: 0, carry: 5, move: 5 });
 
     // The workman quotes everywhere and loses everywhere — no bootstrap flag.
     assert.isUndefined(corps.get("workman:srcA"));
@@ -62,13 +62,17 @@ describe("engine/replan", () => {
     assert.equal(plan.frontier.find(f => f.offerId === "upgrade:ctrl")?.reason, "energy residual");
 
     // Generic in/out on the instance: every commodity, engine-computed.
-    const haulA = corps.get("haul:mouthA->bank");
-    assert.closeTo(haulA?.inputs.energyAt?.["mouthA"] ?? 0, 12.5, 1e-9, "draws at the mouth");
+    const haulA = corps.get("haul:srcA->bank");
+    assert.closeTo(haulA?.inputs.energyAt?.["srcA"] ?? 0, 12.5, 1e-9, "draws at the mouth");
     assert.closeTo(haulA?.outputs.energyAt?.["bank"] ?? 0, 12.5, 1e-9, "provides at the bank");
     assert.isAbove(haulA?.inputs.spawnTime ?? 0, 0, "machine time is an input");
     const up = corps.get("upgrade:ctrl");
     assert.closeTo(up?.outputs.controlPoints ?? 0, 16, 1e-9);
-    assert.closeTo(up?.inputs.energyAt?.["bank"] ?? 0, 16 + 4 * (500 / 1500), 1e-9, "burn plus the parts bill");
+    assert.closeTo(up?.inputs.energyAt?.["ctrl"] ?? 0, 16, 1e-9, "burns at its own feed point");
+    assert.closeTo(up?.inputs.energyAt?.["bank"] ?? 0, 4 * (500 / 1500), 1e-9, "the parts bill at the bank");
+
+    // The controller's feed is a haul chain of its own — bank → ctrl.
+    assert.equal(corps.get("haul:bank->ctrl")?.target, 1);
 
     assert.closeTo(plan.expected.deliveredEt, 20, 1e-9);
     assert.closeTo(plan.expected.upgradeEt, 16, 1e-9);
@@ -77,6 +81,17 @@ describe("engine/replan", () => {
     assert.closeTo(plan.expected.refillEt, bills, 1e-9);
 
     assert.deepEqual(replan(view({ bodyBudget: 550, bankStock: 2000 })), plan, "same view, same plan");
+  });
+
+  it("prices the controller's distance: a far controller pays more for its feed", () => {
+    const near = replan(view({ bodyBudget: 550, bankStock: 2000, controller: { id: "ctrl", distFromBank: 5 } }));
+    const far = replan(view({ bodyBudget: 550, bankStock: 2000, controller: { id: "ctrl", distFromBank: 30 } }));
+
+    const feederNear = byId(near).get("haul:bank->ctrl")?.target ?? 0;
+    const feederFar = byId(far).get("haul:bank->ctrl")?.target ?? 0;
+    assert.isAbove(feederFar, feederNear, "distance costs CARRY on the consumption side too");
+    assert.isAbove(far.expected.refillEt, near.expected.refillEt, "the bigger feed fleet's bills grow the obligation");
+    assert.isAtMost(far.expected.upgradeEt, near.expected.upgradeEt, "and never buys MORE upgrading");
   });
 
   it("cascade A — empty ledger: the solvency filter leaves only the workman root standing", () => {
@@ -114,7 +129,7 @@ describe("engine/replan", () => {
 
     // The challenger enters at the trimmed remainder of the regen cap.
     assert.equal(corps.get("mine:srcA")?.target, 1);
-    assert.equal(corps.get("haul:mouthA->bank")?.target, 1);
+    assert.equal(corps.get("haul:srcA->bank")?.target, 1);
     assert.equal(corps.get("mine:srcB")?.target, 1);
 
     const backedRate = 3 * workmanCycleRate(workman, 10);
@@ -134,14 +149,14 @@ describe("engine/replan", () => {
         bankStock: 500,
         creeps: [
           { id: "m1", corp: "mine:srcA", body: { work: 5, carry: 0, move: 1 }, ttl: 900 },
-          { id: "h1", corp: "haul:mouthA->bank", body: { work: 0, carry: 5, move: 5 }, ttl: 900 }
+          { id: "h1", corp: "haul:srcA->bank", body: { work: 0, carry: 5, move: 5 }, ttl: 900 }
         ]
       })
     );
     const corps = byId(plan);
 
     assert.equal(corps.get("mine:srcA")?.backed, 1);
-    assert.equal(corps.get("haul:mouthA->bank")?.backed, 1);
+    assert.equal(corps.get("haul:srcA->bank")?.backed, 1);
     assert.isUndefined(corps.get("workman:srcA"), "no workman instance survives the developed economy");
     const beaten = plan.frontier.filter(f => f.reason === "outcompeted").map(f => f.offerId);
     assert.includeMembers(beaten, ["chain:srcA:workman", "chain:srcB:workman"]);

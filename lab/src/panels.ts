@@ -19,16 +19,12 @@ export function fmtBody(b: BodyShape | null): string {
   return parts.join(" ");
 }
 
-function shortPlace(p: string): string {
-  return p.indexOf("mouth:") === 0 ? p.slice("mouth:".length) : p;
-}
-
 /** Every commodity a corp trades, rendered generically — engine fields
  * verbatim, whatever the vocabulary grows to hold. */
 export function fmtFlows(f: Flows): string {
   const parts: string[] = [];
   for (const place of Object.keys(f.energyAt ?? {})) {
-    parts.push(`${(f.energyAt as Record<string, number>)[place].toFixed(1)}e@${shortPlace(place)}`);
+    parts.push(`${(f.energyAt as Record<string, number>)[place].toFixed(1)}e@${place}`);
   }
   if (f.spawnTime) parts.push(`${f.spawnTime.toFixed(3)}p/t`);
   if (f.controlPoints) parts.push(`${f.controlPoints.toFixed(1)}CP`);

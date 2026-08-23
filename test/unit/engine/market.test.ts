@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { ChainCandidate, MarketInput, SinkCandidate, clear } from "../../../src/engine/market";
+import { ChainCandidate, MarketInput, SinkChain, clear } from "../../../src/engine/market";
 import { Step } from "../../../src/engine/vocabulary";
 
 /**
@@ -126,7 +126,7 @@ describe("engine/market", () => {
       requires: { energyAt: { bank: 4 } },
       cost: { upfront: 300, upkeepEt: 0.2, spawnTimeEt: 0.003 }
     }));
-    const sinks: SinkCandidate[] = [{ offer: { id: "up", kind: "upgrade", steps: sinkSteps }, burns: [4, 4, 4] }];
+    const sinks: SinkChain[] = [{ stages: [{ offer: { id: "up", kind: "upgrade", steps: sinkSteps }, capacities: [4, 4, 4] }] }];
     const plan = clear(input({ chains: [prod], sinks }));
     // Residual 9: two 4.2 draws fit, the third prints the frontier.
     assert.equal(plan.corps.find(c => c.id === "up")?.target, 2);
