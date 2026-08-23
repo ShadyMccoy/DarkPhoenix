@@ -3,9 +3,12 @@ import {
   PART_COST,
   SOURCE_RATE,
   SOURCE_SATURATION_WORK,
+  SPAWN_RATE,
   bodyCost,
   bodyList,
-  workmanBody,
+  haulRate,
+  spawnTimeEt,
+  upkeepEt,
   workmanCycleRate,
   workmenPerSource
 } from "../../src/primitives";
@@ -22,13 +25,13 @@ describe("primitives", () => {
     assert.deepEqual(PART_COST, { work: 100, carry: 50, move: 50 });
   });
 
-  it("sizes workman bodies: survival floor at 200, units of 250, cap at 5", () => {
-    assert.isNull(workmanBody(199), "below the floor nothing is buyable");
-    assert.deepEqual(workmanBody(200), { work: 1, carry: 1, move: 1 });
-    assert.deepEqual(workmanBody(249), { work: 1, carry: 1, move: 1 });
-    assert.deepEqual(workmanBody(250), { work: 1, carry: 1, move: 2 });
-    assert.deepEqual(workmanBody(550), { work: 2, carry: 2, move: 4 });
-    assert.deepEqual(workmanBody(9999), { work: 5, carry: 5, move: 10 }, "5-unit cap");
+  it("prices ownership: spawn machine time, amortized upkeep, haul throughput", () => {
+    assert.closeTo(SPAWN_RATE, 1 / 3, 1e-9, "one part per three ticks");
+    const unit = { work: 1, carry: 1, move: 2 };
+    assert.closeTo(upkeepEt(unit), 250 / 1500, 1e-9);
+    assert.closeTo(spawnTimeEt(unit), 4 / 1500, 1e-9);
+    // 4 CARRY over a 10-tile route: 200e per 20-tick round trip.
+    assert.closeTo(haulRate(4, 10), 10, 1e-9);
   });
 
   it("prices bodies and lists parts", () => {

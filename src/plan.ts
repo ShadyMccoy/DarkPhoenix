@@ -10,14 +10,8 @@
  * refill, then controller). M2 splits mining from hauling; the *shape* of
  * the plan (jobs + expected rate) is the part meant to last.
  */
-import {
-  SOURCE_RATE,
-  WorkmanShape,
-  bodyCost,
-  workmanBody,
-  workmanCycleRate,
-  workmenPerSource
-} from "./primitives";
+import { SOURCE_RATE, WorkmanShape, bodyCost, workmanCycleRate, workmenPerSource } from "./primitives";
+import { workmanBody } from "./sizing";
 import { World, WorldRoom } from "./world";
 
 export interface Job {
