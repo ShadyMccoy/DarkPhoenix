@@ -28,6 +28,7 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     controller: { id: "ctrl", distFromBank: 5 },
     creeps: [],
     links: [],
+    outposts: [],
     ...over
   };
 }
@@ -152,6 +153,42 @@ describe("engine/replan", () => {
     // srcA: the same candidate arithmetic loses to one 0.33 e/t hauler.
     assert.equal(corps.get("haul:srcA->bank")?.target, 1);
     assert.isUndefined(corps.get("link:srcA->bank"));
+  });
+
+  it("consolidates far sources through a link outpost: short collectors, one shared trunk, the book audits the joint", () => {
+    const plan = replan(
+      view({
+        bodyBudget: 550,
+        bankStock: 2000,
+        sources: [
+          { id: "src1", spots: 3, distToBank: 30 },
+          { id: "src2", spots: 3, distToBank: 32 },
+          { id: "src3", spots: 3, distToBank: 34 }
+        ],
+        links: [
+          { id: "L1", at: "outpost:L1" },
+          { id: "LB", at: "bank" }
+        ],
+        outposts: [{ place: "outpost:L1", distToBank: 20, distToSource: { src1: 5, src2: 5, src3: 5 } }]
+      })
+    );
+    const corps = byId(plan);
+
+    // Three short collector legs converge on the outpost...
+    for (const src of ["src1", "src2", "src3"]) {
+      assert.equal(corps.get(`haul:${src}->outpost:L1`)?.target, 1, `${src} collects to the outpost`);
+      assert.isUndefined(corps.get(`haul:${src}->bank`), `${src} runs no direct route`);
+    }
+    // ...and ONE standing pair trunks them all: a slice per source.
+    const trunk = corps.get("link:outpost:L1->bank");
+    assert.equal(trunk?.target, 3, "three slices of one pair");
+    assert.equal(trunk?.backed, 3);
+    assert.closeTo(trunk?.outputs.energyAt?.["bank"] ?? 0, 30, 1e-9);
+
+    assert.closeTo(plan.expected.deliveredEt, 30, 1e-9);
+    assert.isEmpty(plan.violations, "the outpost place clears: collectors in, trunk out");
+    const joint = plan.positions.find(p => p.place === "outpost:L1");
+    assert.closeTo(joint?.netEt ?? NaN, 0, 0.01);
   });
 
   it("cascade A — empty ledger: the solvency filter leaves only the workman root standing", () => {

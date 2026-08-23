@@ -70,6 +70,10 @@ function sourceXY(s: Scenario, id: string): XY | null {
 function placeXY(s: Scenario, place: string): XY | null {
   if (place === "bank") return s.bank;
   if (place === "ctrl") return s.controller;
+  if (place.indexOf("outpost:") === 0) {
+    const l = s.links.find(k => `outpost:${k.id}` === place);
+    return l ? { x: l.x, y: l.y } : null;
+  }
   return sourceXY(s, place);
 }
 

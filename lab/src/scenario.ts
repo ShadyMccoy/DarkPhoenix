@@ -4,12 +4,20 @@
  * and its scenario files double as engine fixtures (graph-lab requirement
  * #3: round-trip through the editor, checked in, deterministic replays).
  *
+ * Maps are any size (owner 2026-08-23), and ROOM-AGNOSTIC by ruling: a
+ * "room" is walls the editor draws, never model structure. Dimensions
+ * derive from the terrain itself.
+ *
  * Assembly is the pure world-assembly step of lab requirement #2: the map
  * is INPUT — real path distances derive here — and the engine still
- * searches ledger space only.
+ * searches ledger space only. A free-standing link (near no known place)
+ * becomes an OUTPOST: its own place, a collection branch the broker may
+ * route through (owner 2026-08-23: "consolidate multiple haul routes into
+ * one link outpost").
  */
-import { EconomyView, ViewCreep } from "../../src/engine/view";
+import { EconomyView, ViewCreep, ViewLink, ViewOutpost } from "../../src/engine/view";
 
+/** Default dimensions for a fresh map — not a bound. */
 export const SIZE = 50;
 export const PLAIN = ".";
 export const WALL = "#";
@@ -36,7 +44,7 @@ export interface ScenarioLink {
 
 export interface Scenario {
   name: string;
-  /** SIZE rows of SIZE chars: '.' plain, '#' wall, '~' swamp. */
+  /** Rows of '.', '#', '~'. Height = rows, width = row length. */
   terrain: string[];
   spawn: XY;
   /** The designated bank tile — the founding kernel's first branch. */
@@ -52,54 +60,79 @@ export interface Scenario {
   creeps: ViewCreep[];
 }
 
-export function emptyTerrain(): string[] {
+export function mapHeight(terrain: string[]): number {
+  return terrain.length;
+}
+
+export function mapWidth(terrain: string[]): number {
+  return terrain.length > 0 ? terrain[0].length : 0;
+}
+
+export function emptyTerrain(width = SIZE, height = SIZE): string[] {
   const rows: string[] = [];
-  for (let y = 0; y < SIZE; y++) rows.push(PLAIN.repeat(SIZE));
+  for (let y = 0; y < height; y++) rows.push(PLAIN.repeat(width));
   return rows;
 }
 
 export function cellAt(terrain: string[], x: number, y: number): string {
-  if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) return WALL;
-  return terrain[y].charAt(x);
+  if (y < 0 || y >= terrain.length) return WALL;
+  const row = terrain[y];
+  if (x < 0 || x >= row.length) return WALL;
+  return row.charAt(x);
 }
 
 export function setCell(terrain: string[], x: number, y: number, ch: string): void {
-  if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) return;
-  terrain[y] = terrain[y].slice(0, x) + ch + terrain[y].slice(x + 1);
+  if (y < 0 || y >= terrain.length) return;
+  const row = terrain[y];
+  if (x < 0 || x >= row.length) return;
+  terrain[y] = row.slice(0, x) + ch + row.slice(x + 1);
+}
+
+/** Pad or crop to new dimensions, top-left anchored, preserving content. */
+export function resizeTerrain(terrain: string[], width: number, height: number): string[] {
+  const rows: string[] = [];
+  for (let y = 0; y < height; y++) {
+    const row = y < terrain.length ? terrain[y] : "";
+    rows.push(row.length >= width ? row.slice(0, width) : row + PLAIN.repeat(width - row.length));
+  }
+  return rows;
 }
 
 /**
  * Weighted distance field from one tile over 8-directional movement (the
- * game's geometry), walls blocking, swamp at its cost. Small grid, plain
- * Dijkstra — derived at assembly time, never persisted (piece 4).
+ * game's geometry), walls blocking, swamp at its cost. Integer costs, so
+ * Dial's bucket queue keeps it linear in cells — fast enough to replan on
+ * every editor click at large map sizes.
  */
 export function distanceField(terrain: string[], from: XY): number[][] {
+  const h = mapHeight(terrain);
+  const w = mapWidth(terrain);
   const dist: number[][] = [];
-  for (let y = 0; y < SIZE; y++) dist.push(new Array<number>(SIZE).fill(Infinity));
+  for (let y = 0; y < h; y++) dist.push(new Array<number>(w).fill(Infinity));
+  if (from.y < 0 || from.y >= h || from.x < 0 || from.x >= w) return dist;
   if (cellAt(terrain, from.x, from.y) === WALL) return dist;
   dist[from.y][from.x] = 0;
-  const queue: XY[] = [from];
-  const done: boolean[][] = [];
-  for (let y = 0; y < SIZE; y++) done.push(new Array<boolean>(SIZE).fill(false));
-  while (queue.length > 0) {
-    let bi = 0;
-    for (let i = 1; i < queue.length; i++) {
-      if (dist[queue[i].y][queue[i].x] < dist[queue[bi].y][queue[bi].x]) bi = i;
-    }
-    const cur = queue.splice(bi, 1)[0];
-    if (done[cur.y][cur.x]) continue;
-    done[cur.y][cur.x] = true;
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        if (dx === 0 && dy === 0) continue;
-        const nx = cur.x + dx;
-        const ny = cur.y + dy;
-        const ch = cellAt(terrain, nx, ny);
-        if (ch === WALL) continue;
-        const nd = dist[cur.y][cur.x] + MOVE_COST[ch];
-        if (nd < dist[ny][nx]) {
-          dist[ny][nx] = nd;
-          queue.push({ x: nx, y: ny });
+  const buckets: XY[][] = [[{ x: from.x, y: from.y }]];
+  for (let d = 0; d < buckets.length; d++) {
+    const bucket = buckets[d];
+    if (!bucket) continue;
+    for (let i = 0; i < bucket.length; i++) {
+      const cur = bucket[i];
+      if (dist[cur.y][cur.x] !== d) continue;
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = cur.x + dx;
+          const ny = cur.y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const ch = terrain[ny].charAt(nx);
+          if (ch === WALL) continue;
+          const nd = d + MOVE_COST[ch];
+          if (nd < dist[ny][nx]) {
+            dist[ny][nx] = nd;
+            while (buckets.length <= nd) buckets.push([]);
+            buckets[nd].push({ x: nx, y: ny });
+          }
         }
       }
     }
@@ -123,18 +156,22 @@ export function spotsAt(terrain: string[], p: XY): number {
   return neighbors(p).filter(n => cellAt(terrain, n.x, n.y) !== WALL).length;
 }
 
-/** Best adjacent approach distance: a source or controller's route cost to the bank. */
+/** Best adjacent approach distance: an element's route cost to the field's
+ * origin. */
 function approachDist(dist: number[][], p: XY): number {
+  const h = dist.length;
+  const w = h > 0 ? dist[0].length : 0;
   let best = Infinity;
   for (const n of neighbors(p)) {
-    if (n.x < 0 || n.y < 0 || n.x >= SIZE || n.y >= SIZE) continue;
+    if (n.x < 0 || n.y < 0 || n.x >= w || n.y >= h) continue;
     best = Math.min(best, dist[n.y][n.x]);
   }
-  return Number.isFinite(best) ? Math.max(best, 1) : SIZE;
+  return Number.isFinite(best) ? Math.max(best, 1) : w + h;
 }
 
 /** Which place a link tile serves: the bank, a source, or the controller
- * within short reach — a link farther from everything serves nothing. */
+ * within short reach — otherwise it stands free and becomes an OUTPOST,
+ * its own place. */
 export function linkPlace(s: Scenario, link: ScenarioLink): string | null {
   const near = (p: XY | null): boolean => !!p && Math.max(Math.abs(p.x - link.x), Math.abs(p.y - link.y)) <= 2;
   if (near(s.bank)) return "bank";
@@ -146,10 +183,21 @@ export function linkPlace(s: Scenario, link: ScenarioLink): string | null {
 /** The pure world-assembly step: staged map in, EconomyView out. */
 export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, tick: number): EconomyView {
   const dist = distanceField(s.terrain, s.bank);
-  const links = [];
+  const links: ViewLink[] = [];
+  const outposts: ViewOutpost[] = [];
   for (const l of s.links) {
     const at = linkPlace(s, l);
-    if (at) links.push({ id: l.id, at });
+    if (at) {
+      links.push({ id: l.id, at });
+      continue;
+    }
+    // Free-standing: an outpost — its own place, with its own distances.
+    const place = `outpost:${l.id}`;
+    links.push({ id: l.id, at: place });
+    const field = distanceField(s.terrain, { x: l.x, y: l.y });
+    const distToSource: Record<string, number> = {};
+    for (const src of s.sources) distToSource[src.id] = approachDist(field, src);
+    outposts.push({ place, distToBank: approachDist(dist, { x: l.x, y: l.y }), distToSource });
   }
   return {
     tick,
@@ -165,7 +213,8 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     })),
     controller: s.controller ? { id: "ctrl", distFromBank: approachDist(dist, s.controller) } : null,
     creeps,
-    links
+    links,
+    outposts
   };
 }
 
@@ -183,8 +232,12 @@ export function exportSave(save: LabSave): string {
 
 export function importSave(text: string): LabSave {
   const raw = JSON.parse(text) as LabSave;
-  if (!raw.scenario || !Array.isArray(raw.scenario.terrain) || raw.scenario.terrain.length !== SIZE) {
+  if (!raw.scenario || !Array.isArray(raw.scenario.terrain) || raw.scenario.terrain.length === 0) {
     throw new Error("not a lab save: bad terrain");
+  }
+  const w = raw.scenario.terrain[0].length;
+  if (w === 0 || raw.scenario.terrain.some(row => row.length !== w)) {
+    throw new Error("not a lab save: ragged terrain");
   }
   if (!raw.scenario.spawn || !raw.scenario.bank || !Array.isArray(raw.scenario.sources)) {
     throw new Error("not a lab save: missing elements");

@@ -48,9 +48,18 @@ export interface EconomyView {
   /** Standing link structures, each mapped to the place it serves — the
    * link kind's handed assets (`asset(id)` entering the vocabulary). */
   links: ViewLink[];
+  /** Free-standing links as collection branches (owner 2026-08-23):
+   * places of their own that the broker may route sources through. */
+  outposts: ViewOutpost[];
 }
 
 export interface ViewLink {
   id: string;
   at: PlaceId;
+}
+
+export interface ViewOutpost {
+  place: PlaceId;
+  distToBank: number;
+  distToSource: Record<string, number>;
 }

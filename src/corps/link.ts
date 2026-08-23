@@ -15,7 +15,7 @@
  */
 import { HORIZON, LINK_CAPACITY, LINK_COST, LINK_LOSS } from "../primitives";
 import { HaulGap } from "./haul";
-import { Offer } from "../engine/vocabulary";
+import { Offer, PlaceId } from "../engine/vocabulary";
 import { ViewLink } from "../engine/view";
 
 export interface LinkHandoff {
@@ -23,6 +23,45 @@ export interface LinkHandoff {
   /** Standing links at the gap's endpoints, if any. */
   atFrom: ViewLink | null;
   atTo: ViewLink | null;
+}
+
+export interface TrunkSlice {
+  sourceId: string;
+  flow: number;
+}
+
+export interface TrunkHandoff {
+  from: PlaceId;
+  to: PlaceId;
+  dist: number;
+  /** Per-source shares of the pair's capacity — one step each, so every
+   * consolidated chain funds and pays for exactly its own share. */
+  slices: TrunkSlice[];
+  atFrom: ViewLink | null;
+  atTo: ViewLink | null;
+}
+
+/**
+ * The consolidation trunk (owner 2026-08-23: "consolidate multiple haul
+ * routes into one link outpost"): ONE standing pair quoted as one step
+ * per assigned source, each priced at the tax on its own slice. The
+ * offer's target then reads as slices-of-one-pair, and the position book
+ * audits the joint at the outpost place.
+ */
+export function quoteTrunk(h: TrunkHandoff): Offer | null {
+  if (!h.atFrom || !h.atTo || h.slices.length === 0) return null;
+  const backedBy = `${h.atFrom.id}+${h.atTo.id}`;
+  return {
+    id: `link:${h.from}->${h.to}`,
+    kind: "link",
+    steps: h.slices.map(s => ({
+      backedBy,
+      provides: { energyAt: { [h.to]: s.flow } },
+      requires: { energyAt: { [h.from]: s.flow } },
+      cost: { upfront: 0, upkeepEt: 0, feeEt: LINK_LOSS * s.flow, spawnTimeEt: 0 },
+      note: `slice for ${s.sourceId}: ${s.flow.toFixed(1)} e/t at 3%`
+    }))
+  };
 }
 
 export function quoteLink(h: LinkHandoff): Offer | null {

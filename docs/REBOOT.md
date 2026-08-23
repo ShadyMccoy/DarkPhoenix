@@ -1000,6 +1000,50 @@ delegated to the session, worked through priced examples, and closed:
 The bot's cutover from `plan.ts` to the engine is a separate
 owner-gated event once the lab has certified the design.
 
+### The roadmap (agreed 2026-08-23)
+
+Ordered by dependency; every item rides the standing machinery —
+quotes, order books, capex over HORIZON, the position book — so each
+is a vertical plus a registry entry, as the concept promised. Two
+rulings recorded with it: **the map and graph are room-agnostic**
+(owner: "the map and graph is pretty much room agnostic" — rooms are
+walls the editor draws, never model structure), and **link outposts
+consolidate haul routes** (owner: "consolidate multiple haul routes
+into one link outpost given such a map" — a free-standing link is its
+own PLACE, a bank branch in waiting: short collector hauls converge
+on it, one trunk hop covers them all, and the book audits the joint).
+
+**Tier 1 — make the economy real:**
+1. Build corp — the missing verb; retires the believer as interim
+   builder. Unlocks the rest of the tier.
+2. Extensions as investment — bodyBudget becomes ENDOGENOUS: an
+   extension is a 3000e candidate whose payoff is bigger quotable
+   bodies; the spawn estate grows itself the way the link cleared
+   its hurdle, and spread-out estates raise the heartbeat's price.
+3. Bank branches as real places — containers and storage with
+   capacity and holding costs (piece 9's branch classification, pile
+   decay as the bank's own line, the warchest band on screen).
+4. Roads — a route-cost modifier from the traffic overlay, making
+   every edge a three-way market (bodies off-road / on-road / link).
+
+**Tier 2 — the cutover (M2, then M3):** runners execute the engine's
+plan in the mockup, `plan.ts` retires, the M1 cell re-passes; then
+the fidelity line measures actuals against expected/standing — the
+believer certifies accounting, the mockup audits it.
+
+**Tier 3 — beyond one room:** scout (coverage, axiom-priced) →
+remote mining + the reserve corp (a pure multiplier corp) → claim /
+new-spawn-site (the first depth-2 chain; the founding-kernel
+placement function) → guard + tower with `safe(place)` (awaiting the
+deterrence-floor ruling).
+
+**Cross-cutting, pulled in when measurement demands:** the real depth
+dial and the racing harness (where the deferred objective
+conversation happens); the replacement-scale displacement rule
+(standing fleets are currently immortal incumbents in steady state);
+pricing spawnTime in merit once p/t binds; per-RCL link-count
+scarcity (the REAL reason outposts consolidate in the game).
+
 ## The scenario ladder (DRAFT 2026-08-18 — awaiting owner markup)
 
 Shaped in-session, reorganized per the owner: **tied to behaviors and

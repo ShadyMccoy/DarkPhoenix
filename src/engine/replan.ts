@@ -15,15 +15,16 @@
  * Corps see only handoffs; the market sees only option books; the domain
  * wiring lives here and stays about a page.
  */
-import { SOURCE_RATE, upkeepEt } from "../primitives";
+import { LINK_CAPACITY, LINK_LOSS, SOURCE_RATE, haulRate, upkeepEt } from "../primitives";
+import { haulerBody } from "../sizing";
 import { HaulGap, quoteHaul } from "../corps/haul";
-import { quoteLink } from "../corps/link";
+import { TrunkSlice, quoteLink, quoteTrunk } from "../corps/link";
 import { quoteMine } from "../corps/mine";
 import { quoteSpawning, quoteTender, tenderCapacities } from "../corps/spawning";
 import { quoteUpgrade } from "../corps/upgrade";
 import { quoteWorkman } from "../corps/workman";
 import { ChainCandidate, ChainStage, SinkChain, StageOption, clear } from "./market";
-import { EconomyView, ViewCreep, ViewLink } from "./view";
+import { EconomyView, ViewCreep, ViewLink, ViewOutpost } from "./view";
 import { EnginePlan, Offer, PlaceId } from "./vocabulary";
 
 function assigned(view: EconomyView, corpId: string): ViewCreep[] {
@@ -73,7 +74,37 @@ export function replan(view: EconomyView): EnginePlan {
     return options;
   };
 
-  // Round 1 — anchored production, one gap per supplying place.
+  /** Marginal haul cost per unit of flow at a distance — the broker's
+   * route-selection heuristic; the books still price the real thing. */
+  const haulUnit = (dist: number): number => {
+    const body = haulerBody(view.bodyBudget);
+    if (!body) return Infinity;
+    return upkeepEt(body) / haulRate(body.carry, dist);
+  };
+
+  // Round 1 — anchored production, one gap per supplying place. Outpost
+  // consolidation (owner 2026-08-23: "consolidate multiple haul routes
+  // into one link outpost"): a source routes via a collection branch when
+  // the short collector leg plus the trunk's tax undercuts its direct
+  // route. The trunk is ONE standing pair quoted as one slice-step per
+  // source, so shared capacity funds once and the book audits the joint.
+  // v0: standing trunks only, whole-supply routing.
+  interface TrunkPlan {
+    outpost: ViewOutpost;
+    slices: TrunkSlice[];
+    remaining: number;
+  }
+  interface PendingVia {
+    srcId: string;
+    mineOptions: StageOption[];
+    collector: StageOption[];
+    outpostPlace: PlaceId;
+    sliceIdx: number;
+    flow: number;
+  }
+  const trunks = new Map<string, TrunkPlan>();
+  const pendingVia: PendingVia[] = [];
+
   const chains: ChainCandidate[] = [];
   const sourceCaps: Record<string, number> = {};
   for (const src of view.sources) {
@@ -89,13 +120,53 @@ export function replan(view: EconomyView): EnginePlan {
     if (mine) {
       const mineOptions = optionsAt(mine, src.id);
       const supply = mineOptions.reduce((a, o) => a + o.capacity, 0);
-      const book = transportBook({ from: src.id, to: view.bank, dist: src.distToBank, flow: supply });
-      if (book.length > 0) {
-        chains.push({
-          id: `chain:${src.id}:specialist`,
-          sourceId: src.id,
-          stages: [{ options: mineOptions }, { options: book }]
+
+      let via: { op: ViewOutpost; collector: StageOption[] } | null = null;
+      const directUnit = haulUnit(src.distToBank);
+      let bestUnit = Infinity;
+      for (const op of view.outposts) {
+        if (!linkAt(op.place) || !linkAt(view.bank)) continue;
+        const dSrc = op.distToSource[src.id];
+        if (dSrc === undefined) continue;
+        const t = trunks.get(op.place);
+        const remaining = t ? t.remaining : LINK_CAPACITY / Math.max(op.distToBank, 1);
+        if (remaining + 1e-9 < supply) continue;
+        const unit = haulUnit(dSrc) + LINK_LOSS;
+        if (unit + 1e-9 < directUnit && unit < bestUnit) {
+          const collector = transportBook({ from: src.id, to: op.place, dist: dSrc, flow: supply });
+          if (collector.length > 0) {
+            via = { op, collector };
+            bestUnit = unit;
+          }
+        }
+      }
+
+      if (via) {
+        const t = trunks.get(via.op.place) ?? {
+          outpost: via.op,
+          slices: [],
+          remaining: LINK_CAPACITY / Math.max(via.op.distToBank, 1)
+        };
+        pendingVia.push({
+          srcId: src.id,
+          mineOptions,
+          collector: via.collector,
+          outpostPlace: via.op.place,
+          sliceIdx: t.slices.length,
+          flow: supply
         });
+        t.slices.push({ sourceId: src.id, flow: supply });
+        t.remaining -= supply;
+        trunks.set(via.op.place, t);
+      } else {
+        const book = transportBook({ from: src.id, to: view.bank, dist: src.distToBank, flow: supply });
+        if (book.length > 0) {
+          chains.push({
+            id: `chain:${src.id}:specialist`,
+            sourceId: src.id,
+            stages: [{ options: mineOptions }, { options: book }]
+          });
+        }
       }
     }
 
@@ -112,6 +183,32 @@ export function replan(view: EconomyView): EnginePlan {
         id: `chain:${src.id}:workman`,
         sourceId: src.id,
         stages: [{ options: optionsAt(workman, view.bank) }]
+      });
+    }
+  }
+
+  // Consolidated chains: the trunk offers exist only after every slice is
+  // known, so via-chains assemble here — mine → collector → trunk slice.
+  for (const t of trunks.values()) {
+    const trunkOffer = quoteTrunk({
+      from: t.outpost.place,
+      to: view.bank,
+      dist: t.outpost.distToBank,
+      slices: t.slices,
+      atFrom: linkAt(t.outpost.place),
+      atTo: linkAt(view.bank)
+    });
+    if (!trunkOffer) continue;
+    for (const v of pendingVia) {
+      if (v.outpostPlace !== t.outpost.place) continue;
+      chains.push({
+        id: `chain:${v.srcId}:via`,
+        sourceId: v.srcId,
+        stages: [
+          { options: v.mineOptions },
+          { options: v.collector },
+          { options: [{ offer: trunkOffer, step: v.sliceIdx, capacity: v.flow }] }
+        ]
       });
     }
   }

@@ -12,7 +12,21 @@ import { bodyCost } from "../../src/primitives";
 import { TOOLS, Tool, renderMap } from "./editor";
 import { KIND_COLOR, edgesFor } from "./graph";
 import { renderPanels } from "./panels";
-import { PLAIN, SWAMP, Scenario, WALL, XY, assemble, cellAt, exportSave, importSave, setCell } from "./scenario";
+import {
+  PLAIN,
+  SWAMP,
+  Scenario,
+  WALL,
+  XY,
+  assemble,
+  cellAt,
+  exportSave,
+  importSave,
+  mapHeight,
+  mapWidth,
+  resizeTerrain,
+  setCell
+} from "./scenario";
 import { bootstrapScenario } from "./scenarios";
 import { LINK_COST } from "../../src/primitives";
 
@@ -89,20 +103,44 @@ function advance(chunks: number): void {
       next.push(...state.creeps.filter(c => c.corp === corp.id).slice(0, corp.target));
     }
     state.creeps = next;
-    const buyOrder = [...plan.corps].sort((a, b) => (a.chain === null ? 1 : 0) - (b.chain === null ? 1 : 0));
-    for (const corp of buyOrder) {
-      if (corp.kind === "link" && corp.backed === 0) {
-        buildLinks(corp.id);
-        continue;
+    // Hire CHAIN-ATOMICALLY: a chain's bodies are worthless apart (a miner
+    // without its collector only strands supply — the engine would rightly
+    // refuse the incomplete chain next replan and the lapse rule would cull
+    // the orphan). A chain hires only when the bank affords its whole
+    // deficit; producers' chains before solo corps.
+    const groups = new Map<string, typeof plan.corps>();
+    for (const corp of plan.corps) {
+      const key = corp.chain ?? `solo:${corp.id}`;
+      const g = groups.get(key) ?? [];
+      g.push(corp);
+      groups.set(key, g);
+    }
+    const ordered = [...groups.entries()].sort(
+      ([a], [b]) =>
+        (a.indexOf("solo:") === 0 ? 1 : 0) - (b.indexOf("solo:") === 0 ? 1 : 0) || (a < b ? -1 : a > b ? 1 : 0)
+    );
+    for (const [, group] of ordered) {
+      let cost = 0;
+      const hires: { corpId: string; body: NonNullable<(typeof group)[number]["body"]>; n: number }[] = [];
+      for (const corp of group) {
+        if (corp.kind === "link") continue;
+        if (!corp.body) continue;
+        const live = state.creeps.filter(c => c.corp === corp.id).length;
+        const n = corp.target - live;
+        if (n > 0) {
+          cost += n * bodyCost(corp.body);
+          hires.push({ corpId: corp.id, body: corp.body, n });
+        }
       }
-      if (!corp.body) continue;
-      const cost = bodyCost(corp.body);
-      let live = state.creeps.filter(c => c.corp === corp.id).length;
-      while (live < corp.target && cost <= state.bankStock) {
-        state.creeps.push({ id: `c${state.seq++}`, corp: corp.id, body: corp.body, ttl: 1500 });
+      if (cost > 0 && cost <= state.bankStock) {
+        for (const h of hires) {
+          for (let k = 0; k < h.n; k++) {
+            state.creeps.push({ id: `c${state.seq++}`, corp: h.corpId, body: h.body, ttl: 1500 });
+          }
+        }
         state.bankStock -= cost;
-        live++;
       }
+      for (const corp of group) if (corp.kind === "link" && corp.backed === 0) buildLinks(corp.id);
     }
     state.tick += DT;
   }
@@ -230,6 +268,22 @@ function render(): void {
     `${state.creeps.length} creeps · ${Math.round(state.cp)} CP`;
   ($("bankStock") as HTMLInputElement).value = String(Math.round(state.bankStock));
   ($("bodyBudget") as HTMLInputElement).value = String(state.scenario.bodyBudget);
+  ($("mapW") as HTMLInputElement).value = String(mapWidth(state.scenario.terrain));
+  ($("mapH") as HTMLInputElement).value = String(mapHeight(state.scenario.terrain));
+}
+
+/** Rooms are walls the editor draws — resizing never changes the model
+ * (owner 2026-08-23: the map and graph are room-agnostic). */
+function resizeMap(w: number, h: number): void {
+  const s = state.scenario;
+  s.terrain = resizeTerrain(s.terrain, w, h);
+  const inside = (p: XY): boolean => p.x >= 0 && p.y >= 0 && p.x < w && p.y < h;
+  s.sources = s.sources.filter(inside);
+  s.links = s.links.filter(inside);
+  s.spawn = { x: Math.min(s.spawn.x, w - 1), y: Math.min(s.spawn.y, h - 1) };
+  s.bank = { x: Math.min(s.bank.x, w - 1), y: Math.min(s.bank.y, h - 1) };
+  if (s.controller && !inside(s.controller)) s.controller = null;
+  render();
 }
 
 function toggle(id: string, read: () => boolean, write: (v: boolean) => void): void {
@@ -264,6 +318,11 @@ function wire(): void {
   $("bodyBudget").addEventListener("change", ev => {
     state.scenario.bodyBudget = Number((ev.target as HTMLInputElement).value) || 0;
     render();
+  });
+  $("resize").addEventListener("click", () => {
+    const w = Math.max(10, Math.min(200, Number(($("mapW") as HTMLInputElement).value) || 50));
+    const h = Math.max(10, Math.min(200, Number(($("mapH") as HTMLInputElement).value) || 50));
+    resizeMap(w, h);
   });
   $("export").addEventListener("click", () => {
     ($("io") as HTMLTextAreaElement).value = exportSave({

@@ -114,6 +114,21 @@ describe("lab/scenario", () => {
     );
   });
 
+  it("a free-standing link assembles as an outpost place with its own distances", () => {
+    const s = bootstrapScenario();
+    s.links.push({ id: "LX", x: 25, y: 40 });
+    const v = assemble(s, [], s.bankStock, 0);
+    assert.deepEqual(
+      v.links.find(l => l.id === "LX"),
+      { id: "LX", at: "outpost:LX" },
+      "near no known place, the link is its own place"
+    );
+    const op = v.outposts.find(o => o.place === "outpost:LX");
+    assert.isOk(op);
+    assert.isAbove(op?.distToBank ?? 0, 5);
+    assert.isAbove(op?.distToSource["srcA"] ?? 0, 1, "collector distances derive from real paths");
+  });
+
   it("round-trips a save through export/import", () => {
     const s = bootstrapScenario();
     const save = { scenario: s, creeps: [], bankStock: 300, tick: 0, cp: 0 };

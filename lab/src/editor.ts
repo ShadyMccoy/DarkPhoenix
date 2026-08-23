@@ -4,7 +4,7 @@
  * world as SVG and reports cell clicks; every edit replans immediately in
  * main.ts — edits reprice live.
  */
-import { SIZE, Scenario, SWAMP, WALL, XY, cellAt } from "./scenario";
+import { Scenario, SWAMP, WALL, XY, cellAt } from "./scenario";
 import { LabEdge, edgeColor, edgeLabel, edgeWidth } from "./graph";
 
 export type Tool = "select" | "spawn" | "bank" | "controller" | "source" | "link" | "wall" | "swamp" | "erase";
@@ -147,10 +147,13 @@ function renderEdge(e: LabEdge, showLabel: boolean): string {
 
 export function renderMap(container: HTMLElement, s: Scenario, overlay: MapOverlay, onCell: (x: number, y: number) => void): void {
   const selected = overlay.selected;
-  const px = SIZE * CELL;
+  const mh = s.terrain.length;
+  const mw = mh > 0 ? s.terrain[0].length : 0;
+  const px = mw * CELL;
+  const py = mh * CELL;
   let cells = "";
-  for (let y = 0; y < SIZE; y++) {
-    for (let x = 0; x < SIZE; x++) {
+  for (let y = 0; y < mh; y++) {
+    for (let x = 0; x < mw; x++) {
       const ch = cellAt(s.terrain, x, y);
       if (ch === WALL) cells += el("rect", { x: x * CELL, y: y * CELL, width: CELL, height: CELL, fill: "#3d4451" });
       else if (ch === SWAMP)
@@ -172,7 +175,7 @@ export function renderMap(container: HTMLElement, s: Scenario, overlay: MapOverl
   const wires = ordered.map(e => renderEdge(e, overlay.showLabels)).join("");
 
   container.innerHTML =
-    `<svg width="${px}" height="${px}" viewBox="0 0 ${px} ${px}" style="background:#20242c;border-radius:6px">` +
+    `<svg width="${px}" height="${py}" viewBox="0 0 ${px} ${py}" style="background:#20242c;border-radius:6px">` +
     cells +
     wires +
     marks +
@@ -181,9 +184,9 @@ export function renderMap(container: HTMLElement, s: Scenario, overlay: MapOverl
   if (svg) {
     svg.addEventListener("click", ev => {
       const rect = svg.getBoundingClientRect();
-      const x = Math.floor(((ev.clientX - rect.left) / rect.width) * SIZE);
-      const y = Math.floor(((ev.clientY - rect.top) / rect.height) * SIZE);
-      if (x >= 0 && y >= 0 && x < SIZE && y < SIZE) onCell(x, y);
+      const x = Math.floor(((ev.clientX - rect.left) / rect.width) * mw);
+      const y = Math.floor(((ev.clientY - rect.top) / rect.height) * mh);
+      if (x >= 0 && y >= 0 && x < mw && y < mh) onCell(x, y);
     });
   }
 }
