@@ -95,6 +95,23 @@ describe("lab/placement — rooms and the station search", () => {
     assert.isOk(corps.get("haul:far->bank"), "bodies keep the cross-room edge");
   });
 
+  it("a standing hub never locks the other room out: a border bank keeps one hub per side", () => {
+    // Bank at x=50 (room R1_0's west edge... here R1_0 sits east of the
+    // border at x=50). A hub already stands WEST of the border (R0_0);
+    // an east-room source must still get a wire — through a FRESH
+    // east-side hub, not through the illegal standing one.
+    const s = world({
+      bank: { x: 50, y: 25 },
+      spawn: { x: 51, y: 25 },
+      sources: [{ id: "east", x: 75, y: 25 }],
+      links: [{ id: "W", x: 48, y: 25 }]
+    });
+    const w = wireStations(s, "east", "bank");
+    assert.isOk(w, "the standing west hub must not doom the east room to bodies");
+    assert.equal(roomOf(w!.hub), "R1_0", "a fresh hub on the east side");
+    assert.isTrue(w!.missingHub, "paid for, not reused");
+  });
+
   it("reuses standing stations: hub built once, the next wire is mouth-only capex", () => {
     const s = world({
       sources: [

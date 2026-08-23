@@ -121,4 +121,7 @@ export interface ViewWireOption {
   range: number;
   missingMouth: boolean;
   missingHub: boolean;
+  /** The hub station's room — hub-sharing is per room (a bank on a
+   * border legitimately keeps one hub per side). */
+  hubRoom?: string;
 }

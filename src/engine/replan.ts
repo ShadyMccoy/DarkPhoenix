@@ -35,6 +35,7 @@ import {
   SOURCE_RATE,
   STORAGE_COST,
   branchHoldingEt,
+  chebyshev,
   haulRate,
   reachableStock,
   spawnTimeEt,
@@ -54,6 +55,25 @@ import { Approval, EnginePlan, FrontierLine, Offer, PlaceId, Step } from "./voca
 
 function assigned(view: EconomyView, corpId: string): ViewCreep[] {
   return view.creeps.filter(c => c.corp === corpId);
+}
+
+/**
+ * A place can hold SEVERAL links (a border bank keeps one hub per room);
+ * a pair is whichever combination is LEGAL and closest — one arbitrary
+ * link per place silently dropped legal pairs (caught in the wide-world
+ * run).
+ */
+function linkPair(view: EconomyView, from: PlaceId, to: PlaceId): { atFrom: ViewLink; atTo: ViewLink } | null {
+  let best: { atFrom: ViewLink; atTo: ViewLink; range: number } | null = null;
+  for (const a of view.links) {
+    if (a.at !== from) continue;
+    for (const b of view.links) {
+      if (b.at !== to || a.room !== b.room) continue;
+      const range = Math.max(chebyshev(a, b), 1);
+      if (!best || range < best.range) best = { atFrom: a, atTo: b, range };
+    }
+  }
+  return best ? { atFrom: best.atFrom, atTo: best.atTo } : null;
 }
 
 /** An offer's steps as stage options, capacities read at `place`. */
@@ -116,7 +136,8 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
       creeps: assigned(view, `haul:${gap.from}->${gap.to}`)
     });
     if (haul) options.push(...optionsAt(haul, gap.to));
-    const link = quoteLink({ gap, atFrom: linkAt(gap.from), atTo: linkAt(gap.to) });
+    const pair = linkPair(view, gap.from, gap.to);
+    const link = pair ? quoteLink({ gap, atFrom: pair.atFrom, atTo: pair.atTo }) : null;
     if (link && link.steps[0].backedBy) options.push(...optionsAt(link, gap.to));
 
     const steadyUnit = (o: StageOption): number => {
@@ -399,7 +420,7 @@ export function replan(view: EconomyView): EnginePlan {
   const approvals: Approval[] = [];
   const awaiting: FrontierLine[] = [];
   let awaitingCapex = 0;
-  let hubPaid = false;
+  const paidHubRooms = new Set<string>();
   let spendable = view.bankStock - committed;
 
   // What the branch can physically accumulate to: the divertable stream
@@ -458,13 +479,17 @@ export function replan(view: EconomyView): EnginePlan {
     const incumbentUnit = replacementBill / corp.pnl.grossEt;
 
     const wireOpt = view.wireOptions.find(w => w.from === gap.from && w.to === gap.to) ?? null;
-    // The hub is SHARED: once one approval this replan pays for it, the
-    // next edge's wire only needs its mouth station.
-    const wire = wireOpt && hubPaid && wireOpt.missingHub ? { ...wireOpt, missingHub: false } : wireOpt;
+    // The hub is SHARED per room: once one approval this replan pays
+    // for a room's hub, further wires through it are mouth-only capex.
+    const wire =
+      wireOpt && wireOpt.missingHub && paidHubRooms.has(wireOpt.hubRoom ?? "")
+        ? { ...wireOpt, missingHub: false }
+        : wireOpt;
+    const standingPair = linkPair(view, gap.from, gap.to);
     const cand = quoteLink({
       gap: { from: gap.from, to: gap.to, dist: gap.dist, flow: corp.pnl.grossEt },
-      atFrom: linkAt(gap.from),
-      atTo: linkAt(gap.to),
+      atFrom: standingPair?.atFrom ?? null,
+      atTo: standingPair?.atTo ?? null,
       wire
     });
     const st = cand && !cand.steps[0].backedBy ? cand.steps[0] : null;
@@ -477,7 +502,7 @@ export function replan(view: EconomyView): EnginePlan {
         `on ${gap.from}->${gap.to} (${corp.pnl.grossEt.toFixed(1)} e/t, range ${wire?.range ?? 0})`;
       if (capex <= spendable + 1e-9) {
         spendable -= capex;
-        if (wire?.missingHub) hubPaid = true;
+        if (wire?.missingHub) paidHubRooms.add(wire.hubRoom ?? "");
         approvals.push({ structure: "link", edge: { from: gap.from, to: gap.to }, at: gap.from, capex, detail });
       } else {
         noteAwaiting(cand.id, capex, detail);

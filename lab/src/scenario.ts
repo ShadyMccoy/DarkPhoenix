@@ -264,11 +264,11 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
   const wireOptions: ViewWireOption[] = [];
   for (const src of s.sources) {
     const w = placementWireStations(s, src.id, "bank");
-    if (w) wireOptions.push({ from: src.id, to: "bank", range: w.range, missingMouth: w.missingMouth, missingHub: w.missingHub });
+    if (w) wireOptions.push({ from: src.id, to: "bank", range: w.range, missingMouth: w.missingMouth, missingHub: w.missingHub, hubRoom: w.hubRoom });
   }
   if (s.controller) {
     const w = placementWireStations(s, "bank", "ctrl");
-    if (w) wireOptions.push({ from: "bank", to: "ctrl", range: w.range, missingMouth: w.missingMouth, missingHub: w.missingHub });
+    if (w) wireOptions.push({ from: "bank", to: "ctrl", range: w.range, missingMouth: w.missingMouth, missingHub: w.missingHub, hubRoom: w.hubRoom });
   }
   // A site within arm's reach of the bank IS the bank's place — its burn
   // meets the bank's supply with no transport stage; anywhere else it is

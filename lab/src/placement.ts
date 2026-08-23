@@ -47,15 +47,17 @@ function footprint(s: Scenario, anchor: XY): XY[] {
   return out;
 }
 
-/** A standing link within reach 2 of the anchor, if any. */
-function standingNear(s: Scenario, anchor: XY): XY | null {
-  const l = s.links.find(k => chebyshev(k, anchor) <= 2);
-  return l ? { x: l.x, y: l.y } : null;
+/** ALL standing links within reach 2 of the anchor — every one is a
+ * zero-capex reuse choice (returning only the first built duplicate
+ * hubs beside legal ones, caught in the wide-world run). */
+function standingsNear(s: Scenario, anchor: XY): XY[] {
+  return s.links.filter(k => chebyshev(k, anchor) <= 2).map(k => ({ x: k.x, y: k.y }));
 }
 
 export interface WireStations {
   mouth: XY;
   hub: XY;
+  hubRoom: string;
   range: number;
   missingMouth: boolean;
   missingHub: boolean;
@@ -63,29 +65,46 @@ export interface WireStations {
 
 /**
  * The per-edge search: a HUB station by `toPlace`, a MOUTH station by
- * `fromPlace`, both on free tiles, SAME ROOM, minimizing range. Standing
- * links are reused (their tile is fixed); missing stations pick argmin-
- * range tiles subject to sharing the other station's room — which is
- * exactly where a border-hugging source gets its mouth pulled to the
- * legal side. Null = no legal wire (a border between them, or no tiles).
+ * `fromPlace`, both on free tiles, SAME ROOM. Choice is COST-AWARE
+ * lexicographic: fewest stations still to build, then minimum range —
+ * so standing links are reused when a legal pair forms through them,
+ * but never LOCK the edge out (a bank on a border keeps one hub per
+ * side: a standing west-side hub must not doom every east-room source
+ * to bodies — the flaw the first cut had). A border-hugging place gets
+ * its station pulled to the legal side the same way. Null = no legal
+ * wire at all.
  */
 export function wireStations(s: Scenario, fromPlace: string, toPlace: string): WireStations | null {
   const fromTile = placeTile(s, fromPlace);
   const toTile = placeTile(s, toPlace);
   if (!fromTile || !toTile) return null;
 
-  const standingHub = standingNear(s, toTile);
-  const standingMouth = standingNear(s, fromTile);
-  const hubChoices = standingHub ? [standingHub] : footprint(s, toTile);
-  const mouthChoices = standingMouth ? [standingMouth] : footprint(s, fromTile);
+  const hubChoices: { tile: XY; missing: boolean }[] = [
+    ...standingsNear(s, toTile).map(tile => ({ tile, missing: false })),
+    ...footprint(s, toTile).map(tile => ({ tile, missing: true }))
+  ];
+  const mouthChoices: { tile: XY; missing: boolean }[] = [
+    ...standingsNear(s, fromTile).map(tile => ({ tile, missing: false })),
+    ...footprint(s, fromTile).map(tile => ({ tile, missing: true }))
+  ];
 
   let best: WireStations | null = null;
+  let bestCost = Infinity;
   for (const hub of hubChoices) {
     for (const mouth of mouthChoices) {
-      if (roomOf(hub) !== roomOf(mouth)) continue;
-      const range = Math.max(chebyshev(mouth, hub), 1);
-      if (!best || range < best.range) {
-        best = { mouth, hub, range, missingMouth: !standingMouth, missingHub: !standingHub };
+      if (roomOf(hub.tile) !== roomOf(mouth.tile)) continue;
+      const range = Math.max(chebyshev(mouth.tile, hub.tile), 1);
+      const cost = ((hub.missing ? 1 : 0) + (mouth.missing ? 1 : 0)) * 1e6 + range;
+      if (cost < bestCost) {
+        bestCost = cost;
+        best = {
+          mouth: mouth.tile,
+          hub: hub.tile,
+          hubRoom: roomOf(hub.tile),
+          range,
+          missingMouth: mouth.missing,
+          missingHub: hub.missing
+        };
       }
     }
   }
