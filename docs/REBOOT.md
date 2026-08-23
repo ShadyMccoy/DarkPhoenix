@@ -1203,7 +1203,13 @@ need the owner's explicit ratification or reversal.
   Tier 2 makes it a live fidelity gap.
 - **Assorted, smaller**: the tender's machine time can be preempted by
   producers in the spawnTime currency (obligations-first is
-  energy-only); spawnTime is a placeless scalar (blocks multi-room);
+  energy-only) — and the OBJECTIVE starves the same way: a 14-source
+  one-spawn staged world mines 120 e/t forever with CP pinned at ZERO,
+  because production wins the machine in merit order every replan, the
+  upgrade sink never staffs, and the surplus rots at the bank (~92 e/t
+  of holding at t3600) while the escape route — wire — is itself gated
+  behind builder bodies the machine cannot spawn; value realization
+  needs a reserved machine share or the backward clearing direction; spawnTime is a placeless scalar (blocks multi-room);
   the hurdle exists only inside candidate arithmetic — a no-sink world
   still funds production at full merit (value realization needs the
   backward direction or a shadow price); swamp roads (5× build, 5× gain)
