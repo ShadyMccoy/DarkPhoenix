@@ -1335,6 +1335,68 @@ honest either way (the book audits clean); whether the CANDIDATE should
 price member-by-member against the standing alternative is an owner
 call.
 
+**Addendum 3 (owner 2026-08-24, third ruling — displacement):** on the
+settled forest shedding e3 from its planned tree: "No but only close
+ones would be leaving link transfer capacity on the table. We could
+displace more hauling with a better placement." The investigation
+(4-lens fan-out, one dynamic repro) found e3's price test PASSED — via
+0.041 vs direct 0.051 e per e — and the shed was a phantom capacity
+shortfall: assembly minted every outpost's trunk range from the
+FIRST-found bank link (the border bank's off-room hub, an illegal
+pair), 800/27 = 29.6 e/t instead of the legal pair's 800/23 = 34.8 —
+0.37 e/t short of three members; quoteTrunk was then fed that same
+illegal pair unchecked. The mis-shed member bought a road that
+entrenched the wrong routing. Landed:
+
+- **One lens on trunk legality.** ViewOutpost lost `range`/`distToBank`;
+  the engine derives the trunk's pair AND ration from `linkPair` — the
+  same legal-closest-pair rule the mouth books already used. An
+  assembly-minted range was the v1 disease (a second lens on pair
+  legality), and it was wrong at exactly the border-bank shape the
+  believer itself builds.
+- **Merit-ordered slice admission.** Via candidates gather first, sort
+  by displaced saving (direct unit − leg unit − tax), and seat into the
+  ration in that order — first-come-by-array-order gave a binding
+  trunk's slices to whoever iterated first. The standing trunks now
+  RE-SEAT membership every replan: in the forest, sI (74 tiles direct)
+  and sN (76) each displace ~0.30 e/t and took the third slices from
+  w3 (0.17) and e3 (0.10). Same six links, ~11% more CP at t9000
+  (435,990 vs 391,966). e3 stays direct — outbid, not forgotten; the
+  capacity is full, not on the table.
+- **A standing direct wire never rides a tree.** The route heuristic
+  compared BODY units on both sides and pulled sK/sL off their own
+  standing pairs into double-taxed relays through the stations,
+  stealing slices (caught in the first re-run). Direct marginal is the
+  same 3% with no leg; the guard is absolute. (True relay chains —
+  buying throughput back at a second tax — remain unmodeled, their own
+  rung.)
+- **stationSearch: the tile IS the economics.** The station tile is now
+  the argmax of summed member savings (clipped at zero — close members
+  opt out, the owner's line), with the room-legal hub chosen inside the
+  search per tile, the ration merit-trimmed inside, and the fleet-bill
+  staircase's wide ties broken toward displacement then compact legs.
+  The old argmin-summed-ranges tile was blind to all of it: for a
+  2-member cluster its objective is CONSTANT between the members and
+  the centroid tiebreak split legs evenly, pricing marginal members
+  out one CARRY pair from paying (pinned: the tie-plateau pair where
+  the shift is free). Room legality was a post-hoc veto of a tile
+  chosen blind; membership no longer requires the member's own mouth
+  pair to be legal (only the station's room needs the hub). planNetwork
+  consumes the search — one owner of the member arithmetic; the
+  believer realizes the search's own hub (a first-member wireStations
+  re-derivation could pick the wrong room's).
+
+Recorded, not valved: the t0 candidate's member list is a birth record,
+not a contract — the standing market re-seats better members than the
+pair/triple ≤ 20 enumeration can name (sI/sN joined trees no candidate
+enumerated; approvals price the enumerated tree, the settled trunk
+earns the re-seated one; books clear either way). Whole-supply slices
+still strand sub-slice remainders (4.8 e/t idle can't seat a 10 e/t
+member). Best-outpost-only per source. The route heuristic still prices
+roads at zero — a road paved for a direct route strands when routing
+flips via. Widening enumeration (M1..MN groups, second stations,
+partial slices) are the next rungs, owner-gated.
+
 **Budget note:** src stands at ~3.2k lines against the ~3k budget; the
 overage is docblock prose carrying the session's incident record in
 place. Trim or ratify.

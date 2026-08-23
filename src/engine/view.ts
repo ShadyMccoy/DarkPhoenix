@@ -124,10 +124,12 @@ export interface ViewLink {
 
 export interface ViewOutpost {
   place: PlaceId;
-  distToBank: number;
-  /** Chebyshev range to the bank's hub — the trunk's cooldown ration,
-   * terrain-immune (assembly-computed from the actual tiles). */
-  range: number;
+  /** Route cost from each source to the outpost — the collector leg the
+   * broker prices. The trunk's own range and ration are NOT stated here:
+   * the engine derives them from the LEGAL closest pair (linkPair) — an
+   * assembly-minted range chose the first-found bank hub, off-room at a
+   * border bank, and its phantom-short ration shed a paying tree member
+   * (the settled-forest e3, owner ruling 2026-08-24). */
   distToSource: Record<string, number>;
 }
 

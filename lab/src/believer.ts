@@ -17,7 +17,7 @@ import { replan } from "../../src/engine/replan";
 import { EnginePlan } from "../../src/engine/vocabulary";
 import { ViewCreep } from "../../src/engine/view";
 import { bodyCost } from "../../src/primitives";
-import { stationTile, wireStations } from "./placement";
+import { stationSearch, stationTile, wireStations } from "./placement";
 import { Scenario, ScenarioSite, WALL, XY, assemble, cellAt, placeTile as scenarioPlaceTile } from "./scenario";
 
 /** One believer chunk: the replan cadence's order of magnitude. */
@@ -94,17 +94,20 @@ function realize(state: BelieverState, site: ScenarioSite): void {
   if (site.structure === "link") {
     if (site.edge && site.edge.from.indexOf("station:") === 0) {
       // The branching tree's shared station: one link at the searched
-      // centroid tile (it becomes an OUTPOST place next assembly, and
-      // the standing trunk machinery routes the members through it),
-      // plus the bank hub if this project paid for one.
+      // displacement tile (it becomes an OUTPOST place next assembly,
+      // and the standing trunk machinery routes the members through
+      // it), plus the SEARCH's own hub if this project paid for one —
+      // the hub must share the station's room, which a first-member
+      // wireStations re-derivation did not guarantee.
       const ids = site.edge.from.slice("station:".length).split("+");
-      const at = stationTile(s, ids);
-      if (at && !s.links.some(l => l.x === at.x && l.y === at.y)) {
-        s.links.push({ id: `link${s.links.length + 1}`, x: at.x, y: at.y });
+      const search = stationSearch(s, ids);
+      if (search && !s.links.some(l => l.x === search.tile.x && l.y === search.tile.y)) {
+        s.links.push({ id: `link${s.links.length + 1}`, x: search.tile.x, y: search.tile.y });
       }
-      if (Math.round(site.total / 5000) > 1) {
-        const w = wireStations(s, ids[0], "bank");
-        if (w?.missingHub) s.links.push({ id: `link${s.links.length + 1}`, x: w.hub.x, y: w.hub.y });
+      if (Math.round(site.total / 5000) > 1 && search?.missingHub) {
+        if (!s.links.some(l => l.x === search.hub.x && l.y === search.hub.y)) {
+          s.links.push({ id: `link${s.links.length + 1}`, x: search.hub.x, y: search.hub.y });
+        }
       }
       return;
     }

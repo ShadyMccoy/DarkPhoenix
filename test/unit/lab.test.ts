@@ -125,7 +125,6 @@ describe("lab/scenario", () => {
     );
     const op = v.outposts.find(o => o.place === "outpost:LX");
     assert.isOk(op);
-    assert.isAbove(op?.distToBank ?? 0, 5);
     assert.isAbove(op?.distToSource["srcA"] ?? 0, 1, "collector distances derive from real paths");
   });
 

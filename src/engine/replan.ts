@@ -51,7 +51,7 @@ import { ESTATE_CORP, quoteSpawning, quoteTender, tenderCapacities } from "../co
 import { quoteUpgrade } from "../corps/upgrade";
 import { quoteWorkman } from "../corps/workman";
 import { ChainCandidate, ChainStage, SinkChain, StageOption, clear } from "./market";
-import { EconomyView, ViewCreep, ViewLink, ViewOutpost } from "./view";
+import { EconomyView, ViewCreep, ViewLink } from "./view";
 import { Approval, EnginePlan, FrontierLine, Offer, PlaceId, Step, StructureKind } from "./vocabulary";
 
 function assigned(view: EconomyView, corpId: string): ViewCreep[] {
@@ -89,8 +89,6 @@ function optionsAt(offer: Offer, place: PlaceId): StageOption[] {
  * order book can price it — only a second clearing can.
  */
 function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: EnginePlan; gaps: Map<string, HaulGap> } {
-  const linkAt = (place: PlaceId): ViewLink | null => view.links.find(l => l.at === place) ?? null;
-
   // The buyable budget — v1's survival law, ported: "sizes to capacity
   // when staffed, to cash-in-hand when nobody is alive". With PRODUCTION
   // standing, income refills the estate, so waiting for the full body is
@@ -176,12 +174,34 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
   // the short collector leg plus the trunk's tax undercuts its direct
   // route. The trunk is ONE standing pair quoted as one slice-step per
   // source, so shared capacity funds once and the book audits the joint.
-  // v0: standing trunks only, whole-supply routing.
+  // The pair and its ration come from linkPair — the LEGAL closest pair;
+  // and when the ration binds, slices seat by DISPLACED SAVING, not
+  // iteration order (owner 2026-08-24: a far member off the tree "would
+  // be leaving link transfer capacity on the table"). v0: standing
+  // trunks only, whole-supply routing, best-outpost-only per source.
   interface TrunkPlan {
-    outpost: ViewOutpost;
+    place: PlaceId;
+    pair: { atFrom: ViewLink; atTo: ViewLink };
     slices: TrunkSlice[];
     remaining: number;
   }
+  const trunkFor = (place: PlaceId): TrunkPlan | null => {
+    const pair = linkPair(view, place, view.bank);
+    if (!pair) return null;
+    const range = Math.max(chebyshev(pair.atFrom, pair.atTo), 1);
+    return { place, pair, slices: [], remaining: LINK_CAPACITY / range };
+  };
+  const trunks = new Map<string, TrunkPlan>();
+  interface ViaCandidate {
+    srcId: string;
+    mineOptions: StageOption[];
+    supply: number;
+    directDist: number;
+    outpostPlace: PlaceId;
+    dSrc: number;
+    saving: number;
+  }
+  const viaCandidates: ViaCandidate[] = [];
   interface PendingVia {
     srcId: string;
     mineOptions: StageOption[];
@@ -190,10 +210,27 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     sliceIdx: number;
     flow: number;
   }
-  const trunks = new Map<string, TrunkPlan>();
   const pendingVia: PendingVia[] = [];
 
   const chains: ChainCandidate[] = [];
+  const directChain = (srcId: string, mineOptions: StageOption[], distToBank: number, supply: number): void => {
+    const book = transportBook({ from: srcId, to: view.bank, dist: distToBank, flow: supply });
+    if (book.length > 0) {
+      chains.push({
+        id: `chain:${srcId}:specialist`,
+        sourceId: srcId,
+        stages: [{ options: mineOptions }, { options: book }]
+      });
+    }
+  };
+  interface SrcRecord {
+    srcId: string;
+    mineOptions: StageOption[] | null;
+    supply: number;
+    distToBank: number;
+    workman: Offer | null;
+  }
+  const srcRecords: SrcRecord[] = [];
   const sourceCaps: Record<string, number> = {};
   for (const src of view.sources) {
     sourceCaps[src.id] = SOURCE_RATE;
@@ -205,59 +242,6 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
       bodyBudget: budget,
       creeps: assigned(view, `mine:${src.id}`)
     });
-    if (mine) {
-      const mineOptions = optionsAt(mine, src.id);
-      const supply = mineOptions.reduce((a, o) => a + o.capacity, 0);
-
-      let via: { op: ViewOutpost; collector: StageOption[] } | null = null;
-      const directUnit = haulUnit(src.distToBank);
-      let bestUnit = Infinity;
-      for (const op of view.outposts) {
-        if (!linkAt(op.place) || !linkAt(view.bank)) continue;
-        const dSrc = op.distToSource[src.id];
-        if (dSrc === undefined) continue;
-        const t = trunks.get(op.place);
-        const remaining = t ? t.remaining : LINK_CAPACITY / Math.max(op.range, 1);
-        if (remaining + 1e-9 < supply) continue;
-        const unit = haulUnit(dSrc) + LINK_LOSS;
-        if (unit + 1e-9 < directUnit && unit < bestUnit) {
-          const collector = transportBook({ from: src.id, to: op.place, dist: dSrc, flow: supply });
-          if (collector.length > 0) {
-            via = { op, collector };
-            bestUnit = unit;
-          }
-        }
-      }
-
-      if (via) {
-        const t = trunks.get(via.op.place) ?? {
-          outpost: via.op,
-          slices: [],
-          remaining: LINK_CAPACITY / Math.max(via.op.range, 1)
-        };
-        pendingVia.push({
-          srcId: src.id,
-          mineOptions,
-          collector: via.collector,
-          outpostPlace: via.op.place,
-          sliceIdx: t.slices.length,
-          flow: supply
-        });
-        t.slices.push({ sourceId: src.id, flow: supply });
-        t.remaining -= supply;
-        trunks.set(via.op.place, t);
-      } else {
-        const book = transportBook({ from: src.id, to: view.bank, dist: src.distToBank, flow: supply });
-        if (book.length > 0) {
-          chains.push({
-            id: `chain:${src.id}:specialist`,
-            sourceId: src.id,
-            stages: [{ options: mineOptions }, { options: book }]
-          });
-        }
-      }
-    }
-
     const workman = quoteWorkman({
       sourceId: src.id,
       spots: src.spots,
@@ -266,11 +250,84 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
       bodyBudget: budget,
       creeps: assigned(view, `workman:${src.id}`)
     });
-    if (workman) {
+    const mineOptions = mine ? optionsAt(mine, src.id) : null;
+    const supply = mineOptions ? mineOptions.reduce((a, o) => a + o.capacity, 0) : 0;
+    srcRecords.push({ srcId: src.id, mineOptions, supply, distToBank: src.distToBank, workman });
+    if (!mineOptions) continue;
+
+    let best: ViaCandidate | null = null;
+    const directUnit = haulUnit(src.distToBank);
+    // A source with a STANDING direct wire never rides a tree: its
+    // direct marginal is the same 3% tax with no collector leg, so via
+    // (leg + tax, possibly tax + tax) can only lose. The heuristic
+    // compared BODY units on both sides and pulled wired sources onto
+    // the trunks — a double-taxed relay that also stole slices from
+    // the genuinely-displacing members (caught in the forest re-run).
+    const directWire = linkPair(view, src.id, view.bank);
+    for (const op of directWire ? [] : view.outposts) {
+      const dSrc = op.distToSource[src.id];
+      if (dSrc === undefined) continue;
+      if (!trunks.has(op.place)) {
+        const t = trunkFor(op.place);
+        if (t) trunks.set(op.place, t);
+      }
+      if (!trunks.has(op.place)) continue;
+      const unit = haulUnit(dSrc) + LINK_LOSS;
+      const saving = directUnit - unit;
+      if (saving > 1e-9 && (!best || saving > best.saving)) {
+        best = {
+          srcId: src.id,
+          mineOptions,
+          supply,
+          directDist: src.distToBank,
+          outpostPlace: op.place,
+          dSrc,
+          saving
+        };
+      }
+    }
+    if (best) viaCandidates.push(best);
+  }
+
+  // Slice admission, by MERIT: the biggest TOTAL displaced saving
+  // (per-unit saving × the source's actual supply — a spots-limited
+  // trickle must not outrank a full source) seats first, so a binding
+  // ration sheds the cheapest direct haul — never whoever happened to
+  // iterate last. Whole-supply only; the shed fall to their direct
+  // books.
+  viaCandidates.sort((a, b) => b.saving * b.supply - a.saving * a.supply || (a.srcId < b.srcId ? -1 : 1));
+  const viaSeated = new Set<string>();
+  for (const c of viaCandidates) {
+    const t = trunks.get(c.outpostPlace);
+    if (!t || t.remaining + 1e-9 < c.supply) continue;
+    const collector = transportBook({ from: c.srcId, to: c.outpostPlace, dist: c.dSrc, flow: c.supply });
+    if (collector.length === 0) continue;
+    viaSeated.add(c.srcId);
+    pendingVia.push({
+      srcId: c.srcId,
+      mineOptions: c.mineOptions,
+      collector,
+      outpostPlace: c.outpostPlace,
+      sliceIdx: t.slices.length,
+      flow: c.supply
+    });
+    t.slices.push({ sourceId: c.srcId, flow: c.supply });
+    t.remaining -= c.supply;
+  }
+
+  // The chains array assembles in the SOURCE ORDER the market clears
+  // in: per source, specialist before workman (the cascade tests pin
+  // that phase-1 priority), via chains after the trunks consolidate.
+  // Pushing rejected fallbacks at admission time slid them behind their
+  // own workman chains (review finding — a phase-1 priority flip on
+  // any source holding both fleets).
+  for (const r of srcRecords) {
+    if (r.mineOptions && !viaSeated.has(r.srcId)) directChain(r.srcId, r.mineOptions, r.distToBank, r.supply);
+    if (r.workman) {
       chains.push({
-        id: `chain:${src.id}:workman`,
-        sourceId: src.id,
-        stages: [{ options: optionsAt(workman, view.bank) }]
+        id: `chain:${r.srcId}:workman`,
+        sourceId: r.srcId,
+        stages: [{ options: optionsAt(r.workman, view.bank) }]
       });
     }
   }
@@ -279,16 +336,15 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
   // known, so via-chains assemble here — mine → collector → trunk slice.
   for (const t of trunks.values()) {
     const trunkOffer = quoteTrunk({
-      from: t.outpost.place,
+      from: t.place,
       to: view.bank,
-      dist: t.outpost.distToBank,
       slices: t.slices,
-      atFrom: linkAt(t.outpost.place),
-      atTo: linkAt(view.bank)
+      atFrom: t.pair.atFrom,
+      atTo: t.pair.atTo
     });
     if (!trunkOffer) continue;
     for (const v of pendingVia) {
-      if (v.outpostPlace !== t.outpost.place) continue;
+      if (v.outpostPlace !== t.place) continue;
       chains.push({
         id: `chain:${v.srcId}:via`,
         sourceId: v.srcId,

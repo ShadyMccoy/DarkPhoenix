@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { planNetwork, roomOf, wireStations } from "../../lab/src/placement";
+import { planNetwork, roomOf, stationSearch, wireStations } from "../../lab/src/placement";
 import { replan } from "../../src/engine/replan";
 import { Scenario, assemble, emptyTerrain, setCell } from "../../lab/src/scenario";
 
@@ -142,6 +142,49 @@ describe("lab/placement — rooms and the station search", () => {
     const view = assemble(s, [], s.bankStock, 0);
     assert.isEmpty(view.wireOptions.filter(w => w.to === "bank"));
     assert.lengthOf(view.stationOptions, 1);
+  });
+
+  it("places the station to DISPLACE hauling, not to split legs evenly (owner 2026-08-24)", () => {
+    // A far member and a marginal one. The fleet bill is a staircase, so
+    // the summed-range objective is TIED across the whole between-region
+    // — and the centroid tiebreak splits legs evenly, pricing the
+    // marginal member out (its saving band is one CARRY pair wide). The
+    // displacement objective shifts one plateau over, keeps both, and
+    // displaces strictly more hauling for the same links.
+    const s = world({
+      terrain: emptyTerrain(50, 50),
+      bank: { x: 5, y: 25 },
+      spawn: { x: 4, y: 25 },
+      controller: { x: 5, y: 28 },
+      sources: [
+        { id: "far", x: 34, y: 25 },
+        { id: "mid", x: 22, y: 25 }
+      ]
+    });
+    const search = stationSearch(s, ["far", "mid"]);
+    assert.isOk(search, "the pair stations");
+    assert.deepEqual(
+      search!.members.map(m => m.id).sort(),
+      ["far", "mid"],
+      "the marginal member is kept — shedding it leaves trunk capacity idle"
+    );
+    const mid = search!.members.find(m => m.id === "mid");
+    assert.isAtMost(mid!.collectRange, 5, "the tile shifted into the marginal member's paying band");
+    for (const m of search!.members) assert.isAbove(m.saving, 0, `${m.id} genuinely pays`);
+
+    // And the honest opposite: a member whose direct route is too cheap
+    // to ever pay the tax stays out — "only close ones opt out".
+    const close = world({
+      terrain: emptyTerrain(50, 50),
+      bank: { x: 5, y: 25 },
+      spawn: { x: 4, y: 25 },
+      controller: { x: 5, y: 28 },
+      sources: [
+        { id: "far", x: 34, y: 25 },
+        { id: "mid", x: 20, y: 25 }
+      ]
+    });
+    assert.isNull(stationSearch(close, ["far", "mid"]), "one paying member is no station");
   });
 
   it("reuses standing stations: hub built once, the next wire is mouth-only capex", () => {

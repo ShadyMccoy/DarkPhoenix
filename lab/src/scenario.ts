@@ -199,7 +199,7 @@ export function spotsAt(terrain: string[], p: XY): number {
 
 /** Best adjacent approach distance: an element's route cost to the field's
  * origin. */
-function approachDist(dist: number[][], p: XY): number {
+export function approachDist(dist: number[][], p: XY): number {
   const h = dist.length;
   const w = h > 0 ? dist[0].length : 0;
   let best = Infinity;
@@ -245,7 +245,6 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
   // module owns the geometry; assembly just tags what it exposes.
   const links: ViewLink[] = [];
   const outposts: ViewOutpost[] = [];
-  const bankHub = s.links.find(l => chebyshev(l, s.bank) <= 2) ?? s.bank;
   for (const l of s.links) {
     const at = linkPlace(s, l);
     const room = placementRoomOf({ x: l.x, y: l.y });
@@ -253,19 +252,17 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
       links.push({ id: l.id, at, room, x: l.x, y: l.y });
       continue;
     }
-    // Free-standing: an outpost — its own place, with its own distances;
-    // its trunk ration is the CHEBYSHEV range to the bank's hub.
+    // Free-standing: an outpost — its own place, with the collector legs
+    // priced by real paths. Its trunk pair, range, and ration are the
+    // ENGINE's business (linkPair picks the legal closest bank hub) —
+    // an assembly-minted range from the first-found hub was off-room at
+    // the border bank and shed a paying member (owner 2026-08-24).
     const place = `outpost:${l.id}`;
     links.push({ id: l.id, at: place, room, x: l.x, y: l.y });
     const field = distanceField(s.terrain, { x: l.x, y: l.y });
     const distToSource: Record<string, number> = {};
     for (const src of s.sources) distToSource[src.id] = approachDist(field, src);
-    outposts.push({
-      place,
-      distToBank: approachDist(dist, { x: l.x, y: l.y }),
-      range: Math.max(chebyshev({ x: l.x, y: l.y }, bankHub), 1),
-      distToSource
-    });
+    outposts.push({ place, distToSource });
   }
 
   // The NETWORK plan (owner 2026-08-24): links are scarce, so the

@@ -36,10 +36,11 @@ export interface TrunkSlice {
 export interface TrunkHandoff {
   from: PlaceId;
   to: PlaceId;
-  dist: number;
   /** Per-source shares of the pair's capacity — one step each, so every
    * consolidated chain funds and pays for exactly its own share. */
   slices: TrunkSlice[];
+  /** The LEGAL closest pair (linkPair's choice) — the trunk never wires
+   * across a room border, whatever assembled first at the bank. */
   atFrom: ViewLink | null;
   atTo: ViewLink | null;
 }
