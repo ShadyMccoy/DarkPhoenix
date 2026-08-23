@@ -25,6 +25,25 @@ export const CARRY_CAP = 50;
 export const SPAWN_TICKS_PER_PART = 3;
 export const SPAWN_RATE = 1 / SPAWN_TICKS_PER_PART;
 
+/** Link physics: 800 capacity per volley, cooldown = 1 tick per tile of
+ * distance, 3% lost per send, 5000e to build. Throughput between a
+ * standing pair is therefore ~800/distance e/t with the loss riding as a
+ * per-flow tax (v1-hardened numbers; REBOOT piece 5). */
+export const LINK_CAPACITY = 800;
+export const LINK_LOSS = 0.03;
+export const LINK_COST = 5000;
+
+/**
+ * The objective's horizon: H = 100,000 ticks, flat, nothing counts beyond
+ * it (owner ruling 2026-08-18, piece 8: "It's just Screeps. We could pick
+ * a horizon like 50,000 or 100,000 ticks"). An investment's value is the
+ * stream it adds within H minus its cost; payback beyond H is "never" —
+ * the archive's own idiom. ~66 capital generations. Moved only by ruling;
+ * the investment fidelity line is the standing check that would motivate
+ * moving it.
+ */
+export const HORIZON = 100000;
+
 export const PART_COST: Record<"work" | "carry" | "move", number> = {
   work: 100,
   carry: 50,

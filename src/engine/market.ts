@@ -1,34 +1,48 @@
 /**
  * market.ts — the kind-agnostic clearing core: offers in, funded plan +
  * blocked frontier out. It holds NO domain knowledge — it never sees a
- * body, a route, or a source, only schedules of steps with capacities and
- * costs — so it cannot accumulate case logic (piece 6: the engine is too
- * small to hide anything in). The corp kinds price; this module combines.
+ * body, a route, or a source, only schedules of options with capacities
+ * and costs — so it cannot accumulate case logic (piece 6: the engine is
+ * too small to hide anything in). The corp kinds price; this combines.
  *
- * Depth-0 clearing IS the greedy merit-order loop, in two phases. Phase 1:
- * standing capital holds its funding (piece 5) — every chain's leading
- * fully-backed increments fund first. Phase 2: chains BID THEIR BEST
- * MARGINAL PREFIX of remaining increments (the best scale, not the next
- * lump — a degenerate sliver increment from stage quantization can never
- * hide the profitable scale behind it), highest net funds, and a bid that
+ * A stage is an ORDER BOOK: options from any number of offers, sorted by
+ * the broker cheapest-marginal-first, consumed in order by the zipper. A
+ * haul body and a link volley compete inside one stage — "the engine
+ * funds whichever wins the edge" (piece 5) is literally the sort order.
+ *
+ * Depth-0 clearing runs in two phases. Phase 1: standing capital holds
+ * its funding — every chain's leading fully-backed increments fund first.
+ * Phase 2: chains BID THEIR BEST MARGINAL PREFIX of remaining increments
+ * (the best scale, not the next lump), highest net funds, and a bid that
  * fails a constraint closes its chain with the frontier line saying which
  * arithmetic stopped it. Ramp solvency (piece 8's heartbeat constraint)
  * binds at bid time: with no standing income a bid is only as big as the
- * stock that can buy it, so the workman root emerges as the largest
- * affordable prefix — no mode. Consumption then draws the residual,
- * ladder-style.
+ * stock that can buy it — the workman root emerges as the largest
+ * affordable prefix, and a candidate structure's capex gates the same
+ * way. The tender then covers the whole heartbeat, and consumption draws
+ * the residual, ladder-style.
  *
- * An increment that only half-fits its source funds TRIMMED (the body is
- * quantized, the flow is not): the challenger enters at reduced delivery
- * rather than deadlocking against incumbents — the stranded remainder is
- * plainly visible as mined-vs-delivered surplus, first lab question.
+ * Costs split three ways: upkeepEt is the parts bill (the heartbeat's
+ * column, what the tender carries); feeEt is an operating charge that is
+ * NOT a spawn bill (the link's tax, a candidate's capex over HORIZON) —
+ * it enters net, P&L and the bank's demand column, never the refill
+ * obligation; upfront is cash at purchase, checked by solvency and paid
+ * by the believer's bank.
  */
 import { CorpInstance, EnginePlan, Flows, FrontierLine, Offer, PlaceId, Step, addFlows } from "./vocabulary";
 
-export interface ChainStage {
+/** One tradable unit on a stage's order book: a step of some offer, with
+ * its capacity in the chain's delivered currency (e/t). */
+export interface StageOption {
   offer: Offer;
-  /** Per-step capacity in the chain's delivered currency (e/t). */
-  capacities: number[];
+  step: number;
+  capacity: number;
+}
+
+export interface ChainStage {
+  /** Sorted by the broker: standing capital first, then cheapest marginal
+   * cost per unit — who wins the edge is decided here. */
+  options: StageOption[];
 }
 
 /** A production chain candidate: ordered stages, source side → bank. */
@@ -41,9 +55,7 @@ export interface ChainCandidate {
 
 /** A consumption chain toward a sink: transport stages first, the burner
  * last, capacities in the sink's burn currency (e/t at the feed point).
- * The whole chain draws the residual — burn plus every stage's bill — so
- * a distant controller pays for its feed like a distant source pays for
- * its haul: same zipper, same route law, opposite direction. */
+ * The whole chain draws the residual — burn plus every stage's bill. */
 export interface SinkChain {
   stages: ChainStage[];
 }
@@ -59,67 +71,73 @@ export interface MarketInput {
   /** Regen caps by source id, e/t. */
   sourceCaps: Record<string, number>;
   /** The spawning corp's refill-intake schedule: tender steps and their
-   * per-step capacity (e/t into the estate). Funded last, to cover the
-   * whole refill obligation. */
+   * per-step capacity (e/t into the estate). */
   tender?: { offer: Offer; capacities: number[] } | null;
   /** The live fleet's sustain bill (Σ amortized body costs), from the
    * broker. Backed steps quote zero (sunk pricing), so the funded-step
-   * refill line alone understates the heartbeat — the tender must cover
-   * standing bills too. */
+   * refill line alone understates the heartbeat. */
   standingBills?: number;
 }
 
-interface StepRef {
+interface OptRef {
   stage: number;
-  step: number;
+  option: number;
 }
 
 interface Inc {
   delivered: number;
-  steps: StepRef[];
+  refs: OptRef[];
   upkeepEt: number;
+  feeEt: number;
   spawnTimeEt: number;
   upfront: number;
-  /** Every step already embodied — standing capital. */
+  /** Every option already embodied — standing capital. */
   backed: boolean;
+}
+
+function stepOf(stages: ChainStage[], ref: OptRef): Step {
+  const o = stages[ref.stage].options[ref.option];
+  return o.offer.steps[o.step];
 }
 
 /**
  * Zip a chain's stages into delivered increments: repeatedly extend the
- * bottleneck stage (lowest cumulative capacity) one step; each rise of the
- * cross-stage minimum emits an increment carrying the steps that produced
- * it. A miner step waits inside `pending` until a hauler step makes its
- * energy deliverable — increments price END-TO-END by construction.
+ * bottleneck stage (lowest cumulative capacity) one option; each rise of
+ * the cross-stage minimum emits an increment carrying the options that
+ * produced it. A miner option waits inside `pending` until a transport
+ * option makes its energy deliverable — increments price END-TO-END.
  */
-function chainIncrements(chain: ChainCandidate): Inc[] {
-  const n = chain.stages.length;
+function chainIncrements(stages: ChainStage[]): Inc[] {
+  const n = stages.length;
   const cum: number[] = new Array<number>(n).fill(0);
   const ptr: number[] = new Array<number>(n).fill(0);
   let lastMin = 0;
-  let pending: StepRef[] = [];
+  let pending: OptRef[] = [];
   const incs: Inc[] = [];
   for (;;) {
     let minIdx = 0;
     for (let i = 1; i < n; i++) if (cum[i] < cum[minIdx]) minIdx = i;
-    const stage = chain.stages[minIdx];
-    if (ptr[minIdx] >= stage.capacities.length) break;
-    const stepIdx = ptr[minIdx];
+    const stage = stages[minIdx];
+    if (ptr[minIdx] >= stage.options.length) break;
+    const optionIdx = ptr[minIdx];
     ptr[minIdx] += 1;
-    cum[minIdx] += stage.capacities[stepIdx];
-    pending.push({ stage: minIdx, step: stepIdx });
+    cum[minIdx] += stage.options[optionIdx].capacity;
+    pending.push({ stage: minIdx, option: optionIdx });
     const m = Math.min(...cum);
     if (m > lastMin) {
       const inc: Inc = {
         delivered: m - lastMin,
-        steps: pending,
+        refs: pending,
         upkeepEt: 0,
+        feeEt: 0,
         spawnTimeEt: 0,
         upfront: 0,
         backed: true
       };
       for (const ref of pending) {
-        const s = chain.stages[ref.stage].offer.steps[ref.step];
+        const s = stepOf(stages, ref);
         inc.upkeepEt += s.cost.upkeepEt;
+        inc.feeEt += s.cost.feeEt ?? 0;
         inc.spawnTimeEt += s.cost.spawnTimeEt;
         inc.upfront += s.cost.upfront;
         if (!s.backedBy) inc.backed = false;
@@ -152,21 +170,38 @@ export function clear(input: MarketInput): EnginePlan {
     f.steps.push(stepIdx);
   };
 
-  // Allocated end-to-end flow per offer: every stage of a chain carries
-  // the chain's REALIZED flow, whatever its quoted capacity. The position
-  // book nets these — capacity idle is a corp's own business; unmatched
-  // flow is a plan bug.
+  // Allocated end-to-end flow per offer: assigned to a stage's funded
+  // options IN BOOK ORDER after funding settles, so every offer carries
+  // its realized share, whatever its quoted capacity. The position book
+  // nets these — idle capacity is a corp's own business; unmatched flow
+  // is a plan bug.
   const alloc = new Map<string, number>();
-  const allocAdd = (id: string, amount: number): void => {
-    alloc.set(id, (alloc.get(id) ?? 0) + amount);
+  const allocateChain = (stages: ChainStage[], fundedPerStage: number[], flow: number): void => {
+    for (let si = 0; si < stages.length; si++) {
+      let rem = flow;
+      for (let oi = 0; oi < fundedPerStage[si]; oi++) {
+        const o = stages[si].options[oi];
+        const take = Math.min(rem, o.capacity);
+        alloc.set(o.offer.id, (alloc.get(o.offer.id) ?? 0) + take);
+        rem -= take;
+      }
+    }
   };
 
   interface LiveChain {
     chain: ChainCandidate;
     incs: Inc[];
     next: number;
+    flow: number;
+    fundedPerStage: number[];
   }
-  const live: LiveChain[] = input.chains.map(c => ({ chain: c, incs: chainIncrements(c), next: 0 }));
+  const live: LiveChain[] = input.chains.map(c => ({
+    chain: c,
+    incs: chainIncrements(c.stages),
+    next: 0,
+    flow: 0,
+    fundedPerStage: c.stages.map(() => 0)
+  }));
 
   // Standing income: what already-living capital delivers before any
   // purchase — the leading fully-backed increments of every chain.
@@ -184,6 +219,7 @@ export function clear(input: MarketInput): EnginePlan {
   let spawnUsed = 0;
   let delivered = 0;
   let refill = 0;
+  let fees = 0;
   let standingEt = 0;
 
   const remainingOn = (sourceId: string | null): number => {
@@ -193,11 +229,16 @@ export function clear(input: MarketInput): EnginePlan {
 
   const fundInc = (lc: LiveChain, inc: Inc): void => {
     const eff = Math.min(inc.delivered, Math.max(remainingOn(lc.chain.sourceId), 0));
-    for (const ref of inc.steps) fund(lc.chain.stages[ref.stage].offer, lc.chain.id, ref.step);
-    for (const stage of lc.chain.stages) allocAdd(stage.offer.id, eff);
+    for (const ref of inc.refs) {
+      const o = lc.chain.stages[ref.stage].options[ref.option];
+      fund(o.offer, lc.chain.id, o.step);
+      lc.fundedPerStage[ref.stage] = Math.max(lc.fundedPerStage[ref.stage], ref.option + 1);
+    }
     spawnUsed += inc.spawnTimeEt;
     refill += inc.upkeepEt;
+    fees += inc.feeEt;
     delivered += eff;
+    lc.flow += eff;
     if (inc.backed) standingEt += eff;
     const srcId = lc.chain.sourceId;
     if (srcId !== null) {
@@ -217,21 +258,20 @@ export function clear(input: MarketInput): EnginePlan {
     }
   }
 
-  /** A chain's bid: the best PREFIX of its remaining increments, trimmed to
-   * the source room left. Bidding whole bundles keeps a degenerate sliver
-   * increment (a stage-quantization artifact) from hiding the profitable
-   * scale behind it — the bid is the best marginal SCALE, not the next
-   * lump. Still depth-0: no lookahead through anything unbuilt. */
+  /** A chain's bid: the best PREFIX of its remaining increments, trimmed
+   * to the source room left. Bidding whole bundles keeps a degenerate
+   * sliver increment (a quantization artifact) from hiding the profitable
+   * scale behind it. Still depth-0: a candidate structure in an option is
+   * one build ahead, priced at full cost — nothing deeper. */
   interface Bid {
     lc: LiveChain;
     count: number;
     eff: number;
-    upkeepEt: number;
+    costEt: number;
     spawnTimeEt: number;
     upfront: number;
     net: number;
-    /** Set when every prefix was unaffordable under the ramp bound: the
-     * chain cannot start from stock — piece 8's filter, at bid time. */
+    /** Set when every prefix was unaffordable under the ramp bound. */
     rampBlocked?: boolean;
   }
   const bestBid = (lc: LiveChain): Bid | null => {
@@ -241,25 +281,25 @@ export function clear(input: MarketInput): EnginePlan {
     const rampBound = standingIncome <= EPS;
     const room = Math.max(remainingOn(lc.chain.sourceId), 0);
     let dCum = 0;
-    let upkeep = 0;
+    let cost = 0;
     let spawn = 0;
     let upfront = 0;
     let bid: Bid | null = null;
     for (let k = lc.next; k < lc.incs.length; k++) {
       const inc = lc.incs[k];
       dCum += inc.delivered;
-      upkeep += inc.upkeepEt;
+      cost += inc.upkeepEt + inc.feeEt;
       spawn += inc.spawnTimeEt;
       upfront += inc.upfront;
       if (rampBound && upfront > input.bankStock + EPS) break;
       const eff = Math.min(dCum, room);
-      const net = eff - upkeep;
+      const net = eff - cost;
       if (!bid || net > bid.net + EPS) {
-        bid = { lc, count: k - lc.next + 1, eff, upkeepEt: upkeep, spawnTimeEt: spawn, upfront, net };
+        bid = { lc, count: k - lc.next + 1, eff, costEt: cost, spawnTimeEt: spawn, upfront, net };
       }
     }
     if (!bid) {
-      return { lc, count: 0, eff: 0, upkeepEt: 0, spawnTimeEt: 0, upfront, net: -Infinity, rampBlocked: true };
+      return { lc, count: 0, eff: 0, costEt: 0, spawnTimeEt: 0, upfront, net: -Infinity, rampBlocked: true };
     }
     return bid;
   };
@@ -321,11 +361,12 @@ export function clear(input: MarketInput): EnginePlan {
     for (let k = 0; k < best.count; k++) fundInc(best.lc, best.lc.incs[best.lc.next]);
   }
 
-  // The heartbeat's carrier funds BEFORE the controller drinks (the ladder:
-  // obligations first — piece 9): tender intake to cover the whole refill
-  // obligation (owner 2026-08-23 — the spawning corp's own bodies, never a
-  // haul job). Each funded tender adds its own bill to the obligation it
-  // serves, so the loop runs until intake covers it.
+  for (const lc of live) if (lc.flow > EPS) allocateChain(lc.chain.stages, lc.fundedPerStage, lc.flow);
+
+  // The heartbeat's carrier funds BEFORE the controller drinks (the
+  // ladder: obligations first — piece 9): tender intake to cover the
+  // whole refill obligation (owner 2026-08-23 — the spawning corp's own
+  // bodies, never a haul job).
   const heartbeat = (): number => refill + (input.standingBills ?? 0);
   if (input.tender && heartbeat() > EPS) {
     const t = input.tender;
@@ -347,18 +388,22 @@ export function clear(input: MarketInput): EnginePlan {
     }
   }
 
-  // Consumption draws the residual: inflow minus every funded parts bill.
-  // Obligations (the bills, the tender) came first by construction; the
-  // controller drinks what is left — the ladder as the bank's draw policy.
-  let residual = delivered - refill;
+  // Consumption draws the residual: inflow minus every funded bill and
+  // fee. Obligations came first by construction; the controller drinks
+  // what is left — the ladder as the bank's draw policy.
+  let residual = delivered - refill - fees;
   let upgradeEt = 0;
   let standingUpgradeEt = 0;
   for (const sink of input.sinks) {
     if (sink.stages.length === 0) continue;
-    const sinkOffer = sink.stages[sink.stages.length - 1].offer;
-    const incs = chainIncrements({ id: `sink:${sinkOffer.id}`, sourceId: null, stages: sink.stages });
+    const lastStage = sink.stages[sink.stages.length - 1];
+    const sinkOffer = lastStage.options.length > 0 ? lastStage.options[0].offer : null;
+    if (!sinkOffer) continue;
+    const incs = chainIncrements(sink.stages);
+    const fundedPerStage = sink.stages.map(() => 0);
+    let flow = 0;
     for (const inc of incs) {
-      const draw = inc.delivered + inc.upkeepEt;
+      const draw = inc.delivered + inc.upkeepEt + inc.feeEt;
       if (spawnUsed + inc.spawnTimeEt > input.spawnCapacity + EPS) {
         frontier.push({
           offerId: sinkOffer.id,
@@ -375,14 +420,20 @@ export function clear(input: MarketInput): EnginePlan {
         });
         break;
       }
-      for (const ref of inc.steps) fund(sink.stages[ref.stage].offer, null, ref.step);
-      for (const stage of sink.stages) allocAdd(stage.offer.id, inc.delivered);
+      for (const ref of inc.refs) {
+        const o = sink.stages[ref.stage].options[ref.option];
+        fund(o.offer, null, o.step);
+        fundedPerStage[ref.stage] = Math.max(fundedPerStage[ref.stage], ref.option + 1);
+      }
+      flow += inc.delivered;
       residual -= draw;
       refill += inc.upkeepEt;
+      fees += inc.feeEt;
       spawnUsed += inc.spawnTimeEt;
       upgradeEt += inc.delivered;
       if (inc.backed) standingUpgradeEt += inc.delivered;
     }
+    if (flow > EPS) allocateChain(sink.stages, fundedPerStage, flow);
   }
 
   const corps: CorpInstance[] = [];
@@ -390,8 +441,8 @@ export function clear(input: MarketInput): EnginePlan {
   for (const f of funded.values()) {
     // Utilization: allocated flow over quoted capacity. The rows state the
     // trade that actually MATCHES — a whole body bought for a partial flow
-    // shows the flow; the idle capacity is the corp's own business. Bills
-    // and machine time stay full: the body is owned entirely either way.
+    // shows the flow; idle capacity is the corp's own business. Bills,
+    // fees and machine time stay full: they are owed either way.
     let quoted = 0;
     for (const i of f.steps) quoted += flowMagnitude(f.offer.steps[i].provides);
     const u = quoted > EPS ? Math.min((alloc.get(f.offer.id) ?? quoted) / quoted, 1) : 0;
@@ -403,14 +454,15 @@ export function clear(input: MarketInput): EnginePlan {
     const outputs: Flows = {};
     for (const i of f.steps) {
       const s = f.offer.steps[i];
+      const fee = s.cost.feeEt ?? 0;
       gross += flowMagnitude(s.provides) * u;
-      cost += s.cost.upkeepEt;
+      cost += s.cost.upkeepEt + fee;
       addFlows(outputs, s.provides, u);
       addFlows(inputs, s.requires, u);
-      // Ownership is an input too: machine time, and the parts bill drawn
-      // at the bank branch.
+      // Ownership and operation are inputs too: machine time, the parts
+      // bill at the bank, and fees the bank pays.
       if (s.cost.spawnTimeEt > 0) addFlows(inputs, { spawnTime: s.cost.spawnTimeEt });
-      if (s.cost.upkeepEt > 0) addFlows(inputs, { energyAt: { [input.bank]: s.cost.upkeepEt } });
+      if (s.cost.upkeepEt + fee > 0) addFlows(inputs, { energyAt: { [input.bank]: s.cost.upkeepEt + fee } });
       if (s.backedBy) backed += 1;
       else if (!body && s.buys) body = s.buys;
     }
@@ -431,9 +483,8 @@ export function clear(input: MarketInput): EnginePlan {
 
   // The position book (piece 1's second view), netted from the instances'
   // own allocated rows: supply and demand per place, energy column. The
-  // bank is the counterparty and nets the leftover; any OTHER place with a
-  // residue means the plan funded a match that does not exist — the exact
-  // bug class this book exists to make impossible to miss.
+  // bank is the counterparty and nets the leftover; any OTHER place with
+  // a residue means the plan funded a match that does not exist.
   const book: Record<string, { supply: number; demand: number }> = {};
   const bookAt = (p: string): { supply: number; demand: number } => book[p] ?? (book[p] = { supply: 0, demand: 0 });
   bookAt(input.bank);
@@ -473,6 +524,7 @@ export function clear(input: MarketInput): EnginePlan {
       minedEt,
       deliveredEt: delivered,
       refillEt: refill,
+      feesEt: fees,
       upgradeEt,
       standingEt,
       standingUpgradeEt,

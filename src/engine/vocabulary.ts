@@ -39,14 +39,23 @@ export function addFlows(into: Flows, from: Flows, scale = 1): void {
   }
 }
 
-/** The ownership bill of one step. Backed steps carry zeros: sunk capital
- * prices as sunk (the books keeping capex history are the ledger's job,
- * never the quote's — REBOOT.md piece 5). */
+/** The ownership bill of one step. Backed steps carry zeros for ownership
+ * (upfront, upkeep): sunk capital prices as sunk (the books keeping capex
+ * history are the ledger's job, never the quote's — REBOOT.md piece 5).
+ * Operating fees are NOT ownership and survive backing. */
 export interface StepCost {
-  /** Energy to buy the body today — what ramp solvency checks. */
+  /** Energy to buy the body or structure today — what ramp solvency
+   * checks and the believer's bank pays at purchase. */
   upfront: number;
-  /** Parts bill, e/t amortized over a creep life, owed at the bank. */
+  /** Parts bill, e/t amortized over a creep life, owed at the bank — the
+   * heartbeat's column; the tender carries exactly this. */
   upkeepEt: number;
+  /** Operating charge, e/t, that is NOT a spawn bill: the link's 3% tax,
+   * and a CANDIDATE structure's capex amortized over HORIZON (full-cost
+   * pricing; a standing structure's capexEt is sunk to zero — piece 5's
+   * full-vs-marginal repricing in one field). Enters net and P&L, never
+   * the refill obligation. */
+  feeEt?: number;
   /** Spawn machine time to keep the body alive, parts/tick. */
   spawnTimeEt: number;
 }
@@ -64,7 +73,7 @@ export interface Step {
   note?: string;
 }
 
-export type CorpKindName = "workman" | "mine" | "haul" | "upgrade" | "spawning";
+export type CorpKindName = "workman" | "mine" | "haul" | "link" | "upgrade" | "spawning";
 
 export interface Offer {
   /** Deterministic — `kind:anchor` — stable across replans so instances
@@ -144,6 +153,9 @@ export interface EnginePlan {
     deliveredEt: number;
     /** Σ funded parts bills — the tender heartbeat's obligation. */
     refillEt: number;
+    /** Σ funded operating fees (link tax, candidate capex over HORIZON) —
+     * the bank pays these; they are not spawn bills. */
+    feesEt: number;
     upgradeEt: number;
     /** The LIVE fleet's share of deliveredEt: funded increments whose every
      * step is backed. The plan side above assumes full staffing; this is

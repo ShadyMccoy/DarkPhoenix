@@ -45,4 +45,12 @@ export interface EconomyView {
   sources: ViewSource[];
   controller: { id: string; distFromBank: number } | null;
   creeps: ViewCreep[];
+  /** Standing link structures, each mapped to the place it serves — the
+   * link kind's handed assets (`asset(id)` entering the vocabulary). */
+  links: ViewLink[];
+}
+
+export interface ViewLink {
+  id: string;
+  at: PlaceId;
 }

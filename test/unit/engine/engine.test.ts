@@ -27,6 +27,7 @@ function view(over: Partial<EconomyView> = {}): EconomyView {
     ],
     controller: { id: "ctrl", distFromBank: 5 },
     creeps: [],
+    links: [],
     ...over
   };
 }
@@ -85,7 +86,9 @@ describe("engine/replan", () => {
     // leftover — the conservation identity as an engine invariant.
     assert.isEmpty(plan.violations);
     const bank = plan.positions.find(p => p.place === "bank");
-    assert.closeTo(bank?.netEt ?? NaN, plan.expected.deliveredEt - plan.expected.refillEt - plan.expected.upgradeEt, 1e-9);
+    const leftover =
+      plan.expected.deliveredEt - plan.expected.refillEt - plan.expected.feesEt - plan.expected.upgradeEt;
+    assert.closeTo(bank?.netEt ?? NaN, leftover, 1e-9);
 
     assert.deepEqual(replan(view({ bodyBudget: 550, bankStock: 2000 })), plan, "same view, same plan");
   });
@@ -99,6 +102,56 @@ describe("engine/replan", () => {
     assert.isAbove(feederFar, feederNear, "distance costs CARRY on the consumption side too");
     assert.isAbove(far.expected.refillEt, near.expected.refillEt, "the bigger feed fleet's bills grow the obligation");
     assert.isAtMost(far.expected.upgradeEt, near.expected.upgradeEt, "and never buys MORE upgrading");
+  });
+
+  it("a standing link pair wins its edge at marginal cost; nearby edges stay with bodies", () => {
+    const plan = replan(
+      view({
+        bodyBudget: 550,
+        bankStock: 2000,
+        links: [
+          { id: "L1", at: "srcB" },
+          { id: "L2", at: "bank" }
+        ]
+      })
+    );
+    const corps = byId(plan);
+
+    // srcB (25 tiles): the pair moves 10 e/t for a 0.3 tax and no spawn
+    // time — it beats two hauler bodies and takes the whole edge.
+    const linkB = corps.get("link:srcB->bank");
+    assert.equal(linkB?.target, 1);
+    assert.equal(linkB?.backed, 1, "standing structures back the step");
+    assert.isUndefined(corps.get("haul:srcB->bank"), "bodies lost the far edge");
+    assert.closeTo(linkB?.outputs.energyAt?.["bank"] ?? 0, 10, 1e-9, "allocated to the mine's real flow");
+
+    // srcA (10 tiles): a hauler body is still the cheaper unit — the same
+    // market splits the network by distance, no logistics module deciding.
+    assert.equal(corps.get("haul:srcA->bank")?.target, 1);
+    assert.isUndefined(corps.get("link:srcA->bank"));
+
+    assert.closeTo(plan.expected.feesEt, 0.3, 1e-9, "the 3% tax on 10 e/t");
+    assert.isEmpty(plan.violations);
+    const bank = plan.positions.find(p => p.place === "bank");
+    const leftover =
+      plan.expected.deliveredEt - plan.expected.refillEt - plan.expected.feesEt - plan.expected.upgradeEt;
+    assert.closeTo(bank?.netEt ?? NaN, leftover, 1e-9, "conservation holds with fees on the books");
+  });
+
+  it("a CANDIDATE link prices at full cost — capex over the horizon — and wins only where distance justifies it", () => {
+    const plan = replan(view({ bodyBudget: 550, bankStock: 20000 }));
+    const corps = byId(plan);
+
+    // srcB: tax 0.3 + 10000e/100k = 0.4 e/t beats two haulers at 0.67 —
+    // the investment clears; the believer (or the owner) builds the pair.
+    const candidate = corps.get("link:srcB->bank");
+    assert.equal(candidate?.target, 1);
+    assert.equal(candidate?.backed, 0, "nothing stands yet: this is an approved build");
+    assert.isUndefined(corps.get("haul:srcB->bank"));
+
+    // srcA: the same candidate arithmetic loses to one 0.33 e/t hauler.
+    assert.equal(corps.get("haul:srcA->bank")?.target, 1);
+    assert.isUndefined(corps.get("link:srcA->bank"));
   });
 
   it("cascade A — empty ledger: the solvency filter leaves only the workman root standing", () => {

@@ -22,6 +22,7 @@ import { Scenario, XY } from "./scenario";
 export const KIND_COLOR: Record<CorpKindName, string> = {
   mine: "#c9a227",
   haul: "#9ecbff",
+  link: "#d16ba5",
   workman: "#e08a4a",
   upgrade: "#8e6bbf",
   spawning: "#3f7cac"
@@ -96,12 +97,14 @@ function anchorsFor(s: Scenario, offerId: string): { from: XY; to: XY; bow: numb
       // The fused chain: harvest and carry in one body, source → bank.
       return src ? { from: src, to: s.bank, bow: -1 } : null;
     }
-    case "haul": {
+    case "haul":
+    case "link": {
       const arrow = rest.indexOf("->");
       if (arrow < 0) return null;
       const from = placeXY(s, rest.slice(0, arrow));
       const to = placeXY(s, rest.slice(arrow + 2));
-      return from && to ? { from, to, bow: 1 } : null;
+      // Links bow opposite haulers so both quotes on one edge stay legible.
+      return from && to ? { from, to, bow: kind === "link" ? -1 : 1 } : null;
     }
     case "upgrade":
       return s.controller ? { from: s.bank, to: s.controller, bow: 0 } : null;

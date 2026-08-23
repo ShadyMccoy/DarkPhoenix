@@ -28,6 +28,12 @@ export interface ScenarioSource {
   y: number;
 }
 
+export interface ScenarioLink {
+  id: string;
+  x: number;
+  y: number;
+}
+
 export interface Scenario {
   name: string;
   /** SIZE rows of SIZE chars: '.' plain, '#' wall, '~' swamp. */
@@ -37,6 +43,9 @@ export interface Scenario {
   bank: XY;
   controller: XY | null;
   sources: ScenarioSource[];
+  /** Standing link structures — placed by hand or built by the believer
+   * when the plan funds a candidate. */
+  links: ScenarioLink[];
   bankStock: number;
   bodyBudget: number;
   /** Staged initial fleet (cascade B/C worlds stage living creeps). */
@@ -124,9 +133,24 @@ function approachDist(dist: number[][], p: XY): number {
   return Number.isFinite(best) ? Math.max(best, 1) : SIZE;
 }
 
+/** Which place a link tile serves: the bank, a source, or the controller
+ * within short reach — a link farther from everything serves nothing. */
+export function linkPlace(s: Scenario, link: ScenarioLink): string | null {
+  const near = (p: XY | null): boolean => !!p && Math.max(Math.abs(p.x - link.x), Math.abs(p.y - link.y)) <= 2;
+  if (near(s.bank)) return "bank";
+  for (const src of s.sources) if (near(src)) return src.id;
+  if (near(s.controller)) return "ctrl";
+  return null;
+}
+
 /** The pure world-assembly step: staged map in, EconomyView out. */
 export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, tick: number): EconomyView {
   const dist = distanceField(s.terrain, s.bank);
+  const links = [];
+  for (const l of s.links) {
+    const at = linkPlace(s, l);
+    if (at) links.push({ id: l.id, at });
+  }
   return {
     tick,
     bank: "bank",
@@ -140,7 +164,8 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
       distToBank: approachDist(dist, src)
     })),
     controller: s.controller ? { id: "ctrl", distFromBank: approachDist(dist, s.controller) } : null,
-    creeps
+    creeps,
+    links
   };
 }
 
@@ -164,6 +189,7 @@ export function importSave(text: string): LabSave {
   if (!raw.scenario.spawn || !raw.scenario.bank || !Array.isArray(raw.scenario.sources)) {
     throw new Error("not a lab save: missing elements");
   }
+  raw.scenario.links = raw.scenario.links ?? [];
   return {
     scenario: raw.scenario,
     creeps: raw.creeps ?? [],

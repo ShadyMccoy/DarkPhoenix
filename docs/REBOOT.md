@@ -982,6 +982,20 @@ delegated to the session, worked through priced examples, and closed:
    panels, P&L inspector, believer stepping, plan diffs; the
    bootstrap-cascade scenario checked in as the first certification.
 4. **Phase 2:** `asset(id)`, the link kind, depth-1.
+   **Landed 2026-08-23 with the clearing-order refactor** (owner:
+   "let's do the gap derivation refactor along with the link corp",
+   after the position book caught a hand-wired matching hole): the
+   broker nets anchored offers first and DERIVES the gaps — nothing
+   hand-wires a match, and the book stays the tripwire. Transport
+   stages are ORDER BOOKS: haul bodies and link volleys compete on
+   the same edge, standing capital first, then cheapest marginal
+   unit — piece 5's "the engine funds whichever wins the edge" is
+   literally the sort. The link kind prices the piece verbatim: a
+   standing pair quotes marginal (the 3% tax, zero spawn time), a
+   candidate quotes full cost (tax + capex/HORIZON) with its capex
+   gated by stock (investments draw from stock — piece 9), so the
+   network segments by distance with no logistics module deciding.
+   H = 100,000 now lives in primitives under its ruling docblock.
 
 The bot's cutover from `plan.ts` to the engine is a separate
 owner-gated event once the lab has certified the design.

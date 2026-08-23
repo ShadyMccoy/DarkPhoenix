@@ -1,26 +1,32 @@
 import { assert } from "chai";
-import { ChainCandidate, MarketInput, SinkChain, clear } from "../../../src/engine/market";
-import { Step } from "../../../src/engine/vocabulary";
+import { ChainCandidate, ChainStage, MarketInput, SinkChain, StageOption, clear } from "../../../src/engine/market";
+import { Offer, Step } from "../../../src/engine/vocabulary";
 
 /**
  * The clearing core certified with SYNTHETIC kinds: made-up schedules, no
  * Screeps economics. Whether the real quotes are right is the sizing and
  * quote suites' job — here we prove the market itself clears correctly:
- * end-to-end increments, merit order, every frontier reason, determinism.
+ * end-to-end increments, order-book stages, merit order, every frontier
+ * reason, the position book, determinism.
  */
 
-function step(cap: number, o: { upkeep?: number; spawn?: number; upfront?: number; backedBy?: string } = {}): Step {
+function step(cap: number, o: { upkeep?: number; fee?: number; spawn?: number; upfront?: number; backedBy?: string } = {}): Step {
   return {
     backedBy: o.backedBy,
     buys: o.backedBy ? undefined : { work: 0, carry: 1, move: 1 },
     provides: { energyAt: { bank: cap } },
     requires: {},
-    cost: { upfront: o.upfront ?? 0, upkeepEt: o.upkeep ?? 0, spawnTimeEt: o.spawn ?? 0 }
+    cost: { upfront: o.upfront ?? 0, upkeepEt: o.upkeep ?? 0, feeEt: o.fee, spawnTimeEt: o.spawn ?? 0 }
   };
 }
 
+function stage(offer: Offer, caps: number[]): ChainStage {
+  return { options: caps.map((capacity, i) => ({ offer, step: i, capacity })) };
+}
+
 function chain(id: string, sourceId: string, caps: number[], steps: Step[]): ChainCandidate {
-  return { id, sourceId, stages: [{ offer: { id, kind: "mine", steps }, capacities: caps }] };
+  const offer: Offer = { id, kind: "mine", steps };
+  return { id, sourceId, stages: [stage(offer, caps)] };
 }
 
 function input(over: Partial<MarketInput> = {}): MarketInput {
@@ -38,26 +44,15 @@ function input(over: Partial<MarketInput> = {}): MarketInput {
 
 describe("engine/market", () => {
   it("zips multi-stage chains into end-to-end increments", () => {
-    // Mouth stage delivers nothing until the transport stage exists: the
-    // first increment must bundle both stages' first steps.
-    const mine = { id: "m", kind: "mine" as const, steps: [step(10, { upkeep: 0.4, upfront: 500 })] };
-    const haul = {
+    const mine: Offer = { id: "m", kind: "mine", steps: [step(10, { upkeep: 0.4, upfront: 500 })] };
+    const haul: Offer = {
       id: "h",
-      kind: "haul" as const,
+      kind: "haul",
       steps: [step(5, { upkeep: 0.3, upfront: 300 }), step(5, { upkeep: 0.3, upfront: 300 })]
     };
     const plan = clear(
       input({
-        chains: [
-          {
-            id: "chain:s1",
-            sourceId: "s1",
-            stages: [
-              { offer: mine, capacities: [10] },
-              { offer: haul, capacities: [5, 5] }
-            ]
-          }
-        ]
+        chains: [{ id: "chain:s1", sourceId: "s1", stages: [stage(mine, [10]), stage(haul, [5, 5])] }]
       })
     );
     assert.closeTo(plan.expected.deliveredEt, 10, 1e-9);
@@ -66,10 +61,32 @@ describe("engine/market", () => {
     assert.equal(targets.get("h"), 2);
   });
 
+  it("a stage is an order book: options from rival offers fund cheapest-first", () => {
+    const mine: Offer = { id: "m", kind: "mine", steps: [step(10, { upkeep: 0.4 })] };
+    const dear: Offer = { id: "t:dear", kind: "haul", steps: [step(6, { upkeep: 0.9 }), step(6, { upkeep: 0.9 })] };
+    const cheap: Offer = { id: "t:cheap", kind: "link", steps: [step(6, { fee: 0.2 })] };
+    // The broker's sort put the cheap option first; the zipper consumes in
+    // that order, so the dear rival covers only the remainder.
+    const book: StageOption[] = [
+      { offer: cheap, step: 0, capacity: 6 },
+      { offer: dear, step: 0, capacity: 6 },
+      { offer: dear, step: 1, capacity: 6 }
+    ];
+    const plan = clear(
+      input({ chains: [{ id: "chain:s1", sourceId: "s1", stages: [stage(mine, [10]), { options: book }] }] })
+    );
+    const byId = new Map(plan.corps.map(c => [c.id, c]));
+    assert.equal(byId.get("t:cheap")?.target, 1, "the cheaper kind wins the edge first");
+    assert.equal(byId.get("t:dear")?.target, 1, "the rival covers only the remainder");
+    // Allocation follows book order: the winner runs full, the rival trims.
+    assert.closeTo(byId.get("t:cheap")?.pnl.grossEt ?? 0, 6, 1e-9);
+    assert.closeTo(byId.get("t:dear")?.pnl.grossEt ?? 0, 4, 1e-9);
+    assert.closeTo(plan.expected.feesEt, 0.2, 1e-9, "the winner's fee is on the books");
+  });
+
   it("funds in merit order and prints the spawn-capacity frontier", () => {
     const rich = chain("chain:rich", "s1", [8], [step(8, { upkeep: 0.2, spawn: 0.01 })]);
     const poor = chain("chain:poor", "s2", [8], [step(8, { upkeep: 4, spawn: 0.01 })]);
-    // Capacity for exactly one increment: the richer chain must win it.
     const plan = clear(input({ chains: [poor, rich], spawnCapacity: 0.01 }));
     assert.deepEqual(
       plan.corps.map(c => c.id),
@@ -96,7 +113,6 @@ describe("engine/market", () => {
     );
     assert.equal(cold.frontier.find(f => f.offerId === "chain:dear")?.reason, "ramp insolvent");
 
-    // One living body anywhere = standing income: the filter lifts.
     const standing = chain("chain:alive", "s2", [1], [step(1, { backedBy: "creepA" })]);
     const warm = clear(input({ chains: [dear, cheap, standing], bankStock: 300 }));
     assert.include(
@@ -120,38 +136,34 @@ describe("engine/market", () => {
 
   it("draws sinks from the residual and keeps the books conserved", () => {
     const prod = chain("chain:p", "s1", [10], [step(10, { upkeep: 1 })]);
-    const sinkSteps = [0, 1, 2].map(() => ({
+    const sinkSteps: Step[] = [0, 1, 2].map(() => ({
       buys: { work: 2, carry: 1, move: 1 },
       provides: { controlPoints: 4 },
       requires: { energyAt: { bank: 4 } },
       cost: { upfront: 300, upkeepEt: 0.2, spawnTimeEt: 0.003 }
     }));
-    const sinks: SinkChain[] = [{ stages: [{ offer: { id: "up", kind: "upgrade", steps: sinkSteps }, capacities: [4, 4, 4] }] }];
+    const up: Offer = { id: "up", kind: "upgrade", steps: sinkSteps };
+    const sinks: SinkChain[] = [{ stages: [stage(up, [4, 4, 4])] }];
     const plan = clear(input({ chains: [prod], sinks }));
-    // Residual 9: two 4.2 draws fit, the third prints the frontier.
     assert.equal(plan.corps.find(c => c.id === "up")?.target, 2);
     assert.equal(plan.frontier.find(f => f.offerId === "up")?.reason, "energy residual");
     assert.closeTo(plan.expected.upgradeEt, 8, 1e-9);
-    // The heartbeat identity: the refill obligation is Σ funded bills.
     const bills = plan.corps.reduce((s, c) => s + c.pnl.costEt, 0);
-    assert.closeTo(plan.expected.refillEt, bills, 1e-9);
-    // Conservation: nothing delivered goes unaccounted.
-    const leftover = plan.expected.deliveredEt - plan.expected.refillEt - plan.expected.upgradeEt;
+    assert.closeTo(plan.expected.refillEt + plan.expected.feesEt, bills, 1e-9);
+    const leftover = plan.expected.deliveredEt - plan.expected.refillEt - plan.expected.feesEt - plan.expected.upgradeEt;
     assert.isAtLeast(leftover, -1e-9);
   });
 
   it("the position book flags funded demand with no match at its place — the controller-feed bug, pinned", () => {
-    // A burner drawing at "ctrl" with NO stage providing there: the market
-    // funds it (it cannot know the broker forgot the feeder), but the book
-    // refuses to stay quiet about it.
     const prod = chain("chain:p", "s1", [10], [step(10, { upkeep: 1 })]);
-    const orphanSteps = [0, 1].map(() => ({
+    const orphanSteps: Step[] = [0, 1].map(() => ({
       buys: { work: 2, carry: 1, move: 1 },
       provides: { controlPoints: 4 },
       requires: { energyAt: { ctrl: 4 } },
       cost: { upfront: 300, upkeepEt: 0.2, spawnTimeEt: 0.003 }
     }));
-    const sinks: SinkChain[] = [{ stages: [{ offer: { id: "up", kind: "upgrade", steps: orphanSteps }, capacities: [4, 4] }] }];
+    const up: Offer = { id: "up", kind: "upgrade", steps: orphanSteps };
+    const sinks: SinkChain[] = [{ stages: [stage(up, [4, 4])] }];
     const plan = clear(input({ chains: [prod], sinks }));
     assert.isNotEmpty(plan.violations);
     assert.include(plan.violations[0], "unmatched demand at ctrl");

@@ -7,9 +7,9 @@
 import { SIZE, Scenario, SWAMP, WALL, XY, cellAt } from "./scenario";
 import { LabEdge, edgeColor, edgeLabel, edgeWidth } from "./graph";
 
-export type Tool = "select" | "spawn" | "bank" | "controller" | "source" | "wall" | "swamp" | "erase";
+export type Tool = "select" | "spawn" | "bank" | "controller" | "source" | "link" | "wall" | "swamp" | "erase";
 
-export const TOOLS: Tool[] = ["select", "spawn", "bank", "controller", "source", "wall", "swamp", "erase"];
+export const TOOLS: Tool[] = ["select", "spawn", "bank", "controller", "source", "link", "wall", "swamp", "erase"];
 
 const CELL = 13;
 
@@ -162,6 +162,7 @@ export function renderMap(container: HTMLElement, s: Scenario, overlay: MapOverl
     const hot = selected === src.id ? el("rect", { x: src.x * CELL - 2, y: src.y * CELL - 2, width: CELL + 4, height: CELL + 4, rx: 3, fill: "none", stroke: "#ffd54d", "stroke-width": 2 }) : "";
     marks += hot + badge(src.x, src.y, "#c9a227", "E");
   }
+  for (const l of s.links) marks += badge(l.x, l.y, "#d16ba5", "L");
   marks += badge(s.spawn.x, s.spawn.y, "#3f7cac", "S");
   marks += badge(s.bank.x, s.bank.y, "#2a9d8f", "B");
   if (s.controller) marks += badge(s.controller.x, s.controller.y, "#8e6bbf", "C");

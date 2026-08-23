@@ -27,6 +27,7 @@ export function bootstrapScenario(): Scenario {
       { id: "srcA", x: 12, y: 36 },
       { id: "srcB", x: 43, y: 6 }
     ],
+    links: [],
     bankStock: 300,
     bodyBudget: 300,
     creeps: []

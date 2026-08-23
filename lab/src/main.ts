@@ -12,8 +12,9 @@ import { bodyCost } from "../../src/primitives";
 import { TOOLS, Tool, renderMap } from "./editor";
 import { KIND_COLOR, edgesFor } from "./graph";
 import { renderPanels } from "./panels";
-import { PLAIN, SWAMP, Scenario, WALL, assemble, cellAt, exportSave, importSave, setCell } from "./scenario";
+import { PLAIN, SWAMP, Scenario, WALL, XY, assemble, cellAt, exportSave, importSave, setCell } from "./scenario";
 import { bootstrapScenario } from "./scenarios";
+import { LINK_COST } from "../../src/primitives";
 
 /** One believer chunk: the replan cadence's order of magnitude. */
 const DT = 150;
@@ -90,6 +91,10 @@ function advance(chunks: number): void {
     state.creeps = next;
     const buyOrder = [...plan.corps].sort((a, b) => (a.chain === null ? 1 : 0) - (b.chain === null ? 1 : 0));
     for (const corp of buyOrder) {
+      if (corp.kind === "link" && corp.backed === 0) {
+        buildLinks(corp.id);
+        continue;
+      }
       if (!corp.body) continue;
       const cost = bodyCost(corp.body);
       let live = state.creeps.filter(c => c.corp === corp.id).length;
@@ -102,6 +107,49 @@ function advance(chunks: number): void {
     state.tick += DT;
   }
   render();
+}
+
+/**
+ * The believer as builder: when the plan funds a CANDIDATE link (piece 5's
+ * investment, approved at full cost), place the missing structures at the
+ * gap's endpoints and pay the capex from the bank — the interim stand-in
+ * for the build corp, so the investment loop closes on screen.
+ */
+function buildLinks(corpId: string): void {
+  const s = state.scenario;
+  const rest = corpId.slice("link:".length);
+  const arrow = rest.indexOf("->");
+  if (arrow < 0) return;
+  const tileOf = (place: string): XY | null => {
+    if (place === "bank") return s.bank;
+    if (place === "ctrl") return s.controller;
+    const src = s.sources.find(k => k.id === place);
+    return src ? { x: src.x, y: src.y } : null;
+  };
+  for (const place of [rest.slice(0, arrow), rest.slice(arrow + 2)]) {
+    const tile = tileOf(place);
+    if (!tile) continue;
+    const near = s.links.some(l => Math.max(Math.abs(l.x - tile.x), Math.abs(l.y - tile.y)) <= 2);
+    if (near || state.bankStock < LINK_COST) continue;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const x = tile.x + dx;
+        const y = tile.y + dy;
+        const taken =
+          cellAt(s.terrain, x, y) === WALL ||
+          s.links.some(l => l.x === x && l.y === y) ||
+          s.sources.some(k => k.x === x && k.y === y) ||
+          (s.spawn.x === x && s.spawn.y === y) ||
+          (s.bank.x === x && s.bank.y === y);
+        if (taken) continue;
+        s.links.push({ id: `link${s.links.length + 1}`, x, y });
+        state.bankStock -= LINK_COST;
+        dx = 2;
+        break;
+      }
+    }
+  }
 }
 
 function applyTool(x: number, y: number): void {
@@ -119,6 +167,9 @@ function applyTool(x: number, y: number): void {
     case "source":
       s.sources.push({ id: `src${s.sources.length + 1}`, x, y });
       break;
+    case "link":
+      s.links.push({ id: `link${s.links.length + 1}`, x, y });
+      break;
     case "wall":
       setCell(s.terrain, x, y, WALL);
       break;
@@ -126,9 +177,10 @@ function applyTool(x: number, y: number): void {
       setCell(s.terrain, x, y, SWAMP);
       break;
     case "erase": {
-      const n = s.sources.length;
+      const n = s.sources.length + s.links.length;
       s.sources = s.sources.filter(src => src.x !== x || src.y !== y);
-      if (s.sources.length === n && cellAt(s.terrain, x, y) !== PLAIN) setCell(s.terrain, x, y, PLAIN);
+      s.links = s.links.filter(l => l.x !== x || l.y !== y);
+      if (s.sources.length + s.links.length === n && cellAt(s.terrain, x, y) !== PLAIN) setCell(s.terrain, x, y, PLAIN);
       if (s.controller && s.controller.x === x && s.controller.y === y) s.controller = null;
       break;
     }
