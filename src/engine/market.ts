@@ -226,16 +226,6 @@ export function clear(input: MarketInput): EnginePlan {
     fundedPerStage: c.stages.map(() => 0)
   }));
 
-  // Standing income: what already-living capital delivers before any
-  // purchase — the leading fully-backed increments of every chain.
-  let standingIncome = 0;
-  for (const lc of live) {
-    for (const inc of lc.incs) {
-      if (!inc.backed) break;
-      standingIncome += inc.delivered;
-    }
-  }
-
   const srcUsed: Record<string, number> = {};
   const srcFundedBy: Record<string, string[]> = {};
   const closed = new Set<string>();
@@ -316,7 +306,15 @@ export function clear(input: MarketInput): EnginePlan {
   // affordable workmen that would have grown the income (session
   // finding 2026-08-23: the bootstrap stalled at one body forever).
   // Cold start reduces to the old rule: no income, stock alone.
-  const accumulationEt = Math.max(standingIncome - (input.standingBills ?? 0) - (input.holdingEt ?? 0), 0);
+  // Computed AFTER phase 1 so `standingEt` (delivery trimmed to the
+  // source caps) is the income — the untrimmed sum double-counted rival
+  // fleets sharing one source (review finding). Deliberately NOT a purse
+  // drawn down per funded bid: targets are the steady-state ledger, not
+  // purchases — cash is the executor's job (hire rounds), and the
+  // ceiling only gates which chains may RAMP. A purse serialized
+  // multi-source ramps for no solvency gain (review finding, adjudicated
+  // the other way; recorded in the ledger).
+  const accumulationEt = Math.max(standingEt - (input.standingBills ?? 0) - (input.holdingEt ?? 0), 0);
   const affordCeiling = input.bankStock + accumulationEt * RAMP_WINDOW;
   const bestBid = (lc: LiveChain): Bid | null => {
     if (closed.has(lc.chain.id) || lc.next >= lc.incs.length) return null;
@@ -411,11 +409,11 @@ export function clear(input: MarketInput): EnginePlan {
   // whole refill obligation (owner 2026-08-23 — the spawning corp's own
   // bodies, never a haul job).
   const heartbeat = (): number => refill + (input.standingBills ?? 0);
+  let tenderIntake = 0;
+  let tenderBlocked = false;
   if (input.tender && heartbeat() > EPS) {
     const t = input.tender;
-    let intake = 0;
-    let blocked = false;
-    for (let i = 0; i < t.offer.steps.length && intake < heartbeat() - EPS; i++) {
+    for (let i = 0; i < t.offer.steps.length && tenderIntake < heartbeat() - EPS; i++) {
       const s = t.offer.steps[i];
       if (spawnUsed + s.cost.spawnTimeEt > input.spawnCapacity + EPS) {
         frontier.push({
@@ -423,23 +421,13 @@ export function clear(input: MarketInput): EnginePlan {
           reason: "spawn capacity",
           detail: `needs ${s.cost.spawnTimeEt.toFixed(4)} p/t, ${(input.spawnCapacity - spawnUsed).toFixed(4)} p/t free`
         });
-        blocked = true;
+        tenderBlocked = true;
         break;
       }
       fund(t.offer, null, i);
-      intake += t.capacities[i];
+      tenderIntake += t.capacities[i];
       refill += s.cost.upkeepEt;
       spawnUsed += s.cost.spawnTimeEt;
-    }
-    // An uncovered heartbeat is NEVER silent (the axiom, printed): the
-    // schedule ran out below the obligation — v1's silent under-coverage
-    // class, closed at the chokepoint.
-    if (!blocked && intake < heartbeat() - EPS) {
-      frontier.push({
-        offerId: t.offer.id,
-        reason: "tender short",
-        detail: `schedule exhausted at ${intake.toFixed(2)} e/t intake vs ${heartbeat().toFixed(2)} e/t obligation`
-      });
     }
   }
 
@@ -497,7 +485,13 @@ export function clear(input: MarketInput): EnginePlan {
           fees += inc.feeEt;
           spawnUsed += inc.spawnTimeEt;
           upgradeEt += partial;
-          if (inc.backed) standingUpgradeEt += partial;
+          if (inc.backed) {
+            standingUpgradeEt += partial;
+            // The fee is charged in full here too — dropping it from the
+            // standing split leaked phantom cash to every cash reader
+            // (review finding: the same bug the full-fund path had).
+            standingFees += inc.feeEt;
+          }
           frontier.push({
             offerId: sinkOffer.id,
             reason: "energy residual",
@@ -549,6 +543,19 @@ export function clear(input: MarketInput): EnginePlan {
   }
 
   for (const sink of input.sinks) if (!sink.capital) drawSink(sink);
+
+  // An uncovered heartbeat is NEVER silent (the axiom, printed). Checked
+  // HERE, after the sinks: their newly bought fleets' bills join the
+  // refill obligation after the tender funded, and checking at the
+  // tender let that growth slip past uncovered (review finding — v1's
+  // silent under-coverage class, at a second door).
+  if (input.tender && !tenderBlocked && tenderIntake < heartbeat() - EPS) {
+    frontier.push({
+      offerId: input.tender.offer.id,
+      reason: "tender short",
+      detail: `intake covers ${tenderIntake.toFixed(2)} of the ${heartbeat().toFixed(2)} e/t obligation`
+    });
+  }
 
   const corps: CorpInstance[] = [];
   let minedEt = 0;

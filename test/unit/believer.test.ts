@@ -41,24 +41,25 @@ describe("lab/believer — the investment loop", () => {
     const state = farSourceWorld();
     let sawWarchest = false;
     let sawSite = false;
-    let cpBeforeBuild = 0;
+    let cpAtLinkSite = -1;
 
     for (let i = 0; i < 60; i++) {
       const plan = advanceChunk(state);
       if (plan.expected.warchestEt > 0) sawWarchest = true;
-      if (state.scenario.sites.length > 0) {
-        sawSite = true;
-        if (cpBeforeBuild === 0) cpBeforeBuild = state.cp;
-      }
+      if (state.scenario.sites.length > 0) sawSite = true;
+      // Capture ONCE, at the link project's own start — the old
+      // `if (cp === 0)` guard re-armed every chunk and certified a false
+      // narrative (review finding: the first site was the extension).
+      if (cpAtLinkSite < 0 && state.scenario.sites.some(s => s.structure === "link")) cpAtLinkSite = state.cp;
       // Loop closed: links stand and the far edge reprices to the wire.
       if (sawSite && state.scenario.sites.length === 0 && state.scenario.links.length >= 2) break;
     }
 
     assert.isTrue(sawWarchest, "the residual banked while the candidate awaited stock");
     assert.isTrue(sawSite, "the approval became a construction site");
+    assert.isAtLeast(cpAtLinkSite, 0, "the link project actually opened");
     assert.lengthOf(state.scenario.sites, 0, "the project finished");
     assert.isAtLeast(state.scenario.links.length, 2, "both endpoints got their link");
-    assert.isAbove(cpBeforeBuild, 0, "the controller drank before the accumulation began");
 
     // Let the market settle on the new capital, then audit the plan.
     for (let i = 0; i < 4; i++) advanceChunk(state);
@@ -70,6 +71,6 @@ describe("lab/believer — the investment loop", () => {
     assert.isUndefined(byId.get("haul:srcB->bank"), "the body fleet lapsed off the wired edge");
     assert.isOk(byId.get("haul:srcA->bank"), "the near edge stays on bodies — distance segments the network");
     assert.isEmpty(plan.violations, "the book clears across the whole arc");
-    assert.isAbove(state.cp, cpBeforeBuild, "the dividend resumed after the investment");
+    assert.isAbove(state.cp, cpAtLinkSite, "the dividend resumed after the investment");
   });
 });

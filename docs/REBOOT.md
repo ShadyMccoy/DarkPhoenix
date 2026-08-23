@@ -1214,7 +1214,31 @@ need the owner's explicit ratification or reversal.
   differencing is blind behind the ramp filter (a too-poor world can't
   SEE that an extension would pay).
 
-**Budget note:** src stands at 3020 lines against the ~3k budget; the
+**The closing adversarial review** (4-lens fan-out over the night's full
+diff, findings verified by skeptics; commit #181): confirmed and fixed —
+the partial-funded sink step dropped its backed fee from
+`standingFeesEt` (the phantom-cash class, at a second door); ramp
+accumulation summed backed income UNTRIMMED by source caps (rival
+fleets on one source double-counted); the bank-branch rung credited the
+ROAD network's upkeep as a saving the build could not deliver (the
+review's one HIGH — storage approvable on rot it cannot remove); any
+kernel site froze ALL link/road evaluation for its whole build
+(`isSitePlace("bank")` matched every eligible edge); sink fleets' bills
+joined the refill obligation AFTER the tender coverage check (silent
+under-coverage, third door); the roaded/unpaved fleet composition was
+re-derived inline in the broker (law 5's second-sizing-site disease —
+now `haulFleetBillEt` in the one module); and the believer test's
+cp-capture re-armed while cp was zero, certifying a false narrative.
+Adjudicated the OTHER way, recorded: ⚖ the review proposed the ramp
+ceiling as a PURSE drawn down per funded bid; tried, and reverted —
+plan targets are the steady-state ledger, not purchases (cash is the
+executor's hire loop), and the purse serialized multi-source ramps for
+no solvency gain. And recorded as an open finding: body purchases and
+the warchest share one stock with no reservation between them — hires
+can dip the bank below committed capex (the warchest re-diverts and
+self-heals, but the burst is visible fleet churn).
+
+**Budget note:** src stands at ~3040 lines against the ~3k budget; the
 overage is docblock prose carrying the session's incident record in
 place. Trim or ratify.
 

@@ -7,7 +7,7 @@
  * survival floor (spec-01: a colony must be able to buy SOMETHING
  * affordable right now) — and its unit suite is the exhaustive one.
  */
-import { CARRY_CAP, PART_COST, SOURCE_SATURATION_WORK, WorkmanShape } from "./primitives";
+import { CARRY_CAP, CREEP_LIFE, PART_COST, SOURCE_SATURATION_WORK, WorkmanShape } from "./primitives";
 
 /** One structural body type for every job; the counts differ, the shape
  * doesn't. Alias kept so sizing reads as the general module it is. */
@@ -113,6 +113,20 @@ export function tenderBody(budget: number): BodyShape | null {
   if (budget < unitCost) return null;
   const units = Math.min(2, Math.floor(budget / unitCost));
   return { work: 0, carry: units, move: units };
+}
+
+/**
+ * The IDEAL fleet's amortized bill for a flow over a route, e/t — the
+ * replacement-scale price investment evaluation compares challengers
+ * against. The gait composition (1C:1M unpaved, 2C:1M roaded) lives HERE
+ * and nowhere else (law 5 — the review caught it re-derived inline in
+ * the broker, the second-sizing-site disease returning).
+ */
+export function haulFleetBillEt(flow: number, dist: number, roaded: boolean): number {
+  if (flow <= 0) return 0;
+  const pairs = Math.max(carryPartsFor(flow, dist), 1);
+  if (roaded) return (Math.ceil(pairs / 2) * (2 * PART_COST.carry + PART_COST.move)) / CREEP_LIFE;
+  return (pairs * (PART_COST.carry + PART_COST.move)) / CREEP_LIFE;
 }
 
 /**

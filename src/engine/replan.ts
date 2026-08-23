@@ -25,13 +25,11 @@
  */
 import {
   CONTAINER_COST,
-  CREEP_LIFE,
   EXTENSION_CAPACITY,
   EXTENSION_COST,
   HORIZON,
   LINK_CAPACITY,
   LINK_LOSS,
-  PART_COST,
   ROAD_COST_PER_TILE,
   ROAD_UPKEEP_ET_PER_TILE,
   SOURCE_RATE,
@@ -42,7 +40,7 @@ import {
   spawnTimeEt,
   upkeepEt
 } from "../primitives";
-import { carryPartsFor, haulerBody } from "../sizing";
+import { haulFleetBillEt, haulerBody } from "../sizing";
 import { quoteBuild } from "../corps/build";
 import { HaulGap, quoteHaul } from "../corps/haul";
 import { TrunkSlice, quoteLink, quoteTrunk } from "../corps/link";
@@ -426,7 +424,12 @@ export function replan(view: EconomyView): EnginePlan {
       awaitingCapex += capex;
     }
   };
-  const isSitePlace = (p: PlaceId): boolean => view.sites.some(s => s.at === p);
+  // The bank is excluded on purpose: kernel sites (extension, container)
+  // assemble AT the bank place, and matching it froze ALL link/road
+  // evaluation for their whole construction window — every eligible edge
+  // touches the bank (review finding). The transient-flow concern this
+  // guard exists for applies to a site's OWN place, never the kernel.
+  const isSitePlace = (p: PlaceId): boolean => p !== view.bank && view.sites.some(s => s.at === p);
   const siteEdges = new Set<string>();
   for (const s of view.sites) if (s.edge) siteEdges.add(`${s.edge.from}->${s.edge.to}`);
   for (const corp of base.corps) {
@@ -450,11 +453,7 @@ export function replan(view: EconomyView): EnginePlan {
     // the IDEAL fleet's, from the one logistics law — the funded fleet
     // can be fatter (quoted for schedule demand, funded for less), and
     // that idle CARRY is utilization waste, never a reason to buy wire.
-    const idealPairs = carryPartsFor(corp.pnl.grossEt, gap.dist);
-    const pairCost = PART_COST.carry + PART_COST.move;
-    const replacementBill =
-      (gap.roaded ? Math.ceil(idealPairs / 2) * (2 * PART_COST.carry + PART_COST.move) : idealPairs * pairCost) /
-      CREEP_LIFE;
+    const replacementBill = haulFleetBillEt(corp.pnl.grossEt, gap.dist, gap.roaded ?? false);
     const incumbentUnit = replacementBill / corp.pnl.grossEt;
 
     const cand = quoteLink({
@@ -483,7 +482,7 @@ export function replan(view: EconomyView): EnginePlan {
     // cheaper gait (2C:1M). Only where the wire did NOT clear: a paved
     // route under a link is capex twice for one flow.
     if (!gap.roaded) {
-      const roadedBill = (Math.ceil(idealPairs / 2) * (2 * PART_COST.carry + PART_COST.move)) / CREEP_LIFE;
+      const roadedBill = haulFleetBillEt(corp.pnl.grossEt, gap.dist, true);
       const saving = replacementBill - roadedBill - gap.dist * ROAD_UPKEEP_ET_PER_TILE;
       const capex = gap.dist * ROAD_COST_PER_TILE;
       if (saving * HORIZON > capex) {
@@ -543,7 +542,12 @@ export function replan(view: EconomyView): EnginePlan {
         ? { structure: "storage" as const, capex: STORAGE_COST, after: 0 }
         : null;
     if (rung) {
-      const saving = base.expected.holdingEt - rung.after;
+      // Branch holding ONLY — expected.holdingEt also carries the road
+      // network's upkeep, which survives the build; crediting it as a
+      // saving approved storage on rot it could not remove (review
+      // finding, the session's one HIGH).
+      const branchNow = branchHoldingEt(view.bankBranch, view.bankStock, view.bodyBudget);
+      const saving = branchNow - rung.after;
       if (saving * HORIZON > rung.capex) {
         const detail =
           `${rung.structure} saves ${saving.toFixed(2)} e/t of holding: ` +
