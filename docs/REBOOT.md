@@ -1691,10 +1691,57 @@ settled row claimed to require nothing at all. The investigation:
   the column now distinguishes "runs on no body" from "forgot its
   body".
 
-**Budget note:** src stands at ~3.6k lines against the ~3k budget
-(~3.2k before Addendum 4's landing; the growth is the anatomy's quotes
-and the ported docblocks). The overage is docblock prose carrying the
-session's incident record in place. Trim or ratify.
+**Addendum 5 (owner 2026-08-24, seventh conversation — overflow at the
+port: the excess is a rate, never a member):** *"when the sources flow
+exceeds the link capacity keeping the remainder as a haul is good.
+However instead of specifying a specific mine with a hauler they could
+still bring all 30 (for example) to the outpost and the link can hire
+a hauler for the excess. And by hiring a hauler I just mean the plan
+has it."* Landed, certified green (95 unit + 8 integration):
+
+- **Nobody sheds.** The old admission was whole-supply-or-skip: a
+  binding ration named a specific member and sent its whole flow back
+  to a full direct route. Now a member takes the WIRE that is left and
+  the trunk's own OVERFLOW bodies walk the rest of its supply from the
+  port to the bank — collectors always carry everything to the outpost,
+  and the outpost→bank leg is a two-lane market inside one corp: the
+  ration at the tax, the excess at the walk. The overflow haulers are
+  plan rows exactly as the owner specified — steps on the trunk's offer
+  with real bodies (`haulerBodyFor` on the corridor's WALKING distance,
+  a new assembly fact: `ViewOutpost.distToBank`, deliberately distinct
+  from the wire's Chebyshev range per the Addendum 3 scar), hired and
+  re-handed through the same staff machinery as the throat.
+- **Admission blends; merit still seats.** Addendum 3's
+  displaced-saving order survives as WHO rides the cheap wire; the
+  admission test becomes the member's blended gain — wire share at the
+  tax, spill at the corridor walk, against its direct route. The
+  economics fall out naturally: a far member straddles (8.6 wired + 1.4
+  walked beats a 27-tile direct route), while a near member whose spill
+  would ride a 28-tile corridor against a 16-tile direct route stays
+  direct — the trunk-test pin held on the new arithmetic unchanged.
+  This closes the trunk-side half of the whole-supply-slices finding
+  (sub-ration remainders no longer strand un-seatable); member-side
+  whole-supply routing (a source never splits via/direct) remains v0.
+- **One source of truth for the offer's shape:** `quoteTrunk` returns
+  the offer AND its member-step layout (throat, wire share, overflow
+  bodies per source) — the broker assembles chains from the quote's own
+  map rather than re-deriving indices, which would have been a second
+  lens on the offer's layout.
+- **Recorded, not valved:** station CANDIDATES still price in-ration
+  (a proposed tree caps at 800/range — overflow economics enter the
+  hurdle when measurement asks); the overflow corridor generates no
+  ROAD candidates (round 3 paves only haul-corp gaps — the trunk's
+  walking leg is invisible to it); throat-vs-hauler re-handing matches
+  by shape and collides at 1C1M and at the roaded 2C:1M gait (fungible
+  bodies, books-neutral, but named); and the wire tax still charges on
+  quoted rather than allocated flow (the standing losses-are-flows
+  ruling).
+
+**Budget note:** src stands at ~3.75k lines against the ~3k budget
+(~3.2k before Addenda 4–5 landed; the growth is the anatomy's quotes,
+the roster, the overflow lane, and the ported docblocks). The overage
+is docblock prose carrying the session's incident record in place.
+Trim or ratify.
 
 ## The scenario ladder (DRAFT 2026-08-18 — awaiting owner markup)
 

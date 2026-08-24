@@ -48,7 +48,7 @@ describe("engine/trunk — the tree keeps its far members", () => {
           { id: "hubE", at: "bank", room: "R1_1", x: 52, y: 83 },
           { id: "st", at: "outpost:st", room: "R1_1", x: 75, y: 61 }
         ],
-        outposts: [{ place: "outpost:st", distToSource: { a: 2, b: 2, c: 4 } }],
+        outposts: [{ place: "outpost:st", distToSource: { a: 2, b: 2, c: 4 }, distToBank: 26 }],
         sources: [
           { id: "a", spots: 3, distToBank: 26 },
           { id: "b", spots: 3, distToBank: 27 },
@@ -79,8 +79,8 @@ describe("engine/trunk — the tree keeps its far members", () => {
           { id: "L2", at: "outpost:L2", room: "R0_0", x: 10, y: 32 }
         ],
         outposts: [
-          { place: "outpost:L1", distToSource: { s1: 5, s2: 5, s3: 4 } },
-          { place: "outpost:L2", distToSource: { s1: 14, s2: 12, s3: 7 } }
+          { place: "outpost:L1", distToSource: { s1: 5, s2: 5, s3: 4 }, distToBank: 39 },
+          { place: "outpost:L2", distToSource: { s1: 14, s2: 12, s3: 7 }, distToBank: 33 }
         ],
         sources: [
           { id: "s1", spots: 3, distToBank: 42 },
@@ -110,7 +110,7 @@ describe("engine/trunk — the tree keeps its far members", () => {
           { id: "mouth", at: "wired", room: "R1_1", x: 90, y: 60 },
           { id: "st", at: "outpost:st", room: "R1_1", x: 88, y: 62 }
         ],
-        outposts: [{ place: "outpost:st", distToSource: { wired: 3, other: 3 } }],
+        outposts: [{ place: "outpost:st", distToSource: { wired: 3, other: 3 }, distToBank: 36 }],
         sources: [
           { id: "wired", spots: 3, distToBank: 26 },
           { id: "other", spots: 3, distToBank: 25 }
@@ -124,18 +124,19 @@ describe("engine/trunk — the tree keeps its far members", () => {
     assert.isEmpty(plan.violations, "the book audits the joint");
   });
 
-  it("a binding ration sheds the CHEAPEST direct haul, not whoever iterates last", () => {
-    // Range 28 → ration 28.6 e/t: two whole supplies fit, one must stay
-    // direct. The near source (smallest displaced bill) iterates FIRST —
-    // first-come slicing would seat it and shed farB; merit seats the
-    // two far members and leaves the near one on its cheap direct route.
+  it("a binding ration seats by merit, and a near member whose BLEND loses stays direct", () => {
+    // Range 28 → ration 28.6 e/t: two whole supplies ride the wire; the
+    // near source could take the 8.6 e/t wire remainder plus overflow
+    // bodies for the rest (Addendum 5), but its direct route is 16
+    // tiles against a 28-tile overflow corridor — the blend loses, so
+    // it keeps its cheap direct route. Merit still decides who rides.
     const plan = replan(
       view({
         links: [
           { id: "hubE", at: "bank", room: "R1_1", x: 52, y: 83 },
           { id: "st", at: "outpost:st", room: "R1_1", x: 80, y: 57 }
         ],
-        outposts: [{ place: "outpost:st", distToSource: { near: 3, farA: 3, farB: 3 } }],
+        outposts: [{ place: "outpost:st", distToSource: { near: 3, farA: 3, farB: 3 }, distToBank: 28 }],
         sources: [
           { id: "near", spots: 3, distToBank: 16 },
           { id: "farA", spots: 3, distToBank: 25 },

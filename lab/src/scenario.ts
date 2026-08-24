@@ -271,7 +271,7 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     const hasContainer = (s.containers ?? []).some(
       c => Math.max(Math.abs(c.x - l.x), Math.abs(c.y - l.y)) <= 2
     );
-    outposts.push({ place, distToSource, hasContainer });
+    outposts.push({ place, distToSource, distToBank: approachDist(dist, { x: l.x, y: l.y }), hasContainer });
   }
 
   // The NETWORK plan (owner 2026-08-24): links are scarce, so the

@@ -178,7 +178,7 @@ describe("engine/replan", () => {
           { id: "L1", at: "outpost:L1", room: "R0_0", x: 10, y: 30 },
           { id: "LB", at: "bank", room: "R0_0", x: 30, y: 30 }
         ],
-        outposts: [{ place: "outpost:L1", distToSource: { src1: 5, src2: 5, src3: 5 } }]
+        outposts: [{ place: "outpost:L1", distToSource: { src1: 5, src2: 5, src3: 5 }, distToBank: 20 }]
       })
     );
     const corps = byId(plan);

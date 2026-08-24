@@ -43,7 +43,7 @@ function treeView(over: Partial<EconomyView> = {}): EconomyView {
       { id: "hubE", at: "bank", room: "R1_1", x: 52, y: 83 },
       { id: "st", at: "outpost:st", room: "R1_1", x: 75, y: 61 }
     ],
-    outposts: [{ place: "outpost:st", distToSource: { a: 2, b: 2, c: 4 } }],
+    outposts: [{ place: "outpost:st", distToSource: { a: 2, b: 2, c: 4 }, distToBank: 26 }],
     sources: [
       { id: "a", spots: 3, distToBank: 26 },
       { id: "b", spots: 3, distToBank: 27 },
@@ -92,7 +92,7 @@ describe("engine/port — the anatomy on the trunk", () => {
   it("the standing buffer's holding rides the trunk's fee — only once it stands", () => {
     const bare = replan(treeView());
     const buffered = replan(
-      treeView({ outposts: [{ place: "outpost:st", distToSource: { a: 2, b: 2, c: 4 }, hasContainer: true }] })
+      treeView({ outposts: [{ place: "outpost:st", distToSource: { a: 2, b: 2, c: 4 }, distToBank: 26, hasContainer: true }] })
     );
     const cost = (p: typeof bare): number => p.corps.find(c => c.id === "link:outpost:st->bank")?.pnl.costEt ?? 0;
     assert.closeTo(cost(buffered) - cost(bare), CONTAINER_HOLD_ET, 1e-9);
@@ -103,7 +103,7 @@ describe("engine/port — the anatomy on the trunk", () => {
     const buffer = plan.approvals.find(a => a.structure === "container" && a.at === "outpost:st");
     assert.isOk(buffer, "the port buffer approves — kit, never ROI");
     const served = replan(
-      treeView({ outposts: [{ place: "outpost:st", distToSource: { a: 2, b: 2, c: 4 }, hasContainer: true }] })
+      treeView({ outposts: [{ place: "outpost:st", distToSource: { a: 2, b: 2, c: 4 }, distToBank: 26, hasContainer: true }] })
     );
     assert.isUndefined(
       served.approvals.find(a => a.structure === "container" && a.at === "outpost:st"),
@@ -123,6 +123,41 @@ describe("engine/port — the anatomy on the trunk", () => {
     assert.closeTo(mine?.inputs.spawnTime ?? 0, spawnTimeEt(miner.body), 1e-9, "and its machine time");
     assert.closeTo(mine?.inputs.energyAt?.bank ?? 0, upkeepEt(miner.body), 1e-9, "and its parts bill at the bank");
     assert.closeTo(mine?.pnl.costEt ?? 0, upkeepEt(miner.body), 1e-9, "P&L at replacement scale, not sunk-zero");
+  });
+
+  it("the ration binds: everyone still collects to the outpost, and the LINK hires the overflow hauler", () => {
+    // Addendum 5 (owner 2026-08-24): "instead of specifying a specific
+    // mine with a hauler they could still bring all 30 to the outpost
+    // and the link can hire a hauler for the excess." Range 28 → ration
+    // 28.57 e/t against 30 of supply. All three members are far (25–27
+    // direct), so the third's blend pays: 8.57 rides the wire remainder
+    // and 1.43 walks on the trunk's own overflow body. No member sheds.
+    const plan = replan(
+      view({
+        links: [
+          { id: "hubE", at: "bank", room: "R1_1", x: 52, y: 83 },
+          { id: "st", at: "outpost:st", room: "R1_1", x: 80, y: 57 }
+        ],
+        outposts: [{ place: "outpost:st", distToSource: { f1: 3, f2: 3, f3: 3 }, distToBank: 28 }],
+        sources: [
+          { id: "f1", spots: 3, distToBank: 25 },
+          { id: "f2", spots: 3, distToBank: 26 },
+          { id: "f3", spots: 3, distToBank: 27 }
+        ]
+      })
+    );
+    const corps = new Map(plan.corps.map(c => [c.id, c]));
+    for (const m of ["f1", "f2", "f3"]) {
+      assert.isOk(corps.get(`haul:${m}->outpost:st`), `${m} collects its WHOLE supply into the station`);
+      assert.isUndefined(corps.get(`haul:${m}->bank`), `${m} runs no direct route — the excess is a rate, not a member`);
+    }
+    const trunk = corps.get("link:outpost:st->bank");
+    assert.equal(trunk?.target, 5, "throat + three wire shares + one overflow body");
+    assert.lengthOf(trunk?.staff ?? [], 2, "the corp runs on two bodies: the throat and its overflow hauler");
+    assert.deepEqual(trunk?.staff[0].body, { work: 0, carry: 2, move: 1 }, "the throat, sized to the WIRE flow");
+    assert.deepEqual(trunk?.staff[1].body, { work: 0, carry: 2, move: 2 }, "the overflow hauler, sized to the spill");
+    assert.closeTo(trunk?.outputs.energyAt?.bank ?? 0, 30, 0.1, "the trunk moves all 30 out of the port");
+    assert.isEmpty(plan.violations, "the book audits the joint: 30 in, 30 out");
   });
 
   it("a miner-fed direct wire carries NO throat and no buffer — only the per-sender hub service", () => {

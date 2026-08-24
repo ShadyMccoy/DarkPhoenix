@@ -33,10 +33,11 @@ import {
   LINK_LOSS,
   bodyCost,
   chebyshev,
+  haulRate,
   spawnTimeEt,
   upkeepEt
 } from "../primitives";
-import { hubServiceBody, portTenderBody } from "../sizing";
+import { haulerBodyFor, hubServiceBody, portTenderBody } from "../sizing";
 import { HaulGap } from "./haul";
 import { Offer, PlaceId, Step } from "../engine/vocabulary";
 import { ViewCreep, ViewLink, ViewWireOption } from "../engine/view";
@@ -59,9 +60,22 @@ export interface TrunkSlice {
 export interface TrunkHandoff {
   from: PlaceId;
   to: PlaceId;
-  /** Per-source shares of the pair's capacity — one step each, so every
-   * consolidated chain funds and pays for exactly its own share. */
+  /** Per-source WIRE shares of the pair's ration — one step each, so
+   * every consolidated chain funds and pays for exactly its own share. */
   slices: TrunkSlice[];
+  /** Per-source shares the ration cannot carry (Addendum 5, owner
+   * 2026-08-24: "they could still bring all 30 to the outpost and the
+   * link can hire a hauler for the excess") — the trunk's own OVERFLOW
+   * haulers walk these from the port to the bank. Nobody sheds to a
+   * direct route; the excess is a rate, not a member. */
+  overflow: TrunkSlice[];
+  /** WALKING route cost from the outpost to the bank — what the
+   * overflow bodies pay (the wire's Chebyshev range prices only the
+   * ration). */
+  distToBank: number;
+  /** The overflow corridor is paved — bodies run the roaded gait. */
+  roaded: boolean;
+  bodyBudget: number;
   /** The LEGAL closest pair (linkPair's choice) — the trunk never wires
    * across a room border, whatever assembled first at the bank. */
   atFrom: ViewLink | null;
@@ -70,35 +84,60 @@ export interface TrunkHandoff {
    * 56's one range-2 lens, assembled as one flag). Its holding cost
    * rides the trunk's fee only while it stands. */
   container: boolean;
-  /** Handed assets: the corp's own service creeps — the throat. */
+  /** Handed assets: the corp's own service creeps — the throat and its
+   * overflow haulers. */
   creeps: ViewCreep[];
+}
+
+export interface TrunkQuote {
+  offer: Offer;
+  /** Stage options per member source — the throat (zero capacity), the
+   * member's wire share, its overflow bodies — as indices into the
+   * offer's steps. ONE source of truth for which steps serve which
+   * member's chain; a broker-side re-derivation of the layout would be
+   * a second lens on this offer's shape. */
+  memberSteps: Record<string, { step: number; capacity: number }[]>;
 }
 
 /**
  * The consolidation trunk (owner 2026-08-23: "consolidate multiple haul
  * routes into one link outpost"): ONE standing pair quoted as its THROAT
- * (step 0 — the port tender, this corp's own body) plus one step per
- * assigned source, each priced at the tax on its own slice. The offer's
- * target then reads as throat-plus-slices-of-one-pair, and the position
- * book audits the joint at the outpost place. Every member chain
+ * (step 0 — the port tender, this corp's own body), one WIRE step per
+ * assigned source priced at the tax on its share, and — when the ration
+ * binds — the corp's own OVERFLOW haulers walking the excess to the
+ * bank (Addendum 5: the excess is a rate, not a member; nobody sheds).
+ * The position book audits the joint at the outpost place either way:
+ * collectors deliver everything there, and the trunk moves everything
+ * out, by wire at the tax or by body at the walk. Every member chain
  * references step 0 at zero capacity, so the throat funds with
  * whichever member funds first and the market charges it once.
  */
-export function quoteTrunk(h: TrunkHandoff): Offer | null {
-  if (!h.atFrom || !h.atTo || h.slices.length === 0) return null;
+export function quoteTrunk(h: TrunkHandoff): TrunkQuote | null {
+  if (!h.atFrom || !h.atTo || h.slices.length + h.overflow.length === 0) return null;
   const backedBy = `${h.atFrom.id}+${h.atTo.id}`;
-  const flow = h.slices.reduce((a, s) => a + s.flow, 0);
-  const tender = portTenderBody(flow);
+  const wireFlow = h.slices.reduce((a, s) => a + s.flow, 0);
+  // The throat serves the WIRE: it tops the link with what fires; the
+  // overflow bypasses the pipe entirely (container -> body -> bank).
+  const tender = portTenderBody(wireFlow);
   const serviceFee = upkeepEt(hubServiceBody()) + (h.container ? CONTAINER_HOLD_ET : 0);
-  const live = [...h.creeps].sort((a, b) => (a.id < b.id ? -1 : 1))[0];
-  const throat: Step = live
+  // Handed assets: the throat re-hands by SHAPE (exact tender shape
+  // first, then any parked work-less 1-MOVE body); every other creep is
+  // an overflow hauler, assigned to shares in id order — the excess is
+  // fungible, so which hauler serves which member's share is
+  // bookkeeping, deterministic within a replan.
+  const byId = [...h.creeps].sort((a, b) => (a.id < b.id ? -1 : 1));
+  const throatLive =
+    byId.find(c => c.body.work === tender.work && c.body.carry === tender.carry && c.body.move === tender.move) ??
+    byId.find(c => c.body.work === 0 && c.body.move === 1);
+  const haulers = byId.filter(c => c !== throatLive);
+  const throat: Step = throatLive
     ? {
-        backedBy: live.id,
-        body: live.body,
+        backedBy: throatLive.id,
+        body: throatLive.body,
         provides: {},
         requires: {},
         cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0, feeEt: serviceFee },
-        note: `throat alive ttl=${live.ttl}; hub service${h.container ? " + buffer hold" : ""} as fees`
+        note: `throat alive ttl=${throatLive.ttl}; hub service${h.container ? " + buffer hold" : ""} as fees`
       }
     : {
         body: tender,
@@ -112,20 +151,61 @@ export function quoteTrunk(h: TrunkHandoff): Offer | null {
         },
         note: `throat ${tender.carry}C parked at the port; hub service${h.container ? " + buffer hold" : ""} as fees`
       };
-  return {
-    id: `link:${h.from}->${h.to}`,
-    kind: "link",
-    steps: [
-      throat,
-      ...h.slices.map(s => ({
-        backedBy,
-        provides: { energyAt: { [h.to]: s.flow } },
-        requires: { energyAt: { [h.from]: s.flow } },
-        cost: { upfront: 0, upkeepEt: 0, feeEt: LINK_LOSS * s.flow, spawnTimeEt: 0 },
-        note: `slice for ${s.sourceId}: ${s.flow.toFixed(1)} e/t at 3%`
-      }))
-    ]
-  };
+  const steps: Step[] = [throat];
+  const memberSteps: TrunkQuote["memberSteps"] = {};
+  const memberOf = (sourceId: string): { step: number; capacity: number }[] =>
+    memberSteps[sourceId] ?? (memberSteps[sourceId] = [{ step: 0, capacity: 0 }]);
+  for (const s of h.slices) {
+    memberOf(s.sourceId).push({ step: steps.length, capacity: s.flow });
+    steps.push({
+      backedBy,
+      provides: { energyAt: { [h.to]: s.flow } },
+      requires: { energyAt: { [h.from]: s.flow } },
+      cost: { upfront: 0, upkeepEt: 0, feeEt: LINK_LOSS * s.flow, spawnTimeEt: 0 },
+      note: `slice for ${s.sourceId}: ${s.flow.toFixed(1)} e/t at 3%`
+    });
+  }
+  // Overflow bodies: live haulers first, then marginal bodies sized to
+  // the share still uncovered (#148's law at the quote, like haul's own
+  // loop). NOT link-fed: they load at the port's buffer and unload at
+  // the bank, which has no landing quantum.
+  let nextHauler = 0;
+  for (const s of h.overflow) {
+    let cum = 0;
+    while (cum < s.flow - 1e-9) {
+      const live = haulers[nextHauler];
+      if (live) {
+        nextHauler += 1;
+        const liveRate = haulRate(live.body.carry, h.distToBank);
+        if (liveRate <= 0) continue;
+        cum += liveRate;
+        memberOf(s.sourceId).push({ step: steps.length, capacity: liveRate });
+        steps.push({
+          backedBy: live.id,
+          body: live.body,
+          provides: { energyAt: { [h.to]: liveRate } },
+          requires: { energyAt: { [h.from]: liveRate } },
+          cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
+          note: `overflow alive ttl=${live.ttl}`
+        });
+        continue;
+      }
+      const body = haulerBodyFor(s.flow - cum, h.distToBank, h.bodyBudget, h.roaded);
+      if (!body) break;
+      const rate = haulRate(body.carry, h.distToBank);
+      if (rate <= 0) break;
+      cum += rate;
+      memberOf(s.sourceId).push({ step: steps.length, capacity: rate });
+      steps.push({
+        body,
+        provides: { energyAt: { [h.to]: rate } },
+        requires: { energyAt: { [h.from]: rate } },
+        cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },
+        note: `overflow ${body.carry}C over ${h.distToBank} tiles for ${s.sourceId}`
+      });
+    }
+  }
+  return { offer: { id: `link:${h.from}->${h.to}`, kind: "link", steps }, memberSteps };
 }
 
 export function quoteLink(h: LinkHandoff): Offer | null {

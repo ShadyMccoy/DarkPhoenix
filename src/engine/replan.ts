@@ -172,25 +172,33 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
   // Round 1 — anchored production, one gap per supplying place. Outpost
   // consolidation (owner 2026-08-23: "consolidate multiple haul routes
   // into one link outpost"): a source routes via a collection branch when
-  // the short collector leg plus the trunk's tax undercuts its direct
-  // route. The trunk is ONE standing pair quoted as one slice-step per
-  // source, so shared capacity funds once and the book audits the joint.
-  // The pair and its ration come from linkPair — the LEGAL closest pair;
-  // and when the ration binds, slices seat by DISPLACED SAVING, not
-  // iteration order (owner 2026-08-24: a far member off the tree "would
-  // be leaving link transfer capacity on the table"). v0: standing
-  // trunks only, whole-supply routing, best-outpost-only per source.
+  // the short collector leg plus the trunk's price undercuts its direct
+  // route. The trunk is ONE standing pair quoted as one wire-share step
+  // per source, so shared capacity funds once and the book audits the
+  // joint. The pair and its ration come from linkPair — the LEGAL
+  // closest pair. When the ration binds, the excess is a RATE, never a
+  // member (Addendum 5, owner 2026-08-24: "they could still bring all 30
+  // to the outpost and the link can hire a hauler for the excess"): a
+  // member takes what wire is left and the trunk's own overflow bodies
+  // walk the rest, so nobody sheds to a direct route while the blend
+  // still pays. Members still seat in displaced-saving order (Addendum
+  // 3), which decides who rides the cheap wire and who pays the walk.
+  // v0: standing trunks only, whole-supply routing per member,
+  // best-outpost-only per source.
   interface TrunkPlan {
     place: PlaceId;
     pair: { atFrom: ViewLink; atTo: ViewLink };
     slices: TrunkSlice[];
+    overflow: TrunkSlice[];
+    distToBank: number;
     remaining: number;
   }
   const trunkFor = (place: PlaceId): TrunkPlan | null => {
     const pair = linkPair(view, place, view.bank);
-    if (!pair) return null;
+    const op = view.outposts.find(o => o.place === place);
+    if (!pair || !op) return null;
     const range = Math.max(chebyshev(pair.atFrom, pair.atTo), 1);
-    return { place, pair, slices: [], remaining: LINK_CAPACITY / range };
+    return { place, pair, slices: [], overflow: [], distToBank: op.distToBank, remaining: LINK_CAPACITY / range };
   };
   const trunks = new Map<string, TrunkPlan>();
   interface ViaOption {
@@ -214,8 +222,6 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     mineOptions: StageOption[];
     collector: StageOption[];
     outpostPlace: PlaceId;
-    sliceIdx: number;
-    flow: number;
   }
   const pendingVia: PendingVia[] = [];
 
@@ -288,20 +294,28 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     }
   }
 
-  // Slice admission, by MERIT: the biggest TOTAL displaced saving
+  // Member admission, by MERIT: the biggest TOTAL displaced saving
   // (per-unit saving × the source's actual supply — a spots-limited
-  // trickle must not outrank a full source) seats first, so a binding
-  // ration sheds the cheapest direct haul — never whoever happened to
-  // iterate last. Whole-supply only; the shed fall to their direct
-  // books.
+  // trickle must not outrank a full source) seats first, so the best
+  // displacers ride the cheap wire. A member takes the wire that is
+  // LEFT and spills the rest onto the trunk's own overflow bodies; its
+  // BLENDED gain (wire share at the tax, spill at the corridor walk)
+  // decides admission — a member whose blend loses to its direct route
+  // stays direct, naturally: a mostly-spilled member pays the collector
+  // leg plus the corridor, which the triangle makes a detour.
   viaCandidates.sort(
     (a, b) => b.options[0].saving * b.supply - a.options[0].saving * a.supply || (a.srcId < b.srcId ? -1 : 1)
   );
   const viaSeated = new Set<string>();
   for (const c of viaCandidates) {
+    const directUnit = haulUnit(c.directDist);
     for (const o of c.options) {
       const t = trunks.get(o.outpostPlace);
-      if (!t || t.remaining + 1e-9 < c.supply) continue;
+      if (!t) continue;
+      const wireShare = Math.min(c.supply, Math.max(t.remaining, 0));
+      const spill = c.supply - wireShare;
+      const gain = wireShare * o.saving + spill * (directUnit - haulUnit(o.dSrc) - haulUnit(t.distToBank));
+      if (gain <= 1e-9) continue;
       // A collector leg unloads into the port: its bodies cap at the
       // landing quantum (Addendum 4's anatomy at the haul quote).
       const collector = transportBook({
@@ -313,16 +327,10 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
       });
       if (collector.length === 0) continue;
       viaSeated.add(c.srcId);
-      pendingVia.push({
-        srcId: c.srcId,
-        mineOptions: c.mineOptions,
-        collector,
-        outpostPlace: o.outpostPlace,
-        sliceIdx: t.slices.length,
-        flow: c.supply
-      });
-      t.slices.push({ sourceId: c.srcId, flow: c.supply });
-      t.remaining -= c.supply;
+      pendingVia.push({ srcId: c.srcId, mineOptions: c.mineOptions, collector, outpostPlace: o.outpostPlace });
+      if (wireShare > 1e-9) t.slices.push({ sourceId: c.srcId, flow: wireShare });
+      if (spill > 1e-9) t.overflow.push({ sourceId: c.srcId, flow: spill });
+      t.remaining -= wireShare;
       break;
     }
   }
@@ -344,37 +352,39 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     }
   }
 
-  // Consolidated chains: the trunk offers exist only after every slice is
-  // known, so via-chains assemble here — mine → collector → trunk slice.
-  // Step 0 of the trunk is its THROAT (the port tender — Addendum 4's
-  // anatomy); every member chain references it at zero capacity, so it
-  // funds with whichever member funds first and no member can fund
-  // without affording it. The market charges shared steps once.
+  // Consolidated chains: the trunk offers exist only after every share
+  // is known, so via-chains assemble here — mine → collector → the
+  // member's trunk options (throat at zero capacity, its wire share,
+  // its overflow bodies), indices straight from the quote's own layout:
+  // a broker-side re-derivation would be a second lens on the offer's
+  // shape. The throat funds with whichever member funds first and the
+  // market charges shared steps once (Addendum 4).
   for (const t of trunks.values()) {
-    const trunkOffer = quoteTrunk({
+    const q = quoteTrunk({
       from: t.place,
       to: view.bank,
       slices: t.slices,
+      overflow: t.overflow,
+      distToBank: t.distToBank,
+      roaded: view.roads.some(r => r.from === t.place && r.to === view.bank),
+      bodyBudget: budget,
       atFrom: t.pair.atFrom,
       atTo: t.pair.atTo,
       container: view.outposts.find(o => o.place === t.place)?.hasContainer ?? false,
       creeps: assigned(view, `link:${t.place}->${view.bank}`)
     });
-    if (!trunkOffer) continue;
+    if (!q) continue;
     for (const v of pendingVia) {
       if (v.outpostPlace !== t.place) continue;
+      const member = q.memberSteps[v.srcId];
+      if (!member) continue;
       chains.push({
         id: `chain:${v.srcId}:via`,
         sourceId: v.srcId,
         stages: [
           { options: v.mineOptions },
           { options: v.collector },
-          {
-            options: [
-              { offer: trunkOffer, step: 0, capacity: 0 },
-              { offer: trunkOffer, step: v.sliceIdx + 1, capacity: v.flow }
-            ]
-          }
+          { options: member.map(m => ({ offer: q.offer, step: m.step, capacity: m.capacity })) }
         ]
       });
     }
