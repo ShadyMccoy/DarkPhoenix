@@ -1816,6 +1816,29 @@ Re-pinned: the worked-550 residual (16.2524 → 16.2393 — the fleets'
 walks joined the bills) and the machine-currency identity with the
 fleets' commutes stated. 95 unit + 8 integration green.
 
+**Finding (2026-08-24, the big-map demo — recorded, not valved): the
+machine-lock.** Staging the owner's ask ("a big map with many sources,
+more than the spawn capacity" — 26 sources, one spawn, 100×100) found
+a sharper variant of the bonfire: cold-started, the world staffs
+production chains in merit order until the machine saturates, and only
+THEN do round-3 approvals arrive — 15 sites approved, ZERO ever built,
+because the capital reserve is `min(need, free)` and the standing
+fleet's seed leaves free ≈ 0.0100 p/t against a builder's 0.0127: the
+reserve cannot claw machine back from standing production, so the
+wires that would free the machine can never be built. Locked forever —
+140 e/t delivered, 15 e/t upgraded, 124 e/t to a bank at 1.4M. The
+same 26-source world staged in two phases (16 sources → wires land →
+THEN the far tier arrives) settles healthily: 6/6 links, 16/26
+staffed at 153.5 e/t, a 72 e/t dividend, the far tier dark behind
+`spawn capacity` lines — and the merit order even displaced an
+original member (nw2) for a better far source (f9). The lock is an
+ORDER-OF-ARRIVAL hole in the forest-stall fix ("the ladder applies to
+the MACHINE currency" reserved only FREE machine): capital formation
+needs either a standing machine share (the same open ruling as the
+dividend's share) or replacement-time displacement in the spawnTime
+currency — production bodies not renewed while an approved build
+starves. Owner conversation; sits with the bonfire findings.
+
 **Budget note:** src stands at ~3.75k lines against the ~3k budget
 (~3.2k before Addenda 4–5 landed; the growth is the anatomy's quotes,
 the roster, the overflow lane, and the ported docblocks). The overage
