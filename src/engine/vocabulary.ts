@@ -78,6 +78,14 @@ export interface Step {
    * stay zeroed when backed; the body is the books not forgetting
    * (piece 5's companion rule, applied to the step). */
   body?: BodyShape;
+  /** Posting walk for this step's body, in ticks (~tiles): the commute
+   * that prorates its amortization — a body posted far re-spawns more
+   * often per working tick (v1's `effectiveLife`, Addendum 6). Zero or
+   * absent for bodies whose route touches their own spawn's bank: the
+   * first empty leg is a cycle, not a commute. The quotes prorate the
+   * unbacked COST fields with it; the market's sustain fold uses it for
+   * the backed books. */
+  commute?: number;
   /** Live creep (or standing structure) already embodying this step. */
   backedBy?: string;
   provides: Flows;

@@ -107,6 +107,14 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
    * link candidates against exactly these funded edges. */
   const gapByOffer = new Map<string, HaulGap>();
 
+  /** Posting walk per corp id, registered where each handoff is built —
+   * the standing seeds (standingBills / standingSpawnEt) prorate live
+   * creeps by their corp's commute so the heartbeat is not silently
+   * under-covered by commuting fleets (Addendum 6). A corp with mixed
+   * commutes (the trunk: a commuting throat, cycling overflow haulers)
+   * registers its majority value; the ROWS stay exact per step. */
+  const commuteByCorp = new Map<string, number>();
+
   /** Round 2 for one gap: every transport kind quotes; the options merge
    * into the edge's order book, cheapest STEADY-STATE unit first — who
    * wins the edge is this sort. The book trades only what can move energy
@@ -123,14 +131,16 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
    * (3% tax) could never take its edge back from the bodies it beat.
    * Backed-first survives as the TIEBREAK: within equal steady-state
    * cost, standing capital holds — the anti-thrash piece 5 wanted. */
-  const transportBook = (gap: HaulGap): StageOption[] => {
+  const transportBook = (gap: HaulGap, commute = 0): StageOption[] => {
     gap.roaded = view.roads.some(r => r.from === gap.from && r.to === gap.to);
     gapByOffer.set(`haul:${gap.from}->${gap.to}`, gap);
+    commuteByCorp.set(`haul:${gap.from}->${gap.to}`, commute);
     const options: StageOption[] = [];
     const haul = quoteHaul({
       gap,
       bank: view.bank,
       bodyBudget: budget,
+      commute,
       creeps: assigned(view, `haul:${gap.from}->${gap.to}`)
     });
     if (haul) options.push(...optionsAt(haul, gap.to));
@@ -146,7 +156,7 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
       // rides the step now — the creep re-join this closure used to do
       // was one of the compensating lenses the roster fix deleted
       // (Addendum 4, second landing).
-      if (st.backedBy && st.body) bill += upkeepEt(st.body);
+      if (st.backedBy && st.body) bill += upkeepEt(st.body, st.commute ?? 0);
       return o.capacity > 1e-9 ? bill / o.capacity : Infinity;
     };
     options.sort((a, b) => {
@@ -248,11 +258,13 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
   for (const src of view.sources) {
     sourceCaps[src.id] = SOURCE_RATE;
 
+    commuteByCorp.set(`mine:${src.id}`, src.distToBank);
     const mine = quoteMine({
       sourceId: src.id,
       spots: src.spots,
       bank: view.bank,
       bodyBudget: budget,
+      commute: src.distToBank,
       creeps: assigned(view, `mine:${src.id}`)
     });
     const workman = quoteWorkman({
@@ -317,14 +329,13 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
       const gain = wireShare * o.saving + spill * (directUnit - haulUnit(o.dSrc) - haulUnit(t.distToBank));
       if (gain <= 1e-9) continue;
       // A collector leg unloads into the port: its bodies cap at the
-      // landing quantum (Addendum 4's anatomy at the haul quote).
-      const collector = transportBook({
-        from: c.srcId,
-        to: o.outpostPlace,
-        dist: o.dSrc,
-        flow: c.supply,
-        linkFed: true
-      });
+      // landing quantum (Addendum 4's anatomy at the haul quote). Its
+      // route never touches the bank, so the fleet pays the walk out —
+      // through whichever end is nearer (Addendum 6).
+      const collector = transportBook(
+        { from: c.srcId, to: o.outpostPlace, dist: o.dSrc, flow: c.supply, linkFed: true },
+        Math.min(c.directDist, t.distToBank)
+      );
       if (collector.length === 0) continue;
       viaSeated.add(c.srcId);
       pendingVia.push({ srcId: c.srcId, mineOptions: c.mineOptions, collector, outpostPlace: o.outpostPlace });
@@ -360,6 +371,7 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
   // shape. The throat funds with whichever member funds first and the
   // market charges shared steps once (Addendum 4).
   for (const t of trunks.values()) {
+    commuteByCorp.set(`link:${t.place}->${view.bank}`, 0);
     const q = quoteTrunk({
       from: t.place,
       to: view.bank,
@@ -397,12 +409,14 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
   // reserved.
   const sinks: SinkChain[] = [];
   for (const site of view.sites) {
+    commuteByCorp.set(`build:${site.id}`, site.dist);
     const buildOffer = quoteBuild({
       siteId: site.id,
       at: site.at,
       total: site.total,
       remaining: site.remaining,
       bodyBudget: budget,
+      commute: site.dist,
       creeps: assigned(view, `build:${site.id}`)
     });
     if (!buildOffer) continue;
@@ -425,11 +439,13 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     // An adjacent controller self-loads AT the bank — its draw and the
     // bank's supply meet at one place, so the book clears with no gap.
     const feed = ctrl.distFromBank > 1 ? ctrl.id : view.bank;
+    commuteByCorp.set(`upgrade:${ctrl.id}`, ctrl.distFromBank);
     const upgrade = quoteUpgrade({
       controllerId: ctrl.id,
       feed,
       bodyBudget: budget,
       maxBurn: view.sources.length * SOURCE_RATE,
+      commute: ctrl.distFromBank,
       creeps: assigned(view, `upgrade:${ctrl.id}`)
     });
     if (upgrade) {
@@ -457,8 +473,8 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
   // tender is sized to the WHOLE heartbeat, standing fleet included —
   // and the fleet's sustain MACHINE TIME seeds the spawn constraint the
   // same way (a capacity is a capacity in every currency).
-  const standingBills = view.creeps.reduce((sum, c) => sum + upkeepEt(c.body), 0);
-  const standingSpawnEt = view.creeps.reduce((sum, c) => sum + spawnTimeEt(c.body), 0);
+  const standingBills = view.creeps.reduce((sum, c) => sum + upkeepEt(c.body, commuteByCorp.get(c.corp) ?? 0), 0);
+  const standingSpawnEt = view.creeps.reduce((sum, c) => sum + spawnTimeEt(c.body, commuteByCorp.get(c.corp) ?? 0), 0);
 
   const tenderCreeps = assigned(view, ESTATE_CORP);
   const tenderOffer = quoteTender({

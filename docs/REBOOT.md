@@ -1211,6 +1211,9 @@ need the owner's explicit ratification or reversal.
   quotes ~+4.6 e/t and nets ~0 — bodies amortize over 1500 regardless of
   posting walk. v1's `effectiveLife` awaits its port into the sizing
   handoffs (piece 4 named the column; Tier 3 needs it).
+  **LANDED 2026-08-24 — Addendum 6** (owner: "shouldn't the body be
+  prorated for travel time"): effectiveLife ported; upkeep and machine
+  time prorate per handoff-stated commute; the standing seeds follow.
 - **energyAt is vessel-blind** (0.85): a 0-CARRY miner "feeds" a link it
   physically cannot load; the book calls it balanced. Vessel typing (or
   loading `requires`) is a frozen-vocabulary change — flagged before
@@ -1736,6 +1739,54 @@ has it."* Landed, certified green (95 unit + 8 integration):
   bodies, books-neutral, but named); and the wire tax still charges on
   quoted rather than allocated flow (the standing losses-are-flows
   ruling).
+
+**Addendum 6 (owner 2026-08-24, eighth conversation: "Also shouldn't
+the body be prorated for travel time"):** yes — and the ledger already
+carried the finding by name ("Commute is still priced at zero (0.85):
+a 150-tile remote chain quotes ~+4.6 e/t and nets ~0 — bodies amortize
+over 1500 regardless of posting walk. v1's `effectiveLife` awaits its
+port into the sizing handoffs"). Landed, closing that finding
+(95 unit + 8 integration):
+
+- **v1's `effectiveLife` ported with its docblock** — `max(1,
+  CREEP_LIFE − commute)` — and both amortizations prorate over it:
+  `upkeepEt` (the parts bill grows: a posted body re-buys sooner) and
+  `spawnTimeEt` (the machine time grows the same way; a commuting body
+  re-spawns more often per WORKING tick). Provides stay full — in
+  steady state the fleet is always posted; the commute is paid as
+  extra replacement, exactly v1's treatment.
+- **The commute is handoff data** — the broker states each posting
+  walk where it builds the handoff: miners park at their source
+  (`distToBank`); upgraders and builders park at their feed and site;
+  the trunk's THROAT walks the corridor once (`distToBank`); a route
+  that touches the bank commutes ZERO — its first empty leg is a
+  cycle, not a posting walk — which covers direct hauls, sink feeds,
+  and the trunk's overflow haulers; a COLLECTOR leg never touches the
+  bank and pays the walk through its nearer end. `Step.commute`
+  carries it, so the market's sustain fold and the broker's
+  replacement-scale book ordering prorate the BACKED books identically
+  — funding, books, and ordering stay one arithmetic.
+- **The standing seeds prorate too**: `standingBills` and
+  `standingSpawnEt` read a per-corp commute registry filled where the
+  handoffs are built — without this the heartbeat under-covers
+  commuting fleets silently (the tender-check class, spec 57's door).
+  A mixed-commute corp (the trunk: commuting throat, cycling overflow
+  haulers) registers its majority value; the rows stay exact per step.
+- **Re-pinned under the ruling**: the worked-550 residual (244/15 →
+  ~16.2524 — mines at 10/25 and upgraders at the feed's 5 bill over
+  their effective life), the feed-fleet bill (5·500/effectiveLife(5)),
+  and the port suite's throat/miner bills at their walks. In-room the
+  proration is percents; the finding's 150-tile remote class — where a
+  chain's whole net was phantom — is what Tier 3 now inherits priced.
+- **Recorded, not valved:** the broker's `haulUnit` admission heuristic
+  and round-3 candidate arithmetic (station fleets, road ROI) stay
+  commute-free — both sides of each comparison equally, and the books
+  still price the real thing; thread it there when a mis-ranked
+  candidate is measured. Movement speed is still gait-ideal: commute ≈
+  tiles assumes full-speed walking, and the miner's 1-MOVE body
+  actually crawls its walk at ~5 ticks/tile — the commute understates
+  for MOVE-light bodies; the honest per-shape walk time is sizing's to
+  derive when the fidelity line cares.
 
 **Budget note:** src stands at ~3.75k lines against the ~3k budget
 (~3.2k before Addenda 4–5 landed; the growth is the anatomy's quotes,

@@ -17,6 +17,8 @@ export interface UpgradeHandoff {
   /** Ceiling on useful burn — the world cannot upgrade more than it mines,
    * so the broker passes total source rate; the schedule ends there. */
   maxBurn: number;
+  /** Posting walk to the feed point (Addendum 6). */
+  commute: number;
   creeps: ViewCreep[];
 }
 
@@ -31,6 +33,7 @@ export function quoteUpgrade(h: UpgradeHandoff): Offer | null {
     steps.push({
       backedBy: c.id,
       body: c.body,
+      commute: h.commute,
       provides: { controlPoints: burn },
       requires: { energyAt: { [h.feed]: burn } },
       cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
@@ -46,9 +49,14 @@ export function quoteUpgrade(h: UpgradeHandoff): Offer | null {
       cum += burn;
       steps.push({
         body,
+        commute: h.commute,
         provides: { controlPoints: burn },
         requires: { energyAt: { [h.feed]: burn } },
-        cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },
+        cost: {
+          upfront: bodyCost(body),
+          upkeepEt: upkeepEt(body, h.commute),
+          spawnTimeEt: spawnTimeEt(body, h.commute)
+        },
         note: `${body.work}W at the controller`
       });
     }

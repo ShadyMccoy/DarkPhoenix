@@ -66,9 +66,10 @@ describe("engine/port — the anatomy on the trunk", () => {
       [{ body: portTenderBody(30), live: null }],
       "exactly one throat on the roster, flow-sized — never one per member"
     );
-    // The throat's parts bill joins the heartbeat; the hub service rides
-    // as a fee; three slices pay the tax on their own share.
-    const expectCost = upkeepEt(portTenderBody(30)) + HUB_FEE + 3 * LINK_LOSS * 10;
+    // The throat's parts bill joins the heartbeat — prorated by its
+    // walk to the port (Addendum 6); the hub service rides as a fee;
+    // three slices pay the tax on their own share.
+    const expectCost = upkeepEt(portTenderBody(30), 26) + HUB_FEE + 3 * LINK_LOSS * 10;
     assert.closeTo(trunk?.pnl.costEt ?? 0, expectCost, 1e-9);
     assert.isEmpty(plan.violations, "the anatomy trades no phantom energy");
   });
@@ -85,8 +86,8 @@ describe("engine/port — the anatomy on the trunk", () => {
     // The row's books price at replacement scale: the live throat's
     // sustain stays on the instance (pricing forgets sunk costs; the
     // books never do) even though its FUNDING quote is sunk-zero.
-    const expectCost = HUB_FEE + 3 * LINK_LOSS * 10 + upkeepEt(portTenderBody(30));
-    assert.closeTo(trunk?.pnl.costEt ?? 0, expectCost, 1e-9, "tax + hub service + the throat's replacement");
+    const expectCost = HUB_FEE + 3 * LINK_LOSS * 10 + upkeepEt(portTenderBody(30), 26);
+    assert.closeTo(trunk?.pnl.costEt ?? 0, expectCost, 1e-9, "tax + hub service + the throat's prorated replacement");
   });
 
   it("the standing buffer's holding rides the trunk's fee — only once it stands", () => {
@@ -120,9 +121,9 @@ describe("engine/port — the anatomy on the trunk", () => {
     const plan = replan(treeView({ creeps: [miner] }));
     const mine = plan.corps.find(c => c.id === "mine:a");
     assert.deepEqual(mine?.staff, [{ body: miner.body, live: "w1" }], "the row states the body it runs on");
-    assert.closeTo(mine?.inputs.spawnTime ?? 0, spawnTimeEt(miner.body), 1e-9, "and its machine time");
-    assert.closeTo(mine?.inputs.energyAt?.bank ?? 0, upkeepEt(miner.body), 1e-9, "and its parts bill at the bank");
-    assert.closeTo(mine?.pnl.costEt ?? 0, upkeepEt(miner.body), 1e-9, "P&L at replacement scale, not sunk-zero");
+    assert.closeTo(mine?.inputs.spawnTime ?? 0, spawnTimeEt(miner.body, 26), 1e-9, "and its machine time");
+    assert.closeTo(mine?.inputs.energyAt?.bank ?? 0, upkeepEt(miner.body, 26), 1e-9, "and its parts bill at the bank");
+    assert.closeTo(mine?.pnl.costEt ?? 0, upkeepEt(miner.body, 26), 1e-9, "replacement scale, prorated by the walk");
   });
 
   it("the ration binds: everyone still collects to the outpost, and the LINK hires the overflow hauler", () => {

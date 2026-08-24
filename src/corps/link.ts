@@ -130,10 +130,14 @@ export function quoteTrunk(h: TrunkHandoff): TrunkQuote | null {
     byId.find(c => c.body.work === tender.work && c.body.carry === tender.carry && c.body.move === tender.move) ??
     byId.find(c => c.body.work === 0 && c.body.move === 1);
   const haulers = byId.filter(c => c !== throatLive);
+  // The throat COMMUTES: it walks the corridor once and parks, so its
+  // bill prorates over the effective life (Addendum 6). The overflow
+  // haulers cycle from the bank — their first empty leg is a cycle.
   const throat: Step = throatLive
     ? {
         backedBy: throatLive.id,
         body: throatLive.body,
+        commute: h.distToBank,
         provides: {},
         requires: {},
         cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0, feeEt: serviceFee },
@@ -141,12 +145,13 @@ export function quoteTrunk(h: TrunkHandoff): TrunkQuote | null {
       }
     : {
         body: tender,
+        commute: h.distToBank,
         provides: {},
         requires: {},
         cost: {
           upfront: bodyCost(tender),
-          upkeepEt: upkeepEt(tender),
-          spawnTimeEt: spawnTimeEt(tender),
+          upkeepEt: upkeepEt(tender, h.distToBank),
+          spawnTimeEt: spawnTimeEt(tender, h.distToBank),
           feeEt: serviceFee
         },
         note: `throat ${tender.carry}C parked at the port; hub service${h.container ? " + buffer hold" : ""} as fees`

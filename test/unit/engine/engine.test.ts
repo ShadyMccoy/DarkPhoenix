@@ -1,7 +1,7 @@
 import { assert } from "chai";
 import { replan } from "../../../src/engine/replan";
 import { EconomyView } from "../../../src/engine/view";
-import { upkeepEt, workmanCycleRate } from "../../../src/primitives";
+import { effectiveLife, upkeepEt, workmanCycleRate } from "../../../src/primitives";
 import { hubServiceBody } from "../../../src/sizing";
 
 /**
@@ -83,15 +83,25 @@ describe("engine/replan", () => {
     assert.closeTo(haulA?.outputs.energyAt?.["bank"] ?? 0, 10, 1e-9, "delivers the same at the bank");
     assert.isAbove(haulA?.inputs.spawnTime ?? 0, 0, "machine time is an input");
     const up = corps.get("upgrade:ctrl");
-    assert.closeTo(up?.outputs.controlPoints ?? 0, 244 / 15, 1e-9);
-    assert.closeTo(up?.inputs.energyAt?.["ctrl"] ?? 0, 244 / 15, 1e-9, "burns at its own feed point");
-    assert.closeTo(up?.inputs.energyAt?.["bank"] ?? 0, 5 * (500 / 1500), 1e-9, "the parts bill at the bank");
+    // The drained residual re-pinned under Addendum 6: commuting bodies
+    // (mines at 10/25, upgraders at the feed's 5) bill over their
+    // effective life, so the controller drinks a hair less than 244/15.
+    const drained = plan.expected.upgradeEt;
+    assert.closeTo(drained, 16.252417, 1e-6);
+    assert.closeTo(up?.outputs.controlPoints ?? 0, drained, 1e-9);
+    assert.closeTo(up?.inputs.energyAt?.["ctrl"] ?? 0, drained, 1e-9, "burns at its own feed point");
+    assert.closeTo(
+      up?.inputs.energyAt?.["bank"] ?? 0,
+      5 * (500 / effectiveLife(5)),
+      1e-9,
+      "the parts bill at the bank, prorated by the feed walk"
+    );
 
     // The controller's feed is a haul chain of its own — bank → ctrl.
     assert.equal(corps.get("haul:bank->ctrl")?.target, 1);
 
     assert.closeTo(plan.expected.deliveredEt, 20, 1e-9);
-    assert.closeTo(plan.expected.upgradeEt, 244 / 15, 1e-9, "the residual, drained to the last partial step");
+    assert.equal(plan.frontier.find(f => f.offerId === "upgrade:ctrl")?.reason, "energy residual", "drained exactly");
     // The heartbeat identity: refill obligation == Σ funded parts bills.
     const bills = plan.corps.reduce((s, c) => s + c.pnl.costEt, 0);
     assert.closeTo(plan.expected.refillEt, bills, 1e-9);

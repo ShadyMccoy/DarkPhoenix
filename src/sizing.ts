@@ -10,11 +10,11 @@
 import {
   CARRY_CAP,
   CORE_SERVICE_CARRY_PER_SENDER,
-  CREEP_LIFE,
   LINK_PAYLOAD_CARRY,
   PART_COST,
   SOURCE_SATURATION_WORK,
-  WorkmanShape
+  WorkmanShape,
+  effectiveLife
 } from "./primitives";
 
 /** One structural body type for every job; the counts differ, the shape
@@ -176,11 +176,12 @@ export function tenderBody(budget: number): BodyShape | null {
  * and nowhere else (law 5 — the review caught it re-derived inline in
  * the broker, the second-sizing-site disease returning).
  */
-export function haulFleetBillEt(flow: number, dist: number, roaded: boolean): number {
+export function haulFleetBillEt(flow: number, dist: number, roaded: boolean, commute = 0): number {
   if (flow <= 0) return 0;
+  const life = effectiveLife(commute);
   const pairs = Math.max(carryPartsFor(flow, dist), 1);
-  if (roaded) return (Math.ceil(pairs / 2) * (2 * PART_COST.carry + PART_COST.move)) / CREEP_LIFE;
-  return (pairs * (PART_COST.carry + PART_COST.move)) / CREEP_LIFE;
+  if (roaded) return (Math.ceil(pairs / 2) * (2 * PART_COST.carry + PART_COST.move)) / life;
+  return (pairs * (PART_COST.carry + PART_COST.move)) / life;
 }
 
 /**

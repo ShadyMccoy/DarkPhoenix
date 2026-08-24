@@ -675,9 +675,9 @@ export function clear(input: MarketInput): EnginePlan {
         // whole gross while the aggregates (standingBills) knew better —
         // two lenses inside one plan (the 2026-08-24 second landing).
         if (s.backedBy) {
-          const sustain = upkeepEt(s.body);
+          const sustain = upkeepEt(s.body, s.commute ?? 0);
           cost += sustain;
-          addFlows(inputs, { spawnTime: spawnTimeEt(s.body) });
+          addFlows(inputs, { spawnTime: spawnTimeEt(s.body, s.commute ?? 0) });
           addFlows(inputs, { energyAt: { [input.bank]: sustain } });
         }
       }

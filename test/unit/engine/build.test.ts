@@ -139,9 +139,13 @@ describe("engine/build — the investment pipeline", () => {
     // 16.67 e/t burn itself draws stock. The controller loses exactly ONE
     // quantized upgrader step to the bills — if the burn rode the residual
     // it would lose four.
+    // Both figures re-pinned under Addendum 6 (bodies bill over their
+    // effective life): the un-sited world drains ~16.25, the sited one
+    // loses the build fleet's bills — never the 16.67 burn.
     const without = replan(view({ bodyBudget: 550, bankStock: 20000 }));
-    assert.closeTo(without.expected.upgradeEt, 244 / 15, 1e-9);
-    assert.closeTo(e.upgradeEt, 46 / 3, 1e-9, "the residual loses the bills (~0.93 e/t), never the 16.67 burn");
+    assert.closeTo(without.expected.upgradeEt, 16.252417, 1e-6);
+    assert.isAbove(without.expected.upgradeEt - e.upgradeEt, 0.8, "the bills cost the controller under one step");
+    assert.isBelow(without.expected.upgradeEt - e.upgradeEt, 1.2, "the burn itself never rode the residual");
   });
 
   it("does not re-approve an edge whose site is already under construction", () => {

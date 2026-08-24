@@ -28,6 +28,10 @@ export interface HaulHandoff {
   gap: HaulGap;
   bank: PlaceId;
   bodyBudget: number;
+  /** Posting walk to the ROUTE — zero when an endpoint is the bank (the
+   * first empty leg is a cycle); a collector leg pays the walk out
+   * (Addendum 6). */
+  commute: number;
   creeps: ViewCreep[];
 }
 
@@ -43,6 +47,7 @@ export function quoteHaul(h: HaulHandoff): Offer | null {
     steps.push({
       backedBy: c.id,
       body: c.body,
+      commute: h.commute,
       provides: { energyAt: { [to]: rate } },
       requires: { energyAt: { [from]: rate } },
       cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
@@ -61,9 +66,14 @@ export function quoteHaul(h: HaulHandoff): Offer | null {
     cum += perBody;
     steps.push({
       body,
+      commute: h.commute,
       provides: { energyAt: { [to]: perBody } },
       requires: { energyAt: { [from]: perBody } },
-      cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },
+      cost: {
+        upfront: bodyCost(body),
+        upkeepEt: upkeepEt(body, h.commute),
+        spawnTimeEt: spawnTimeEt(body, h.commute)
+      },
       note: `${body.carry}C over ${dist} tiles`
     });
   }

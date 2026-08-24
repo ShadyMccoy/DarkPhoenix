@@ -204,17 +204,35 @@ export function partCount(s: WorkmanShape): number {
   return s.work + s.carry + s.move;
 }
 
-/** Per-tick cost of OWNING a body: its price amortized over a 1500-tick
- * life. The parts bill every funded step owes at the spawn's bank branch —
- * the tender heartbeat's obligation is the sum of these. */
-export function upkeepEt(s: WorkmanShape): number {
-  return bodyCost(s) / CREEP_LIFE;
+/**
+ * Effective working life (ticks) of a creep posted `commute` tiles from
+ * its spawn (ported: v1 `effectiveLife`, docblock near-verbatim): it
+ * spends ~`commute` ticks walking to its post before it can work or be
+ * replaced, so its build cost is amortised over the remainder. Floored
+ * at 1 so overhead stays finite for absurd distances. This lands the
+ * Tier-1 ledger's "commute is still priced at zero" finding — a
+ * 150-tile remote chain quoting ~+4.6 e/t and netting ~0 (Addendum 6,
+ * owner 2026-08-24: "shouldn't the body be prorated for travel time").
+ * A cycling body whose route touches the spawn's own bank commutes ~0:
+ * its first empty leg is a cycle, not a posting walk.
+ */
+export function effectiveLife(commute = 0): number {
+  return Math.max(1, CREEP_LIFE - commute);
+}
+
+/** Per-tick cost of OWNING a body: its price amortized over its
+ * EFFECTIVE life — 1500 ticks less the posting walk. The parts bill
+ * every funded step owes at the spawn's bank branch — the tender
+ * heartbeat's obligation is the sum of these. */
+export function upkeepEt(s: WorkmanShape, commute = 0): number {
+  return bodyCost(s) / effectiveLife(commute);
 }
 
 /** Spawn machine time to KEEP a body alive: its parts re-bought once per
- * life, in parts/tick against SPAWN_RATE capacity. */
-export function spawnTimeEt(s: WorkmanShape): number {
-  return partCount(s) / CREEP_LIFE;
+ * EFFECTIVE life (a commuting body re-spawns more often), in parts/tick
+ * against SPAWN_RATE capacity. */
+export function spawnTimeEt(s: WorkmanShape, commute = 0): number {
+  return partCount(s) / effectiveLife(commute);
 }
 
 /** Delivered e/t of CARRY parts shuttling one-way `distance`: capacity over

@@ -16,6 +16,9 @@ export interface MineHandoff {
   spots: number;
   bank: PlaceId;
   bodyBudget: number;
+  /** Posting walk to the mouth — miners park, so their whole bill
+   * prorates over the effective life (Addendum 6). */
+  commute: number;
   creeps: ViewCreep[];
 }
 
@@ -30,6 +33,7 @@ export function quoteMine(h: MineHandoff): Offer | null {
     steps.push({
       backedBy: c.id,
       body: c.body,
+      commute: h.commute,
       provides: { energyAt: { [h.sourceId]: rate } },
       requires: {},
       cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
@@ -44,9 +48,14 @@ export function quoteMine(h: MineHandoff): Offer | null {
       cum += rate;
       steps.push({
         body,
+        commute: h.commute,
         provides: { energyAt: { [h.sourceId]: rate } },
         requires: {},
-        cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },
+        cost: {
+          upfront: bodyCost(body),
+          upkeepEt: upkeepEt(body, h.commute),
+          spawnTimeEt: spawnTimeEt(body, h.commute)
+        },
         note: `${body.work}W at the source`
       });
     }
