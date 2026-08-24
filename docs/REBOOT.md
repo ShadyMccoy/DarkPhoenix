@@ -690,7 +690,11 @@ points. The overall concept is still very much the same").
   capital formation draws next (the hurdle: 1 control point per energy,
   what direct upgrading yields — so v1's growth-over-consumption
   ordering becomes a theorem, not a decree), the controller drains the
-  residual, and the WARCHEST is the bank's reserve band. v1's
+  residual, and the WARCHEST is the bank's reserve band *(amended
+  2026-08-24, queue ruling A.1: "warchest" retires as a word — v2
+  keeps no reserve band; the bank saves only toward open approved
+  claims, Σ awaiting capex + open sites' remaining, and holds zero
+  when none are open)*. v1's
   seven-rung list was the fossil record of exactly this structure,
   hand-approximated before the valuation theory existed. Open, parked:
   the tail-risk deterrence floor (an owner-set obligation constant —
@@ -1866,7 +1870,32 @@ Tier 2); the binding constraint is ruling bandwidth, not code.
 **A. The ruling session — quick ratifications, most one word:**
 
 1. Warchest divert-everything during accumulation (visible fleet
-   churn) — findings ledger, break #2.
+   churn) — findings ledger, break #2. **RULED 2026-08-24 (the queue
+   ruling session):** saving up for approved new capex takes the whole
+   residual until it is paid — ratified, speed over efficiency. But
+   the fleet is not the flow: while we save, upgraders STAND DOWN and
+   stay alive — their rows stay in the plan at zero flow, nobody is
+   culled, no new ones are hired, and they resume the replan the
+   purchase clears. A corp only ever gets culled when it loses its job
+   to a competitor — never by the draw policy. Fixing what we already
+   own — body replacement, road wear, a died road piece (mechanically
+   a construction site, but already on our books; the ledger tells
+   the two sites apart, the game cannot) — is a standing bill, paid
+   off the top, never a savings event. "Warchest" RETIRES as a word:
+   v2 keeps no reserve band, only saving toward specific approved
+   purchases — the target is Σ open claims by construction, zero when
+   nothing is approved (piece 9's "reserve band" line amended in
+   place). Cash-based stands: nothing is bought or built until the
+   energy is in hand (break #9's one-window ramp authorization is the
+   recorded exception; the executor always pays cash). Tier-2 note: a
+   saving window longer than a body's remaining life winds down by
+   non-renewal — the same mechanism queued under B.1 for the machine
+   share. Engine follow-up queued behind the ruling session:
+   stand-down rows (standing sink steps held funded at zero
+   utilization, roster kept) plus the identifier rename
+   (`warchestTarget`/`warchestEt` → claim vocabulary), landing with a
+   roster-stability test — an accumulation episode produces zero
+   roster events, and resume is same-replan.
 2. Replacement-scale displacement as piece 5's reading ("replacement
    time is always, a little") — findings ledger, break #4.
 3. Rows price replacement scale — piece 1's "cost e/t (amortized
