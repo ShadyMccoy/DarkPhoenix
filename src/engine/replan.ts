@@ -25,6 +25,7 @@
  */
 import {
   CONTAINER_COST,
+  CONTAINER_HOLD_ET,
   EXTENSION_CAPACITY,
   EXTENSION_COST,
   HORIZON,
@@ -42,7 +43,7 @@ import {
   spawnTimeEt,
   upkeepEt
 } from "../primitives";
-import { haulFleetBillEt, haulerBody } from "../sizing";
+import { haulFleetBillEt, haulerBody, hubServiceBody, portTenderBody } from "../sizing";
 import { quoteBuild } from "../corps/build";
 import { HaulGap, quoteHaul } from "../corps/haul";
 import { TrunkSlice, quoteLink, quoteTrunk } from "../corps/link";
@@ -301,7 +302,15 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     for (const o of c.options) {
       const t = trunks.get(o.outpostPlace);
       if (!t || t.remaining + 1e-9 < c.supply) continue;
-      const collector = transportBook({ from: c.srcId, to: o.outpostPlace, dist: o.dSrc, flow: c.supply });
+      // A collector leg unloads into the port: its bodies cap at the
+      // landing quantum (Addendum 4's anatomy at the haul quote).
+      const collector = transportBook({
+        from: c.srcId,
+        to: o.outpostPlace,
+        dist: o.dSrc,
+        flow: c.supply,
+        linkFed: true
+      });
       if (collector.length === 0) continue;
       viaSeated.add(c.srcId);
       pendingVia.push({
@@ -337,13 +346,19 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
 
   // Consolidated chains: the trunk offers exist only after every slice is
   // known, so via-chains assemble here — mine → collector → trunk slice.
+  // Step 0 of the trunk is its THROAT (the port tender — Addendum 4's
+  // anatomy); every member chain references it at zero capacity, so it
+  // funds with whichever member funds first and no member can fund
+  // without affording it. The market charges shared steps once.
   for (const t of trunks.values()) {
     const trunkOffer = quoteTrunk({
       from: t.place,
       to: view.bank,
       slices: t.slices,
       atFrom: t.pair.atFrom,
-      atTo: t.pair.atTo
+      atTo: t.pair.atTo,
+      container: view.outposts.find(o => o.place === t.place)?.hasContainer ?? false,
+      creeps: assigned(view, `link:${t.place}->${view.bank}`)
     });
     if (!trunkOffer) continue;
     for (const v of pendingVia) {
@@ -354,7 +369,12 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
         stages: [
           { options: v.mineOptions },
           { options: v.collector },
-          { options: [{ offer: trunkOffer, step: v.sliceIdx, capacity: v.flow }] }
+          {
+            options: [
+              { offer: trunkOffer, step: 0, capacity: 0 },
+              { offer: trunkOffer, step: v.sliceIdx + 1, capacity: v.flow }
+            ]
+          }
         ]
       });
     }
@@ -636,6 +656,14 @@ export function replan(view: EconomyView): EnginePlan {
         haulFleetBillEt(gross, x.m.collectRange, false) -
         LINK_LOSS * gross;
     }
+    // The candidate prices its whole port anatomy (Addendum 4): the
+    // throat's bill, the hub-side service, and the buffer container it
+    // OBLIGATES — hold plus capex over H. The container itself approves
+    // as the standing trunk's obligation once the station stands, so the
+    // purse pays it then; the hurdle prices it now, as a known
+    // consequence, or a tree could clear on arithmetic its kit falsifies.
+    saving -=
+      upkeepEt(portTenderBody(flow)) + upkeepEt(hubServiceBody()) + CONTAINER_HOLD_ET + CONTAINER_COST / HORIZON;
     if (LINK_CAPACITY / Math.max(st.range, 1) + 1e-9 < flow) continue;
     if (saving <= 0) continue;
     proposals.push({
@@ -711,6 +739,34 @@ export function replan(view: EconomyView): EnginePlan {
             `${(saving * HORIZON).toFixed(0)}e over H beats ${rung.capex}e capex`
         });
       }
+    }
+  }
+
+  // The port buffer is the standing trunk's OBLIGATION, never a
+  // candidate (Addendum 4, ratified 2026-08-24): the dampener is what
+  // makes the ration real — a haul-fed port without its mouth is v1's
+  // measured 22.4%-of-arrivals-holding machine — so a funded trunk with
+  // a bare outpost draws its container AHEAD of the merit spend, the way
+  // obligations draw first everywhere else. Miner-fed mouths and the
+  // hub (storage-backed) trigger nothing: haul-fed only.
+  for (const corp of base.corps) {
+    if (corp.kind !== "link") continue;
+    const at = corp.id.slice("link:".length).split("->")[0];
+    if (at.indexOf("outpost:") !== 0) continue;
+    const op = view.outposts.find(o => o.place === at);
+    if (!op || op.hasContainer) continue;
+    if (view.sites.some(k => k.structure === "container" && k.edge && k.edge.from === at)) continue;
+    if (CONTAINER_COST <= spendable + 1e-9) {
+      spendable -= CONTAINER_COST;
+      approvals.push({
+        structure: "container",
+        at,
+        edge: { from: at, to: at },
+        capex: CONTAINER_COST,
+        detail: `port buffer at ${at}: the trunk's arrival space (haul-fed — the anatomy's trigger)`
+      });
+    } else {
+      noteAwaiting(corp.id, CONTAINER_COST, `port buffer at ${at}`);
     }
   }
 

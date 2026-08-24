@@ -61,7 +61,7 @@ describe("engine/trunk — the tree keeps its far members", () => {
       assert.isOk(corps.get(`haul:${m}->outpost:st`), `${m} collects into the station`);
       assert.isUndefined(corps.get(`haul:${m}->bank`), `${m} runs no direct route`);
     }
-    assert.equal(corps.get("link:outpost:st->bank")?.target, 3, "one slice per member on the legal trunk");
+    assert.equal(corps.get("link:outpost:st->bank")?.target, 4, "the throat plus one slice per member on the legal trunk");
     assert.isEmpty(plan.violations, "the book audits the joint");
   });
 
@@ -94,7 +94,7 @@ describe("engine/trunk — the tree keeps its far members", () => {
     assert.isOk(corps.get("haul:s2->outpost:L1"), "s2 seats on its best trunk");
     assert.isOk(corps.get("haul:s3->outpost:L2"), "s3 spills to the second-best trunk");
     assert.isUndefined(corps.get("haul:s3->bank"), "no body fleet while a paying trunk stands idle");
-    assert.equal(corps.get("link:outpost:L2->bank")?.target, 1, "the second trunk carries its slice");
+    assert.equal(corps.get("link:outpost:L2->bank")?.target, 2, "the second trunk carries its throat and its slice");
     assert.isEmpty(plan.violations, "the book audits both joints");
   });
 
@@ -148,7 +148,7 @@ describe("engine/trunk — the tree keeps its far members", () => {
     assert.isOk(corps.get("haul:farB->outpost:st"), "farB rides the trunk — merit beats iteration order");
     assert.isOk(corps.get("haul:near->bank"), "the near source keeps its cheap direct route");
     assert.isUndefined(corps.get("haul:near->outpost:st"), "the near source holds no slice");
-    assert.equal(corps.get("link:outpost:st->bank")?.target, 2, "exactly the two slices the ration affords");
+    assert.equal(corps.get("link:outpost:st->bank")?.target, 3, "the throat plus exactly the two slices the ration affords");
     assert.isEmpty(plan.violations, "the book audits the joint");
   });
 });

@@ -210,6 +210,47 @@ describe("engine/market", () => {
     assert.isBelow(ctrl?.netEt ?? 0, 0, "the book shows the hole");
   });
 
+  it("charges a step shared by several chains ONCE — the trunk's throat funds with whichever member funds first", () => {
+    // Addendum 4's anatomy: the throat rides EVERY member chain at zero
+    // capacity, so no member can fund without affording it — and the
+    // market must not hire or bill it once per member.
+    const throat: Step = {
+      buys: { work: 0, carry: 2, move: 1 },
+      provides: {},
+      requires: {},
+      cost: { upfront: 150, upkeepEt: 0.1, feeEt: 0.2, spawnTimeEt: 0.002 }
+    };
+    const trunk: Offer = {
+      id: "t",
+      kind: "link",
+      steps: [throat, step(10, { backedBy: "pair", fee: 0.3 }), step(10, { backedBy: "pair", fee: 0.3 })]
+    };
+    const mineA: Offer = { id: "mA", kind: "mine", steps: [step(10, { upkeep: 0.4 })] };
+    const mineB: Offer = { id: "mB", kind: "mine", steps: [step(10, { upkeep: 0.4 })] };
+    const member = (cid: string, src: string, mine: Offer, slice: number): ChainCandidate => ({
+      id: cid,
+      sourceId: src,
+      stages: [
+        stage(mine, [10]),
+        {
+          options: [
+            { offer: trunk, step: 0, capacity: 0 },
+            { offer: trunk, step: slice, capacity: 10 }
+          ]
+        }
+      ]
+    });
+    const plan = clear(
+      input({ chains: [member("chain:s1", "s1", mineA, 1), member("chain:s2", "s2", mineB, 2)] })
+    );
+    const t = plan.corps.find(c => c.id === "t");
+    assert.equal(t?.target, 3, "throat + two slices — the shared step counted once");
+    assert.deepEqual(t?.hires, [{ work: 0, carry: 2, move: 1 }], "ONE throat hired, never one per member");
+    assert.closeTo(plan.expected.deliveredEt, 20, 1e-9, "both members deliver");
+    assert.closeTo(plan.expected.refillEt, 0.4 + 0.4 + 0.1, 1e-9, "the throat's bill charged once");
+    assert.closeTo(plan.expected.feesEt, 0.2 + 0.3 + 0.3, 1e-9, "its fee too");
+  });
+
   it("is deterministic: same input, same plan; order of candidates does not matter", () => {
     const a = chain("chain:a", "s1", [5], [step(5, { upkeep: 0.3 })]);
     const b = chain("chain:b", "s2", [5], [step(5, { upkeep: 0.4 })]);

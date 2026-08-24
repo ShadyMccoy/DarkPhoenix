@@ -86,6 +86,10 @@ export interface Scenario {
   /** Standing extensions — each adds EXTENSION_CAPACITY to the estate's
    * body budget (Tier 1.2: bodyBudget is endogenous). */
   extensions: XY[];
+  /** Ground containers standing at PORT places — the haul-fed trunk's
+   * arrival buffer (Addendum 4: the port's mouth). The bank's own kernel
+   * branch stays `bankBranch`; these are the link corp's capital. */
+  containers?: XY[];
   /** The bank's physical branch at the kernel — a pile until the ladder's
    * capex clears (Tier 1.3). */
   bankBranch: BankBranchKind;
@@ -262,7 +266,12 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     const field = distanceField(s.terrain, { x: l.x, y: l.y });
     const distToSource: Record<string, number> = {};
     for (const src of s.sources) distToSource[src.id] = approachDist(field, src);
-    outposts.push({ place, distToSource });
+    // The port's mouth, stated by ONE lens (spec 56: four range-2 scans
+    // deadlocked v1's buffer forever — the predicate lives here alone).
+    const hasContainer = (s.containers ?? []).some(
+      c => Math.max(Math.abs(c.x - l.x), Math.abs(c.y - l.y)) <= 2
+    );
+    outposts.push({ place, distToSource, hasContainer });
   }
 
   // The NETWORK plan (owner 2026-08-24): links are scarce, so the
@@ -370,6 +379,7 @@ export function importSave(text: string): LabSave {
   raw.scenario.links = raw.scenario.links ?? [];
   raw.scenario.sites = raw.scenario.sites ?? [];
   raw.scenario.extensions = raw.scenario.extensions ?? [];
+  raw.scenario.containers = raw.scenario.containers ?? [];
   raw.scenario.bankBranch = raw.scenario.bankBranch ?? "pile";
   raw.scenario.roads = raw.scenario.roads ?? [];
   raw.scenario.linkBudget = raw.scenario.linkBudget ?? 6;

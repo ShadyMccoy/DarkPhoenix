@@ -51,6 +51,7 @@ function freeTileNear(s: Scenario, tile: XY, maxR = 2): XY | null {
           s.sites.some(k => k.x === x && k.y === y) ||
           s.sources.some(k => k.x === x && k.y === y) ||
           s.extensions.some(k => k.x === x && k.y === y) ||
+          (s.containers ?? []).some(k => k.x === x && k.y === y) ||
           (s.spawn.x === x && s.spawn.y === y) ||
           (s.bank.x === x && s.bank.y === y) ||
           (s.controller !== null && s.controller.x === x && s.controller.y === y);
@@ -134,7 +135,17 @@ function realize(state: BelieverState, site: ScenarioSite): void {
     const at = freeTileNear(s, s.spawn, 4);
     if (at) s.extensions.push(at);
   } else if (site.structure === "container" || site.structure === "storage") {
-    s.bankBranch = site.structure;
+    // A container with an edge is a PORT buffer (the trunk's obligation,
+    // Addendum 4) and lands on the ground at its site tile; only the
+    // kernel's edgeless rung moves the bank's own branch.
+    if (site.structure === "container" && site.edge) {
+      const c = { x: site.x, y: site.y };
+      if (!(s.containers ?? []).some(k => k.x === c.x && k.y === c.y)) {
+        (s.containers = s.containers ?? []).push(c);
+      }
+    } else {
+      s.bankBranch = site.structure;
+    }
   } else if (site.structure === "road" && site.edge) {
     const e = site.edge;
     if (!s.roads.some(r => r.from === e.from && r.to === e.to)) s.roads.push({ from: e.from, to: e.to });
@@ -187,6 +198,15 @@ export function advanceChunk(state: BelieverState): EnginePlan {
     next.push(...state.creeps.filter(c => c.corp === corp.id).slice(0, corp.target));
   }
   state.creeps = next;
+  // Where each corp's hire list starts: `hires` is exactly the bodies
+  // still to buy, so the next hire indexes by what THIS chunk already
+  // bought — never by `backed`, which also counts structure-backed steps
+  // (the trunk's pair) and mis-indexed a mixed corp's list: the throat,
+  // funded beside three pair-backed slices, could never be hired.
+  const liveStart = new Map<string, number>();
+  for (const corp of plan.corps) {
+    liveStart.set(corp.id, state.creeps.filter(c => c.corp === corp.id).length);
+  }
   // Hire CHAIN-ATOMICALLY, in ROUNDS: a chain's bodies are worthless
   // apart (a miner without its collector only strands supply), so each
   // round buys ONE body per deficit corp in the chain, together, while
@@ -213,7 +233,7 @@ export function advanceChunk(state: BelieverState): EnginePlan {
         // remainder-sized runt, and hiring the FIRST body for every slot
         // overshot the quoted machine time (the forest stall).
         const live = state.creeps.filter(c => c.corp === corp.id).length;
-        const body = corp.hires[live - corp.backed];
+        const body = corp.hires[live - (liveStart.get(corp.id) ?? 0)];
         if (body) {
           cost += bodyCost(body);
           hires.push({ corpId: corp.id, body });

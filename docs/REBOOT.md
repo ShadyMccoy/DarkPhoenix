@@ -1577,9 +1577,66 @@ way v1 learned to read this machine — clamp share, empty share, port
 waits, volley average, hauler duty — bands pinned multi-draw before
 anything is tuned.
 
-**Budget note:** src stands at ~3.2k lines against the ~3k budget; the
-overage is docblock prose carrying the session's incident record in
-place. Trim or ratify.
+**Addendum 4 RATIFIED — the first landing (owner 2026-08-24, fifth
+conversation: "Alright so let's add this to refine our model."):**
+rulings 1, 2, 3 and 5 are ratified and LANDED in the engine; 4 and 6
+are ratified as doctrine and land with Tier 2 (the believer has no
+runners to sequence). What the model now says, certified green
+(93 unit + 8 integration, the believer arc extended):
+
+- **The throat is a real body on the trunk's offer** — step 0, zero
+  capacity, `portTenderBody(flow)` from the one module — referenced by
+  EVERY member chain, so no member funds without affording it and it
+  funds with whichever member funds first. The market gained the
+  matching law: **a physical step funds and charges ONCE**, however
+  many chains reference it (fund/charge idempotence by offer object —
+  the first-member-only attachment was rejected because a poor bank
+  could close the first chain and run the trunk throatless). The
+  believer hires it through the standing `hires` machinery — which
+  surfaced a latent indexing defect: hires were indexed by `backed`,
+  which also counts structure-backed steps, so a mixed corp (pair-backed
+  slices + an unbacked throat) could never hire; the index is now
+  live-at-chunk-start, one meaning of "next hire" for every corp shape.
+- **Piece 5's sentence is amended in the quotes**: a standing wire
+  prices the 3% PLUS its port service — the per-sender hub shuttle
+  (`CORE_SERVICE_CARRY_PER_SENDER`, ported with the owner's 2026-08-07
+  quote and the concurrency A/B in its docblock) rides every wire's
+  fee, and the standing buffer's `CONTAINER_HOLD_ET` rides the trunk's.
+  Candidates carry the same terms plus capex, so displacement stays
+  symmetric. ⚖ Recorded deviation, Tier-2 work: the hub service is
+  FEE-form (the believer's steady-state representation — paid in cash
+  every chunk) until the succession vocabulary lets it hire for real;
+  the porttender wedge (a body charged, never spawned) is the failure
+  mode that conversion closes, and fee-form charges no machine time.
+- **The buffer approves as the standing trunk's OBLIGATION**, ahead of
+  the merit spend — kit, never ROI (its benefit is Tier-2 sequencing
+  the steady-state ledger cannot see, so pricing it as a candidate
+  would refuse it and re-buy v1's 22.4%-of-arrivals-holding machine).
+  It realizes as ground capital at the port (`Scenario.containers`),
+  read back by ONE range-2 lens in assembly (spec 56's law), and its
+  holding joins the trunk's fee the replan it stands. Station
+  candidates price the whole anatomy in their hurdle — throat bill,
+  hub fee, hold, container capex over H — so a tree cannot clear on
+  arithmetic its own kit falsifies. Recorded gap: the purse pays the
+  container at obligation time, one replan after the links — approval
+  does not yet reserve it.
+- **Collector legs cap at the landing quantum** — `LINK_PAYLOAD_CARRY`
+  (16C, roaded 8 pairs), spec 45 leg 3 ported with its docblock: one
+  arrival is one unload intent; surplus CARRY converts to standing
+  time at the port, never throughput. Walking routes keep the 25-pair
+  body limit; the trigger is the gap's `linkFed` flag, set only where
+  a route unloads into a port.
+- **The trigger rule holds by construction**: trunks (haul-fed) carry
+  throat + buffer + hub fee; a direct mouth wire (miner-fed) carries
+  the hub fee alone; the bank hub is storage-backed and triggers
+  nothing. Pinned in `port.test.ts` end to end, and the believer's
+  tree now grows the full anatomy on screen: station → trunk funds →
+  buffer approved and built → throat hired.
+
+**Budget note:** src stands at ~3.6k lines against the ~3k budget
+(~3.2k before Addendum 4's landing; the growth is the anatomy's quotes
+and the ported docblocks). The overage is docblock prose carrying the
+session's incident record in place. Trim or ratify.
 
 ## The scenario ladder (DRAFT 2026-08-18 — awaiting owner markup)
 

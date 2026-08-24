@@ -1,7 +1,8 @@
 import { assert } from "chai";
 import { replan } from "../../../src/engine/replan";
 import { EconomyView } from "../../../src/engine/view";
-import { workmanCycleRate } from "../../../src/primitives";
+import { upkeepEt, workmanCycleRate } from "../../../src/primitives";
+import { hubServiceBody } from "../../../src/sizing";
 
 /**
  * The broker + real quotes, cleared on staged views: the worked 550-budget
@@ -130,8 +131,10 @@ describe("engine/replan", () => {
     );
     const corps = byId(plan);
 
-    // srcB (25 tiles): the pair moves 10 e/t for a 0.3 tax and no spawn
-    // time — it beats two hauler bodies and takes the whole edge.
+    // srcB (25 tiles): the pair moves 10 e/t for the 0.3 tax plus its
+    // hub service (Addendum 4's amendment: a wire is never "the 3% and
+    // nothing else") and no spawn time — it still beats two hauler
+    // bodies and takes the whole edge.
     const linkB = corps.get("link:srcB->bank");
     assert.equal(linkB?.target, 1);
     assert.equal(linkB?.backed, 1, "standing structures back the step");
@@ -143,7 +146,12 @@ describe("engine/replan", () => {
     assert.equal(corps.get("haul:srcA->bank")?.target, 1);
     assert.isUndefined(corps.get("link:srcA->bank"));
 
-    assert.closeTo(plan.expected.feesEt, 0.3, 1e-9, "the 3% tax on 10 e/t");
+    assert.closeTo(
+      plan.expected.feesEt,
+      0.3 + upkeepEt(hubServiceBody()),
+      1e-9,
+      "the 3% tax on 10 e/t plus the per-sender hub service"
+    );
     assert.isEmpty(plan.violations);
     const bank = plan.positions.find(p => p.place === "bank");
     const leftover =
@@ -180,10 +188,11 @@ describe("engine/replan", () => {
       assert.equal(corps.get(`haul:${src}->outpost:L1`)?.target, 1, `${src} collects to the outpost`);
       assert.isUndefined(corps.get(`haul:${src}->bank`), `${src} runs no direct route`);
     }
-    // ...and ONE standing pair trunks them all: a slice per source.
+    // ...and ONE standing pair trunks them all: its throat plus a
+    // slice per source (Addendum 4's anatomy).
     const trunk = corps.get("link:outpost:L1->bank");
-    assert.equal(trunk?.target, 3, "three slices of one pair");
-    assert.equal(trunk?.backed, 3);
+    assert.equal(trunk?.target, 4, "the throat and three slices of one pair");
+    assert.equal(trunk?.backed, 3, "the pair backs the slices; the throat is a hire");
     assert.closeTo(trunk?.outputs.energyAt?.["bank"] ?? 0, 30, 1e-9);
 
     assert.closeTo(plan.expected.deliveredEt, 30, 1e-9);

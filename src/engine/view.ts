@@ -131,6 +131,10 @@ export interface ViewOutpost {
    * border bank, and its phantom-short ration shed a paying tree member
    * (the settled-forest e3, owner ruling 2026-08-24). */
   distToSource: Record<string, number>;
+  /** A buffer container stands within the port's reach (spec 56's ONE
+   * range-2 lens, stated by assembly — the port's mouth, Addendum 4).
+   * Absent reads as false: no evidence of a buffer is not a buffer. */
+  hasContainer?: boolean;
 }
 
 /** A PRICED wire option for one edge, from the placement search (lab
