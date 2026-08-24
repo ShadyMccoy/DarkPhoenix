@@ -29,6 +29,7 @@ export function quoteWorkman(h: WorkmanHandoff): Offer | null {
     cum += rate;
     steps.push({
       backedBy: c.id,
+      body: c.body,
       provides: { energyAt: { [h.bank]: rate } },
       requires: {},
       cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
@@ -43,7 +44,7 @@ export function quoteWorkman(h: WorkmanHandoff): Offer | null {
       const rate = Math.min(perBody, SOURCE_RATE - cum);
       cum += rate;
       steps.push({
-        buys: body,
+        body,
         provides: { energyAt: { [h.bank]: rate } },
         requires: {},
         cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },

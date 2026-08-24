@@ -48,6 +48,7 @@ export function quoteBuild(h: BuildHandoff): Offer | null {
     cum += burn;
     steps.push({
       backedBy: c.id,
+      body: c.body,
       provides: { progress: burn },
       requires: { energyAt: { [h.at]: burn } },
       cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
@@ -62,7 +63,7 @@ export function quoteBuild(h: BuildHandoff): Offer | null {
       const burn = Math.min(perBody, cap - cum);
       cum += burn;
       steps.push({
-        buys: body,
+        body,
         provides: { progress: burn },
         requires: { energyAt: { [h.at]: burn } },
         cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },

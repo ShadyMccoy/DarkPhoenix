@@ -29,7 +29,7 @@
  * obligation; upfront is cash at purchase, checked by solvency and paid
  * by the believer's bank.
  */
-import { PROJECT_RATE_WINDOW } from "../primitives";
+import { PROJECT_RATE_WINDOW, spawnTimeEt, upkeepEt } from "../primitives";
 import { CorpInstance, EnginePlan, Flows, FrontierLine, Offer, PlaceId, Step, addFlows } from "./vocabulary";
 
 /** How far ahead ramp solvency may count standing accumulation — one
@@ -649,7 +649,7 @@ export function clear(input: MarketInput): EnginePlan {
     let gross = 0;
     let cost = 0;
     let backed = 0;
-    const hires: NonNullable<Step["buys"]>[] = [];
+    const staff: CorpInstance["staff"] = [];
     const inputs: Flows = {};
     const outputs: Flows = {};
     for (const i of f.steps) {
@@ -664,13 +664,29 @@ export function clear(input: MarketInput): EnginePlan {
       if (s.cost.spawnTimeEt > 0) addFlows(inputs, { spawnTime: s.cost.spawnTimeEt });
       if (s.cost.upkeepEt + fee > 0) addFlows(inputs, { energyAt: { [input.bank]: s.cost.upkeepEt + fee } });
       if (s.backedBy) backed += 1;
-      else if (s.buys) hires.push(s.buys);
+      if (s.body) {
+        staff.push({ body: s.body, live: s.backedBy ?? null });
+        // The books never forget a live body (piece 5's companion rule).
+        // Its cost fields are sunk-zeroed for FUNDING — correct — but the
+        // row's contract still owes the body's sustain: machine time and
+        // the amortized parts bill at the bank, priced at replacement
+        // scale exactly as the order books already price it. Without
+        // this, a settled row read "requires nothing" and netted its
+        // whole gross while the aggregates (standingBills) knew better —
+        // two lenses inside one plan (the 2026-08-24 second landing).
+        if (s.backedBy) {
+          const sustain = upkeepEt(s.body);
+          cost += sustain;
+          addFlows(inputs, { spawnTime: spawnTimeEt(s.body) });
+          addFlows(inputs, { energyAt: { [input.bank]: sustain } });
+        }
+      }
     }
     if (f.offer.kind === "mine" || f.offer.kind === "workman") minedEt += gross;
     corps.push({
       id: f.offer.id,
       kind: f.offer.kind,
-      hires,
+      staff,
       target: f.steps.length,
       backed,
       chain: f.chain,

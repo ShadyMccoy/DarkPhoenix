@@ -13,7 +13,7 @@ import { Offer, Step } from "../../../src/engine/vocabulary";
 function step(cap: number, o: { upkeep?: number; fee?: number; spawn?: number; upfront?: number; backedBy?: string } = {}): Step {
   return {
     backedBy: o.backedBy,
-    buys: o.backedBy ? undefined : { work: 0, carry: 1, move: 1 },
+    body: o.backedBy ? undefined : { work: 0, carry: 1, move: 1 },
     provides: { energyAt: { bank: cap } },
     requires: {},
     cost: { upfront: o.upfront ?? 0, upkeepEt: o.upkeep ?? 0, feeEt: o.fee, spawnTimeEt: o.spawn ?? 0 }
@@ -137,7 +137,7 @@ describe("engine/market", () => {
   it("draws sinks from the residual and keeps the books conserved", () => {
     const prod = chain("chain:p", "s1", [10], [step(10, { upkeep: 1 })]);
     const sinkSteps: Step[] = [0, 1, 2].map(() => ({
-      buys: { work: 2, carry: 1, move: 1 },
+      body: { work: 2, carry: 1, move: 1 },
       provides: { controlPoints: 4 },
       requires: { energyAt: { bank: 4 } },
       cost: { upfront: 300, upkeepEt: 0.2, spawnTimeEt: 0.003 }
@@ -163,7 +163,7 @@ describe("engine/market", () => {
     // draining the bank at exactly standingBills until pinned.
     const backedProd = chain("chain:p", "s1", [10], [step(10, { backedBy: "m1" })]);
     const sinkSteps: Step[] = [0, 1, 2, 3, 4].map(() => ({
-      buys: { work: 2, carry: 1, move: 1 },
+      body: { work: 2, carry: 1, move: 1 },
       provides: { controlPoints: 2 },
       requires: { energyAt: { bank: 2 } },
       cost: { upfront: 300, upkeepEt: 0.2, spawnTimeEt: 0.003 }
@@ -196,7 +196,7 @@ describe("engine/market", () => {
   it("the position book flags funded demand with no match at its place — the controller-feed bug, pinned", () => {
     const prod = chain("chain:p", "s1", [10], [step(10, { upkeep: 1 })]);
     const orphanSteps: Step[] = [0, 1].map(() => ({
-      buys: { work: 2, carry: 1, move: 1 },
+      body: { work: 2, carry: 1, move: 1 },
       provides: { controlPoints: 4 },
       requires: { energyAt: { ctrl: 4 } },
       cost: { upfront: 300, upkeepEt: 0.2, spawnTimeEt: 0.003 }
@@ -215,7 +215,7 @@ describe("engine/market", () => {
     // capacity, so no member can fund without affording it — and the
     // market must not hire or bill it once per member.
     const throat: Step = {
-      buys: { work: 0, carry: 2, move: 1 },
+      body: { work: 0, carry: 2, move: 1 },
       provides: {},
       requires: {},
       cost: { upfront: 150, upkeepEt: 0.1, feeEt: 0.2, spawnTimeEt: 0.002 }
@@ -245,7 +245,11 @@ describe("engine/market", () => {
     );
     const t = plan.corps.find(c => c.id === "t");
     assert.equal(t?.target, 3, "throat + two slices — the shared step counted once");
-    assert.deepEqual(t?.hires, [{ work: 0, carry: 2, move: 1 }], "ONE throat hired, never one per member");
+    assert.deepEqual(
+      t?.staff,
+      [{ body: { work: 0, carry: 2, move: 1 }, live: null }],
+      "ONE throat on the roster, never one per member"
+    );
     assert.closeTo(plan.expected.deliveredEt, 20, 1e-9, "both members deliver");
     assert.closeTo(plan.expected.refillEt, 0.4 + 0.4 + 0.1, 1e-9, "the throat's bill charged once");
     assert.closeTo(plan.expected.feesEt, 0.2 + 0.3 + 0.3, 1e-9, "its fee too");

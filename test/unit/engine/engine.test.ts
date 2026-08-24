@@ -51,13 +51,13 @@ describe("engine/replan", () => {
     const plan = replan(view({ bodyBudget: 550, bankStock: 20000 }));
     const corps = byId(plan);
 
-    assert.deepEqual(corps.get("mine:srcA")?.hires[0], { work: 5, carry: 0, move: 1 });
+    assert.deepEqual(corps.get("mine:srcA")?.staff[0].body, { work: 5, carry: 0, move: 1 });
     assert.equal(corps.get("mine:srcA")?.target, 1, "one 5W miner saturates a source");
     assert.equal(corps.get("haul:srcA->bank")?.target, 1, "10 tiles: one hauler");
     assert.equal(corps.get("haul:srcB->bank")?.target, 2, "25 tiles: the same flow costs two");
     // #148's law at the quote: 10 e/t over 10 tiles needs 4 CARRY, so the
     // body is 4C — never the budget-sized 5C with idle capacity billed.
-    assert.deepEqual(corps.get("haul:srcA->bank")?.hires[0], { work: 0, carry: 4, move: 4 });
+    assert.deepEqual(corps.get("haul:srcA->bank")?.staff[0].body, { work: 0, carry: 4, move: 4 });
 
     // The workman quotes everywhere and loses everywhere — no bootstrap flag.
     assert.isUndefined(corps.get("workman:srcA"));
@@ -67,13 +67,13 @@ describe("engine/replan", () => {
     // The heartbeat's carrier: one small tender covers the whole refill
     // obligation across the co-located estate (owner 2026-08-23 ruling).
     assert.equal(corps.get("spawning:estate")?.target, 1);
-    assert.deepEqual(corps.get("spawning:estate")?.hires[0], { work: 0, carry: 2, move: 2 });
+    assert.deepEqual(corps.get("spawning:estate")?.staff[0].body, { work: 0, carry: 2, move: 2 });
 
     // The residual funds four full upgrader steps and a PARTIAL fifth —
     // the controller drains the residual exactly; the frontier line says
     // where the last step trimmed.
     assert.equal(corps.get("upgrade:ctrl")?.target, 5);
-    assert.deepEqual(corps.get("upgrade:ctrl")?.hires[0], { work: 4, carry: 1, move: 1 });
+    assert.deepEqual(corps.get("upgrade:ctrl")?.staff[0].body, { work: 4, carry: 1, move: 1 });
     assert.equal(plan.frontier.find(f => f.offerId === "upgrade:ctrl")?.reason, "energy residual");
 
     // Generic in/out on the instance: every commodity, ALLOCATED flow —
@@ -205,7 +205,7 @@ describe("engine/replan", () => {
     const plan = replan(view());
     const corps = byId(plan);
 
-    assert.deepEqual(corps.get("workman:srcA")?.hires[0], { work: 1, carry: 1, move: 2 });
+    assert.deepEqual(corps.get("workman:srcA")?.staff[0].body, { work: 1, carry: 1, move: 2 });
     assert.equal(corps.get("workman:srcA")?.target, 3, "spots-capped ramp");
     assert.equal(corps.get("workman:srcB")?.target, 3);
     assert.isUndefined(corps.get("mine:srcA"), "no specialist chain can close from a 300 stock");
@@ -216,7 +216,7 @@ describe("engine/replan", () => {
     // Residual after six workman bills: one full upgrader step and the
     // partial second that drains it.
     assert.equal(corps.get("upgrade:ctrl")?.target, 2);
-    assert.deepEqual(corps.get("upgrade:ctrl")?.hires[0], { work: 2, carry: 1, move: 1 });
+    assert.deepEqual(corps.get("upgrade:ctrl")?.staff[0].body, { work: 2, carry: 1, move: 1 });
   });
 
   it("cascade B — workmen alive: sunk capital holds its funding, the specialist chain trims in beside it", () => {
@@ -233,7 +233,7 @@ describe("engine/replan", () => {
     const standing = corps.get("workman:srcA");
     assert.equal(standing?.target, 3);
     assert.equal(standing?.backed, 3, "living workmen keep their jobs — incumbency");
-    assert.isEmpty(standing?.hires, "nothing new to buy on this instance");
+    assert.isEmpty(standing?.staff.filter(st => !st.live), "nothing new to buy on this instance");
 
     // The challenger enters at the trimmed remainder of the regen cap.
     assert.equal(corps.get("mine:srcA")?.target, 1);

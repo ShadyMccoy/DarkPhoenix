@@ -94,13 +94,14 @@ export function quoteTrunk(h: TrunkHandoff): Offer | null {
   const throat: Step = live
     ? {
         backedBy: live.id,
+        body: live.body,
         provides: {},
         requires: {},
         cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0, feeEt: serviceFee },
         note: `throat alive ttl=${live.ttl}; hub service${h.container ? " + buffer hold" : ""} as fees`
       }
     : {
-        buys: tender,
+        body: tender,
         provides: {},
         requires: {},
         cost: {

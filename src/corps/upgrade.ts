@@ -30,6 +30,7 @@ export function quoteUpgrade(h: UpgradeHandoff): Offer | null {
     cum += burn;
     steps.push({
       backedBy: c.id,
+      body: c.body,
       provides: { controlPoints: burn },
       requires: { energyAt: { [h.feed]: burn } },
       cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
@@ -44,7 +45,7 @@ export function quoteUpgrade(h: UpgradeHandoff): Offer | null {
       const burn = Math.min(perBody, h.maxBurn - cum);
       cum += burn;
       steps.push({
-        buys: body,
+        body,
         provides: { controlPoints: burn },
         requires: { energyAt: { [h.feed]: burn } },
         cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },

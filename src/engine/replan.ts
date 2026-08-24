@@ -107,8 +107,6 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
    * link candidates against exactly these funded edges. */
   const gapByOffer = new Map<string, HaulGap>();
 
-  const creepById = new Map<string, ViewCreep>(view.creeps.map(c => [c.id, c]));
-
   /** Round 2 for one gap: every transport kind quotes; the options merge
    * into the edge's order book, cheapest STEADY-STATE unit first — who
    * wins the edge is this sort. The book trades only what can move energy
@@ -144,9 +142,11 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
       const st: Step = o.offer.steps[o.step];
       let bill = st.cost.upkeepEt + (st.cost.feeEt ?? 0);
       // A backed BODY still owes its replacement, continuously; a backed
-      // STRUCTURE owes only its fee (links do not wear out).
-      const c = st.backedBy ? creepById.get(st.backedBy) : undefined;
-      if (c) bill += upkeepEt(c.body);
+      // STRUCTURE owes only its fee (links do not wear out). The body
+      // rides the step now — the creep re-join this closure used to do
+      // was one of the compensating lenses the roster fix deleted
+      // (Addendum 4, second landing).
+      if (st.backedBy && st.body) bill += upkeepEt(st.body);
       return o.capacity > 1e-9 ? bill / o.capacity : Infinity;
     };
     options.sort((a, b) => {
@@ -475,9 +475,7 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
       branchHoldingEt(view.bankBranch, view.bankStock, view.bodyBudget) +
       view.roads.reduce((sum, r) => sum + r.dist * ROAD_UPKEEP_ET_PER_TILE, 0),
     warchestTarget,
-    tender: tenderOffer
-      ? { offer: tenderOffer, capacities: tenderCapacities(tenderOffer, view.estateRadius, tenderCreeps) }
-      : null
+    tender: tenderOffer ? { offer: tenderOffer, capacities: tenderCapacities(tenderOffer, view.estateRadius) } : null
   });
   return { plan, gaps: gapByOffer };
 }

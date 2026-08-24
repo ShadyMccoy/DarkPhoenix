@@ -57,13 +57,14 @@ describe("engine/machine — the spawn currency at the executor seam", () => {
     );
     const far = plan.corps.find(c => c.id === "haul:srcC->bank");
     assert.isOk(far, "the far route funds");
-    assert.equal(far?.hires.length, far?.target, "nothing backed: every body is a hire");
-    assert.isAbove(far!.hires.length, 1, "the route takes a fleet");
-    const first = far!.hires[0];
-    const last = far!.hires[far!.hires.length - 1];
+    assert.equal(far?.staff.length, far?.target, "every body step is on the roster");
+    assert.isTrue(far!.staff.every(st => !st.live), "nothing backed: every body is a hire");
+    assert.isAbove(far!.staff.length, 1, "the route takes a fleet");
+    const first = far!.staff[0].body;
+    const last = far!.staff[far!.staff.length - 1].body;
     assert.isBelow(last.carry, first.carry, "the last body is the remainder runt, not a copy of the first");
     for (const corp of plan.corps) {
-      const hired = corp.hires.reduce((a, b) => a + spawnTimeEt(b), 0);
+      const hired = corp.staff.filter(st => !st.live).reduce((a, st) => a + spawnTimeEt(st.body), 0);
       assert.closeTo(
         hired,
         corp.inputs.spawnTime ?? 0,
@@ -113,7 +114,7 @@ describe("engine/machine — the spawn currency at the executor seam", () => {
     assert.isAtLeast(corps.get("spawning:estate")?.backed ?? 0, 1, "the tender survives — the heartbeat is an axiom");
     assert.isAbove(plan.expected.standingUpgradeEt, 0, "the living upgrader still drinks the residual");
     for (const corp of plan.corps) {
-      assert.lengthOf(corp.hires, 0, `${corp.id}: no new body while the machine is oversubscribed`);
+      assert.lengthOf(corp.staff.filter(st => !st.live), 0, `${corp.id}: no new body while the machine is oversubscribed`);
     }
     const line = plan.frontier.find(f => f.offerId === "spawning:capacity" && f.reason === "spawn capacity");
     assert.isOk(line, "the overshoot prints exactly where it lives");

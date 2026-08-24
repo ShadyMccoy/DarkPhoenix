@@ -55,7 +55,7 @@ describe("engine/road — the three-way edge market", () => {
   it("reprices the paved edge: same corp id, 2C:1M bodies, upkeep on the holding line", () => {
     const plan = replan(view({ roads: [{ from: "srcA", to: "bank", dist: 10 }] }));
     const haul = plan.corps.find(c => c.id === "haul:srcA->bank");
-    assert.deepEqual(haul?.hires[0], { work: 0, carry: 4, move: 2 }, "the roaded gait, same instance identity");
+    assert.deepEqual(haul?.staff[0].body, { work: 0, carry: 4, move: 2 }, "the roaded gait, same instance identity");
     assert.closeTo(plan.expected.holdingEt, 10 * ROAD_UPKEEP_ET_PER_TILE, 1e-9, "the network's upkeep, owed always");
     assert.isUndefined(
       plan.approvals.find(a => a.structure === "road" && a.edge?.from === "srcA"),

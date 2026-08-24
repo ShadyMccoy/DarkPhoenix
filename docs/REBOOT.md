@@ -1633,6 +1633,64 @@ runners to sequence). What the model now says, certified green
   tree now grows the full anatomy on screen: station → trunk funds →
   buffer approved and built → throat hired.
 
+**Addendum 4, second landing (owner 2026-08-24, sixth conversation:
+"The link doesn't show as requiring a body though? (Neither do the
+mines for that matter) — besides the surface fix investigate how our
+engine let that happen in the first place."):** the first screenshots
+showed it — the settled trunk's body column read "—", and the settled
+MINES read "—" twice over: no body, and an empty `in` column. A
+settled row claimed to require nothing at all. The investigation:
+
+- **Root cause: `buys` conflated the purchase with the requirement.**
+  The corp contract's cheap incumbency ("backedBy marks a step already
+  embodied, which quotes ~zero — no engine machinery") zeroed the WHOLE
+  step at embodiment: the price (correct — piece 5) and, with it, the
+  body and its bills (wrong — piece 5's own companion rule: "pricing
+  forgets sunk costs; the books never do"). `buys` was defined as "what
+  funding purchases; absent when backed" — so the moment a body lived,
+  the plan forgot it existed. Law 2's own enumeration — "target, BODY,
+  source, route, expected e/t" — named a field the instance stopped
+  carrying the day the forest-stall fix replaced `body` with `hires`,
+  the un-hired tail: that fix served the executor (what to buy) and
+  left the books blind (what is run).
+- **The tell: compensating mechanisms had already accreted** — disease
+  #2 rebuilding itself inside v2, caught at N=4: the market's
+  `standingBills`/`standingSpawnEt` seeds (aggregates that knew what
+  the rows denied), the broker's `creepById` re-join inside
+  `steadyUnit` (replacement-scale pricing rebuilt from the view because
+  the step had forgotten its body), the believer's live-at-start hire
+  index (the previous commit's patch — itself a workaround for `backed`
+  conflating structures with creeps), and the panel's `hires[0]` (the
+  surface symptom). Each locally defensible; together, two-lens drift
+  around one hole in the one representation.
+- **The fix: the step states its body; the instance states its ROSTER;
+  the books price replacement-scale.** `Step.buys` → `Step.body`,
+  stated backed or not (the cost fields stay sunk-zeroed — funding
+  untouched). `CorpInstance.hires` → `staff: {body, live}[]` — one
+  entry per funded body step, `live` naming the backing creep; the
+  executor buys exactly the nulls, in order (the believer now staffs BY
+  NAME — the count-trim, the hire-index arithmetic, and the
+  live-at-start patch all deleted). The instance builder folds a backed
+  body's sustain into its row — machine time and the amortized parts
+  bill at the bank — so a settled row's `in` column states its
+  requirement again, and ⚖ its P&L prices at REPLACEMENT SCALE
+  (piece 1's "cost e/t (amortized bodies)" made literal; the same rule
+  the order books already priced by, so the three cost lenses collapse
+  to two: funding sunk, books replacement). Settled nets shift down by
+  their fleets' bills; any future band re-pins from the honest number.
+  Two view re-joins deleted outright (`steadyUnit`'s creepById,
+  `tenderCapacities`' creep lookup); the position book's bank demand
+  now carries the standing fleet's bills, so the bank's net is the
+  leftover NET of sustain — the conservation caption reads true.
+- **Recorded, not valved:** `standingBills` (Σ every live creep — the
+  market's pre-clear seed) and the rows' summed sustain (the funded
+  employed) remain two computations that agree at quiescence; the seed
+  must exist before clearing produces rows, so it stays — flagged as
+  the next one-lens candidate. And a corp with genuinely no bodies
+  (`spawning:capacity`; a miner-fed direct wire) prints "—" honestly:
+  the column now distinguishes "runs on no body" from "forgot its
+  body".
+
 **Budget note:** src stands at ~3.6k lines against the ~3k budget
 (~3.2k before Addendum 4's landing; the growth is the anatomy's quotes
 and the ported docblocks). The overage is docblock prose carrying the

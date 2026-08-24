@@ -1,7 +1,7 @@
 import { assert } from "chai";
 import { replan } from "../../../src/engine/replan";
 import { EconomyView } from "../../../src/engine/view";
-import { CONTAINER_HOLD_ET, LINK_LOSS, upkeepEt } from "../../../src/primitives";
+import { CONTAINER_HOLD_ET, LINK_LOSS, spawnTimeEt, upkeepEt } from "../../../src/primitives";
 import { hubServiceBody, portTenderBody } from "../../../src/sizing";
 
 /**
@@ -61,7 +61,11 @@ describe("engine/port — the anatomy on the trunk", () => {
     const trunk = plan.corps.find(c => c.id === "link:outpost:st->bank");
     assert.isOk(trunk, "the trunk funds");
     assert.equal(trunk?.target, 4, "the throat plus one slice per member");
-    assert.deepEqual(trunk?.hires, [portTenderBody(30)], "exactly one throat, flow-sized — never one per member");
+    assert.deepEqual(
+      trunk?.staff,
+      [{ body: portTenderBody(30), live: null }],
+      "exactly one throat on the roster, flow-sized — never one per member"
+    );
     // The throat's parts bill joins the heartbeat; the hub service rides
     // as a fee; three slices pay the tax on their own share.
     const expectCost = upkeepEt(portTenderBody(30)) + HUB_FEE + 3 * LINK_LOSS * 10;
@@ -77,9 +81,12 @@ describe("engine/port — the anatomy on the trunk", () => {
     );
     const trunk = plan.corps.find(c => c.id === "link:outpost:st->bank");
     assert.equal(trunk?.backed, 4, "throat and slices all backed");
-    assert.deepEqual(trunk?.hires, [], "nothing left to hire");
-    const expectCost = HUB_FEE + 3 * LINK_LOSS * 10;
-    assert.closeTo(trunk?.pnl.costEt ?? 0, expectCost, 1e-9, "the live throat prices sunk; its replacement is standingBills");
+    assert.deepEqual(trunk?.staff, [{ body: portTenderBody(30), live: "t1" }], "the roster names its live throat");
+    // The row's books price at replacement scale: the live throat's
+    // sustain stays on the instance (pricing forgets sunk costs; the
+    // books never do) even though its FUNDING quote is sunk-zero.
+    const expectCost = HUB_FEE + 3 * LINK_LOSS * 10 + upkeepEt(portTenderBody(30));
+    assert.closeTo(trunk?.pnl.costEt ?? 0, expectCost, 1e-9, "tax + hub service + the throat's replacement");
   });
 
   it("the standing buffer's holding rides the trunk's fee — only once it stands", () => {
@@ -104,6 +111,20 @@ describe("engine/port — the anatomy on the trunk", () => {
     );
   });
 
+  it("a settled corp still STATES its body and its bill — the books never forget (owner 2026-08-24)", () => {
+    // The finding: backed steps quoted sunk-zero AND dropped their body,
+    // so a settled mine's row read body "—", inputs "—", net = gross —
+    // while the aggregates (standingBills) knew better. The roster and
+    // the sustain fold put the requirement back on the row.
+    const miner = { id: "w1", corp: "mine:a", body: { work: 5, carry: 0, move: 1 }, ttl: 1000 };
+    const plan = replan(treeView({ creeps: [miner] }));
+    const mine = plan.corps.find(c => c.id === "mine:a");
+    assert.deepEqual(mine?.staff, [{ body: miner.body, live: "w1" }], "the row states the body it runs on");
+    assert.closeTo(mine?.inputs.spawnTime ?? 0, spawnTimeEt(miner.body), 1e-9, "and its machine time");
+    assert.closeTo(mine?.inputs.energyAt?.bank ?? 0, upkeepEt(miner.body), 1e-9, "and its parts bill at the bank");
+    assert.closeTo(mine?.pnl.costEt ?? 0, upkeepEt(miner.body), 1e-9, "P&L at replacement scale, not sunk-zero");
+  });
+
   it("a miner-fed direct wire carries NO throat and no buffer — only the per-sender hub service", () => {
     const plan = replan(
       view({
@@ -117,7 +138,7 @@ describe("engine/port — the anatomy on the trunk", () => {
     const wire = plan.corps.find(c => c.id === "link:wired->bank");
     assert.isOk(wire, "the standing wire holds its edge");
     assert.equal(wire?.target, 1, "one step: the pair itself — the trigger rule is HAUL-FED");
-    assert.deepEqual(wire?.hires, [], "no throat for a miner-loaded mouth");
+    assert.deepEqual(wire?.staff, [], "no body at all: the pair is pure structure, the mouth is the miner's");
     assert.closeTo(wire?.pnl.costEt ?? 0, LINK_LOSS * 10 + HUB_FEE, 1e-9);
     assert.isUndefined(
       plan.approvals.find(a => a.structure === "container" && a.at === "wired"),

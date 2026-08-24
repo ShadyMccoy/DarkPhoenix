@@ -42,6 +42,7 @@ export function quoteHaul(h: HaulHandoff): Offer | null {
     cum += rate;
     steps.push({
       backedBy: c.id,
+      body: c.body,
       provides: { energyAt: { [to]: rate } },
       requires: { energyAt: { [from]: rate } },
       cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
@@ -59,7 +60,7 @@ export function quoteHaul(h: HaulHandoff): Offer | null {
     if (perBody <= 0) break;
     cum += perBody;
     steps.push({
-      buys: body,
+      body,
       provides: { energyAt: { [to]: perBody } },
       requires: { energyAt: { [from]: perBody } },
       cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },

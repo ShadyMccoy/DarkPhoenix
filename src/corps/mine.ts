@@ -29,6 +29,7 @@ export function quoteMine(h: MineHandoff): Offer | null {
     cum += rate;
     steps.push({
       backedBy: c.id,
+      body: c.body,
       provides: { energyAt: { [h.sourceId]: rate } },
       requires: {},
       cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
@@ -42,7 +43,7 @@ export function quoteMine(h: MineHandoff): Offer | null {
       const rate = Math.min(body.work * HARVEST_POWER, SOURCE_RATE - cum);
       cum += rate;
       steps.push({
-        buys: body,
+        body,
         provides: { energyAt: { [h.sourceId]: rate } },
         requires: {},
         cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },

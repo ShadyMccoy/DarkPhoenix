@@ -67,8 +67,17 @@ export interface StepCost {
 }
 
 export interface Step {
-  /** What funding this step purchases; absent when the step is backed. */
-  buys?: BodyShape;
+  /** The BODY this step runs on — stated whether the step is a purchase
+   * (the derived shape to hire) or already embodied (the handed creep's
+   * shape, restated by the quote). Absent only for structure-backed and
+   * bodiless steps. This field used to be `buys`, present only until
+   * embodiment — so backing erased the corp's body REQUIREMENT from the
+   * plan along with its price, and a settled row read "—" (owner
+   * 2026-08-24: "the link doesn't show as requiring a body — neither do
+   * the mines"). Sunk pricing is a FUNDING concept: the cost fields
+   * stay zeroed when backed; the body is the books not forgetting
+   * (piece 5's companion rule, applied to the step). */
+  body?: BodyShape;
   /** Live creep (or standing structure) already embodying this step. */
   backedBy?: string;
   provides: Flows;
@@ -122,14 +131,19 @@ export interface CorpPnl {
 export interface CorpInstance {
   id: string;
   kind: CorpKindName;
-  /** The bodies still to hire, in funded-step order — the fleet's tail
-   * after its backed heads. A quote may size the LAST body to the flow
-   * remainder (sizing law), so one body field cannot describe the fleet:
-   * an executor hiring `target − live` copies of the first overshoots the
-   * quoted machine time by the runt difference — enough, at a saturated
-   * spawn, to tip the seed over capacity and cull the very fleet the plan
-   * re-buys next round (the forest stall, session finding 2026-08-24). */
-  hires: BodyShape[];
+  /** The corp's body ROSTER: one entry per funded body step, in funded
+   * order — `live` names the backing creep, null marks a body still to
+   * hire. The executor buys exactly the nulls, in order. Replaces
+   * `hires`, which carried only the un-hired tail: a settled corp
+   * stated no bodies at all (law 2's own enumeration — "target, body,
+   * source, route" — with the body missing), and three view-joins had
+   * grown to compensate (the standingBills seed, the broker's creep
+   * re-join in steadyUnit, the believer's hire-index patch) — the
+   * two-lens disease rebuilding itself around a hole in the one
+   * representation (owner 2026-08-24, Addendum 4's second landing).
+   * A quote may size the LAST body to the flow remainder (sizing law),
+   * so the roster is per-step, never one shape (the forest stall). */
+  staff: { body: BodyShape; live: string | null }[];
   target: number;
   /** Of `target`, how many are already-living handed assets. */
   backed: number;
