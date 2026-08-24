@@ -1406,6 +1406,177 @@ its priced tiles as plan state, an owner conversation. Widening
 enumeration (M1..MN groups, second stations, partial slices,
 second-choice trunks) are the next rungs, owner-gated.
 
+**Addendum 4 (2026-08-24, fourth conversation — the port anatomy: the
+dampener and the link-and-bank tender; DRAFT, rulings requested):** two
+questions put by the owner: whether a link fed by multiple haul routes
+needs a DAMPENER — a container and a tender creep — and why; and the
+link-and-bank tender that keeps the core link empty so incoming
+transfers land, occasionally filling it instead when a send is called
+for. Both answers turn out to be already bought on the live colony —
+v1 ran this exact machine, measured every failure mode, and hardened
+the doctrine (specs 26, 45, 49, 54, 56 and the primitives docblocks) —
+so this record QUOTES the paid lessons rather than re-deriving them:
+the porting law applied to design. Nothing below is a ruling; ⚖ marks
+what needs one.
+
+*Why the dampener — the wire's quantum against the routes' phases.*
+The book prices a wire as a smooth ration (800/range e/t); the physical
+device is a VOLLEY machine: one 800 store that must serve as both the
+staged payload and the landing room, and a cooldown charged IN FULL
+however little moves — the engine clamps a transfer to the target's
+free space, so the partial volley is the waste mechanism, not a failed
+retry (spec 45's trap note). Haul arrivals are wheeled quanta on
+independent phases. One collector leg can be quantum-matched (v1
+capped deposit bodies at the 16-CARRY landing quantum for exactly this
+reason); N legs superpose, their phases drift with every replacement
+body, and bursts meet the link mid-cooldown no matter how anything
+staggers them. At that tile the fleet's two sizing laws collide (owner
+2026-08-05: haulers "are sized for full time moving" — duty ~1.0 is
+their contract — while the wire wants only full volleys, the cooldown
+being flat): with no third element, one law breaks. v1 measured both
+breaks. Haulers holding at full links: portWaits to 602t (spec 54),
+22.4% of port arrivals holding (spec 56), fleet portWaitFrac 0.228 ≈
+8.6 e/t of parked hauler value ≈ 17% of the colony's controller
+delivery (spec 45). Partial volleys: hubClampShare 0.45–0.625, volleys
+averaging 378–500 of 800 — the ration halved. Holding haulers until
+the link clears is not a fix — the haul-vs-link exchange rate (walk
+cost / tax cost = 1/0.03 = 33×, distance-independent) prices a
+one-beat hold as losing to the whole 24e tax after ~1.9 idle
+hauler-ticks, ~0.6 with three queued. And capacity was never the
+defect: rho measured 0.85/0.78 — MARGINAL, not oversubscribed (spec
+49) — which is what redirected v1 from "route less" to "buffer and
+drain it". Hence the dampener, in v1's own anatomy (spec 54): **the
+container is the mouth** — arrival space with no cooldown and no
+writer limit, so any number of haulers dump and leave at full duty;
+**the tender is the throat** — the single writer that keeps the link
+topped, so it fires a full volley the tick cooldown ends and the
+ration is actually realized; **the link is the pipe**. Two boundaries
+keep it honest. It is VARIANCE machinery, never capacity: at assigned
+flow ≥ the ration the buffer fills once and stays full (spec 45's
+saturated band — there the routed load must come down, and the book
+already trims slices to the ration). And it is what makes the station
+auditable at all (law 4): with one writer, expected = min(supply,
+ration) net of tax, derivable from the instance; with N racing writers
+the expectation depends on their phases and the seam cannot even be
+stated. The believer sees none of this by construction (steady-state
+rates; plan-vs-actual zero), so the dampener is a Tier-2 fidelity item
+of exactly the vessel-blindness class — designed now from the paid
+record instead of re-bought at cutover.
+
+*The model — port fields on the link corp instance (yes: the link
+corp's own property).* v1 ran the ownership experiment so v2 doesn't
+have to: a standalone PortTenderCorp shipped and lasted one commit —
+"link, tender and container are ONE machine: the container is the
+mouth, the tender is the throat, the link is the pipe. Splitting them
+across owners is how the drain went missing" (spec 54: spec 49 sized
+the buffer, and then nothing ever emptied it — 2000/2000, both of a
+hauler's escape hatches shut). The owner had already named the shape
+(2026-08-08: "the link+tender+container can all be ruled by the link
+corp"; 2026-08-06: "there's no miner, but we still want a tender"),
+and v2's own tender ruling points the same way (2026-08-23: filling
+the estate is the spawning corp's own operation — so loading and
+draining the wire is the link corp's own operation, never a haul
+quote; haul serves edges, not the wire's ends). A haul-fed port
+therefore carries, on the instance: its **container** — corp capital
+per piece 5, CONTAINER_COST capex + CONTAINER_HOLD_ET on its own
+books, an approval like any other; spec 56's deadlock (FOUR lenses
+answering "which container is this port's", each locally defensible,
+jointly guaranteeing the port never got one) is the named scar behind
+owned-as-data, one predicate; its **tender** — the corp's own body,
+offer steps with buys/spawnTime/parts bill, the spawning corp's tender
+shape verbatim, a CARRY-heavy parked shuttle (spec 54's two-shapes
+finding: the estate tender walks, the port tender parks); and its
+**posture** — keep-topped. The bank hub is the same record,
+degenerate: store = storage itself (nothing to build), tender parked
+on the pivot tile adjacent to link and vault, posture inverted
+(keep-empty). WHO LOADS decides who needs one: a private mouth loaded
+by its adjacent miner needs none (the miner is the single writer —
+once the vessel-blindness fix gives it the CARRY to load with); a
+consumer-parked link (the eventual controller link — withdraw-only BY
+RULE, spec 45) needs none; a haul-fed station always does. ⚖ Trigger
+to ratify: HAUL-FED, not fan-in ≥ 2 — a single-route port still pays
+the bounded mid-cooldown wait every trip, and v1 shipped the full
+anatomy on every deposit port. ⚖ Pricing follows the anatomy and
+AMENDS piece 5's sentence: a haul-fed standing pair is no longer "the
+3% and nothing else" — marginal = tax + the tender's amortized bill +
+the container's holding line; and the CANDIDATE station carries
+container capex + tender bill in its full cost (v1 debited exactly
+this in its link election: portTenderHaulEquivalent, spec 26 stage 5).
+That closes the haul-fed half of the vessel-blindness finding; the
+miner-fed half stays open. Placement inherits the anatomy: a station
+tile must offer a container spot "best accessible to incoming hauling
+routes as well as adjacent to the link of course" (owner 2026-08-06,
+quoted in spec 56) plus a tender post adjacent to both, and the hub
+keeps a pivot tile adjacent to link and storage — stationSearch
+constraints, lab-side with the rest of the spatial knowledge.
+
+*The link-and-bank tender — v1 answered this question verbatim* (owner
+2026-08-07, preserved as CORE_SERVICE_CARRY_PER_SENDER's docblock):
+"the core link has a feeder tender creep slave. It empties it to
+ensure incoming links can transfer (links coming off cooldown) and
+fills it when if necessary when it needs to send energy to the
+upgraders." Keep-empty is SENDER protection: the sender pays the
+cooldown while the transfer clamps to the hub's free store, so every
+unit of residual at the hub taxes every sender's volley. v1 measured
+the disease and the cure end to end: core empty only 26% of ticks,
+half of all volleys clamped, ports running at half their ration; the
+arrivals-first legs landed and clamp fell 0.625 → 0.154 (−75%, later
+0.000) with coreEmptyShare 0.652 — "a drained core is that heartbeat
+working, not congestion; the core link is a pass-through to storage by
+design" (spec 45's verdict). The doctrine carries in three owner
+lines: **drain on demand** ("They need to drain the core link pretty
+much on demand. Anytime an incoming link is imminent. It can't be a
+bottleneck." — 2026-08-05); **arrivals first** — inbound energy
+outranks staged energy at every buffer: pre-drain to zero the tick any
+sender stands loaded within near-fire, stage for an outbound send only
+while no inbound is pending (v1's earlier partial form was an income
+reserve carved out of the fill ceiling, CORE_LINK_INCOME_RESERVE; the
+pre-drain superseded it); **landing room is the tender's job, never
+the senders'** ("No the core link can always be tendered to the
+storage" — 2026-08-06, the line that dissolved every send-side scheme
+for protecting the hub). The FILL posture is the same body and the
+same seam with direction as data — and its arbitration is pre-ruled by
+v1's one counterexample: the controller-link port kept TOPPED by its
+relay was spec 26's live collapse (t72512031, fleet 30→13, reverted) —
+a receiver a fill posture may hold full is one no arrival needs.
+Sizing is the record's sharpest lesson, because v1 corrected itself:
+spec 45 floored the shuttle at one whole volley (16C, clear it in one
+cycle) and the A/B refuted the premise — the mechanism is CONCURRENCY,
+not capacity ("one creep working harder cannot cover two senders
+arriving at once"): the hardened form is **one parked shuttle PER
+inbound sender at 4 CARRY each** (the owner's own 8-for-our-room, 4 at
+low RCL; a 2-tick withdraw+transfer cycle clears 800 in ~8t, inside
+any sender's cooldown), while the 16C floor measured as over-insurance
+— clamp 0.000, but 100 spawn parts ≈ 15% of the whole fleet on the
+single most expensive corp. LINK_PAYLOAD_CARRY (16 — the landing
+quantum, the deposit-body cap) and the shuttle's service body are
+deliberately SEPARATE constants: "not the same quantity; they no
+longer scale together." The CPU variant (8/sender, half the intents)
+is recorded and unwired — the governor's trade, for when intent cost
+joins the currency. What stays runner-side, behind the dispatch
+boundary and stamped through the one counter: the same-tick sender
+QUEUE (two senders firing at one 800-free hub blockade each other —
+reserve free space within the tick, biggest payload first), full-volley
+discipline only where we control the drain, and the senderFull relief
+valve (income outranks cooldown efficiency at a saturated mouth). The
+plan sizes the port; the vertical sequences the volleys.
+
+*⚖ Rulings requested:* (1) the port anatomy as fields on the link corp
+instance — container as corp capital, tender as corp body, posture as
+data; (2) the marginal-price amendment to piece 5 — haul-fed pairs
+price tax + tender bill + container hold, never bare 3%; (3) the
+trigger rule — every haul-fed port gets the full anatomy, miner-fed
+mouths and consumer-parked links get none; (4) arrivals-first as
+carried doctrine: inbound outranks staged at every buffer, and a fill
+posture may never cost landing room; (5) the sizing ports into the one
+module, docblocks intact — LINK_PAYLOAD_CARRY and the deposit cap,
+CORE_SERVICE_CARRY_PER_SENDER and shuttles-per-sender,
+portTenderHaulEquivalent for the election; (6) certification shape: a
+Tier-2 mockup cell (the believer cannot see sequencing), gauged the
+way v1 learned to read this machine — clamp share, empty share, port
+waits, volley average, hauler duty — bands pinned multi-draw before
+anything is tuned.
+
 **Budget note:** src stands at ~3.2k lines against the ~3k budget; the
 overage is docblock prose carrying the session's incident record in
 place. Trim or ratify.
