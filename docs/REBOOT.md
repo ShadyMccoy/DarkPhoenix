@@ -1839,11 +1839,101 @@ dividend's share) or replacement-time displacement in the spawnTime
 currency — production bodies not renewed while an approved build
 starves. Owner conversation; sits with the bonfire findings.
 
-**Budget note:** src stands at ~3.75k lines against the ~3k budget
-(~3.2k before Addenda 4–5 landed; the growth is the anatomy's quotes,
-the roster, the overflow lane, and the ported docblocks). The overage
-is docblock prose carrying the session's incident record in place.
-Trim or ratify.
+**Budget note:** src stands at ~3.85k lines against the ~3k budget
+(~3.2k before Addenda 4–6 landed; the growth is the anatomy's quotes,
+the roster, the overflow lane, commute proration, and the ported
+docblocks). The overage is docblock prose carrying the session's
+incident record in place. Trim or ratify — queued as ruling A6 in the
+backlog section below.
+
+## The backlog and the ruling queue (2026-08-24, session close)
+
+Consolidated at the owner's request before this branch merges: every
+open ruling and debt item in ONE place, triaged, each pointing at its
+full context above — eleven ⚖ marks scattered over 1,900 lines was
+the session-ergonomics disease knocking. The session's arc is Addenda
+4–6 plus the machine-lock finding: the haul-fed port became the link
+corp's own machine (throat, buffer, hub service), the overflow lane
+made the ration's excess a rate instead of a shed member, the plan
+learned to state its ROSTER, and bodies prorate for their posting
+walk. Status read at close: the frame is structurally healthy and
+SELF-CORRECTING — this session's three defects were each caught by
+the frame's own tripwires, and every fix DELETED compensating lenses
+rather than adding one; the economics are richer than their
+certification (the believer certifies accounting; fidelity waits for
+Tier 2); the binding constraint is ruling bandwidth, not code.
+
+**A. The ruling session — quick ratifications, most one word:**
+
+1. Warchest divert-everything during accumulation (visible fleet
+   churn) — findings ledger, break #2.
+2. Replacement-scale displacement as piece 5's reading ("replacement
+   time is always, a little") — findings ledger, break #4.
+3. Rows price replacement scale — piece 1's "cost e/t (amortized
+   bodies)" read literally; settled nets shifted down by their fleets'
+   bills (Addendum 4, second landing).
+4. Addendum 4's recorded deviations pending their Tier-2 conversion:
+   the hub service rides as a FEE until the succession vocabulary
+   lands; the buffer's capex is purse-paid at obligation time, not
+   reserved at station approval.
+5. Addenda 5 and 6 were owner-initiated and are recorded in the
+   owner's words — restated here for one-pass review: blended
+   admission with merit seating the wire; every body posted at its
+   pickup.
+6. The budget: src ~3.85k against the ~3k law, and this document at
+   ~1.9k lines — trim or ratify, both.
+
+**B. Design conversations — real decisions, exhibits in hand:**
+
+1. **The machine share.** Capital's and the dividend's share of
+   spawnTime — the bonfire finding and now the machine-lock (two
+   staged worlds demonstrate it end to end; the capital reserve
+   cannot claw machine back from standing fleets, so a world that
+   saturates before its first approval never builds).
+   Replacement-time displacement in the spawnTime currency — standing
+   production bodies not renewed while an approved build or the sink
+   starves — is the candidate mechanism. The deepest open economics.
+2. **Losses are flows** (`provides: 0.97·flow`) — a vocabulary event;
+   also retires the tax-on-quoted-vs-allocated residual.
+3. **Flow-funded capex** — rate-solvency vs stock-solvency for
+   projects beyond a branch's decay asymptote.
+4. **Approvals carry their priced tiles as plan state** — the
+   believer's realize() re-derives the search on the mutated world
+   and can burn a project's capex (Addendum 3 close).
+5. **Candidate pricing member-by-member vs standing** — the settled
+   tree and the t0 tree can disagree at the margin (Addendum 2's
+   recorded finding).
+
+**C. Tier 2 prerequisites — criteria agreed before code, per the
+working agreement:**
+
+1. The succession vocabulary (`expiresIn`/spawn-lead) — the recorded
+   cutover blocker.
+2. Service bodies become HIRES — the hub shuttle above all; the
+   porttender wedge (charged, never spawned) is the failure mode the
+   conversion closes, and their machine time then charges.
+3. Vessel loading at miner-fed mouths (the energyAt vessel-blindness
+   finding).
+4. Runner-side port doctrine: arrivals-first, the sender queue, the
+   fill posture — certified by the five-gauge mockup cell (clamp
+   share, empty share, port waits, volley average, hauler duty; bands
+   pinned multi-draw).
+
+**D. Standing debt, tracked — no action until measurement asks:**
+pooled fleets vs per-edge ceil (#150 at plan time); member-side
+whole-supply routing and best-outpost-only; candidate-side arithmetic
+still flat (overflow economics, commute, roads in the route
+heuristic; no road candidacy for the trunk corridor; swamp roads);
+the radial bank's waypoint tax (place-to-place distances — Tier 3
+needs them); the reserver unquotable (`capacityAt`); spots and
+eviction; incumbency re-handing by capability-at-place; relay chains;
+spawnTime placeless; the hurdle only inside candidate arithmetic; the
+extension counterfactual not growing estateRadius; builder bodies
+amortized over 1500 for ~300t projects; depth-0 blindness behind the
+ramp filter; gait-ideal commutes (a MOVE-light body crawls its walk);
+throat re-handing's shape collisions at 1C1M and the roaded gait; and
+`standingBills` vs the rows' summed sustain — two computations, one
+fact, the next one-lens candidate.
 
 ## The scenario ladder (DRAFT 2026-08-18 — awaiting owner markup)
 
