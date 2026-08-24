@@ -4,6 +4,7 @@
  * world as SVG and reports cell clicks; every edit replans immediately in
  * main.ts — edits reprice live.
  */
+import { ROOM_SIZE } from "../../src/primitives";
 import { Scenario, SWAMP, WALL, XY, cellAt } from "./scenario";
 import { LabEdge, edgeColor, edgeLabel, edgeWidth } from "./graph";
 
@@ -160,14 +161,26 @@ export function renderMap(container: HTMLElement, s: Scenario, overlay: MapOverl
         cells += el("rect", { x: x * CELL, y: y * CELL, width: CELL, height: CELL, fill: "#4a5d3a" });
     }
   }
+  // Room borders (owner 2026-08-24): the 50×50 link-legality cells.
+  for (let x = ROOM_SIZE; x < mw; x += ROOM_SIZE) {
+    cells += el("line", { x1: x * CELL, y1: 0, x2: x * CELL, y2: mh * CELL, stroke: "#4a5568", "stroke-width": 1.5, "stroke-dasharray": "6,4" });
+  }
+  for (let y = ROOM_SIZE; y < mh; y += ROOM_SIZE) {
+    cells += el("line", { x1: 0, y1: y * CELL, x2: mw * CELL, y2: y * CELL, stroke: "#4a5568", "stroke-width": 1.5, "stroke-dasharray": "6,4" });
+  }
   let marks = "";
   for (const src of s.sources) {
     const hot = selected === src.id ? el("rect", { x: src.x * CELL - 2, y: src.y * CELL - 2, width: CELL + 4, height: CELL + 4, rx: 3, fill: "none", stroke: "#ffd54d", "stroke-width": 2 }) : "";
     marks += hot + badge(src.x, src.y, "#c9a227", "E");
   }
   for (const l of s.links) marks += badge(l.x, l.y, "#d16ba5", "L");
+  for (const k of s.extensions) marks += badge(k.x, k.y, "#5b8bb0", "x");
+  // Open construction sites: the structure-to-be, hollow until built.
+  for (const k of s.sites) marks += badge(k.x, k.y, "#b0803c", "▲");
   marks += badge(s.spawn.x, s.spawn.y, "#3f7cac", "S");
-  marks += badge(s.bank.x, s.bank.y, "#2a9d8f", "B");
+  // The bank badge names its branch: pile B, container C̶→"K", storage "T".
+  const bankLabel = s.bankBranch === "storage" ? "T" : s.bankBranch === "container" ? "K" : "B";
+  marks += badge(s.bank.x, s.bank.y, "#2a9d8f", bankLabel);
   if (s.controller) marks += badge(s.controller.x, s.controller.y, "#8e6bbf", "C");
 
   // Blocked routes go down first so a funded edge always wins the overlap.

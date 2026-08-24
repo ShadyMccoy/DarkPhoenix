@@ -21,11 +21,16 @@ import { BodyShape } from "../sizing";
 export type PlaceId = string;
 
 /** Marginal flow rates, in the frozen vocabulary: energy in e/t keyed by
- * place, spawn machine time in parts/tick, control points in CP/t. */
+ * place, spawn machine time in parts/tick, control points in CP/t, and
+ * construction progress in points/t (1 point == 1 energy). `progress` is
+ * the flow whose accumulated stock is a STANDING ASSET — instantiating the
+ * owner's own commodity list (REBOOT: "energy; spawnTime; safety; intel
+ * coverage; standing assets; control points"), not growing it. */
 export interface Flows {
   energyAt?: Record<PlaceId, number>;
   spawnTime?: number;
   controlPoints?: number;
+  progress?: number;
 }
 
 /** Merge marginal flows, optionally scaled — the market sums a corp's
@@ -33,6 +38,7 @@ export interface Flows {
 export function addFlows(into: Flows, from: Flows, scale = 1): void {
   if (from.spawnTime) into.spawnTime = (into.spawnTime ?? 0) + from.spawnTime * scale;
   if (from.controlPoints) into.controlPoints = (into.controlPoints ?? 0) + from.controlPoints * scale;
+  if (from.progress) into.progress = (into.progress ?? 0) + from.progress * scale;
   for (const place of Object.keys(from.energyAt ?? {})) {
     const at = into.energyAt ?? (into.energyAt = {});
     at[place] = (at[place] ?? 0) + (from.energyAt as Record<PlaceId, number>)[place] * scale;
@@ -73,7 +79,28 @@ export interface Step {
   note?: string;
 }
 
-export type CorpKindName = "workman" | "mine" | "haul" | "link" | "upgrade" | "spawning";
+export type CorpKindName = "workman" | "mine" | "haul" | "link" | "upgrade" | "spawning" | "build";
+
+export type StructureKind = "link" | "extension" | "container" | "storage" | "road";
+
+/**
+ * An APPROVED investment: capital formation the plan commits to, distinct
+ * from transport (a candidate structure cannot move energy today, so it
+ * never sits on an order book — it would crowd out the workable option
+ * behind it and strand the edge's flow for the whole construction window).
+ * The executor places the site; the build corp then burns the capex into
+ * it as flow, drawn from STOCK (piece 9: investments draw from stock).
+ */
+export interface Approval {
+  structure: StructureKind;
+  /** The edge this investment serves, when it serves one (links, roads). */
+  edge?: { from: PlaceId; to: PlaceId };
+  /** Where the site belongs. */
+  at: PlaceId;
+  capex: number;
+  /** The arithmetic that cleared it — a quote must explain itself. */
+  detail: string;
+}
 
 export interface Offer {
   /** Deterministic — `kind:anchor` — stable across replans so instances
@@ -95,7 +122,14 @@ export interface CorpPnl {
 export interface CorpInstance {
   id: string;
   kind: CorpKindName;
-  body: BodyShape | null;
+  /** The bodies still to hire, in funded-step order — the fleet's tail
+   * after its backed heads. A quote may size the LAST body to the flow
+   * remainder (sizing law), so one body field cannot describe the fleet:
+   * an executor hiring `target − live` copies of the first overshoots the
+   * quoted machine time by the runt difference — enough, at a saturated
+   * spawn, to tip the seed over capacity and cull the very fleet the plan
+   * re-buys next round (the forest stall, session finding 2026-08-24). */
+  hires: BodyShape[];
   target: number;
   /** Of `target`, how many are already-living handed assets. */
   backed: number;
@@ -116,7 +150,23 @@ export type FrontierReason =
   | "energy residual"
   | "ramp insolvent"
   | "source saturated"
-  | "outcompeted";
+  | "outcompeted"
+  /** An investment that wins its edge but outruns the bank's spendable
+   * stock — the warchest accumulates toward exactly these lines. */
+  | "awaiting stock"
+  /** The tender schedule exhausted below the heartbeat obligation. An
+   * uncovered heartbeat is never silent (the axiom, printed). */
+  | "tender short"
+  /** A wire that clears its hurdle but would exceed the estate's link
+   * allowance (the per-RCL scarcity, staged as a budget) — the network
+   * plan must consolidate instead of wiring every edge privately. */
+  | "link budget"
+  /** A cleared investment whose capex lies beyond what this bank branch
+   * can physically accumulate — pile decay grows with the stock until it
+   * eats the whole saving stream (the asymptote at ~1000·stream). Never
+   * added to the warchest target: chasing it would pause the dividend
+   * forever. The printed line IS the case for the next branch. */
+  | "capex unreachable";
 
 /** The blocked frontier, always printed WITH reasons (piece 6): the first
  * unfunded step of an offer and the arithmetic that stopped it. */
@@ -141,6 +191,9 @@ export interface EnginePlan {
   tick: number;
   corps: CorpInstance[];
   frontier: FrontierLine[];
+  /** Capital formation this replan commits to — the plan's investment
+   * section, separate from the funded flow ledger. */
+  approvals: Approval[];
   /** The position matrix (REBOOT's second view), energy column per place. */
   positions: PositionRow[];
   /** Non-bank places that failed to clear: unmatched demand (funded
@@ -157,6 +210,21 @@ export interface EnginePlan {
      * the bank pays these; they are not spawn bills. */
     feesEt: number;
     upgradeEt: number;
+    /** Funded construction burn, e/t — capex leaving the bank as flow.
+     * A STOCK draw, never a residual draw: the bank's rate column goes
+     * negative by exactly this much while a project runs (piece 9's
+     * Δbalance — buffers absorb, flows just do their jobs). */
+    buildEt: number;
+    /** The residual diverted to the bank's reserve while a cleared
+     * investment awaits stock (the `awaiting stock` frontier lines ARE
+     * the warchest's target). Production over consumption, structural:
+     * the controller's dividend pauses while the bank accumulates. */
+    warchestEt: number;
+    /** The bank branch's holding cost at today's stock — pile decay
+     * (convex), container upkeep, overflow rot. Piece 9's "the bank's
+     * own cost line", off the top of the residual and debited by every
+     * cash reader. */
+    holdingEt: number;
     /** The LIVE fleet's share of deliveredEt: funded increments whose every
      * step is backed. The plan side above assumes full staffing; this is
      * what stands today — the believer's cash accounting reads it, and the
@@ -164,9 +232,18 @@ export interface EnginePlan {
     standingEt: number;
     /** The live fleet's share of upgradeEt — burns of funded backed steps. */
     standingUpgradeEt: number;
+    /** The live fleet's share of buildEt — what construction actually
+     * progresses today, and what the believer's bank pays out. */
+    standingBuildEt: number;
     /** Cash to SUSTAIN the live fleet: every live body's amortized
      * replacement bill. Steady state has no expiry event — replacement is
      * this bill, paid continuously; the believer's cash flow reads it. */
     standingRefillEt: number;
+    /** Operating fees of BACKED funded steps — the standing link's tax,
+     * paid on flow that runs today. Without this line the tax vanished
+     * between the plan book and any cash reader: standingEt is gross of
+     * it (stress-hunt confirmed finding, 2026-08-23 — the full fix,
+     * loss-as-a-flow in the vocabulary, awaits an owner ruling). */
+    standingFeesEt: number;
   };
 }

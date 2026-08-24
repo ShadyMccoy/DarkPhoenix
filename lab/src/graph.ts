@@ -25,7 +25,8 @@ export const KIND_COLOR: Record<CorpKindName, string> = {
   link: "#d16ba5",
   workman: "#e08a4a",
   upgrade: "#8e6bbf",
-  spawning: "#3f7cac"
+  spawning: "#3f7cac",
+  build: "#b0803c"
 };
 
 /** Frontier reason colors, shared with the panels — one definition. */
@@ -35,7 +36,11 @@ export const REASON_COLOR: Record<FrontierReason, string> = {
   "energy residual": "#c9a227",
   "ramp insolvent": "#8e6bbf",
   "source saturated": "#6b7280",
-  outcompeted: "#2a9d8f"
+  outcompeted: "#2a9d8f",
+  "awaiting stock": "#c58a3b",
+  "link budget": "#5b8bb0",
+  "tender short": "#e05555",
+  "capex unreachable": "#8a4b6b"
 };
 
 export interface LabEdge {
@@ -73,6 +78,10 @@ function placeXY(s: Scenario, place: string): XY | null {
   if (place.indexOf("outpost:") === 0) {
     const l = s.links.find(k => `outpost:${k.id}` === place);
     return l ? { x: l.x, y: l.y } : null;
+  }
+  if (place.indexOf("site:") === 0) {
+    const site = s.sites.find(k => `site:${k.id}` === place);
+    return site ? { x: site.x, y: site.y } : null;
   }
   return sourceXY(s, place);
 }
@@ -112,6 +121,11 @@ function anchorsFor(s: Scenario, offerId: string): { from: XY; to: XY; bow: numb
     }
     case "upgrade":
       return s.controller ? { from: s.bank, to: s.controller, bow: 0 } : null;
+    case "build": {
+      // The builder burns AT its site: a self-edge, ringed like mining.
+      const site = s.sites.find(k => k.id === rest);
+      return site ? { from: { x: site.x, y: site.y }, to: { x: site.x, y: site.y }, bow: 0 } : null;
+    }
     case "spawning":
       // The tender shuttles bank → spawn estate; capacity has no place.
       return rest === "estate" ? { from: s.bank, to: s.spawn, bow: 0 } : null;

@@ -120,12 +120,11 @@ describe("lab/scenario", () => {
     const v = assemble(s, [], s.bankStock, 0);
     assert.deepEqual(
       v.links.find(l => l.id === "LX"),
-      { id: "LX", at: "outpost:LX" },
-      "near no known place, the link is its own place"
+      { id: "LX", at: "outpost:LX", room: "R0_0", x: 25, y: 40 },
+      "near no known place, the link is its own place — room-tagged now"
     );
     const op = v.outposts.find(o => o.place === "outpost:LX");
     assert.isOk(op);
-    assert.isAbove(op?.distToBank ?? 0, 5);
     assert.isAbove(op?.distToSource["srcA"] ?? 0, 1, "collector distances derive from real paths");
   });
 

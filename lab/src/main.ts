@@ -1,14 +1,13 @@
 /**
- * main.ts — the lab app: state, tool wiring, and the believer stepper.
- * Every edit re-runs the REAL replan (edits reprice live); the stepper
- * applies the plan's own expected rates — it certifies accounting, never
- * fidelity, and no number here is quotable as a measured band (graph-lab
- * requirement #4). The mockup remains the truth host.
+ * main.ts — the lab app: state and tool wiring. The believer stepper
+ * lives in believer.ts, pure and unit-certified; every edit re-runs the
+ * REAL replan (edits reprice live). The believer certifies accounting,
+ * never fidelity — no number here is quotable as a measured band
+ * (graph-lab requirement #4). The mockup remains the truth host.
  */
-import { replan } from "../../src/engine/replan";
 import { EnginePlan } from "../../src/engine/vocabulary";
 import { ViewCreep } from "../../src/engine/view";
-import { bodyCost } from "../../src/primitives";
+import { advanceChunk, planFor } from "./believer";
 import { TOOLS, Tool, renderMap } from "./editor";
 import { KIND_COLOR, edgesFor } from "./graph";
 import { renderPanels } from "./panels";
@@ -18,7 +17,6 @@ import {
   Scenario,
   WALL,
   XY,
-  assemble,
   cellAt,
   exportSave,
   importSave,
@@ -28,10 +26,6 @@ import {
   setCell
 } from "./scenario";
 import { bootstrapScenario } from "./scenarios";
-import { LINK_COST } from "../../src/primitives";
-
-/** One believer chunk: the replan cadence's order of magnitude. */
-const DT = 150;
 
 interface LabState {
   scenario: Scenario;
@@ -69,125 +63,13 @@ function fresh(scenario: Scenario, prefs: ViewPrefs = { showBlocked: true, showL
 let state = fresh(bootstrapScenario());
 
 function currentPlan(): EnginePlan {
-  return replan(assemble(state.scenario, state.creeps, state.bankStock, state.tick));
+  return planFor(state);
 }
 
-/**
- * The believer stepper — STEADY STATE, like the plan itself (owner
- * 2026-08-23: "we're just doing abstract steady state planning"). There is
- * no expiry event: a live body persists and its replacement is its
- * amortized bill (standingRefillEt), paid continuously as cash. Only the
- * live fleet earns and burns, at the plan's standing rates — all engine
- * outputs, nothing derived here. Staffing follows the plan: funded backed
- * steps sustain, unfunded staffing lapses (the plan stopped renewing it),
- * deficits hire while the bank affords the body. The spawn's 1 e/t
- * auto-regeneration to 300 keeps an empty world bootable — the physics
- * the real cold start leans on. Discrete ttl churn is execution's
- * business, measured at the mockup, not modeled here.
- */
+/** Step the believer (believer.ts — pure, unit-certified) and re-render. */
 function advance(chunks: number): void {
-  for (let i = 0; i < chunks; i++) {
-    const plan = currentPlan();
-    const e = plan.expected;
-    const earn = e.standingEt * DT;
-    const sustain = e.standingRefillEt * DT;
-    const burn = Math.min(e.standingUpgradeEt * DT, Math.max(state.bankStock + earn - sustain, 0));
-    state.bankStock = Math.max(state.bankStock + earn - sustain - burn, 0);
-    state.cp += burn;
-    if (state.bankStock < 300) state.bankStock = Math.min(300, state.bankStock + DT);
-
-    // Staffing follows the plan: lapse what is no longer funded, then hire
-    // toward targets (producers before sinks) while the bank affords it.
-    const next: ViewCreep[] = [];
-    for (const corp of plan.corps) {
-      next.push(...state.creeps.filter(c => c.corp === corp.id).slice(0, corp.target));
-    }
-    state.creeps = next;
-    // Hire CHAIN-ATOMICALLY: a chain's bodies are worthless apart (a miner
-    // without its collector only strands supply — the engine would rightly
-    // refuse the incomplete chain next replan and the lapse rule would cull
-    // the orphan). A chain hires only when the bank affords its whole
-    // deficit; producers' chains before solo corps.
-    const groups = new Map<string, typeof plan.corps>();
-    for (const corp of plan.corps) {
-      const key = corp.chain ?? `solo:${corp.id}`;
-      const g = groups.get(key) ?? [];
-      g.push(corp);
-      groups.set(key, g);
-    }
-    const ordered = [...groups.entries()].sort(
-      ([a], [b]) =>
-        (a.indexOf("solo:") === 0 ? 1 : 0) - (b.indexOf("solo:") === 0 ? 1 : 0) || (a < b ? -1 : a > b ? 1 : 0)
-    );
-    for (const [, group] of ordered) {
-      let cost = 0;
-      const hires: { corpId: string; body: NonNullable<(typeof group)[number]["body"]>; n: number }[] = [];
-      for (const corp of group) {
-        if (corp.kind === "link") continue;
-        if (!corp.body) continue;
-        const live = state.creeps.filter(c => c.corp === corp.id).length;
-        const n = corp.target - live;
-        if (n > 0) {
-          cost += n * bodyCost(corp.body);
-          hires.push({ corpId: corp.id, body: corp.body, n });
-        }
-      }
-      if (cost > 0 && cost <= state.bankStock) {
-        for (const h of hires) {
-          for (let k = 0; k < h.n; k++) {
-            state.creeps.push({ id: `c${state.seq++}`, corp: h.corpId, body: h.body, ttl: 1500 });
-          }
-        }
-        state.bankStock -= cost;
-      }
-      for (const corp of group) if (corp.kind === "link" && corp.backed === 0) buildLinks(corp.id);
-    }
-    state.tick += DT;
-  }
+  for (let i = 0; i < chunks; i++) advanceChunk(state);
   render();
-}
-
-/**
- * The believer as builder: when the plan funds a CANDIDATE link (piece 5's
- * investment, approved at full cost), place the missing structures at the
- * gap's endpoints and pay the capex from the bank — the interim stand-in
- * for the build corp, so the investment loop closes on screen.
- */
-function buildLinks(corpId: string): void {
-  const s = state.scenario;
-  const rest = corpId.slice("link:".length);
-  const arrow = rest.indexOf("->");
-  if (arrow < 0) return;
-  const tileOf = (place: string): XY | null => {
-    if (place === "bank") return s.bank;
-    if (place === "ctrl") return s.controller;
-    const src = s.sources.find(k => k.id === place);
-    return src ? { x: src.x, y: src.y } : null;
-  };
-  for (const place of [rest.slice(0, arrow), rest.slice(arrow + 2)]) {
-    const tile = tileOf(place);
-    if (!tile) continue;
-    const near = s.links.some(l => Math.max(Math.abs(l.x - tile.x), Math.abs(l.y - tile.y)) <= 2);
-    if (near || state.bankStock < LINK_COST) continue;
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        if (dx === 0 && dy === 0) continue;
-        const x = tile.x + dx;
-        const y = tile.y + dy;
-        const taken =
-          cellAt(s.terrain, x, y) === WALL ||
-          s.links.some(l => l.x === x && l.y === y) ||
-          s.sources.some(k => k.x === x && k.y === y) ||
-          (s.spawn.x === x && s.spawn.y === y) ||
-          (s.bank.x === x && s.bank.y === y);
-        if (taken) continue;
-        s.links.push({ id: `link${s.links.length + 1}`, x, y });
-        state.bankStock -= LINK_COST;
-        dx = 2;
-        break;
-      }
-    }
-  }
 }
 
 function applyTool(x: number, y: number): void {
@@ -215,10 +97,13 @@ function applyTool(x: number, y: number): void {
       setCell(s.terrain, x, y, SWAMP);
       break;
     case "erase": {
-      const n = s.sources.length + s.links.length;
+      const n = s.sources.length + s.links.length + s.sites.length + s.extensions.length;
       s.sources = s.sources.filter(src => src.x !== x || src.y !== y);
       s.links = s.links.filter(l => l.x !== x || l.y !== y);
-      if (s.sources.length + s.links.length === n && cellAt(s.terrain, x, y) !== PLAIN) setCell(s.terrain, x, y, PLAIN);
+      s.sites = s.sites.filter(k => k.x !== x || k.y !== y);
+      s.extensions = s.extensions.filter(k => k.x !== x || k.y !== y);
+      if (s.sources.length + s.links.length + s.sites.length + s.extensions.length === n && cellAt(s.terrain, x, y) !== PLAIN)
+        setCell(s.terrain, x, y, PLAIN);
       if (s.controller && s.controller.x === x && s.controller.y === y) s.controller = null;
       break;
     }
@@ -280,6 +165,8 @@ function resizeMap(w: number, h: number): void {
   const inside = (p: XY): boolean => p.x >= 0 && p.y >= 0 && p.x < w && p.y < h;
   s.sources = s.sources.filter(inside);
   s.links = s.links.filter(inside);
+  s.sites = s.sites.filter(inside);
+  s.extensions = s.extensions.filter(inside);
   s.spawn = { x: Math.min(s.spawn.x, w - 1), y: Math.min(s.spawn.y, h - 1) };
   s.bank = { x: Math.min(s.bank.x, w - 1), y: Math.min(s.bank.y, h - 1) };
   if (s.controller && !inside(s.controller)) s.controller = null;

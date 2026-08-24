@@ -4,9 +4,11 @@
  * and its scenario files double as engine fixtures (graph-lab requirement
  * #3: round-trip through the editor, checked in, deterministic replays).
  *
- * Maps are any size (owner 2026-08-23), and ROOM-AGNOSTIC by ruling: a
- * "room" is walls the editor draws, never model structure. Dimensions
- * derive from the terrain itself.
+ * Maps are any size (owner 2026-08-23). The room-agnostic ruling was
+ * AMENDED (owner 2026-08-24): rooms enter as 50×50 LINK-LEGALITY cells
+ * — a link pair stands only within one room, its range is Chebyshev and
+ * terrain-immune, and lab/src/placement.ts searches station tiles. All
+ * other structure stays map-derived; walls remain editor terrain.
  *
  * Assembly is the pure world-assembly step of lab requirement #2: the map
  * is INPUT — real path distances derive here — and the engine still
@@ -15,7 +17,18 @@
  * route through (owner 2026-08-23: "consolidate multiple haul routes into
  * one link outpost").
  */
-import { EconomyView, ViewCreep, ViewLink, ViewOutpost } from "../../src/engine/view";
+import { BankBranchKind, EXTENSION_CAPACITY } from "../../src/primitives";
+import {
+  EconomyView,
+  ViewCreep,
+  ViewLink,
+  ViewOutpost,
+  ViewSite,
+  ViewStationOption,
+  ViewWireOption
+} from "../../src/engine/view";
+import { StructureKind } from "../../src/engine/vocabulary";
+import { planNetwork, roomOf as placementRoomOf, wireStations as placementWireStations } from "./placement";
 
 /** Default dimensions for a fresh map — not a bound. */
 export const SIZE = 50;
@@ -42,6 +55,19 @@ export interface ScenarioLink {
   y: number;
 }
 
+/** An open construction site — world state; progress survives a reset. */
+export interface ScenarioSite {
+  id: string;
+  structure: StructureKind;
+  x: number;
+  y: number;
+  /** Full project capex — the constant rate base. */
+  total: number;
+  remaining: number;
+  /** The edge whose approval created it, when it serves one. */
+  edge?: { from: string; to: string };
+}
+
 export interface Scenario {
   name: string;
   /** Rows of '.', '#', '~'. Height = rows, width = row length. */
@@ -51,11 +77,26 @@ export interface Scenario {
   bank: XY;
   controller: XY | null;
   sources: ScenarioSource[];
-  /** Standing link structures — placed by hand or built by the believer
-   * when the plan funds a candidate. */
+  /** Standing link structures — placed by hand or built by the build
+   * corp when a site completes. */
   links: ScenarioLink[];
+  /** Open construction sites — placed on plan approvals, burned down by
+   * the build corp, realized into structures at zero remaining. */
+  sites: ScenarioSite[];
+  /** Standing extensions — each adds EXTENSION_CAPACITY to the estate's
+   * body budget (Tier 1.2: bodyBudget is endogenous). */
+  extensions: XY[];
+  /** The bank's physical branch at the kernel — a pile until the ladder's
+   * capex clears (Tier 1.3). */
+  bankBranch: BankBranchKind;
+  /** Paved routes between places (Tier 1.4) — the roaded reprice; tiles
+   * stay the editor's business, the model prices the route. */
+  roads: { from: string; to: string }[];
   bankStock: number;
   bodyBudget: number;
+  /** The estate's link allowance — the per-RCL scarcity, staged (RCL8
+   * grants 6). The network plan allocates these greedily. */
+  linkBudget: number;
   /** Staged initial fleet (cascade B/C worlds stage living creeps). */
   creeps: ViewCreep[];
 }
@@ -158,7 +199,7 @@ export function spotsAt(terrain: string[], p: XY): number {
 
 /** Best adjacent approach distance: an element's route cost to the field's
  * origin. */
-function approachDist(dist: number[][], p: XY): number {
+export function approachDist(dist: number[][], p: XY): number {
   const h = dist.length;
   const w = h > 0 ? dist[0].length : 0;
   let best = Infinity;
@@ -167,6 +208,23 @@ function approachDist(dist: number[][], p: XY): number {
     best = Math.min(best, dist[n.y][n.x]);
   }
   return Number.isFinite(best) ? Math.max(best, 1) : w + h;
+}
+
+/** A place id's tile on the staged map — the same knowledge assemble()
+ * mints the ids from; one home, shared by the believer and assembly. */
+export function placeTile(s: Scenario, place: string): XY | null {
+  if (place === "bank") return s.bank;
+  if (place === "ctrl") return s.controller;
+  if (place.indexOf("outpost:") === 0) {
+    const l = s.links.find(k => `outpost:${k.id}` === place);
+    return l ? { x: l.x, y: l.y } : null;
+  }
+  if (place.indexOf("site:") === 0) {
+    const site = s.sites.find(k => `site:${k.id}` === place);
+    return site ? { x: site.x, y: site.y } : null;
+  }
+  const src = s.sources.find(k => k.id === place);
+  return src ? { x: src.x, y: src.y } : null;
 }
 
 /** Which place a link tile serves: the bank, a source, or the controller
@@ -183,29 +241,91 @@ export function linkPlace(s: Scenario, link: ScenarioLink): string | null {
 /** The pure world-assembly step: staged map in, EconomyView out. */
 export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, tick: number): EconomyView {
   const dist = distanceField(s.terrain, s.bank);
+  // Rooms are link-legality cells (owner 2026-08-24) — the placement
+  // module owns the geometry; assembly just tags what it exposes.
   const links: ViewLink[] = [];
   const outposts: ViewOutpost[] = [];
   for (const l of s.links) {
     const at = linkPlace(s, l);
+    const room = placementRoomOf({ x: l.x, y: l.y });
     if (at) {
-      links.push({ id: l.id, at });
+      links.push({ id: l.id, at, room, x: l.x, y: l.y });
       continue;
     }
-    // Free-standing: an outpost — its own place, with its own distances.
+    // Free-standing: an outpost — its own place, with the collector legs
+    // priced by real paths. Its trunk pair, range, and ration are the
+    // ENGINE's business (linkPair picks the legal closest bank hub) —
+    // an assembly-minted range from the first-found hub was off-room at
+    // the border bank and shed a paying member (owner 2026-08-24).
     const place = `outpost:${l.id}`;
-    links.push({ id: l.id, at: place });
+    links.push({ id: l.id, at: place, room, x: l.x, y: l.y });
     const field = distanceField(s.terrain, { x: l.x, y: l.y });
     const distToSource: Record<string, number> = {};
     for (const src of s.sources) distToSource[src.id] = approachDist(field, src);
-    outposts.push({ place, distToBank: approachDist(dist, { x: l.x, y: l.y }), distToSource });
+    outposts.push({ place, distToSource });
   }
+
+  // The NETWORK plan (owner 2026-08-24): links are scarce, so the
+  // search allocates them — private mouths where a whole link is worth
+  // one source, shared collection stations (the branching tree) where
+  // it is not. Mouth-assigned sources get per-edge wire options; tree
+  // members get their station; everyone else stays on bodies.
+  const srcDistToBank: Record<string, number> = {};
+  for (const src of s.sources) srcDistToBank[src.id] = approachDist(dist, src);
+  const net = planNetwork(s, srcDistToBank);
+  const wireOptions: ViewWireOption[] = [];
+  for (const id of net.mouths) {
+    const w = placementWireStations(s, id, "bank");
+    if (w) wireOptions.push({ from: id, to: "bank", range: w.range, missingMouth: w.missingMouth, missingHub: w.missingHub, hubRoom: w.hubRoom });
+  }
+  if (s.controller) {
+    const w = placementWireStations(s, "bank", "ctrl");
+    if (w) wireOptions.push({ from: "bank", to: "ctrl", range: w.range, missingMouth: w.missingMouth, missingHub: w.missingHub, hubRoom: w.hubRoom });
+  }
+  const stationOptions: ViewStationOption[] = net.stations.map(st => ({
+    id: st.id,
+    sources: st.sources,
+    range: st.range,
+    missingHub: st.missingHub,
+    hubRoom: st.hubRoom
+  }));
+  // A site within arm's reach of the bank IS the bank's place — its burn
+  // meets the bank's supply with no transport stage; anywhere else it is
+  // its own place the transport market must cover.
+  const sites: ViewSite[] = s.sites.map(site => {
+    const d = approachDist(dist, site);
+    return {
+      id: site.id,
+      structure: site.structure,
+      at: d <= 1 ? "bank" : `site:${site.id}`,
+      dist: d,
+      total: site.total,
+      remaining: site.remaining,
+      edge: site.edge
+    };
+  });
+  // Paved routes carry their real path cost; an unresolvable endpoint
+  // (erased element) simply drops the road from the view.
+  const roads: { from: string; to: string; dist: number }[] = [];
+  for (const r of s.roads) {
+    const a = placeTile(s, r.from);
+    const b = placeTile(s, r.to);
+    if (!a || !b) continue;
+    roads.push({ from: r.from, to: r.to, dist: approachDist(distanceField(s.terrain, a), b) });
+  }
+
+  // The estate: the scenario's staged base capacity plus what standing
+  // extensions add; its radius is the FARTHEST refill stop — a spread
+  // estate raises the heartbeat's price (roadmap Tier 1.2).
+  const estateStops = [s.spawn, ...s.extensions];
   return {
     tick,
     bank: "bank",
     bankStock,
-    bodyBudget: s.bodyBudget,
+    bankBranch: s.bankBranch,
+    bodyBudget: s.bodyBudget + EXTENSION_CAPACITY * s.extensions.length,
     spawnIds: ["spawn1"],
-    estateRadius: approachDist(dist, s.spawn),
+    estateRadius: Math.max(...estateStops.map(p => approachDist(dist, p))),
     sources: s.sources.map(src => ({
       id: src.id,
       spots: spotsAt(s.terrain, src),
@@ -214,7 +334,12 @@ export function assemble(s: Scenario, creeps: ViewCreep[], bankStock: number, ti
     controller: s.controller ? { id: "ctrl", distFromBank: approachDist(dist, s.controller) } : null,
     creeps,
     links,
-    outposts
+    outposts,
+    sites,
+    roads,
+    wireOptions,
+    stationOptions,
+    linkBudget: s.linkBudget
   };
 }
 
@@ -243,6 +368,11 @@ export function importSave(text: string): LabSave {
     throw new Error("not a lab save: missing elements");
   }
   raw.scenario.links = raw.scenario.links ?? [];
+  raw.scenario.sites = raw.scenario.sites ?? [];
+  raw.scenario.extensions = raw.scenario.extensions ?? [];
+  raw.scenario.bankBranch = raw.scenario.bankBranch ?? "pile";
+  raw.scenario.roads = raw.scenario.roads ?? [];
+  raw.scenario.linkBudget = raw.scenario.linkBudget ?? 6;
   return {
     scenario: raw.scenario,
     creeps: raw.creeps ?? [],

@@ -7,7 +7,7 @@
  * survival floor (spec-01: a colony must be able to buy SOMETHING
  * affordable right now) — and its unit suite is the exhaustive one.
  */
-import { CARRY_CAP, PART_COST, SOURCE_SATURATION_WORK, WorkmanShape } from "./primitives";
+import { CARRY_CAP, CREEP_LIFE, PART_COST, SOURCE_SATURATION_WORK, WorkmanShape } from "./primitives";
 
 /** One structural body type for every job; the counts differ, the shape
  * doesn't. Alias kept so sizing reads as the general module it is. */
@@ -50,6 +50,31 @@ export function haulerBody(budget: number): BodyShape | null {
 }
 
 /**
+ * Hauler sized to A ROUTE AND ITS FLOW — #148's law actually applied at
+ * the quote (a budget-sized hauler on a sliver flow is the 24-CARRY-
+ * hauler class: its idle capacity inflates the edge's unit cost, and a
+ * mis-priced edge invites absurd challengers). Pairs cost the same per
+ * CARRY at every size, so sizing to need loses nothing; budget and the
+ * 50-part body limit cap it. A ROADED route runs 2C:1M (75e per CARRY
+ * against 100) — `roaded` is instance data priced by one formula whose
+ * terms shift, never a subclass (REBOOT piece 2, by name).
+ */
+export function haulerBodyFor(flow: number, dist: number, budget: number, roaded = false): BodyShape | null {
+  if (flow <= 0) return null;
+  const need = Math.max(carryPartsFor(flow, dist), 1);
+  if (roaded) {
+    const roadUnitCost = 2 * PART_COST.carry + PART_COST.move;
+    if (budget < roadUnitCost) return null;
+    const roadUnits = Math.min(Math.ceil(need / 2), Math.floor(budget / roadUnitCost), 16);
+    return { work: 0, carry: 2 * roadUnits, move: roadUnits };
+  }
+  const unitCost = PART_COST.carry + PART_COST.move;
+  if (budget < unitCost) return null;
+  const units = Math.min(need, Math.floor(budget / unitCost), 25);
+  return { work: 0, carry: units, move: units };
+}
+
+/**
  * Upgrader: parks at the bank branch and self-feeds — WORK-heavy, one
  * CARRY buffer, one MOVE (the founding kernel co-locates bank and
  * controller draw, so the last leg is its own body). Floor [1W,1C,1M] at
@@ -64,6 +89,20 @@ export function upgraderBody(budget: number): BodyShape | null {
 }
 
 /**
+ * Builder: parks at a FED site and burns BUILD_POWER (5) e/t per WORK — the
+ * same W-heavy shape as the upgrader, because the site's supply line is
+ * transport's job, never this body's. WORK capped at 10: one 10W body
+ * absorbs 50 e/t, more than any v0 project window asks for. Floor
+ * [1W,1C,1M] at 200.
+ */
+export function builderBody(budget: number): BodyShape | null {
+  const overhead = PART_COST.carry + PART_COST.move;
+  if (budget < overhead + PART_COST.work) return null;
+  const work = Math.min(10, Math.floor((budget - overhead) / PART_COST.work));
+  return { work, carry: 1, move: 1 };
+}
+
+/**
  * Tender: the spawning corp's own refill body (owner 2026-08-23 — the
  * tender is the spawn corp's, never a haul job). The estate is compact by
  * the founding kernel, so the body stays small: paired C+M, at most two
@@ -74,6 +113,20 @@ export function tenderBody(budget: number): BodyShape | null {
   if (budget < unitCost) return null;
   const units = Math.min(2, Math.floor(budget / unitCost));
   return { work: 0, carry: units, move: units };
+}
+
+/**
+ * The IDEAL fleet's amortized bill for a flow over a route, e/t — the
+ * replacement-scale price investment evaluation compares challengers
+ * against. The gait composition (1C:1M unpaved, 2C:1M roaded) lives HERE
+ * and nowhere else (law 5 — the review caught it re-derived inline in
+ * the broker, the second-sizing-site disease returning).
+ */
+export function haulFleetBillEt(flow: number, dist: number, roaded: boolean): number {
+  if (flow <= 0) return 0;
+  const pairs = Math.max(carryPartsFor(flow, dist), 1);
+  if (roaded) return (Math.ceil(pairs / 2) * (2 * PART_COST.carry + PART_COST.move)) / CREEP_LIFE;
+  return (pairs * (PART_COST.carry + PART_COST.move)) / CREEP_LIFE;
 }
 
 /**
