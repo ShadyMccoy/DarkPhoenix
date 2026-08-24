@@ -97,12 +97,17 @@ function applyTool(x: number, y: number): void {
       setCell(s.terrain, x, y, SWAMP);
       break;
     case "erase": {
-      const n = s.sources.length + s.links.length + s.sites.length + s.extensions.length;
+      const containers = s.containers ?? [];
+      const n = s.sources.length + s.links.length + s.sites.length + s.extensions.length + containers.length;
       s.sources = s.sources.filter(src => src.x !== x || src.y !== y);
       s.links = s.links.filter(l => l.x !== x || l.y !== y);
       s.sites = s.sites.filter(k => k.x !== x || k.y !== y);
       s.extensions = s.extensions.filter(k => k.x !== x || k.y !== y);
-      if (s.sources.length + s.links.length + s.sites.length + s.extensions.length === n && cellAt(s.terrain, x, y) !== PLAIN)
+      s.containers = containers.filter(k => k.x !== x || k.y !== y);
+      if (
+        s.sources.length + s.links.length + s.sites.length + s.extensions.length + s.containers.length === n &&
+        cellAt(s.terrain, x, y) !== PLAIN
+      )
         setCell(s.terrain, x, y, PLAIN);
       if (s.controller && s.controller.x === x && s.controller.y === y) s.controller = null;
       break;
@@ -167,6 +172,7 @@ function resizeMap(w: number, h: number): void {
   s.links = s.links.filter(inside);
   s.sites = s.sites.filter(inside);
   s.extensions = s.extensions.filter(inside);
+  s.containers = (s.containers ?? []).filter(inside);
   s.spawn = { x: Math.min(s.spawn.x, w - 1), y: Math.min(s.spawn.y, h - 1) };
   s.bank = { x: Math.min(s.bank.x, w - 1), y: Math.min(s.bank.y, h - 1) };
   if (s.controller && !inside(s.controller)) s.controller = null;
