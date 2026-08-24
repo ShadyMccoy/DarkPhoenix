@@ -29,7 +29,7 @@
  * obligation; upfront is cash at purchase, checked by solvency and paid
  * by the believer's bank.
  */
-import { PROJECT_RATE_WINDOW } from "../primitives";
+import { PROJECT_RATE_WINDOW, spawnTimeEt, upkeepEt } from "../primitives";
 import { CorpInstance, EnginePlan, Flows, FrontierLine, Offer, PlaceId, Step, addFlows } from "./vocabulary";
 
 /** How far ahead ramp solvency may count standing accumulation — one
@@ -190,7 +190,44 @@ export function clear(input: MarketInput): EnginePlan {
       f = { offer, chain, steps: [] };
       funded.set(offer.id, f);
     }
+    // A physical step funds ONCE, however many chains reference it (the
+    // trunk's throat rides every member chain so whichever funds first
+    // carries it — Addendum 4). Keyed by offer OBJECT: same-id offers
+    // quoted separately keep their historical accounting.
+    if (f.offer === offer && f.steps.indexOf(stepIdx) >= 0) return;
     f.steps.push(stepIdx);
+  };
+
+  // The charge-side twin of fund()'s idempotence: a step's bills, fees
+  // and machine time enter the aggregates once. `commit: false` peeks
+  // (the sink loop decides before it commits). Bids still sum each
+  // chain's OWN increments statically — a later chain sharing an
+  // already-funded step over-states its cost slightly and bids
+  // conservative; charges stay exact.
+  const charged = new Map<Offer, Set<number>>();
+  const chargeOf = (
+    stages: ChainStage[],
+    refs: OptRef[],
+    commit: boolean
+  ): { upkeepEt: number; feeEt: number; spawnTimeEt: number } => {
+    const out = { upkeepEt: 0, feeEt: 0, spawnTimeEt: 0 };
+    for (const ref of refs) {
+      const o = stages[ref.stage].options[ref.option];
+      let set = charged.get(o.offer);
+      if (set && set.has(o.step)) continue;
+      const s = o.offer.steps[o.step];
+      out.upkeepEt += s.cost.upkeepEt;
+      out.feeEt += s.cost.feeEt ?? 0;
+      out.spawnTimeEt += s.cost.spawnTimeEt;
+      if (commit) {
+        if (!set) {
+          set = new Set<number>();
+          charged.set(o.offer, set);
+        }
+        set.add(o.step);
+      }
+    }
+    return out;
   };
 
   // Allocated end-to-end flow per offer: assigned to a stage's funded
@@ -280,19 +317,20 @@ export function clear(input: MarketInput): EnginePlan {
 
   const fundInc = (lc: LiveChain, inc: Inc): void => {
     const eff = Math.min(inc.delivered, Math.max(remainingOn(lc.chain.sourceId), 0));
+    const c = chargeOf(lc.chain.stages, inc.refs, true);
     for (const ref of inc.refs) {
       const o = lc.chain.stages[ref.stage].options[ref.option];
       fund(o.offer, lc.chain.id, o.step);
       lc.fundedPerStage[ref.stage] = Math.max(lc.fundedPerStage[ref.stage], ref.option + 1);
     }
-    spawnUsed += inc.spawnTimeEt;
-    refill += inc.upkeepEt;
-    fees += inc.feeEt;
+    spawnUsed += c.spawnTimeEt;
+    refill += c.upkeepEt;
+    fees += c.feeEt;
     delivered += eff;
     lc.flow += eff;
     if (inc.backed) {
       standingEt += eff;
-      standingFees += inc.feeEt;
+      standingFees += c.feeEt;
     }
     const srcId = lc.chain.sourceId;
     if (srcId !== null) {
@@ -490,13 +528,16 @@ export function clear(input: MarketInput): EnginePlan {
     let flow = 0;
     for (const inc of incs) {
       // A capital burn is a stock draw the approval already reserved;
-      // only the bills are a claim on this tick's flow.
-      const draw = (sink.capital ? 0 : inc.delivered) + inc.upkeepEt + inc.feeEt;
-      if (inc.spawnTimeEt > EPS && spawnUsed + inc.spawnTimeEt > input.spawnCapacity + EPS) {
+      // only the bills are a claim on this tick's flow. Costs peek
+      // through the charge dedupe first — a step another chain already
+      // funded is free here — and commit only on the path that funds.
+      const c = chargeOf(sink.stages, inc.refs, false);
+      const draw = (sink.capital ? 0 : inc.delivered) + c.upkeepEt + c.feeEt;
+      if (c.spawnTimeEt > EPS && spawnUsed + c.spawnTimeEt > input.spawnCapacity + EPS) {
         frontier.push({
           offerId: sinkOffer.id,
           reason: "spawn capacity",
-          detail: `needs ${inc.spawnTimeEt.toFixed(4)} p/t, ${(input.spawnCapacity - spawnUsed).toFixed(4)} p/t free`
+          detail: `needs ${c.spawnTimeEt.toFixed(4)} p/t, ${(input.spawnCapacity - spawnUsed).toFixed(4)} p/t free`
         });
         break;
       }
@@ -506,8 +547,9 @@ export function clear(input: MarketInput): EnginePlan {
         // Whole-step-only funding stranded the sub-quantum residual as
         // stock forever, and quantization noise swallowed counterfactual
         // deltas whole (session finding 2026-08-23).
-        const partial = residual - inc.upkeepEt - inc.feeEt;
+        const partial = residual - c.upkeepEt - c.feeEt;
         if (!sink.capital && partial > EPS) {
+          chargeOf(sink.stages, inc.refs, true);
           for (const ref of inc.refs) {
             const o = sink.stages[ref.stage].options[ref.option];
             fund(o.offer, null, o.step);
@@ -515,16 +557,16 @@ export function clear(input: MarketInput): EnginePlan {
           }
           flow += partial;
           residual = 0;
-          refill += inc.upkeepEt;
-          fees += inc.feeEt;
-          spawnUsed += inc.spawnTimeEt;
+          refill += c.upkeepEt;
+          fees += c.feeEt;
+          spawnUsed += c.spawnTimeEt;
           upgradeEt += partial;
           if (inc.backed) {
             standingUpgradeEt += partial;
             // The fee is charged in full here too — dropping it from the
             // standing split leaked phantom cash to every cash reader
             // (review finding: the same bug the full-fund path had).
-            standingFees += inc.feeEt;
+            standingFees += c.feeEt;
           }
           frontier.push({
             offerId: sinkOffer.id,
@@ -540,6 +582,7 @@ export function clear(input: MarketInput): EnginePlan {
         }
         break;
       }
+      chargeOf(sink.stages, inc.refs, true);
       for (const ref of inc.refs) {
         const o = sink.stages[ref.stage].options[ref.option];
         fund(o.offer, null, o.step);
@@ -547,10 +590,10 @@ export function clear(input: MarketInput): EnginePlan {
       }
       flow += inc.delivered;
       residual -= draw;
-      refill += inc.upkeepEt;
-      fees += inc.feeEt;
-      spawnUsed += inc.spawnTimeEt;
-      if (inc.backed) standingFees += inc.feeEt;
+      refill += c.upkeepEt;
+      fees += c.feeEt;
+      spawnUsed += c.spawnTimeEt;
+      if (inc.backed) standingFees += c.feeEt;
       if (sink.capital) {
         buildEt += inc.delivered;
         if (inc.backed) standingBuildEt += inc.delivered;
@@ -606,7 +649,7 @@ export function clear(input: MarketInput): EnginePlan {
     let gross = 0;
     let cost = 0;
     let backed = 0;
-    const hires: NonNullable<Step["buys"]>[] = [];
+    const staff: CorpInstance["staff"] = [];
     const inputs: Flows = {};
     const outputs: Flows = {};
     for (const i of f.steps) {
@@ -621,13 +664,29 @@ export function clear(input: MarketInput): EnginePlan {
       if (s.cost.spawnTimeEt > 0) addFlows(inputs, { spawnTime: s.cost.spawnTimeEt });
       if (s.cost.upkeepEt + fee > 0) addFlows(inputs, { energyAt: { [input.bank]: s.cost.upkeepEt + fee } });
       if (s.backedBy) backed += 1;
-      else if (s.buys) hires.push(s.buys);
+      if (s.body) {
+        staff.push({ body: s.body, live: s.backedBy ?? null });
+        // The books never forget a live body (piece 5's companion rule).
+        // Its cost fields are sunk-zeroed for FUNDING — correct — but the
+        // row's contract still owes the body's sustain: machine time and
+        // the amortized parts bill at the bank, priced at replacement
+        // scale exactly as the order books already price it. Without
+        // this, a settled row read "requires nothing" and netted its
+        // whole gross while the aggregates (standingBills) knew better —
+        // two lenses inside one plan (the 2026-08-24 second landing).
+        if (s.backedBy) {
+          const sustain = upkeepEt(s.body, s.commute ?? 0);
+          cost += sustain;
+          addFlows(inputs, { spawnTime: spawnTimeEt(s.body, s.commute ?? 0) });
+          addFlows(inputs, { energyAt: { [input.bank]: sustain } });
+        }
+      }
     }
     if (f.offer.kind === "mine" || f.offer.kind === "workman") minedEt += gross;
     corps.push({
       id: f.offer.id,
       kind: f.offer.kind,
-      hires,
+      staff,
       target: f.steps.length,
       backed,
       chain: f.chain,

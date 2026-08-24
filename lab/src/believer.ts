@@ -14,6 +14,7 @@
  * instant-build stand-in hid.
  */
 import { replan } from "../../src/engine/replan";
+import { BodyShape } from "../../src/sizing";
 import { EnginePlan } from "../../src/engine/vocabulary";
 import { ViewCreep } from "../../src/engine/view";
 import { bodyCost } from "../../src/primitives";
@@ -51,6 +52,7 @@ function freeTileNear(s: Scenario, tile: XY, maxR = 2): XY | null {
           s.sites.some(k => k.x === x && k.y === y) ||
           s.sources.some(k => k.x === x && k.y === y) ||
           s.extensions.some(k => k.x === x && k.y === y) ||
+          (s.containers ?? []).some(k => k.x === x && k.y === y) ||
           (s.spawn.x === x && s.spawn.y === y) ||
           (s.bank.x === x && s.bank.y === y) ||
           (s.controller !== null && s.controller.x === x && s.controller.y === y);
@@ -134,7 +136,17 @@ function realize(state: BelieverState, site: ScenarioSite): void {
     const at = freeTileNear(s, s.spawn, 4);
     if (at) s.extensions.push(at);
   } else if (site.structure === "container" || site.structure === "storage") {
-    s.bankBranch = site.structure;
+    // A container with an edge is a PORT buffer (the trunk's obligation,
+    // Addendum 4) and lands on the ground at its site tile; only the
+    // kernel's edgeless rung moves the bank's own branch.
+    if (site.structure === "container" && site.edge) {
+      const c = { x: site.x, y: site.y };
+      if (!(s.containers ?? []).some(k => k.x === c.x && k.y === c.y)) {
+        (s.containers = s.containers ?? []).push(c);
+      }
+    } else {
+      s.bankBranch = site.structure;
+    }
   } else if (site.structure === "road" && site.edge) {
     const e = site.edge;
     if (!s.roads.some(r => r.from === e.from && r.to === e.to)) s.roads.push({ from: e.from, to: e.to });
@@ -180,13 +192,15 @@ export function advanceChunk(state: BelieverState): EnginePlan {
   for (const site of done) realize(state, site);
   state.scenario.sites = state.scenario.sites.filter(s => s.remaining > 1e-6);
 
-  // Staffing follows the plan: lapse what is no longer funded, then hire
-  // toward targets while the bank affords it.
-  const next: ViewCreep[] = [];
-  for (const corp of plan.corps) {
-    next.push(...state.creeps.filter(c => c.corp === corp.id).slice(0, corp.target));
-  }
-  state.creeps = next;
+  // Staffing follows the plan BY NAME: the roster (`staff`) names the
+  // creeps the plan employs and the bodies still to hire — keep exactly
+  // the named, then buy the nulls in order. The old count-trim plus
+  // hire-index arithmetic (live − backed, then a live-at-start patch)
+  // was compensation for a plan that had forgotten its own roster
+  // (Addendum 4, second landing); with the roster stated, both die.
+  const employed = new Set<string>();
+  for (const corp of plan.corps) for (const st of corp.staff) if (st.live) employed.add(st.live);
+  state.creeps = state.creeps.filter(c => employed.has(c.id));
   // Hire CHAIN-ATOMICALLY, in ROUNDS: a chain's bodies are worthless
   // apart (a miner without its collector only strands supply), so each
   // round buys ONE body per deficit corp in the chain, together, while
@@ -205,15 +219,18 @@ export function advanceChunk(state: BelieverState): EnginePlan {
       (a.indexOf("solo:") === 0 ? 1 : 0) - (b.indexOf("solo:") === 0 ? 1 : 0) || (a < b ? -1 : a > b ? 1 : 0)
   );
   for (const [, group] of ordered) {
+    // Each corp's outstanding hires: the roster's nulls, in funded-step
+    // order — the fleet may end in a remainder-sized runt, and hiring
+    // the FIRST body for every slot overshot the quoted machine time
+    // (the forest stall).
+    const pending = new Map<string, BodyShape[]>();
+    const bought = new Map<string, number>();
+    for (const corp of group) pending.set(corp.id, corp.staff.filter(st => !st.live).map(st => st.body));
     for (;;) {
       let cost = 0;
-      const hires: { corpId: string; body: (typeof group)[number]["hires"][number] }[] = [];
+      const hires: { corpId: string; body: BodyShape }[] = [];
       for (const corp of group) {
-        // The plan's hire list, body by body — the fleet may end in a
-        // remainder-sized runt, and hiring the FIRST body for every slot
-        // overshot the quoted machine time (the forest stall).
-        const live = state.creeps.filter(c => c.corp === corp.id).length;
-        const body = corp.hires[live - corp.backed];
+        const body = (pending.get(corp.id) ?? [])[bought.get(corp.id) ?? 0];
         if (body) {
           cost += bodyCost(body);
           hires.push({ corpId: corp.id, body });
@@ -222,6 +239,7 @@ export function advanceChunk(state: BelieverState): EnginePlan {
       if (hires.length === 0 || cost > state.bankStock) break;
       for (const h of hires) {
         state.creeps.push({ id: `c${state.seq++}`, corp: h.corpId, body: h.body, ttl: 1500 });
+        bought.set(h.corpId, (bought.get(h.corpId) ?? 0) + 1);
       }
       state.bankStock -= cost;
     }

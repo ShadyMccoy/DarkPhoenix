@@ -27,6 +27,8 @@ export interface BuildHandoff {
   total: number;
   remaining: number;
   bodyBudget: number;
+  /** Posting walk to the site (Addendum 6). */
+  commute: number;
   creeps: ViewCreep[];
 }
 
@@ -48,6 +50,8 @@ export function quoteBuild(h: BuildHandoff): Offer | null {
     cum += burn;
     steps.push({
       backedBy: c.id,
+      body: c.body,
+      commute: h.commute,
       provides: { progress: burn },
       requires: { energyAt: { [h.at]: burn } },
       cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
@@ -62,10 +66,15 @@ export function quoteBuild(h: BuildHandoff): Offer | null {
       const burn = Math.min(perBody, cap - cum);
       cum += burn;
       steps.push({
-        buys: body,
+        body,
+        commute: h.commute,
         provides: { progress: burn },
         requires: { energyAt: { [h.at]: burn } },
-        cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },
+        cost: {
+          upfront: bodyCost(body),
+          upkeepEt: upkeepEt(body, h.commute),
+          spawnTimeEt: spawnTimeEt(body, h.commute)
+        },
         note: `${body.work}W at the site`
       });
     }

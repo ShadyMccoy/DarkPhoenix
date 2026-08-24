@@ -175,6 +175,8 @@ export function renderMap(container: HTMLElement, s: Scenario, overlay: MapOverl
   }
   for (const l of s.links) marks += badge(l.x, l.y, "#d16ba5", "L");
   for (const k of s.extensions) marks += badge(k.x, k.y, "#5b8bb0", "x");
+  // Port buffers (Addendum 4): ground containers, the link corp's capital.
+  for (const k of s.containers ?? []) marks += badge(k.x, k.y, "#4f9d8f", "c");
   // Open construction sites: the structure-to-be, hollow until built.
   for (const k of s.sites) marks += badge(k.x, k.y, "#b0803c", "▲");
   marks += badge(s.spawn.x, s.spawn.y, "#3f7cac", "S");

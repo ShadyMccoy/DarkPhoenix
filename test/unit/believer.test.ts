@@ -80,7 +80,20 @@ describe("lab/believer — the investment loop", () => {
       assert.isUndefined(corps.get(`haul:${m}->bank`), `${m} runs no direct route`);
     }
     assert.isEmpty(plan.violations, "the book audits the joint");
-    for (let i = 0; i < 8; i++) advanceChunk(state);
+    // Addendum 4 (ratified 2026-08-24): the port anatomy follows the
+    // tree — the buffer container approves as the standing trunk's
+    // OBLIGATION and gets built, and the throat is hired as the trunk
+    // corp's own body. Mouth (container), throat (tender), pipe (link).
+    let anatomy = false;
+    for (let i = 0; i < 30 && !anatomy; i++) {
+      const p = advanceChunk(state);
+      const trunkId = p.corps.find(c => c.kind === "link" && c.id.indexOf("outpost:") > 0)?.id;
+      anatomy =
+        (state.scenario.containers ?? []).length === 1 &&
+        !!trunkId &&
+        state.creeps.some(c => c.corp === trunkId);
+    }
+    assert.isTrue(anatomy, "the port grew its buffer and its throat");
     assert.isAbove(state.cp, 0, "and the dividend flows once the invest queue clears");
   });
 

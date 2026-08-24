@@ -13,7 +13,7 @@ import { Offer, Step } from "../../../src/engine/vocabulary";
 function step(cap: number, o: { upkeep?: number; fee?: number; spawn?: number; upfront?: number; backedBy?: string } = {}): Step {
   return {
     backedBy: o.backedBy,
-    buys: o.backedBy ? undefined : { work: 0, carry: 1, move: 1 },
+    body: o.backedBy ? undefined : { work: 0, carry: 1, move: 1 },
     provides: { energyAt: { bank: cap } },
     requires: {},
     cost: { upfront: o.upfront ?? 0, upkeepEt: o.upkeep ?? 0, feeEt: o.fee, spawnTimeEt: o.spawn ?? 0 }
@@ -137,7 +137,7 @@ describe("engine/market", () => {
   it("draws sinks from the residual and keeps the books conserved", () => {
     const prod = chain("chain:p", "s1", [10], [step(10, { upkeep: 1 })]);
     const sinkSteps: Step[] = [0, 1, 2].map(() => ({
-      buys: { work: 2, carry: 1, move: 1 },
+      body: { work: 2, carry: 1, move: 1 },
       provides: { controlPoints: 4 },
       requires: { energyAt: { bank: 4 } },
       cost: { upfront: 300, upkeepEt: 0.2, spawnTimeEt: 0.003 }
@@ -163,7 +163,7 @@ describe("engine/market", () => {
     // draining the bank at exactly standingBills until pinned.
     const backedProd = chain("chain:p", "s1", [10], [step(10, { backedBy: "m1" })]);
     const sinkSteps: Step[] = [0, 1, 2, 3, 4].map(() => ({
-      buys: { work: 2, carry: 1, move: 1 },
+      body: { work: 2, carry: 1, move: 1 },
       provides: { controlPoints: 2 },
       requires: { energyAt: { bank: 2 } },
       cost: { upfront: 300, upkeepEt: 0.2, spawnTimeEt: 0.003 }
@@ -196,7 +196,7 @@ describe("engine/market", () => {
   it("the position book flags funded demand with no match at its place — the controller-feed bug, pinned", () => {
     const prod = chain("chain:p", "s1", [10], [step(10, { upkeep: 1 })]);
     const orphanSteps: Step[] = [0, 1].map(() => ({
-      buys: { work: 2, carry: 1, move: 1 },
+      body: { work: 2, carry: 1, move: 1 },
       provides: { controlPoints: 4 },
       requires: { energyAt: { ctrl: 4 } },
       cost: { upfront: 300, upkeepEt: 0.2, spawnTimeEt: 0.003 }
@@ -208,6 +208,51 @@ describe("engine/market", () => {
     assert.include(plan.violations[0], "unmatched demand at ctrl");
     const ctrl = plan.positions.find(p => p.place === "ctrl");
     assert.isBelow(ctrl?.netEt ?? 0, 0, "the book shows the hole");
+  });
+
+  it("charges a step shared by several chains ONCE — the trunk's throat funds with whichever member funds first", () => {
+    // Addendum 4's anatomy: the throat rides EVERY member chain at zero
+    // capacity, so no member can fund without affording it — and the
+    // market must not hire or bill it once per member.
+    const throat: Step = {
+      body: { work: 0, carry: 2, move: 1 },
+      provides: {},
+      requires: {},
+      cost: { upfront: 150, upkeepEt: 0.1, feeEt: 0.2, spawnTimeEt: 0.002 }
+    };
+    const trunk: Offer = {
+      id: "t",
+      kind: "link",
+      steps: [throat, step(10, { backedBy: "pair", fee: 0.3 }), step(10, { backedBy: "pair", fee: 0.3 })]
+    };
+    const mineA: Offer = { id: "mA", kind: "mine", steps: [step(10, { upkeep: 0.4 })] };
+    const mineB: Offer = { id: "mB", kind: "mine", steps: [step(10, { upkeep: 0.4 })] };
+    const member = (cid: string, src: string, mine: Offer, slice: number): ChainCandidate => ({
+      id: cid,
+      sourceId: src,
+      stages: [
+        stage(mine, [10]),
+        {
+          options: [
+            { offer: trunk, step: 0, capacity: 0 },
+            { offer: trunk, step: slice, capacity: 10 }
+          ]
+        }
+      ]
+    });
+    const plan = clear(
+      input({ chains: [member("chain:s1", "s1", mineA, 1), member("chain:s2", "s2", mineB, 2)] })
+    );
+    const t = plan.corps.find(c => c.id === "t");
+    assert.equal(t?.target, 3, "throat + two slices — the shared step counted once");
+    assert.deepEqual(
+      t?.staff,
+      [{ body: { work: 0, carry: 2, move: 1 }, live: null }],
+      "ONE throat on the roster, never one per member"
+    );
+    assert.closeTo(plan.expected.deliveredEt, 20, 1e-9, "both members deliver");
+    assert.closeTo(plan.expected.refillEt, 0.4 + 0.4 + 0.1, 1e-9, "the throat's bill charged once");
+    assert.closeTo(plan.expected.feesEt, 0.2 + 0.3 + 0.3, 1e-9, "its fee too");
   });
 
   it("is deterministic: same input, same plan; order of candidates does not matter", () => {

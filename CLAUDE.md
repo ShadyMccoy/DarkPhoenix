@@ -64,13 +64,15 @@ multi-draw any tempo claim); value-per-intent is the north star.
 - **Milestones are owner-gated** (REBOOT.md working agreement): acceptance
   criteria are agreed with the owner BEFORE code is written toward them.
   Rulings recorded in REBOOT.md are the record; don't act on inferred ones.
-- **Where we are: the lab stands and roadmap Tier 1 landed 2026-08-23**
-  (build corp + approvals + warchest, extensions, bank branches, roads —
-  the believer plays the whole investment arc headless). Next is owner
-  review of REBOOT.md "Tier 1 landed — and the findings ledger" (DRAFT:
-  structural fixes to ratify, design findings to rule on), then Tier 2
-  (the cutover) per the roadmap. `npm run lab` + `npm run lab:serve`
-  shows the economy on screen.
+- **Where we are: Tier 1 plus the port-anatomy arc landed 2026-08-24**
+  (Addenda 4–6: the haul-fed port is the link corp's own machine —
+  throat, buffer, hub service; overflow haulers carry what the ration
+  can't; the plan states its ROSTER (`staff`); bodies prorate for
+  their posting walk). Next is the owner's ruling session over
+  REBOOT.md **"The backlog and the ruling queue"** — one consolidated,
+  triaged list — then Tier 2 (the cutover), whose prerequisites are
+  that section's part C. `npm run lab` + `npm run lab:serve` shows the
+  economy on screen.
 - Write the failing test first; acceptance criteria live in tests only.
 - `test/mocha.opts` has `--bail`: a red run shows only the FIRST failure.
 - **The live rule: never run `push-main`/`deploy` from the v2 line** until

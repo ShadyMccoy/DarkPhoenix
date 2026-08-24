@@ -131,6 +131,18 @@ export interface ViewOutpost {
    * border bank, and its phantom-short ration shed a paying tree member
    * (the settled-forest e3, owner ruling 2026-08-24). */
   distToSource: Record<string, number>;
+  /** WALKING route cost from the outpost to the bank, in tiles — real
+   * paths, assembly's spatial knowledge (like ViewSource.distToBank).
+   * Prices the trunk's OVERFLOW haulers (Addendum 5): the link corp's
+   * own bodies that walk what exceeds the wire's ration. Deliberately
+   * NOT the wire's range — that stays the engine's, derived from the
+   * legal pair (the Addendum 3 scar); a walking distance is a different
+   * fact, and bodies pay the terrain the wire fires through. */
+  distToBank: number;
+  /** A buffer container stands within the port's reach (spec 56's ONE
+   * range-2 lens, stated by assembly — the port's mouth, Addendum 4).
+   * Absent reads as false: no evidence of a buffer is not a buffer. */
+  hasContainer?: boolean;
 }
 
 /** A PRICED wire option for one edge, from the placement search (lab

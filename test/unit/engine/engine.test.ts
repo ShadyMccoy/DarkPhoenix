@@ -1,7 +1,8 @@
 import { assert } from "chai";
 import { replan } from "../../../src/engine/replan";
 import { EconomyView } from "../../../src/engine/view";
-import { workmanCycleRate } from "../../../src/primitives";
+import { effectiveLife, upkeepEt, workmanCycleRate } from "../../../src/primitives";
+import { hubServiceBody } from "../../../src/sizing";
 
 /**
  * The broker + real quotes, cleared on staged views: the worked 550-budget
@@ -50,13 +51,13 @@ describe("engine/replan", () => {
     const plan = replan(view({ bodyBudget: 550, bankStock: 20000 }));
     const corps = byId(plan);
 
-    assert.deepEqual(corps.get("mine:srcA")?.hires[0], { work: 5, carry: 0, move: 1 });
+    assert.deepEqual(corps.get("mine:srcA")?.staff[0].body, { work: 5, carry: 0, move: 1 });
     assert.equal(corps.get("mine:srcA")?.target, 1, "one 5W miner saturates a source");
     assert.equal(corps.get("haul:srcA->bank")?.target, 1, "10 tiles: one hauler");
     assert.equal(corps.get("haul:srcB->bank")?.target, 2, "25 tiles: the same flow costs two");
     // #148's law at the quote: 10 e/t over 10 tiles needs 4 CARRY, so the
     // body is 4C — never the budget-sized 5C with idle capacity billed.
-    assert.deepEqual(corps.get("haul:srcA->bank")?.hires[0], { work: 0, carry: 4, move: 4 });
+    assert.deepEqual(corps.get("haul:srcA->bank")?.staff[0].body, { work: 0, carry: 4, move: 4 });
 
     // The workman quotes everywhere and loses everywhere — no bootstrap flag.
     assert.isUndefined(corps.get("workman:srcA"));
@@ -66,13 +67,13 @@ describe("engine/replan", () => {
     // The heartbeat's carrier: one small tender covers the whole refill
     // obligation across the co-located estate (owner 2026-08-23 ruling).
     assert.equal(corps.get("spawning:estate")?.target, 1);
-    assert.deepEqual(corps.get("spawning:estate")?.hires[0], { work: 0, carry: 2, move: 2 });
+    assert.deepEqual(corps.get("spawning:estate")?.staff[0].body, { work: 0, carry: 2, move: 2 });
 
     // The residual funds four full upgrader steps and a PARTIAL fifth —
     // the controller drains the residual exactly; the frontier line says
     // where the last step trimmed.
     assert.equal(corps.get("upgrade:ctrl")?.target, 5);
-    assert.deepEqual(corps.get("upgrade:ctrl")?.hires[0], { work: 4, carry: 1, move: 1 });
+    assert.deepEqual(corps.get("upgrade:ctrl")?.staff[0].body, { work: 4, carry: 1, move: 1 });
     assert.equal(plan.frontier.find(f => f.offerId === "upgrade:ctrl")?.reason, "energy residual");
 
     // Generic in/out on the instance: every commodity, ALLOCATED flow —
@@ -82,15 +83,26 @@ describe("engine/replan", () => {
     assert.closeTo(haulA?.outputs.energyAt?.["bank"] ?? 0, 10, 1e-9, "delivers the same at the bank");
     assert.isAbove(haulA?.inputs.spawnTime ?? 0, 0, "machine time is an input");
     const up = corps.get("upgrade:ctrl");
-    assert.closeTo(up?.outputs.controlPoints ?? 0, 244 / 15, 1e-9);
-    assert.closeTo(up?.inputs.energyAt?.["ctrl"] ?? 0, 244 / 15, 1e-9, "burns at its own feed point");
-    assert.closeTo(up?.inputs.energyAt?.["bank"] ?? 0, 5 * (500 / 1500), 1e-9, "the parts bill at the bank");
+    // The drained residual re-pinned under Addendum 6 (corrected): every
+    // posted body — mines at 10/25, HAULERS at their sources' 10/25,
+    // upgraders at the feed's 5 — bills over its effective life, so the
+    // controller drinks a hair less than 244/15.
+    const drained = plan.expected.upgradeEt;
+    assert.closeTo(drained, 16.239328, 1e-6);
+    assert.closeTo(up?.outputs.controlPoints ?? 0, drained, 1e-9);
+    assert.closeTo(up?.inputs.energyAt?.["ctrl"] ?? 0, drained, 1e-9, "burns at its own feed point");
+    assert.closeTo(
+      up?.inputs.energyAt?.["bank"] ?? 0,
+      5 * (500 / effectiveLife(5)),
+      1e-9,
+      "the parts bill at the bank, prorated by the feed walk"
+    );
 
     // The controller's feed is a haul chain of its own — bank → ctrl.
     assert.equal(corps.get("haul:bank->ctrl")?.target, 1);
 
     assert.closeTo(plan.expected.deliveredEt, 20, 1e-9);
-    assert.closeTo(plan.expected.upgradeEt, 244 / 15, 1e-9, "the residual, drained to the last partial step");
+    assert.equal(plan.frontier.find(f => f.offerId === "upgrade:ctrl")?.reason, "energy residual", "drained exactly");
     // The heartbeat identity: refill obligation == Σ funded parts bills.
     const bills = plan.corps.reduce((s, c) => s + c.pnl.costEt, 0);
     assert.closeTo(plan.expected.refillEt, bills, 1e-9);
@@ -130,8 +142,10 @@ describe("engine/replan", () => {
     );
     const corps = byId(plan);
 
-    // srcB (25 tiles): the pair moves 10 e/t for a 0.3 tax and no spawn
-    // time — it beats two hauler bodies and takes the whole edge.
+    // srcB (25 tiles): the pair moves 10 e/t for the 0.3 tax plus its
+    // hub service (Addendum 4's amendment: a wire is never "the 3% and
+    // nothing else") and no spawn time — it still beats two hauler
+    // bodies and takes the whole edge.
     const linkB = corps.get("link:srcB->bank");
     assert.equal(linkB?.target, 1);
     assert.equal(linkB?.backed, 1, "standing structures back the step");
@@ -143,7 +157,12 @@ describe("engine/replan", () => {
     assert.equal(corps.get("haul:srcA->bank")?.target, 1);
     assert.isUndefined(corps.get("link:srcA->bank"));
 
-    assert.closeTo(plan.expected.feesEt, 0.3, 1e-9, "the 3% tax on 10 e/t");
+    assert.closeTo(
+      plan.expected.feesEt,
+      0.3 + upkeepEt(hubServiceBody()),
+      1e-9,
+      "the 3% tax on 10 e/t plus the per-sender hub service"
+    );
     assert.isEmpty(plan.violations);
     const bank = plan.positions.find(p => p.place === "bank");
     const leftover =
@@ -170,7 +189,7 @@ describe("engine/replan", () => {
           { id: "L1", at: "outpost:L1", room: "R0_0", x: 10, y: 30 },
           { id: "LB", at: "bank", room: "R0_0", x: 30, y: 30 }
         ],
-        outposts: [{ place: "outpost:L1", distToSource: { src1: 5, src2: 5, src3: 5 } }]
+        outposts: [{ place: "outpost:L1", distToSource: { src1: 5, src2: 5, src3: 5 }, distToBank: 20 }]
       })
     );
     const corps = byId(plan);
@@ -180,10 +199,11 @@ describe("engine/replan", () => {
       assert.equal(corps.get(`haul:${src}->outpost:L1`)?.target, 1, `${src} collects to the outpost`);
       assert.isUndefined(corps.get(`haul:${src}->bank`), `${src} runs no direct route`);
     }
-    // ...and ONE standing pair trunks them all: a slice per source.
+    // ...and ONE standing pair trunks them all: its throat plus a
+    // slice per source (Addendum 4's anatomy).
     const trunk = corps.get("link:outpost:L1->bank");
-    assert.equal(trunk?.target, 3, "three slices of one pair");
-    assert.equal(trunk?.backed, 3);
+    assert.equal(trunk?.target, 4, "the throat and three slices of one pair");
+    assert.equal(trunk?.backed, 3, "the pair backs the slices; the throat is a hire");
     assert.closeTo(trunk?.outputs.energyAt?.["bank"] ?? 0, 30, 1e-9);
 
     assert.closeTo(plan.expected.deliveredEt, 30, 1e-9);
@@ -196,7 +216,7 @@ describe("engine/replan", () => {
     const plan = replan(view());
     const corps = byId(plan);
 
-    assert.deepEqual(corps.get("workman:srcA")?.hires[0], { work: 1, carry: 1, move: 2 });
+    assert.deepEqual(corps.get("workman:srcA")?.staff[0].body, { work: 1, carry: 1, move: 2 });
     assert.equal(corps.get("workman:srcA")?.target, 3, "spots-capped ramp");
     assert.equal(corps.get("workman:srcB")?.target, 3);
     assert.isUndefined(corps.get("mine:srcA"), "no specialist chain can close from a 300 stock");
@@ -207,7 +227,7 @@ describe("engine/replan", () => {
     // Residual after six workman bills: one full upgrader step and the
     // partial second that drains it.
     assert.equal(corps.get("upgrade:ctrl")?.target, 2);
-    assert.deepEqual(corps.get("upgrade:ctrl")?.hires[0], { work: 2, carry: 1, move: 1 });
+    assert.deepEqual(corps.get("upgrade:ctrl")?.staff[0].body, { work: 2, carry: 1, move: 1 });
   });
 
   it("cascade B — workmen alive: sunk capital holds its funding, the specialist chain trims in beside it", () => {
@@ -224,7 +244,7 @@ describe("engine/replan", () => {
     const standing = corps.get("workman:srcA");
     assert.equal(standing?.target, 3);
     assert.equal(standing?.backed, 3, "living workmen keep their jobs — incumbency");
-    assert.isEmpty(standing?.hires, "nothing new to buy on this instance");
+    assert.isEmpty(standing?.staff.filter(st => !st.live), "nothing new to buy on this instance");
 
     // The challenger enters at the trimmed remainder of the regen cap.
     assert.equal(corps.get("mine:srcA")?.target, 1);

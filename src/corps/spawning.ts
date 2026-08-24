@@ -61,6 +61,7 @@ export function quoteTender(h: TenderHandoff): Offer | null {
   for (const c of h.creeps) {
     steps.push({
       backedBy: c.id,
+      body: c.body,
       provides: {},
       requires: {},
       cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
@@ -76,7 +77,7 @@ export function quoteTender(h: TenderHandoff): Offer | null {
         : TENDER_SCHEDULE_FLOOR;
     for (let i = steps.length; i < wanted; i++) {
       steps.push({
-        buys: body,
+        body,
         provides: {},
         requires: {},
         cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },
@@ -88,13 +89,9 @@ export function quoteTender(h: TenderHandoff): Offer | null {
   return { id: ESTATE_CORP, kind: "spawning", steps };
 }
 
-/** Per-step intake capacity (e/t into structures) for the market. */
-export function tenderCapacities(offer: Offer, estateRadius: number, creeps: ViewCreep[]): number[] {
-  return offer.steps.map(s => {
-    if (s.backedBy) {
-      const c = creeps.find(k => k.id === s.backedBy);
-      return c ? haulRate(c.body.carry, estateRadius) : 0;
-    }
-    return s.buys ? haulRate(s.buys.carry, estateRadius) : 0;
-  });
+/** Per-step intake capacity (e/t into structures) for the market. The
+ * body rides the step whether backed or bought (the 2026-08-24 second
+ * landing) — the creep re-join this function used to do is gone. */
+export function tenderCapacities(offer: Offer, estateRadius: number): number[] {
+  return offer.steps.map(s => (s.body ? haulRate(s.body.carry, estateRadius) : 0));
 }

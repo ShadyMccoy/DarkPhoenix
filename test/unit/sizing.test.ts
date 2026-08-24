@@ -5,7 +5,9 @@ import {
   carryPartsFor,
   haulerBody,
   haulerBodyFor,
+  hubServiceBody,
   minerBody,
+  portTenderBody,
   tenderBody,
   upgraderBody,
   workmanBody
@@ -94,6 +96,32 @@ describe("sizing", () => {
         if (body) assert.isAtMost(bodyCost(body), budget, `budget ${budget}`);
       }
     }
+  });
+
+  it("sizes the port tender to its trunk's flow: parked 2-tick cycle, floor 1 CARRY, cap one volley", () => {
+    // The throat (Addendum 4, v1's porttender): parked between buffer
+    // and link, CARRY covers 2·flow; one whole volley is the cap —
+    // staging more than 800 per cycle cannot outrun the cooldown.
+    assert.deepEqual(portTenderBody(10), { work: 0, carry: 1, move: 1 }, "a trickle trunk gets the floor throat");
+    assert.deepEqual(portTenderBody(30), { work: 0, carry: 2, move: 1 });
+    assert.deepEqual(portTenderBody(80), { work: 0, carry: 4, move: 1 });
+    assert.deepEqual(portTenderBody(9999), { work: 0, carry: 16, move: 1 }, "one volley per cycle is the cap");
+  });
+
+  it("sizes the hub service body per SENDER: v1's concurrency law, 4 CARRY each", () => {
+    // t72819265 A/B: "one creep working harder cannot cover two senders
+    // arriving at once" — the hub scales in CREEPS per sender, small each.
+    assert.deepEqual(hubServiceBody(), { work: 0, carry: 4, move: 1 });
+  });
+
+  it("caps a link-fed hauler at the landing quantum — spec 45 leg 3 by name, roaded included", () => {
+    // Measured in v1: 978–1,851e bodies into an 800-cap port stood 2–3
+    // volley cycles per trip. Surplus CARRY buys standing time at the
+    // port, never throughput; walking routes stay uncapped.
+    assert.deepEqual(haulerBodyFor(100, 30, 99999, false, true), { work: 0, carry: 16, move: 16 });
+    assert.deepEqual(haulerBodyFor(200, 40, 99999, true, true), { work: 0, carry: 16, move: 8 }, "roaded gait, same quantum");
+    assert.deepEqual(haulerBodyFor(10, 10, 550, false, true), { work: 0, carry: 4, move: 4 }, "under the cap the route law rules");
+    assert.deepEqual(haulerBodyFor(100, 30, 99999), { work: 0, carry: 25, move: 25 }, "a walking route keeps the body limit");
   });
 
   it("pins #148's route law: CARRY from flow and round-trip distance", () => {

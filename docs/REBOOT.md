@@ -1211,6 +1211,9 @@ need the owner's explicit ratification or reversal.
   quotes ~+4.6 e/t and nets ~0 — bodies amortize over 1500 regardless of
   posting walk. v1's `effectiveLife` awaits its port into the sizing
   handoffs (piece 4 named the column; Tier 3 needs it).
+  **LANDED 2026-08-24 — Addendum 6** (owner: "shouldn't the body be
+  prorated for travel time"): effectiveLife ported; upkeep and machine
+  time prorate per handoff-stated commute; the standing seeds follow.
 - **energyAt is vessel-blind** (0.85): a 0-CARRY miner "feeds" a link it
   physically cannot load; the book calls it balanced. Vessel typing (or
   loading `requires`) is a frozen-vocabulary change — flagged before
@@ -1406,9 +1409,531 @@ its priced tiles as plan state, an owner conversation. Widening
 enumeration (M1..MN groups, second stations, partial slices,
 second-choice trunks) are the next rungs, owner-gated.
 
-**Budget note:** src stands at ~3.2k lines against the ~3k budget; the
-overage is docblock prose carrying the session's incident record in
-place. Trim or ratify.
+**Addendum 4 (2026-08-24, fourth conversation — the port anatomy: the
+dampener and the link-and-bank tender; DRAFT, rulings requested):** two
+questions put by the owner: whether a link fed by multiple haul routes
+needs a DAMPENER — a container and a tender creep — and why; and the
+link-and-bank tender that keeps the core link empty so incoming
+transfers land, occasionally filling it instead when a send is called
+for. Both answers turn out to be already bought on the live colony —
+v1 ran this exact machine, measured every failure mode, and hardened
+the doctrine (specs 26, 45, 49, 54, 56 and the primitives docblocks) —
+so this record QUOTES the paid lessons rather than re-deriving them:
+the porting law applied to design. Nothing below is a ruling; ⚖ marks
+what needs one.
+
+*Why the dampener — the wire's quantum against the routes' phases.*
+The book prices a wire as a smooth ration (800/range e/t); the physical
+device is a VOLLEY machine: one 800 store that must serve as both the
+staged payload and the landing room, and a cooldown charged IN FULL
+however little moves — the engine clamps a transfer to the target's
+free space, so the partial volley is the waste mechanism, not a failed
+retry (spec 45's trap note). Haul arrivals are wheeled quanta on
+independent phases. One collector leg can be quantum-matched (v1
+capped deposit bodies at the 16-CARRY landing quantum for exactly this
+reason); N legs superpose, their phases drift with every replacement
+body, and bursts meet the link mid-cooldown no matter how anything
+staggers them. At that tile the fleet's two sizing laws collide (owner
+2026-08-05: haulers "are sized for full time moving" — duty ~1.0 is
+their contract — while the wire wants only full volleys, the cooldown
+being flat): with no third element, one law breaks. v1 measured both
+breaks. Haulers holding at full links: portWaits to 602t (spec 54),
+22.4% of port arrivals holding (spec 56), fleet portWaitFrac 0.228 ≈
+8.6 e/t of parked hauler value ≈ 17% of the colony's controller
+delivery (spec 45). Partial volleys: hubClampShare 0.45–0.625, volleys
+averaging 378–500 of 800 — the ration halved. Holding haulers until
+the link clears is not a fix — the haul-vs-link exchange rate (walk
+cost / tax cost = 1/0.03 = 33×, distance-independent) prices a
+one-beat hold as losing to the whole 24e tax after ~1.9 idle
+hauler-ticks, ~0.6 with three queued. And capacity was never the
+defect: rho measured 0.85/0.78 — MARGINAL, not oversubscribed (spec
+49) — which is what redirected v1 from "route less" to "buffer and
+drain it". Hence the dampener, in v1's own anatomy (spec 54): **the
+container is the mouth** — arrival space with no cooldown and no
+writer limit, so any number of haulers dump and leave at full duty;
+**the tender is the throat** — the single writer that keeps the link
+topped, so it fires a full volley the tick cooldown ends and the
+ration is actually realized; **the link is the pipe**. Two boundaries
+keep it honest. It is VARIANCE machinery, never capacity: at assigned
+flow ≥ the ration the buffer fills once and stays full (spec 45's
+saturated band — there the routed load must come down, and the book
+already trims slices to the ration). And it is what makes the station
+auditable at all (law 4): with one writer, expected = min(supply,
+ration) net of tax, derivable from the instance; with N racing writers
+the expectation depends on their phases and the seam cannot even be
+stated. The believer sees none of this by construction (steady-state
+rates; plan-vs-actual zero), so the dampener is a Tier-2 fidelity item
+of exactly the vessel-blindness class — designed now from the paid
+record instead of re-bought at cutover.
+
+*The model — port fields on the link corp instance (yes: the link
+corp's own property).* v1 ran the ownership experiment so v2 doesn't
+have to: a standalone PortTenderCorp shipped and lasted one commit —
+"link, tender and container are ONE machine: the container is the
+mouth, the tender is the throat, the link is the pipe. Splitting them
+across owners is how the drain went missing" (spec 54: spec 49 sized
+the buffer, and then nothing ever emptied it — 2000/2000, both of a
+hauler's escape hatches shut). The owner had already named the shape
+(2026-08-08: "the link+tender+container can all be ruled by the link
+corp"; 2026-08-06: "there's no miner, but we still want a tender"),
+and v2's own tender ruling points the same way (2026-08-23: filling
+the estate is the spawning corp's own operation — so loading and
+draining the wire is the link corp's own operation, never a haul
+quote; haul serves edges, not the wire's ends). A haul-fed port
+therefore carries, on the instance: its **container** — corp capital
+per piece 5, CONTAINER_COST capex + CONTAINER_HOLD_ET on its own
+books, an approval like any other; spec 56's deadlock (FOUR lenses
+answering "which container is this port's", each locally defensible,
+jointly guaranteeing the port never got one) is the named scar behind
+owned-as-data, one predicate; its **tender** — the corp's own body,
+offer steps with buys/spawnTime/parts bill, the spawning corp's tender
+shape verbatim, a CARRY-heavy parked shuttle (spec 54's two-shapes
+finding: the estate tender walks, the port tender parks); and its
+**posture** — keep-topped. The bank hub is the same record,
+degenerate: store = storage itself (nothing to build), tender parked
+on the pivot tile adjacent to link and vault, posture inverted
+(keep-empty). WHO LOADS decides who needs one: a private mouth loaded
+by its adjacent miner needs none (the miner is the single writer —
+once the vessel-blindness fix gives it the CARRY to load with); a
+consumer-parked link (the eventual controller link — withdraw-only BY
+RULE, spec 45) needs none; a haul-fed station always does. ⚖ Trigger
+to ratify: HAUL-FED, not fan-in ≥ 2 — a single-route port still pays
+the bounded mid-cooldown wait every trip, and v1 shipped the full
+anatomy on every deposit port. ⚖ Pricing follows the anatomy and
+AMENDS piece 5's sentence: a haul-fed standing pair is no longer "the
+3% and nothing else" — marginal = tax + the tender's amortized bill +
+the container's holding line; and the CANDIDATE station carries
+container capex + tender bill in its full cost (v1 debited exactly
+this in its link election: portTenderHaulEquivalent, spec 26 stage 5).
+That closes the haul-fed half of the vessel-blindness finding; the
+miner-fed half stays open. Placement inherits the anatomy: a station
+tile must offer a container spot "best accessible to incoming hauling
+routes as well as adjacent to the link of course" (owner 2026-08-06,
+quoted in spec 56) plus a tender post adjacent to both, and the hub
+keeps a pivot tile adjacent to link and storage — stationSearch
+constraints, lab-side with the rest of the spatial knowledge.
+
+*The link-and-bank tender — v1 answered this question verbatim* (owner
+2026-08-07, preserved as CORE_SERVICE_CARRY_PER_SENDER's docblock):
+"the core link has a feeder tender creep slave. It empties it to
+ensure incoming links can transfer (links coming off cooldown) and
+fills it when if necessary when it needs to send energy to the
+upgraders." Keep-empty is SENDER protection: the sender pays the
+cooldown while the transfer clamps to the hub's free store, so every
+unit of residual at the hub taxes every sender's volley. v1 measured
+the disease and the cure end to end: core empty only 26% of ticks,
+half of all volleys clamped, ports running at half their ration; the
+arrivals-first legs landed and clamp fell 0.625 → 0.154 (−75%, later
+0.000) with coreEmptyShare 0.652 — "a drained core is that heartbeat
+working, not congestion; the core link is a pass-through to storage by
+design" (spec 45's verdict). The doctrine carries in three owner
+lines: **drain on demand** ("They need to drain the core link pretty
+much on demand. Anytime an incoming link is imminent. It can't be a
+bottleneck." — 2026-08-05); **arrivals first** — inbound energy
+outranks staged energy at every buffer: pre-drain to zero the tick any
+sender stands loaded within near-fire, stage for an outbound send only
+while no inbound is pending (v1's earlier partial form was an income
+reserve carved out of the fill ceiling, CORE_LINK_INCOME_RESERVE; the
+pre-drain superseded it); **landing room is the tender's job, never
+the senders'** ("No the core link can always be tendered to the
+storage" — 2026-08-06, the line that dissolved every send-side scheme
+for protecting the hub). The FILL posture is the same body and the
+same seam with direction as data — and its arbitration is pre-ruled by
+v1's one counterexample: the controller-link port kept TOPPED by its
+relay was spec 26's live collapse (t72512031, fleet 30→13, reverted) —
+a receiver a fill posture may hold full is one no arrival needs.
+Sizing is the record's sharpest lesson, because v1 corrected itself:
+spec 45 floored the shuttle at one whole volley (16C, clear it in one
+cycle) and the A/B refuted the premise — the mechanism is CONCURRENCY,
+not capacity ("one creep working harder cannot cover two senders
+arriving at once"): the hardened form is **one parked shuttle PER
+inbound sender at 4 CARRY each** (the owner's own 8-for-our-room, 4 at
+low RCL; a 2-tick withdraw+transfer cycle clears 800 in ~8t, inside
+any sender's cooldown), while the 16C floor measured as over-insurance
+— clamp 0.000, but 100 spawn parts ≈ 15% of the whole fleet on the
+single most expensive corp. LINK_PAYLOAD_CARRY (16 — the landing
+quantum, the deposit-body cap) and the shuttle's service body are
+deliberately SEPARATE constants: "not the same quantity; they no
+longer scale together." The CPU variant (8/sender, half the intents)
+is recorded and unwired — the governor's trade, for when intent cost
+joins the currency. What stays runner-side, behind the dispatch
+boundary and stamped through the one counter: the same-tick sender
+QUEUE (two senders firing at one 800-free hub blockade each other —
+reserve free space within the tick, biggest payload first), full-volley
+discipline only where we control the drain, and the senderFull relief
+valve (income outranks cooldown efficiency at a saturated mouth). The
+plan sizes the port; the vertical sequences the volleys.
+
+*⚖ Rulings requested:* (1) the port anatomy as fields on the link corp
+instance — container as corp capital, tender as corp body, posture as
+data; (2) the marginal-price amendment to piece 5 — haul-fed pairs
+price tax + tender bill + container hold, never bare 3%; (3) the
+trigger rule — every haul-fed port gets the full anatomy, miner-fed
+mouths and consumer-parked links get none; (4) arrivals-first as
+carried doctrine: inbound outranks staged at every buffer, and a fill
+posture may never cost landing room; (5) the sizing ports into the one
+module, docblocks intact — LINK_PAYLOAD_CARRY and the deposit cap,
+CORE_SERVICE_CARRY_PER_SENDER and shuttles-per-sender,
+portTenderHaulEquivalent for the election; (6) certification shape: a
+Tier-2 mockup cell (the believer cannot see sequencing), gauged the
+way v1 learned to read this machine — clamp share, empty share, port
+waits, volley average, hauler duty — bands pinned multi-draw before
+anything is tuned.
+
+**Addendum 4 RATIFIED — the first landing (owner 2026-08-24, fifth
+conversation: "Alright so let's add this to refine our model."):**
+rulings 1, 2, 3 and 5 are ratified and LANDED in the engine; 4 and 6
+are ratified as doctrine and land with Tier 2 (the believer has no
+runners to sequence). What the model now says, certified green
+(93 unit + 8 integration, the believer arc extended):
+
+- **The throat is a real body on the trunk's offer** — step 0, zero
+  capacity, `portTenderBody(flow)` from the one module — referenced by
+  EVERY member chain, so no member funds without affording it and it
+  funds with whichever member funds first. The market gained the
+  matching law: **a physical step funds and charges ONCE**, however
+  many chains reference it (fund/charge idempotence by offer object —
+  the first-member-only attachment was rejected because a poor bank
+  could close the first chain and run the trunk throatless). The
+  believer hires it through the standing `hires` machinery — which
+  surfaced a latent indexing defect: hires were indexed by `backed`,
+  which also counts structure-backed steps, so a mixed corp (pair-backed
+  slices + an unbacked throat) could never hire; the index is now
+  live-at-chunk-start, one meaning of "next hire" for every corp shape.
+- **Piece 5's sentence is amended in the quotes**: a standing wire
+  prices the 3% PLUS its port service — the per-sender hub shuttle
+  (`CORE_SERVICE_CARRY_PER_SENDER`, ported with the owner's 2026-08-07
+  quote and the concurrency A/B in its docblock) rides every wire's
+  fee, and the standing buffer's `CONTAINER_HOLD_ET` rides the trunk's.
+  Candidates carry the same terms plus capex, so displacement stays
+  symmetric. ⚖ Recorded deviation, Tier-2 work: the hub service is
+  FEE-form (the believer's steady-state representation — paid in cash
+  every chunk) until the succession vocabulary lets it hire for real;
+  the porttender wedge (a body charged, never spawned) is the failure
+  mode that conversion closes, and fee-form charges no machine time.
+- **The buffer approves as the standing trunk's OBLIGATION**, ahead of
+  the merit spend — kit, never ROI (its benefit is Tier-2 sequencing
+  the steady-state ledger cannot see, so pricing it as a candidate
+  would refuse it and re-buy v1's 22.4%-of-arrivals-holding machine).
+  It realizes as ground capital at the port (`Scenario.containers`),
+  read back by ONE range-2 lens in assembly (spec 56's law), and its
+  holding joins the trunk's fee the replan it stands. Station
+  candidates price the whole anatomy in their hurdle — throat bill,
+  hub fee, hold, container capex over H — so a tree cannot clear on
+  arithmetic its own kit falsifies. Recorded gap: the purse pays the
+  container at obligation time, one replan after the links — approval
+  does not yet reserve it.
+- **Collector legs cap at the landing quantum** — `LINK_PAYLOAD_CARRY`
+  (16C, roaded 8 pairs), spec 45 leg 3 ported with its docblock: one
+  arrival is one unload intent; surplus CARRY converts to standing
+  time at the port, never throughput. Walking routes keep the 25-pair
+  body limit; the trigger is the gap's `linkFed` flag, set only where
+  a route unloads into a port.
+- **The trigger rule holds by construction**: trunks (haul-fed) carry
+  throat + buffer + hub fee; a direct mouth wire (miner-fed) carries
+  the hub fee alone; the bank hub is storage-backed and triggers
+  nothing. Pinned in `port.test.ts` end to end, and the believer's
+  tree now grows the full anatomy on screen: station → trunk funds →
+  buffer approved and built → throat hired.
+
+**Addendum 4, second landing (owner 2026-08-24, sixth conversation:
+"The link doesn't show as requiring a body though? (Neither do the
+mines for that matter) — besides the surface fix investigate how our
+engine let that happen in the first place."):** the first screenshots
+showed it — the settled trunk's body column read "—", and the settled
+MINES read "—" twice over: no body, and an empty `in` column. A
+settled row claimed to require nothing at all. The investigation:
+
+- **Root cause: `buys` conflated the purchase with the requirement.**
+  The corp contract's cheap incumbency ("backedBy marks a step already
+  embodied, which quotes ~zero — no engine machinery") zeroed the WHOLE
+  step at embodiment: the price (correct — piece 5) and, with it, the
+  body and its bills (wrong — piece 5's own companion rule: "pricing
+  forgets sunk costs; the books never do"). `buys` was defined as "what
+  funding purchases; absent when backed" — so the moment a body lived,
+  the plan forgot it existed. Law 2's own enumeration — "target, BODY,
+  source, route, expected e/t" — named a field the instance stopped
+  carrying the day the forest-stall fix replaced `body` with `hires`,
+  the un-hired tail: that fix served the executor (what to buy) and
+  left the books blind (what is run).
+- **The tell: compensating mechanisms had already accreted** — disease
+  #2 rebuilding itself inside v2, caught at N=4: the market's
+  `standingBills`/`standingSpawnEt` seeds (aggregates that knew what
+  the rows denied), the broker's `creepById` re-join inside
+  `steadyUnit` (replacement-scale pricing rebuilt from the view because
+  the step had forgotten its body), the believer's live-at-start hire
+  index (the previous commit's patch — itself a workaround for `backed`
+  conflating structures with creeps), and the panel's `hires[0]` (the
+  surface symptom). Each locally defensible; together, two-lens drift
+  around one hole in the one representation.
+- **The fix: the step states its body; the instance states its ROSTER;
+  the books price replacement-scale.** `Step.buys` → `Step.body`,
+  stated backed or not (the cost fields stay sunk-zeroed — funding
+  untouched). `CorpInstance.hires` → `staff: {body, live}[]` — one
+  entry per funded body step, `live` naming the backing creep; the
+  executor buys exactly the nulls, in order (the believer now staffs BY
+  NAME — the count-trim, the hire-index arithmetic, and the
+  live-at-start patch all deleted). The instance builder folds a backed
+  body's sustain into its row — machine time and the amortized parts
+  bill at the bank — so a settled row's `in` column states its
+  requirement again, and ⚖ its P&L prices at REPLACEMENT SCALE
+  (piece 1's "cost e/t (amortized bodies)" made literal; the same rule
+  the order books already priced by, so the three cost lenses collapse
+  to two: funding sunk, books replacement). Settled nets shift down by
+  their fleets' bills; any future band re-pins from the honest number.
+  Two view re-joins deleted outright (`steadyUnit`'s creepById,
+  `tenderCapacities`' creep lookup); the position book's bank demand
+  now carries the standing fleet's bills, so the bank's net is the
+  leftover NET of sustain — the conservation caption reads true.
+- **Recorded, not valved:** `standingBills` (Σ every live creep — the
+  market's pre-clear seed) and the rows' summed sustain (the funded
+  employed) remain two computations that agree at quiescence; the seed
+  must exist before clearing produces rows, so it stays — flagged as
+  the next one-lens candidate. And a corp with genuinely no bodies
+  (`spawning:capacity`; a miner-fed direct wire) prints "—" honestly:
+  the column now distinguishes "runs on no body" from "forgot its
+  body".
+
+**Addendum 5 (owner 2026-08-24, seventh conversation — overflow at the
+port: the excess is a rate, never a member):** *"when the sources flow
+exceeds the link capacity keeping the remainder as a haul is good.
+However instead of specifying a specific mine with a hauler they could
+still bring all 30 (for example) to the outpost and the link can hire
+a hauler for the excess. And by hiring a hauler I just mean the plan
+has it."* Landed, certified green (95 unit + 8 integration):
+
+- **Nobody sheds.** The old admission was whole-supply-or-skip: a
+  binding ration named a specific member and sent its whole flow back
+  to a full direct route. Now a member takes the WIRE that is left and
+  the trunk's own OVERFLOW bodies walk the rest of its supply from the
+  port to the bank — collectors always carry everything to the outpost,
+  and the outpost→bank leg is a two-lane market inside one corp: the
+  ration at the tax, the excess at the walk. The overflow haulers are
+  plan rows exactly as the owner specified — steps on the trunk's offer
+  with real bodies (`haulerBodyFor` on the corridor's WALKING distance,
+  a new assembly fact: `ViewOutpost.distToBank`, deliberately distinct
+  from the wire's Chebyshev range per the Addendum 3 scar), hired and
+  re-handed through the same staff machinery as the throat.
+- **Admission blends; merit still seats.** Addendum 3's
+  displaced-saving order survives as WHO rides the cheap wire; the
+  admission test becomes the member's blended gain — wire share at the
+  tax, spill at the corridor walk, against its direct route. The
+  economics fall out naturally: a far member straddles (8.6 wired + 1.4
+  walked beats a 27-tile direct route), while a near member whose spill
+  would ride a 28-tile corridor against a 16-tile direct route stays
+  direct — the trunk-test pin held on the new arithmetic unchanged.
+  This closes the trunk-side half of the whole-supply-slices finding
+  (sub-ration remainders no longer strand un-seatable); member-side
+  whole-supply routing (a source never splits via/direct) remains v0.
+- **One source of truth for the offer's shape:** `quoteTrunk` returns
+  the offer AND its member-step layout (throat, wire share, overflow
+  bodies per source) — the broker assembles chains from the quote's own
+  map rather than re-deriving indices, which would have been a second
+  lens on the offer's layout.
+- **Recorded, not valved:** station CANDIDATES still price in-ration
+  (a proposed tree caps at 800/range — overflow economics enter the
+  hurdle when measurement asks); the overflow corridor generates no
+  ROAD candidates (round 3 paves only haul-corp gaps — the trunk's
+  walking leg is invisible to it); throat-vs-hauler re-handing matches
+  by shape and collides at 1C1M and at the roaded 2C:1M gait (fungible
+  bodies, books-neutral, but named); and the wire tax still charges on
+  quoted rather than allocated flow (the standing losses-are-flows
+  ruling).
+
+**Addendum 6 (owner 2026-08-24, eighth conversation: "Also shouldn't
+the body be prorated for travel time"):** yes — and the ledger already
+carried the finding by name ("Commute is still priced at zero (0.85):
+a 150-tile remote chain quotes ~+4.6 e/t and nets ~0 — bodies amortize
+over 1500 regardless of posting walk. v1's `effectiveLife` awaits its
+port into the sizing handoffs"). Landed, closing that finding
+(95 unit + 8 integration):
+
+- **v1's `effectiveLife` ported with its docblock** — `max(1,
+  CREEP_LIFE − commute)` — and both amortizations prorate over it:
+  `upkeepEt` (the parts bill grows: a posted body re-buys sooner) and
+  `spawnTimeEt` (the machine time grows the same way; a commuting body
+  re-spawns more often per WORKING tick). Provides stay full — in
+  steady state the fleet is always posted; the commute is paid as
+  extra replacement, exactly v1's treatment.
+- **The commute is handoff data** — the broker states each posting
+  walk where it builds the handoff: miners park at their source
+  (`distToBank`); upgraders and builders park at their feed and site;
+  the trunk's THROAT walks the corridor once (`distToBank`); a route
+  that touches the bank commutes ZERO — its first empty leg is a
+  cycle, not a posting walk — which covers direct hauls, sink feeds,
+  and the trunk's overflow haulers; a COLLECTOR leg never touches the
+  bank and pays the walk through its nearer end. `Step.commute`
+  carries it, so the market's sustain fold and the broker's
+  replacement-scale book ordering prorate the BACKED books identically
+  — funding, books, and ordering stay one arithmetic.
+- **The standing seeds prorate too**: `standingBills` and
+  `standingSpawnEt` read a per-corp commute registry filled where the
+  handoffs are built — without this the heartbeat under-covers
+  commuting fleets silently (the tender-check class, spec 57's door).
+  A mixed-commute corp (the trunk: commuting throat, cycling overflow
+  haulers) registers its majority value; the rows stay exact per step.
+- **Re-pinned under the ruling**: the worked-550 residual (244/15 →
+  ~16.2524 — mines at 10/25 and upgraders at the feed's 5 bill over
+  their effective life), the feed-fleet bill (5·500/effectiveLife(5)),
+  and the port suite's throat/miner bills at their walks. In-room the
+  proration is percents; the finding's 150-tile remote class — where a
+  chain's whole net was phantom — is what Tier 3 now inherits priced.
+- **Recorded, not valved:** the broker's `haulUnit` admission heuristic
+  and round-3 candidate arithmetic (station fleets, road ROI) stay
+  commute-free — both sides of each comparison equally, and the books
+  still price the real thing; thread it there when a mis-ranked
+  candidate is measured. Movement speed is still gait-ideal: commute ≈
+  tiles assumes full-speed walking, and the miner's 1-MOVE body
+  actually crawls its walk at ~5 ticks/tile — the commute understates
+  for MOVE-light bodies; the honest per-shape walk time is sizing's to
+  derive when the fidelity line cares.
+
+**Addendum 6 CORRECTED (owner 2026-08-24, ninth conversation: "No, I
+think the haulers should start at the source. So they also have a time
+to live penalty and a[m]ortization."):** the first landing exempted
+bank-touching fleets on a cycle-credit argument — a newborn hauler's
+first empty leg out "is a cycle, not a commute." Overruled, and the
+ruling's convention is the better model twice over. First, it is ONE
+rule where the exemption was two: **every body's posting is its
+PICKUP** — direct fleets and collectors start at their source, the
+trunk's overflow haulers start at the port (the whole trunk roster now
+commutes the corridor, retiring the mixed-corp hedge in the seed
+registry), workmen start at their source, miners and parked service
+bodies at their posts; only bank-pickup bodies (sink feeds, the estate
+tender, the hub service) commute zero. Second, the cycle-credit
+argument was exact only if the rate model is exact — it credited the
+walk out against boundary losses the model does not carry (a body dies
+mid-route with cargo aboard; load/unload ticks; the crawl of
+MOVE-light walks). Pickup-posting charges the walk as a time-to-live
+penalty and amortizes over the remainder: conservative by about half a
+load per life, which is roughly what the un-modeled losses cost —
+self-insurance instead of optimism. Round 3 follows the same rule
+honestly now: the incumbent fleet's replacement bill, the road
+counterfactual, and the station members' both-sides fleet bills all
+prorate by the pickup walk — bodies pay commutes, wires do not, so
+displacement thresholds moved toward the wire by exactly the walk.
+Re-pinned: the worked-550 residual (16.2524 → 16.2393 — the fleets'
+walks joined the bills) and the machine-currency identity with the
+fleets' commutes stated. 95 unit + 8 integration green.
+
+**Finding (2026-08-24, the big-map demo — recorded, not valved): the
+machine-lock.** Staging the owner's ask ("a big map with many sources,
+more than the spawn capacity" — 26 sources, one spawn, 100×100) found
+a sharper variant of the bonfire: cold-started, the world staffs
+production chains in merit order until the machine saturates, and only
+THEN do round-3 approvals arrive — 15 sites approved, ZERO ever built,
+because the capital reserve is `min(need, free)` and the standing
+fleet's seed leaves free ≈ 0.0100 p/t against a builder's 0.0127: the
+reserve cannot claw machine back from standing production, so the
+wires that would free the machine can never be built. Locked forever —
+140 e/t delivered, 15 e/t upgraded, 124 e/t to a bank at 1.4M. The
+same 26-source world staged in two phases (16 sources → wires land →
+THEN the far tier arrives) settles healthily: 6/6 links, 16/26
+staffed at 153.5 e/t, a 72 e/t dividend, the far tier dark behind
+`spawn capacity` lines — and the merit order even displaced an
+original member (nw2) for a better far source (f9). The lock is an
+ORDER-OF-ARRIVAL hole in the forest-stall fix ("the ladder applies to
+the MACHINE currency" reserved only FREE machine): capital formation
+needs either a standing machine share (the same open ruling as the
+dividend's share) or replacement-time displacement in the spawnTime
+currency — production bodies not renewed while an approved build
+starves. Owner conversation; sits with the bonfire findings.
+
+**Budget note:** src stands at ~3.85k lines against the ~3k budget
+(~3.2k before Addenda 4–6 landed; the growth is the anatomy's quotes,
+the roster, the overflow lane, commute proration, and the ported
+docblocks). The overage is docblock prose carrying the session's
+incident record in place. Trim or ratify — queued as ruling A6 in the
+backlog section below.
+
+## The backlog and the ruling queue (2026-08-24, session close)
+
+Consolidated at the owner's request before this branch merges: every
+open ruling and debt item in ONE place, triaged, each pointing at its
+full context above — eleven ⚖ marks scattered over 1,900 lines was
+the session-ergonomics disease knocking. The session's arc is Addenda
+4–6 plus the machine-lock finding: the haul-fed port became the link
+corp's own machine (throat, buffer, hub service), the overflow lane
+made the ration's excess a rate instead of a shed member, the plan
+learned to state its ROSTER, and bodies prorate for their posting
+walk. Status read at close: the frame is structurally healthy and
+SELF-CORRECTING — this session's three defects were each caught by
+the frame's own tripwires, and every fix DELETED compensating lenses
+rather than adding one; the economics are richer than their
+certification (the believer certifies accounting; fidelity waits for
+Tier 2); the binding constraint is ruling bandwidth, not code.
+
+**A. The ruling session — quick ratifications, most one word:**
+
+1. Warchest divert-everything during accumulation (visible fleet
+   churn) — findings ledger, break #2.
+2. Replacement-scale displacement as piece 5's reading ("replacement
+   time is always, a little") — findings ledger, break #4.
+3. Rows price replacement scale — piece 1's "cost e/t (amortized
+   bodies)" read literally; settled nets shifted down by their fleets'
+   bills (Addendum 4, second landing).
+4. Addendum 4's recorded deviations pending their Tier-2 conversion:
+   the hub service rides as a FEE until the succession vocabulary
+   lands; the buffer's capex is purse-paid at obligation time, not
+   reserved at station approval.
+5. Addenda 5 and 6 were owner-initiated and are recorded in the
+   owner's words — restated here for one-pass review: blended
+   admission with merit seating the wire; every body posted at its
+   pickup.
+6. The budget: src ~3.85k against the ~3k law, and this document at
+   ~1.9k lines — trim or ratify, both.
+
+**B. Design conversations — real decisions, exhibits in hand:**
+
+1. **The machine share.** Capital's and the dividend's share of
+   spawnTime — the bonfire finding and now the machine-lock (two
+   staged worlds demonstrate it end to end; the capital reserve
+   cannot claw machine back from standing fleets, so a world that
+   saturates before its first approval never builds).
+   Replacement-time displacement in the spawnTime currency — standing
+   production bodies not renewed while an approved build or the sink
+   starves — is the candidate mechanism. The deepest open economics.
+2. **Losses are flows** (`provides: 0.97·flow`) — a vocabulary event;
+   also retires the tax-on-quoted-vs-allocated residual.
+3. **Flow-funded capex** — rate-solvency vs stock-solvency for
+   projects beyond a branch's decay asymptote.
+4. **Approvals carry their priced tiles as plan state** — the
+   believer's realize() re-derives the search on the mutated world
+   and can burn a project's capex (Addendum 3 close).
+5. **Candidate pricing member-by-member vs standing** — the settled
+   tree and the t0 tree can disagree at the margin (Addendum 2's
+   recorded finding).
+
+**C. Tier 2 prerequisites — criteria agreed before code, per the
+working agreement:**
+
+1. The succession vocabulary (`expiresIn`/spawn-lead) — the recorded
+   cutover blocker.
+2. Service bodies become HIRES — the hub shuttle above all; the
+   porttender wedge (charged, never spawned) is the failure mode the
+   conversion closes, and their machine time then charges.
+3. Vessel loading at miner-fed mouths (the energyAt vessel-blindness
+   finding).
+4. Runner-side port doctrine: arrivals-first, the sender queue, the
+   fill posture — certified by the five-gauge mockup cell (clamp
+   share, empty share, port waits, volley average, hauler duty; bands
+   pinned multi-draw).
+
+**D. Standing debt, tracked — no action until measurement asks:**
+pooled fleets vs per-edge ceil (#150 at plan time); member-side
+whole-supply routing and best-outpost-only; candidate-side arithmetic
+still flat (overflow economics, commute, roads in the route
+heuristic; no road candidacy for the trunk corridor; swamp roads);
+the radial bank's waypoint tax (place-to-place distances — Tier 3
+needs them); the reserver unquotable (`capacityAt`); spots and
+eviction; incumbency re-handing by capability-at-place; relay chains;
+spawnTime placeless; the hurdle only inside candidate arithmetic; the
+extension counterfactual not growing estateRadius; builder bodies
+amortized over 1500 for ~300t projects; depth-0 blindness behind the
+ramp filter; gait-ideal commutes (a MOVE-light body crawls its walk);
+throat re-handing's shape collisions at 1C1M and the roaded gait; and
+`standingBills` vs the rows' summed sustain — two computations, one
+fact, the next one-lens candidate.
 
 ## The scenario ladder (DRAFT 2026-08-18 — awaiting owner markup)
 

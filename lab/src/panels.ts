@@ -19,6 +19,21 @@ export function fmtBody(b: BodyShape | null): string {
   return parts.join(" ");
 }
 
+/** The corp's whole ROSTER, grouped — every body the corp runs on, live
+ * or still to hire. The old column rendered `hires[0]`, the next
+ * purchase, so a settled corp's body read "—" (the 2026-08-24 finding:
+ * "the link doesn't show as requiring a body — neither do the mines");
+ * a corp with genuinely no bodies (a pure-structure wire) still does. */
+export function fmtStaff(staff: { body: BodyShape; live: string | null }[]): string {
+  if (staff.length === 0) return "—";
+  const groups = new Map<string, number>();
+  for (const st of staff) {
+    const k = fmtBody(st.body);
+    groups.set(k, (groups.get(k) ?? 0) + 1);
+  }
+  return [...groups.entries()].map(([k, n]) => (n > 1 ? `${n}× ${k}` : k)).join(", ");
+}
+
 /** Every commodity a corp trades, rendered generically — engine fields
  * verbatim, whatever the vocabulary grows to hold. */
 export function fmtFlows(f: Flows): string {
@@ -38,7 +53,7 @@ export function renderPanels(container: HTMLElement, plan: EnginePlan, creeps: V
       // Structures back steps without being creeps — standing counts too.
       const live = Math.max(creeps.filter(k => k.corp === c.id).length, c.backed);
       return (
-        `<tr><td class="id">${c.id}</td><td>${fmtBody(c.hires[0] ?? null)}</td>` +
+        `<tr><td class="id">${c.id}</td><td>${fmtStaff(c.staff)}</td>` +
         `<td class="num">${live}/${c.target}</td>` +
         `<td class="flows">${fmtFlows(c.inputs)}</td>` +
         `<td class="flows">${fmtFlows(c.outputs)}</td>` +

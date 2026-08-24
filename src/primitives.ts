@@ -143,6 +143,36 @@ export const LINK_LOSS = 0.03;
 export const LINK_COST = 5000;
 
 /**
+ * ONE volley expressed in CARRY parts (800/50 = 16) — the LANDING QUANTUM
+ * (ported: v1 `LINK_PAYLOAD_CARRY`, spec 45 leg 3). A creep unloading
+ * into a link port places at most this much per arrival, so link-fed
+ * hauler bodies cap here — v1 measured 978–1,851e bodies into an 800-cap
+ * port standing 2–3 volley cycles per trip: surplus CARRY converts to
+ * standing time at the port, never throughput. Deliberately separate
+ * from the hub's service body below: the landing quantum and the shuttle
+ * are not the same quantity and must not scale together (v1's own
+ * correction, after one constant served both).
+ */
+export const LINK_PAYLOAD_CARRY = LINK_CAPACITY / CARRY_CAP;
+
+/**
+ * CARRY per inbound sender for the bank hub's service shuttle (ported:
+ * v1 `CORE_SERVICE_CARRY_PER_SENDER`; owner 2026-08-07: "the core link
+ * has a feeder tender creep slave. It empties it to ensure incoming
+ * links can transfer (links coming off cooldown) and fills it when if
+ * necessary when it needs to send energy to the upgraders. I recon it
+ * needs 8 carry to do its job well in our room. At lower RCL maybe 4 is
+ * good" — that room ran two inbound senders, so 4/sender IS the owner's
+ * 8). The t72819265 A/B pinned the mechanism as CONCURRENCY, not
+ * capacity — "one creep working harder cannot cover two senders
+ * arriving at once" — one small creep PER SENDER, parked a tile from
+ * hub and vault (a ~2-tick cycle clears 800 in ~8t, inside any sender's
+ * cooldown); the 16C swallow-a-volley floor measured as over-insurance
+ * (clamp 0.000, at 100 spawn parts ≈ 15% of the whole fleet).
+ */
+export const CORE_SERVICE_CARRY_PER_SENDER = 4;
+
+/**
  * The objective's horizon: H = 100,000 ticks, flat, nothing counts beyond
  * it (owner ruling 2026-08-18, piece 8: "It's just Screeps. We could pick
  * a horizon like 50,000 or 100,000 ticks"). An investment's value is the
@@ -174,17 +204,35 @@ export function partCount(s: WorkmanShape): number {
   return s.work + s.carry + s.move;
 }
 
-/** Per-tick cost of OWNING a body: its price amortized over a 1500-tick
- * life. The parts bill every funded step owes at the spawn's bank branch —
- * the tender heartbeat's obligation is the sum of these. */
-export function upkeepEt(s: WorkmanShape): number {
-  return bodyCost(s) / CREEP_LIFE;
+/**
+ * Effective working life (ticks) of a creep posted `commute` tiles from
+ * its spawn (ported: v1 `effectiveLife`, docblock near-verbatim): it
+ * spends ~`commute` ticks walking to its post before it can work or be
+ * replaced, so its build cost is amortised over the remainder. Floored
+ * at 1 so overhead stays finite for absurd distances. This lands the
+ * Tier-1 ledger's "commute is still priced at zero" finding — a
+ * 150-tile remote chain quoting ~+4.6 e/t and netting ~0 (Addendum 6,
+ * owner 2026-08-24: "shouldn't the body be prorated for travel time").
+ * A cycling body whose route touches the spawn's own bank commutes ~0:
+ * its first empty leg is a cycle, not a posting walk.
+ */
+export function effectiveLife(commute = 0): number {
+  return Math.max(1, CREEP_LIFE - commute);
+}
+
+/** Per-tick cost of OWNING a body: its price amortized over its
+ * EFFECTIVE life — 1500 ticks less the posting walk. The parts bill
+ * every funded step owes at the spawn's bank branch — the tender
+ * heartbeat's obligation is the sum of these. */
+export function upkeepEt(s: WorkmanShape, commute = 0): number {
+  return bodyCost(s) / effectiveLife(commute);
 }
 
 /** Spawn machine time to KEEP a body alive: its parts re-bought once per
- * life, in parts/tick against SPAWN_RATE capacity. */
-export function spawnTimeEt(s: WorkmanShape): number {
-  return partCount(s) / CREEP_LIFE;
+ * EFFECTIVE life (a commuting body re-spawns more often), in parts/tick
+ * against SPAWN_RATE capacity. */
+export function spawnTimeEt(s: WorkmanShape, commute = 0): number {
+  return partCount(s) / effectiveLife(commute);
 }
 
 /** Delivered e/t of CARRY parts shuttling one-way `distance`: capacity over
