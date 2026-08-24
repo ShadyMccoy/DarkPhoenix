@@ -83,11 +83,12 @@ describe("engine/replan", () => {
     assert.closeTo(haulA?.outputs.energyAt?.["bank"] ?? 0, 10, 1e-9, "delivers the same at the bank");
     assert.isAbove(haulA?.inputs.spawnTime ?? 0, 0, "machine time is an input");
     const up = corps.get("upgrade:ctrl");
-    // The drained residual re-pinned under Addendum 6: commuting bodies
-    // (mines at 10/25, upgraders at the feed's 5) bill over their
-    // effective life, so the controller drinks a hair less than 244/15.
+    // The drained residual re-pinned under Addendum 6 (corrected): every
+    // posted body — mines at 10/25, HAULERS at their sources' 10/25,
+    // upgraders at the feed's 5 — bills over its effective life, so the
+    // controller drinks a hair less than 244/15.
     const drained = plan.expected.upgradeEt;
-    assert.closeTo(drained, 16.252417, 1e-6);
+    assert.closeTo(drained, 16.239328, 1e-6);
     assert.closeTo(up?.outputs.controlPoints ?? 0, drained, 1e-9);
     assert.closeTo(up?.inputs.energyAt?.["ctrl"] ?? 0, drained, 1e-9, "burns at its own feed point");
     assert.closeTo(

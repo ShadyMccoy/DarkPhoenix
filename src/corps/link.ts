@@ -130,9 +130,10 @@ export function quoteTrunk(h: TrunkHandoff): TrunkQuote | null {
     byId.find(c => c.body.work === tender.work && c.body.carry === tender.carry && c.body.move === tender.move) ??
     byId.find(c => c.body.work === 0 && c.body.move === 1);
   const haulers = byId.filter(c => c !== throatLive);
-  // The throat COMMUTES: it walks the corridor once and parks, so its
-  // bill prorates over the effective life (Addendum 6). The overflow
-  // haulers cycle from the bank — their first empty leg is a cycle.
+  // Every trunk body COMMUTES the corridor (Addendum 6, corrected: a
+  // hauler's posting is its PICKUP — "the haulers should start at the
+  // source"): the throat walks out once and parks; the overflow haulers
+  // start at the port and pay the same walk as a time-to-live penalty.
   const throat: Step = throatLive
     ? {
         backedBy: throatLive.id,
@@ -188,6 +189,7 @@ export function quoteTrunk(h: TrunkHandoff): TrunkQuote | null {
         steps.push({
           backedBy: live.id,
           body: live.body,
+          commute: h.distToBank,
           provides: { energyAt: { [h.to]: liveRate } },
           requires: { energyAt: { [h.from]: liveRate } },
           cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
@@ -203,9 +205,14 @@ export function quoteTrunk(h: TrunkHandoff): TrunkQuote | null {
       memberOf(s.sourceId).push({ step: steps.length, capacity: rate });
       steps.push({
         body,
+        commute: h.distToBank,
         provides: { energyAt: { [h.to]: rate } },
         requires: { energyAt: { [h.from]: rate } },
-        cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },
+        cost: {
+          upfront: bodyCost(body),
+          upkeepEt: upkeepEt(body, h.distToBank),
+          spawnTimeEt: spawnTimeEt(body, h.distToBank)
+        },
         note: `overflow ${body.carry}C over ${h.distToBank} tiles for ${s.sourceId}`
       });
     }

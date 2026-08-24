@@ -1788,6 +1788,34 @@ port into the sizing handoffs"). Landed, closing that finding
   for MOVE-light bodies; the honest per-shape walk time is sizing's to
   derive when the fidelity line cares.
 
+**Addendum 6 CORRECTED (owner 2026-08-24, ninth conversation: "No, I
+think the haulers should start at the source. So they also have a time
+to live penalty and a[m]ortization."):** the first landing exempted
+bank-touching fleets on a cycle-credit argument — a newborn hauler's
+first empty leg out "is a cycle, not a commute." Overruled, and the
+ruling's convention is the better model twice over. First, it is ONE
+rule where the exemption was two: **every body's posting is its
+PICKUP** — direct fleets and collectors start at their source, the
+trunk's overflow haulers start at the port (the whole trunk roster now
+commutes the corridor, retiring the mixed-corp hedge in the seed
+registry), workmen start at their source, miners and parked service
+bodies at their posts; only bank-pickup bodies (sink feeds, the estate
+tender, the hub service) commute zero. Second, the cycle-credit
+argument was exact only if the rate model is exact — it credited the
+walk out against boundary losses the model does not carry (a body dies
+mid-route with cargo aboard; load/unload ticks; the crawl of
+MOVE-light walks). Pickup-posting charges the walk as a time-to-live
+penalty and amortizes over the remainder: conservative by about half a
+load per life, which is roughly what the un-modeled losses cost —
+self-insurance instead of optimism. Round 3 follows the same rule
+honestly now: the incumbent fleet's replacement bill, the road
+counterfactual, and the station members' both-sides fleet bills all
+prorate by the pickup walk — bodies pay commutes, wires do not, so
+displacement thresholds moved toward the wire by exactly the walk.
+Re-pinned: the worked-550 residual (16.2524 → 16.2393 — the fleets'
+walks joined the bills) and the machine-currency identity with the
+fleets' commutes stated. 95 unit + 8 integration green.
+
 **Budget note:** src stands at ~3.75k lines against the ~3k budget
 (~3.2k before Addenda 4–5 landed; the growth is the anatomy's quotes,
 the roster, the overflow lane, and the ported docblocks). The overage

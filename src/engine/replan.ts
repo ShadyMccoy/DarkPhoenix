@@ -110,9 +110,10 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
   /** Posting walk per corp id, registered where each handoff is built —
    * the standing seeds (standingBills / standingSpawnEt) prorate live
    * creeps by their corp's commute so the heartbeat is not silently
-   * under-covered by commuting fleets (Addendum 6). A corp with mixed
-   * commutes (the trunk: a commuting throat, cycling overflow haulers)
-   * registers its majority value; the ROWS stay exact per step. */
+   * under-covered by commuting fleets (Addendum 6, corrected: every
+   * body's posting is its PICKUP — haulers start at the source, the
+   * trunk's whole roster commutes the corridor; only bank-pickup bodies
+   * commute zero). The ROWS stay exact per step. */
   const commuteByCorp = new Map<string, number>();
 
   /** Round 2 for one gap: every transport kind quotes; the options merge
@@ -237,7 +238,9 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
 
   const chains: ChainCandidate[] = [];
   const directChain = (srcId: string, mineOptions: StageOption[], distToBank: number, supply: number): void => {
-    const book = transportBook({ from: srcId, to: view.bank, dist: distToBank, flow: supply });
+    // The fleet starts at the source (Addendum 6, corrected): the walk
+    // out is a time-to-live penalty, not a first cycle.
+    const book = transportBook({ from: srcId, to: view.bank, dist: distToBank, flow: supply }, distToBank);
     if (book.length > 0) {
       chains.push({
         id: `chain:${srcId}:specialist`,
@@ -259,6 +262,7 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     sourceCaps[src.id] = SOURCE_RATE;
 
     commuteByCorp.set(`mine:${src.id}`, src.distToBank);
+    commuteByCorp.set(`workman:${src.id}`, src.distToBank);
     const mine = quoteMine({
       sourceId: src.id,
       spots: src.spots,
@@ -329,12 +333,12 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
       const gain = wireShare * o.saving + spill * (directUnit - haulUnit(o.dSrc) - haulUnit(t.distToBank));
       if (gain <= 1e-9) continue;
       // A collector leg unloads into the port: its bodies cap at the
-      // landing quantum (Addendum 4's anatomy at the haul quote). Its
-      // route never touches the bank, so the fleet pays the walk out —
-      // through whichever end is nearer (Addendum 6).
+      // landing quantum (Addendum 4's anatomy at the haul quote). The
+      // fleet starts at its SOURCE (Addendum 6, corrected) and pays
+      // that walk as its time-to-live penalty.
       const collector = transportBook(
         { from: c.srcId, to: o.outpostPlace, dist: o.dSrc, flow: c.supply, linkFed: true },
-        Math.min(c.directDist, t.distToBank)
+        c.directDist
       );
       if (collector.length === 0) continue;
       viaSeated.add(c.srcId);
@@ -371,7 +375,7 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
   // shape. The throat funds with whichever member funds first and the
   // market charges shared steps once (Addendum 4).
   for (const t of trunks.values()) {
-    commuteByCorp.set(`link:${t.place}->${view.bank}`, 0);
+    commuteByCorp.set(`link:${t.place}->${view.bank}`, t.distToBank);
     const q = quoteTrunk({
       from: t.place,
       to: view.bank,
@@ -599,7 +603,8 @@ export function replan(view: EconomyView): EnginePlan {
     // IMMORTAL incumbents). In steady state replacement is continuous —
     // the amortized bill IS the fleet's marginal cost. The bill is the
     // IDEAL fleet's, from the one logistics law.
-    const replacementBill = haulFleetBillEt(corp.pnl.grossEt, gap.dist, gap.roaded ?? false);
+    const pickupWalk = gap.from === view.bank ? 0 : view.sources.find(k => k.id === gap.from)?.distToBank ?? gap.dist;
+    const replacementBill = haulFleetBillEt(corp.pnl.grossEt, gap.dist, gap.roaded ?? false, pickupWalk);
     const incumbentUnit = replacementBill / corp.pnl.grossEt;
 
     const wireOpt = view.wireOptions.find(w => w.from === gap.from && w.to === gap.to) ?? null;
@@ -636,7 +641,7 @@ export function replan(view: EconomyView): EnginePlan {
     // cheaper gait (2C:1M). Only where the wire did NOT clear: a paved
     // route under a link is capex twice for one flow.
     if (!gap.roaded) {
-      const roadedBill = haulFleetBillEt(corp.pnl.grossEt, gap.dist, true);
+      const roadedBill = haulFleetBillEt(corp.pnl.grossEt, gap.dist, true, pickupWalk);
       const saving = replacementBill - roadedBill - gap.dist * ROAD_UPKEEP_ET_PER_TILE;
       const capex = gap.dist * ROAD_COST_PER_TILE;
       if (saving * HORIZON > capex) {
@@ -674,10 +679,11 @@ export function replan(view: EconomyView): EnginePlan {
     for (const x of members) {
       const gap = gapByOffer.get(x.corp!.id);
       const gross = x.corp!.pnl.grossEt;
+      const memberWalk = view.sources.find(k => k.id === x.m.id)?.distToBank ?? gap?.dist ?? 50;
       flow += gross;
       saving +=
-        haulFleetBillEt(gross, gap?.dist ?? 50, gap?.roaded ?? false) -
-        haulFleetBillEt(gross, x.m.collectRange, false) -
+        haulFleetBillEt(gross, gap?.dist ?? 50, gap?.roaded ?? false, memberWalk) -
+        haulFleetBillEt(gross, x.m.collectRange, false, memberWalk) -
         LINK_LOSS * gross;
     }
     // The candidate prices its whole port anatomy (Addendum 4): the

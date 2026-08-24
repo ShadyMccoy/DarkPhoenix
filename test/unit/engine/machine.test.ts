@@ -63,9 +63,16 @@ describe("engine/machine — the spawn currency at the executor seam", () => {
     const first = far!.staff[0].body;
     const last = far!.staff[far!.staff.length - 1].body;
     assert.isBelow(last.carry, first.carry, "the last body is the remainder runt, not a copy of the first");
-    // The identity recomputes with each corp's POSTING WALK (Addendum
-    // 6): a commuting body re-spawns more often per working tick.
-    const commuteOf: Record<string, number> = { "mine:srcA": 10, "mine:srcC": 30, "upgrade:ctrl": 5 };
+    // The identity recomputes with each corp's POSTING WALK (Addendum 6,
+    // corrected: a hauler's posting is its PICKUP, so the fleets pay
+    // their sources' walks too).
+    const commuteOf: Record<string, number> = {
+      "mine:srcA": 10,
+      "mine:srcC": 30,
+      "haul:srcA->bank": 10,
+      "haul:srcC->bank": 30,
+      "upgrade:ctrl": 5
+    };
     for (const corp of plan.corps) {
       const hired = corp.staff
         .filter(st => !st.live)

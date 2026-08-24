@@ -143,7 +143,7 @@ describe("engine/build — the investment pipeline", () => {
     // effective life): the un-sited world drains ~16.25, the sited one
     // loses the build fleet's bills — never the 16.67 burn.
     const without = replan(view({ bodyBudget: 550, bankStock: 20000 }));
-    assert.closeTo(without.expected.upgradeEt, 16.252417, 1e-6);
+    assert.closeTo(without.expected.upgradeEt, 16.239328, 1e-6);
     assert.isAbove(without.expected.upgradeEt - e.upgradeEt, 0.8, "the bills cost the controller under one step");
     assert.isBelow(without.expected.upgradeEt - e.upgradeEt, 1.2, "the burn itself never rode the residual");
   });
