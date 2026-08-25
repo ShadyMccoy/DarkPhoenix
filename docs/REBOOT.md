@@ -1992,6 +1992,47 @@ Tier 2); the binding constraint is ruling bandwidth, not code.
    candidates); findings return to this queue. (4) REBOOT.md
    ratified at current size; the split waits for the Tier-2 seam
    when the Tier-1 ledger becomes history.
+   **The audit returned (same session):** the growth is duplication
+   and misplaced domain logic, not cruft. (i) ~150–200 code lines of
+   low-risk mechanical cuts: twin sink-assembly blocks
+   (replan:414-470), ONE step-bill function for
+   steadyUnit/candUnit/the market's backed-sustain fold (the
+   cross-file sync-by-comment deletes), shared step builders across
+   the seven verticals (the purchase-cost triple repeats ~7×),
+   drawSink's full/partial twins (the door the review already caught
+   a dropped fee at), single-use quoteSpawning to a scalar,
+   capitalReserve's double zip, transportBook's `gap.roaded`
+   side-channel. (ii) ~150 lines of trunk/via planning living in the
+   broker (replan:199-351, :377-407) that belong in `corps/link.ts`
+   per the verticals law — the biggest single reduction. (iii)
+   PRIORITY, joined to the A.4 follow-up batch: the station hurdle
+   re-derives the port anatomy's price inline (replan:696) — the
+   serviceFee deletion must land in BOTH sites or they diverge
+   silently; the hurdle arithmetic is also the thinnest-pinned spot
+   (end-to-end tests only). (iv) The buffer obligation detects
+   trunks by parsing id strings (replan:783) — the quote should
+   declare "needs buffer at X". (v) vocabulary.ts's docblocks are
+   ~entirely duplicated with this document — the sweep's biggest
+   safe cut. Stale prose to DELETE, not migrate: the overruled
+   cycle-credit rule still stated at primitives:216, vocabulary:84,
+   haul.ts:31 (Addendum 6 CORRECTED; the code already implements the
+   correction — the two-lens disease in documentation form, live).
+   **Unique lessons captured ledger-side (the sweep may now delete
+   them from src):** v1's convexity quote — "that convexity is why
+   'let it pile up and haul it later' is not free"; storage's value
+   is CAPACITY — the saving is overflow decay above the container
+   cap; extension capacity steps 50/100/200 by RCL — a model gap
+   until the snapshot carries controller level; the measured
+   overload class behind the deposit cap — 978–1,851e bodies into an
+   800-cap port, 2–3 volley cycles per trip; bodyList is WORK-first
+   so degrade culls CARRY first (conventional, not load-bearing);
+   BUILD_POWER ports v1's BUILD_ENERGY_PER_WORK; spec 45's feeder
+   bug class — "sizing it to average relay flow is the bug class",
+   size to the landing quantum; sites are world state, never plan
+   state (progress persists in the game); buffer evidence semantics
+   — absent reads as false; and an OWNER RULING that lived only in
+   src, restored to the record: **a source IS its place — no
+   separate "mouth" concept (owner 2026-08-23).**
 
 **A+. Raised in-session and ruled — the fiscal calendar (2026-08-24,
 owner's definition; corrected same session: "1500 and 15,000"):** one
