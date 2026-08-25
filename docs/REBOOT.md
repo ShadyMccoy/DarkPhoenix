@@ -1927,22 +1927,26 @@ Tier 2); the binding constraint is ruling bandwidth, not code.
    instance, posted at the hub (commute zero per Addendum 6), machine
    time charged for real, funded with the bank's obligations —
    critical, never outbid by merit — and the hub-service fee line
-   DELETES. Pricing doctrine is unchanged ("never bare 3%"): a wire's
-   quote, candidate or standing, carries the one shuttle its
-   existence causes at the bank — dockage, not overhead; remove the
-   wire and the crew shrinks by one — exactly as a station candidate
-   carries the throat it will cause on the trunk's roster. The body
-   lives once, bank-side; the books stay one-lens while quotes state
-   causal deltas. The container's holding cost stays a
+   DELETES. **Simplified further (owner, same session: "the guard on
+   the wires' quote seems unnecessarily complex — keep it simple;
+   it's not a lot of resources anyways"): wires do not quote the
+   shuttle at all.** The dock crew is the bank's own overhead, full
+   stop — which AMENDS the first landing's pricing sentence on the
+   hub side: a wire's price is the 3% plus its own TRUNK-side terms
+   (throat bill, buffer hold); hub service is nobody's fee. Recorded,
+   not valved: wire candidates thereby read about one shuttle's bill
+   cheaper than true against direct hauling — accepted as immaterial
+   by the owner; if the fidelity line ever measures a mis-approval at
+   this seam, it returns to the queue as a finding. The container's holding cost stays a
    fee on purpose — holding has no body. The buffer's capex joins the
    CLAIM at station approval (A.1 applied), closing the purse gap.
    What remains Tier-2 is only the runner choreography
    (arrivals-first, drain-on-demand) — ratified doctrine, waiting on
    runners existing. Engine follow-ups queued with the A.1 batch: the
-   bank/hub instance gains its dock staff (replacing the `serviceFee`
-   upkeep term in `link.ts`; wires' quotes keep the causal term),
-   approved kit counted into the claim, the believer staffing the
-   dock exactly as it staffs the throat.
+   bank/hub instance gains its dock staff (the `serviceFee` upkeep
+   term in `link.ts` deletes from wire quotes; the hold term stays
+   trunk-side), approved kit counted into the claim, the believer
+   staffing the dock exactly as it staffs the throat.
 5. Addenda 5 and 6 were owner-initiated and are recorded in the
    owner's words — restated here for one-pass review: blended
    admission with merit seating the wire; every body posted at its
