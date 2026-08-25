@@ -1,10 +1,3 @@
-/**
- * corps/workman.ts — the fused converter and the engine's root: one body
- * that mines, walks, and delivers to the bank. It always quotes; it wins
- * only worlds where nothing else is solvent (the bootstrap) and is
- * outcompeted the moment specialist chains fund — piece 6's no-mode
- * cascade. The runner stays in execute.ts until the cutover.
- */
 import { SOURCE_RATE, workmanCycleRate } from "../primitives";
 import { workmanBody } from "../sizing";
 import { hireStep, liveStep } from "./steps";

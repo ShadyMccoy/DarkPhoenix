@@ -1,17 +1,3 @@
-/**
- * world.ts — THE snapshot. The only module in v2 that reads `Game.*`.
- *
- * Everything the planner and the executors know about the game arrives
- * through the `World` value built here once per tick. There is deliberately
- * no second lens: if a fact isn't in `World`, the consumer that wants it
- * adds it HERE, and every other consumer sees the same derivation (v1's
- * two-lens drift died of exactly this — REBOOT.md disease #1).
- *
- * The spawn pipe is a first-class fact: `Game.creeps` includes spawning
- * creeps, and each carries its job assignment from birth, so any census
- * over `World.creeps` counts in-flight bodies by construction (v1's last
- * live bug class, t72811290).
- */
 import { SOURCE_RATE } from "./primitives";
 
 export interface WorldSource {
@@ -19,10 +5,7 @@ export interface WorldSource {
   x: number;
   y: number;
   energy: number;
-  /** Walkable tiles adjacent to the source (terrain-only, cached per global). */
   spots: number;
-  /** Chebyshev range to the room's first spawn — the planner's distance
-   * estimate until real paths earn their place (the F1 line measures the gap). */
   distToSpawn: number;
 }
 
@@ -33,7 +16,6 @@ export interface WorldSpawn {
   y: number;
   energy: number;
   energyCapacity: number;
-  /** Job id of the body being built, or null when idle. */
   spawningJob: string | null;
 }
 
@@ -56,9 +38,7 @@ export interface WorldRoom {
   controllerY: number;
   spawns: WorldSpawn[];
   sources: WorldSource[];
-  /** Spawns + extensions with free energy capacity — the heartbeat's targets. */
   refills: RefillTarget[];
-  /** Ceiling on what this room's sources can yield. */
   sourceRateCap: number;
 }
 
@@ -81,7 +61,6 @@ export interface World {
   creeps: WorldCreep[];
 }
 
-/** Terrain-derived standing room per source: immutable, so cached per global. */
 const spotsCache = new Map<string, number>();
 
 function sourceSpots(source: Source): number {

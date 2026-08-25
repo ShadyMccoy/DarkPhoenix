@@ -2032,7 +2032,16 @@ Tier 2); the binding constraint is ruling bandwidth, not code.
    state (progress persists in the game); buffer evidence semantics
    — absent reads as false; and an OWNER RULING that lived only in
    src, restored to the record: **a source IS its place — no
-   separate "mouth" concept (owner 2026-08-23).**
+   separate "mouth" concept (owner 2026-08-23).** From the M1 root
+   files (captured at the sweep): RAMP_CAP=3 workmen/source — the M1
+   mockup diag (2026-08-18) measured saturation wanting 12 one-WORK
+   bodies on an 8-spot source, a 4,000e fleet starving every other
+   sink 1,000+ ticks; three units keeps the ramp under ~450t, and the
+   cap retires with M2's miner split. The spawn pipe is a first-class
+   snapshot fact (Game.creeps includes spawning bodies, jobs assigned
+   at birth) — v1's last live bug class, t72811290. And F1's "used" =
+   controller progress + body spend is a deliberate under-count of
+   mined (drops, decay, self-regen blur it); M3 owns tightening it.
    **RESOLVED (same session; owner: "resolve all the code debt issues
    you found"):** all ten items landed green — 95 unit + 8
    integration, lint clean. The trunk/via planning lives in
@@ -2052,6 +2061,17 @@ Tier 2); the binding constraint is ruling bandwidth, not code.
    cycle-credit prose is deleted at all three sites. The docblock
    migration sweep (the ~1.4k comment mass) remains queued — this
    batch was the CODE debt.
+   **SWEPT (same session; owner: "doc block sweep"):** every comment
+   line in src is gone — zero remain — and the budget law is MET:
+   src stands at 2,651 total lines against the ~3k law (2,412
+   non-blank; code content unchanged, gate green at 95 unit + 8
+   integration, lint clean). The unique lessons were banked in this
+   entry before deletion, three more captured from the M1 root files
+   at sweep time (RAMP_CAP's measured diag, the spawn-pipe
+   first-class fact t72811290, F1's used-vs-mined stance). The `note`
+   fields survive — they are data the lab renders, not comments. From
+   here the no-comments style is law for new code: names and tests
+   carry the what; this ledger carries the why.
 
 **A+. Raised in-session and ruled — the fiscal calendar (2026-08-24,
 owner's definition; corrected same session: "1500 and 15,000"):** one

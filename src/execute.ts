@@ -1,11 +1,3 @@
-/**
- * execute.ts — order-takers. Runners decide ACTIONS from the snapshot and
- * the plan; nothing here makes an economic decision (that's plan.ts) and
- * nothing here derives world facts (that's world.ts). Game handles are
- * resolved only at the action edge — to move, harvest, transfer, spawn —
- * and creep memory is written only at the two sanctioned points: job
- * assignment and the workman's one hysteresis bit.
- */
 import { bodyCost, bodyList } from "./primitives";
 import { Job, Plan, jobCensus } from "./plan";
 import { World, WorldCreep, WorldRoom } from "./world";
@@ -15,11 +7,6 @@ function range(ax: number, ay: number, bx: number, by: number): number {
   return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
 }
 
-/**
- * Give every unassigned (or orphaned by a replan) creep a job: most
- * understaffed first. Runs on the same census the spawn side uses — one
- * demand lens, by law.
- */
 export function assignJobs(world: World, plan: Plan): void {
   const jobsById = new Map(plan.jobs.map(j => [j.id, j]));
   const census = jobCensus(world);
@@ -44,11 +31,6 @@ export function assignJobs(world: World, plan: Plan): void {
   }
 }
 
-/**
- * The workman: harvest until full, deliver until empty. Delivery follows
- * the sink ladder's top rungs — spawn/extension refill is the heartbeat
- * and ALWAYS outranks the controller; the controller burns the residual.
- */
 function runWorkman(c: WorldCreep, job: Job, room: WorldRoom): void {
   const creep = Game.creeps[c.name];
   if (!creep || c.spawning) return;
@@ -111,12 +93,6 @@ export function runCreeps(world: World, plan: Plan): void {
   }
 }
 
-/**
- * The spawn side of the ONE subtraction: demand = target − census (spawn
- * pipe included, because World.creeps includes spawning bodies and this
- * tick's purchases are added to the census as they are made). Purchases go
- * most-understaffed-first, priority as tiebreak.
- */
 export function runSpawns(world: World, plan: Plan): void {
   const census = jobCensus(world);
 

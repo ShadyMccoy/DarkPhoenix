@@ -1,9 +1,3 @@
-/**
- * corps/upgrade.ts — the terminal converter: energy into control points,
- * 1:1 below RCL8 (progress == energy). Value is realized HERE and only
- * here (owner pin: production has no standalone worth). The body parks at
- * the bank branch and self-feeds — the founding kernel co-locates the two.
- */
 import { UPGRADE_POWER } from "../primitives";
 import { upgraderBody } from "../sizing";
 import { hireStep, liveStep } from "./steps";
@@ -12,13 +6,9 @@ import { ViewCreep } from "../engine/view";
 
 export interface UpgradeHandoff {
   controllerId: string;
-  /** Where its energy must arrive — the controller-side feed point. */
   feed: PlaceId;
   bodyBudget: number;
-  /** Ceiling on useful burn — the world cannot upgrade more than it mines,
-   * so the broker passes total source rate; the schedule ends there. */
   maxBurn: number;
-  /** Posting walk to the feed point (Addendum 6). */
   commute: number;
   creeps: ViewCreep[];
 }

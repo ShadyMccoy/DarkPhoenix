@@ -1,16 +1,3 @@
-/**
- * ledger.ts — the fidelity line (F1), the whole telemetry system until a
- * question earns more (REBOOT.md bet #4). Every window it prints the
- * planner's claimed e/t NEXT TO measured energy put to use, because a plan
- * the runtime doesn't follow costs more than the energy it misprices — it
- * costs the diagnosis (owner 2026-07-30).
- *
- * "Used" = controller progress gained + energy spent on bodies. That is an
- * under-count of MINED (drops, decay and spawn self-regen blur it) — the
- * label says used, not mined, and M3 owns tightening the account. A window
- * that crosses an RCL-up reports the event instead of a ratio rather than
- * pretend the progress arithmetic spans the reset.
- */
 import { Plan } from "./plan";
 import { World } from "./world";
 

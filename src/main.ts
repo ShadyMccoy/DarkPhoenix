@@ -1,28 +1,15 @@
-/**
- * main.ts — the v2 loop. Five phases, one direction of data flow:
- *
- *   snapshot -> plan (cached, pure) -> assign -> run creeps -> run spawns
- *
- * plus the fidelity ledger and a status line. Memory lifecycle (the plan
- * cache, creep-memory burial) lives here and only here; world facts come
- * only from the snapshot; economic decisions only from the planner
- * (docs/REBOOT.md is the law).
- */
 import "./types";
 import { snapshot } from "./world";
 import { buildPlan, planStale } from "./plan";
 import { assignJobs, runCreeps, runSpawns } from "./execute";
 import { tickLedger } from "./ledger";
 
-/** Replan cadence. Staleness triggers (room set change, survival flip) can
- * force it sooner — see planStale. */
 const PLAN_INTERVAL = 20;
 
 export const loop = (): void => {
   try {
     const world = snapshot();
 
-    // Bury the dead: creep memory with no live creep behind it.
     const alive = new Set(world.creeps.map(c => c.name));
     for (const name of Object.keys(Memory.creeps ?? {})) {
       if (!alive.has(name)) delete Memory.creeps[name];
