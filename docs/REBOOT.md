@@ -1946,7 +1946,8 @@ Tier 2); the binding constraint is ruling bandwidth, not code.
 5. Addenda 5 and 6 were owner-initiated and are recorded in the
    owner's words — restated here for one-pass review: blended
    admission with merit seating the wire; every body posted at its
-   pickup.
+   pickup. **CONFIRMED 2026-08-24 (queue ruling session):** both
+   records match intent as landed.
 6. The budget: src ~3.85k against the ~3k law, and this document at
    ~1.9k lines — trim or ratify, both.
 
