@@ -1961,9 +1961,16 @@ always-a-little. A MISSION — construction the exemplar — is chartered
 with an ABSOLUTE budget: capex + crew bodies + feed, charged to the
 job's books in full; mission bodies are not rent (no lifetime
 amortization — the design answer to the parked builder item: a
-~300-tick job's crew charges the mission, not a month's rent; the
-matching implementation stays in D until measurement asks). The
-market still clears in e/t, so a mission meets the merit order
+~300-tick job's crew charges the mission, not a month's rent; owner's
+grounding, same session: "even a 300 tick job spawns 1500 tick body
+parts. You can't get those back"; the matching implementation stays
+in D until measurement asks). Salvage never discounts the charge: a
+mission body that outlives its job stands as sunk capital, re-handed
+at ~zero to whatever work matches its shape (piece 5, already
+modeled) — the next employer's windfall, never approval credit; the
+game's partial recycle refund (v1 ran EOL-recycle routinely — the
+recycle pad, measured recycle cargo) is unmodeled in v2 and tracked
+in D. The market still clears in e/t, so a mission meets the merit order
 through break #3's own law — burn = TOTAL / PROJECT_RATE_WINDOW,
 constant over the job (`build.ts` already does exactly this) — and
 the books stay absolute. It all works out the same; stated absolutely
@@ -2017,7 +2024,10 @@ spawnTime placeless; the hurdle only inside candidate arithmetic; the
 extension counterfactual not growing estateRadius; builder bodies
 amortized over 1500 for ~300t projects; depth-0 blindness behind the
 ramp filter; gait-ideal commutes (a MOVE-light body crawls its walk);
-throat re-handing's shape collisions at 1C1M and the roaded gait; and
+throat re-handing's shape collisions at 1C1M and the roaded gait;
+mission-body salvage by recycle (v1's EOL-recycle driver and its
+refund constant await their port if missions multiply — re-handing
+already covers the main channel); and
 `standingBills` vs the rows' summed sustain — two computations, one
 fact, the next one-lens candidate.
 
