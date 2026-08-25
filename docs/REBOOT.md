@@ -1920,6 +1920,23 @@ Tier 2); the binding constraint is ruling bandwidth, not code.
 6. The budget: src ~3.85k against the ~3k law, and this document at
    ~1.9k lines — trim or ratify, both.
 
+**A+. Raised in-session and ruled — the fiscal calendar (2026-08-24,
+owner's definition):** one cycle — the replan chunk, `DT` = 150 ticks —
+is a MONTH; ten cycles are a YEAR (1500 ticks). The identities land
+exactly: a year is one creep generation (`CREEP_LIFE` = 10·DT), so a
+body is an ANNUAL HIRE and its standing bill is annual rent (A.2 in
+calendar words; a commute shortens the working year, per Addendum 6);
+the plan re-clears monthly; the horizon H = 100,000 is a ~66⅔-year
+career (piece 8's "~66 capital generations"). The month is thereby an
+accounting unit, not a free dial — DT stays pinned at CREEP_LIFE/10,
+and the Tier-2 mockup's replan cadence inherits "monthly." Years are
+the reporting window (the fidelity line and the lab print per-year);
+decisions happen monthly at replans, never annually — no allocations
+per year, no year-end effects. The recorded builder debt item reads
+plainly now: a ~2-month project charged a full year's rent — the
+matching fix (engagement vs year) stays parked in D until measurement
+asks.
+
 **B. Design conversations — real decisions, exhibits in hand:**
 
 1. **The machine share.** Capital's and the dividend's share of
