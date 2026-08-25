@@ -1912,7 +1912,27 @@ Tier 2); the binding constraint is ruling bandwidth, not code.
 4. Addendum 4's recorded deviations pending their Tier-2 conversion:
    the hub service rides as a FEE until the succession vocabulary
    lands; the buffer's capex is purse-paid at obligation time, not
-   reserved at station approval.
+   reserved at station approval. **RULED 2026-08-24: both exceptions
+   close now, not at Tier 2** (owner: "why have any of these
+   exceptions? … baked into the link or bank corp, it doesn't really
+   matter … we just work it into the existing framework
+   efficiently"). The hub shuttle becomes a real body by the THROAT's
+   own pattern — a zero-capacity service step on each sending wire's
+   offer (one per sender, the ratified sizing; fund/charge-once
+   idempotence already covers it), staffed through `staff`, posted at
+   the hub (commute zero per Addendum 6), machine time charged for
+   real — and the hub-service fee line DELETES. Ownership is
+   economics-neutral since each wire already prices its shuttle
+   (first landing); sender-side carries it because that is where
+   existing machinery funds it. The container's holding cost stays a
+   fee on purpose — holding has no body. The buffer's capex joins the
+   CLAIM at station approval (A.1 applied), closing the purse gap.
+   What remains Tier-2 is only the runner choreography
+   (arrivals-first, drain-on-demand) — ratified doctrine, waiting on
+   runners existing. Engine follow-ups queued with the A.1 batch: the
+   shuttle step in `link.ts` replacing the `serviceFee` upkeep term,
+   approved kit counted into the claim, the believer staffing the
+   shuttle exactly as it staffs the throat.
 5. Addenda 5 and 6 were owner-initiated and are recorded in the
    owner's words — restated here for one-pass review: blended
    admission with merit seating the wire; every body posted at its
