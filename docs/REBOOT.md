@@ -1897,10 +1897,18 @@ Tier 2); the binding constraint is ruling bandwidth, not code.
    roster-stability test — an accumulation episode produces zero
    roster events, and resume is same-replan.
 2. Replacement-scale displacement as piece 5's reading ("replacement
-   time is always, a little") — findings ledger, break #4.
+   time is always, a little") — findings ledger, break #4. **RULED
+   2026-08-24 (queue ruling session): ratified.** Ordering and
+   displacement price standing fleets at their replacement rate; sunk
+   stays sunk for funding; backed-first survives as the tiebreak.
+   Piece 5's "until bodies near expiry" officially reads as
+   continuous replacement.
 3. Rows price replacement scale — piece 1's "cost e/t (amortized
    bodies)" read literally; settled nets shifted down by their fleets'
-   bills (Addendum 4, second landing).
+   bills (Addendum 4, second landing). **RULED 2026-08-24:
+   ratified.** A settled row's P&L carries its fleet's replacement
+   bill — books and ordering are one arithmetic; any future band
+   re-pins from the honest number.
 4. Addendum 4's recorded deviations pending their Tier-2 conversion:
    the hub service rides as a FEE until the succession vocabulary
    lands; the buffer's capex is purse-paid at obligation time, not
