@@ -1951,7 +1951,21 @@ Tier 2); the binding constraint is ruling bandwidth, not code.
    owner's words — restated here for one-pass review: blended
    admission with merit seating the wire; every body posted at its
    pickup. **CONFIRMED 2026-08-24 (queue ruling session):** both
-   records match intent as landed.
+   records match intent as landed. **Objective appended (owner, same
+   session):** the trunk's design goal is the optimal setup in
+   bodies, CPU and energy — where the difference is marginal,
+   simplicity wins. The overflow lane's purpose stated: a station is
+   never capped by the ration — the wire is the cheap lane, overflow
+   scales the trunk to any throughput. Geography is already priced
+   asymmetrically, as the owner observed ("some links shortcut walls
+   and swamps while the overflow hauling wouldn't"): walk quotes ride
+   the weighted distance field (walls block, swamp at its cost) while
+   the wire's ration divides by Chebyshev range — the wire's premium
+   grows exactly where the corridor is ugly. Still unpriced, parked
+   in D with their triggers: swamp roads and the MOVE-light gait
+   crawl. CPU stays counted-not-priced per the deferred-CPU ruling;
+   when it binds, it strengthens wires (one send intent moves ~800e)
+   and may shrink overflow's seating — mechanism unchanged.
 6. The budget: src ~3.85k against the ~3k law, and this document at
    ~1.9k lines — trim or ratify, both.
 
