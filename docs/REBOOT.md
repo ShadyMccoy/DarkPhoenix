@@ -1967,7 +1967,31 @@ Tier 2); the binding constraint is ruling bandwidth, not code.
    when it binds, it strengthens wires (one send intent moves ~800e)
    and may shrink overflow's seating — mechanism unchanged.
 6. The budget: src ~3.85k against the ~3k law, and this document at
-   ~1.9k lines — trim or ratify, both.
+   ~1.9k lines — trim or ratify, both. **RULED 2026-08-24: the ~3k
+   law holds on TOTAL lines, met by style, not accounting** (owner:
+   docblocks "make the code seem overly complex. We want a no
+   comments style of code. Code that's so clear it doesn't need
+   comments" — plus an audit of what drives the growth). The
+   measurement behind it: 3,847 total = 2,418 code + 1,429
+   comment/blank; the comment mass sits in the reference files
+   (primitives 67% comment, vocabulary 61%, sizing 56%, view 53%)
+   while the CODE growth driver is the engine pair — replan.ts (585
+   code lines) + market.ts (531) hold nearly half the codebase and
+   grew +188/+101 in the anatomy arc alone. The ruling: (1)
+   NO-COMMENTS STYLE — a lesson lives ONCE: the WHY in this
+   document's ledger, the BEHAVIOR pinned by a test named for the
+   lesson, the WHAT in code clear enough to need no prose. The
+   docblock migration is its own queued sweep with one hard rule:
+   every UNIQUE docblock lands in the ledger before it leaves src —
+   nothing paid is deleted, only de-duplicated (much of the prose
+   already twins with this document's addenda: the two-lens disease
+   in documentation form). (2) CLAUDE.md's porting law amended: port
+   the formula, pin the test, archive the story here — no docblock
+   ride-along. (3) The code audit runs (replan/market
+   responsibilities vs the verticals law, duplication, collapse
+   candidates); findings return to this queue. (4) REBOOT.md
+   ratified at current size; the split waits for the Tier-2 seam
+   when the Tier-1 ledger becomes history.
 
 **A+. Raised in-session and ruled — the fiscal calendar (2026-08-24,
 owner's definition; corrected same session: "1500 and 15,000"):** one

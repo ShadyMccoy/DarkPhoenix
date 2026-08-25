@@ -9,8 +9,11 @@ The v1 bot lives on `master` and still runs the live shard1 colony
 (RCL8 / GCL 32). `docs/` (ONTOLOGY, PIPELINE, the specs, spec 14's session
 records) is v1's archive: the reference library for decisions, **not law**.
 When v2 needs a formula v1 hardened, port it from
-`git show master:src/economy/primitives.ts` with its docblock and pin it
-with a test — never re-derive from memory what v1 already paid to verify.
+`git show master:src/economy/primitives.ts` and pin it with a test named
+for its lesson; the docblock's story lands in REBOOT.md's ledger, never
+in src (owner 2026-08-24, queue ruling A6: no-comments style — code
+clear enough to need none; a lesson lives once). Never re-derive from
+memory what v1 already paid to verify.
 
 ## The law (v2 — structural, not checklist)
 
