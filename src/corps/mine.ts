@@ -5,8 +5,9 @@
  * Quote side only until the cutover brings the runner and the harvest
  * chokepoint here.
  */
-import { HARVEST_POWER, SOURCE_RATE, bodyCost, spawnTimeEt, upkeepEt } from "../primitives";
+import { HARVEST_POWER, SOURCE_RATE } from "../primitives";
 import { minerBody } from "../sizing";
+import { hireStep, liveStep } from "./steps";
 import { Offer, PlaceId, Step } from "../engine/vocabulary";
 import { ViewCreep } from "../engine/view";
 
@@ -30,15 +31,7 @@ export function quoteMine(h: MineHandoff): Offer | null {
     const rate = Math.min(c.body.work * HARVEST_POWER, SOURCE_RATE - cum);
     if (rate <= 0) break;
     cum += rate;
-    steps.push({
-      backedBy: c.id,
-      body: c.body,
-      commute: h.commute,
-      provides: { energyAt: { [h.sourceId]: rate } },
-      requires: {},
-      cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
-      note: `alive ttl=${c.ttl}`
-    });
+    steps.push(liveStep(c, h.commute, { energyAt: { [h.sourceId]: rate } }, {}));
   }
 
   const body = minerBody(h.bodyBudget);
@@ -46,18 +39,7 @@ export function quoteMine(h: MineHandoff): Offer | null {
     while (steps.length < h.spots && cum < SOURCE_RATE) {
       const rate = Math.min(body.work * HARVEST_POWER, SOURCE_RATE - cum);
       cum += rate;
-      steps.push({
-        body,
-        commute: h.commute,
-        provides: { energyAt: { [h.sourceId]: rate } },
-        requires: {},
-        cost: {
-          upfront: bodyCost(body),
-          upkeepEt: upkeepEt(body, h.commute),
-          spawnTimeEt: spawnTimeEt(body, h.commute)
-        },
-        note: `${body.work}W at the source`
-      });
+      steps.push(hireStep(body, h.commute, { energyAt: { [h.sourceId]: rate } }, {}, `${body.work}W at the source`));
     }
   }
 

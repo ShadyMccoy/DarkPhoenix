@@ -16,6 +16,7 @@
  * spawn machine time. Splitting them keeps P&L a column, not a derivation.
  * Growing the flow vocabulary is a constitutional event (piece 6).
  */
+import { spawnTimeEt, upkeepEt } from "../primitives";
 import { BodyShape } from "../sizing";
 
 export type PlaceId = string;
@@ -80,11 +81,11 @@ export interface Step {
   body?: BodyShape;
   /** Posting walk for this step's body, in ticks (~tiles): the commute
    * that prorates its amortization — a body posted far re-spawns more
-   * often per working tick (v1's `effectiveLife`, Addendum 6). Zero or
-   * absent for bodies whose route touches their own spawn's bank: the
-   * first empty leg is a cycle, not a commute. The quotes prorate the
-   * unbacked COST fields with it; the market's sustain fold uses it for
-   * the backed books. */
+   * often per working tick (v1's `effectiveLife`, Addendum 6). Every
+   * body's posting is its PICKUP; zero only for bank-pickup bodies
+   * (Addendum 6, corrected). The quotes prorate the unbacked COST
+   * fields with it; the market's sustain fold uses it for the backed
+   * books. */
   commute?: number;
   /** Live creep (or standing structure) already embodying this step. */
   backedBy?: string;
@@ -94,6 +95,22 @@ export interface Step {
   /** Audit terms, human-readable — a quote must explain itself; the lab
    * renders these (graph-lab requirement #1). */
   note?: string;
+}
+
+/** A step's steady-state bill and machine draw at REPLACEMENT SCALE
+ * (rulings A.2/A.3): a backed body's cost fields are sunk-zeroed for
+ * funding, but it still owes its amortized sustain, continuously. The one
+ * arithmetic ordering, candidate pricing, and the row books all share. */
+export function stepBillEt(s: Step): number {
+  let bill = s.cost.upkeepEt + (s.cost.feeEt ?? 0);
+  if (s.backedBy && s.body) bill += upkeepEt(s.body, s.commute ?? 0);
+  return bill;
+}
+
+export function stepMachineEt(s: Step): number {
+  let machine = s.cost.spawnTimeEt;
+  if (s.backedBy && s.body) machine += spawnTimeEt(s.body, s.commute ?? 0);
+  return machine;
 }
 
 export type CorpKindName = "workman" | "mine" | "haul" | "link" | "upgrade" | "spawning" | "build";

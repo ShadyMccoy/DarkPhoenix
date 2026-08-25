@@ -213,8 +213,8 @@ export function partCount(s: WorkmanShape): number {
  * Tier-1 ledger's "commute is still priced at zero" finding — a
  * 150-tile remote chain quoting ~+4.6 e/t and netting ~0 (Addendum 6,
  * owner 2026-08-24: "shouldn't the body be prorated for travel time").
- * A cycling body whose route touches the spawn's own bank commutes ~0:
- * its first empty leg is a cycle, not a posting walk.
+ * Every body's posting is its PICKUP; only bank-pickup bodies commute
+ * zero (Addendum 6, corrected).
  */
 export function effectiveLife(commute = 0): number {
   return Math.max(1, CREEP_LIFE - commute);

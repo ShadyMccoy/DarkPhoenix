@@ -25,7 +25,6 @@
  */
 import {
   CONTAINER_COST,
-  CONTAINER_HOLD_ET,
   EXTENSION_CAPACITY,
   EXTENSION_COST,
   HORIZON,
@@ -35,6 +34,7 @@ import {
   ROAD_COST_PER_TILE,
   ROAD_UPKEEP_ET_PER_TILE,
   SOURCE_RATE,
+  SPAWN_RATE,
   STORAGE_COST,
   branchHoldingEt,
   chebyshev,
@@ -43,17 +43,17 @@ import {
   spawnTimeEt,
   upkeepEt
 } from "../primitives";
-import { haulFleetBillEt, haulerBody, hubServiceBody, portTenderBody } from "../sizing";
+import { haulFleetBillEt, haulerBody } from "../sizing";
 import { quoteBuild } from "../corps/build";
 import { HaulGap, quoteHaul } from "../corps/haul";
-import { TrunkSlice, quoteLink, quoteTrunk } from "../corps/link";
+import { TrunkMember, planTrunks, quoteLink, stationAnatomyEt } from "../corps/link";
 import { quoteMine } from "../corps/mine";
-import { ESTATE_CORP, quoteSpawning, quoteTender, tenderCapacities } from "../corps/spawning";
+import { ESTATE_CORP, quoteTender, tenderCapacities } from "../corps/spawning";
 import { quoteUpgrade } from "../corps/upgrade";
 import { quoteWorkman } from "../corps/workman";
 import { ChainCandidate, ChainStage, SinkChain, StageOption, clear } from "./market";
 import { EconomyView, ViewCreep, ViewLink } from "./view";
-import { Approval, EnginePlan, FrontierLine, Offer, PlaceId, Step, StructureKind } from "./vocabulary";
+import { Approval, EnginePlan, FrontierLine, Offer, PlaceId, StructureKind, stepBillEt } from "./vocabulary";
 
 function assigned(view: EconomyView, corpId: string): ViewCreep[] {
   return view.creeps.filter(c => c.corp === corpId);
@@ -89,7 +89,10 @@ function optionsAt(offer: Offer, place: PlaceId): StageOption[] {
  * a global candidate (an extension) changes every quote at once, so no
  * order book can price it — only a second clearing can.
  */
-function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: EnginePlan; gaps: Map<string, HaulGap> } {
+function assembleAndClear(
+  view: EconomyView,
+  warchestTarget: number
+): { plan: EnginePlan; gaps: Map<string, HaulGap>; trunkBuffers: Map<string, PlaceId> } {
   // The buyable budget — v1's survival law, ported: "sizes to capacity
   // when staffed, to cash-in-hand when nobody is alive". With PRODUCTION
   // standing, income refills the estate, so waiting for the full body is
@@ -132,32 +135,26 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
    * (3% tax) could never take its edge back from the bodies it beat.
    * Backed-first survives as the TIEBREAK: within equal steady-state
    * cost, standing capital holds — the anti-thrash piece 5 wanted. */
+  const isRoaded = (from: PlaceId, to: PlaceId): boolean => view.roads.some(r => r.from === from && r.to === to);
   const transportBook = (gap: HaulGap, commute = 0): StageOption[] => {
-    gap.roaded = view.roads.some(r => r.from === gap.from && r.to === gap.to);
-    gapByOffer.set(`haul:${gap.from}->${gap.to}`, gap);
-    commuteByCorp.set(`haul:${gap.from}->${gap.to}`, commute);
+    const g: HaulGap = { ...gap, roaded: isRoaded(gap.from, gap.to) };
+    gapByOffer.set(`haul:${g.from}->${g.to}`, g);
+    commuteByCorp.set(`haul:${g.from}->${g.to}`, commute);
     const options: StageOption[] = [];
     const haul = quoteHaul({
-      gap,
+      gap: g,
       bank: view.bank,
       bodyBudget: budget,
       commute,
-      creeps: assigned(view, `haul:${gap.from}->${gap.to}`)
+      creeps: assigned(view, `haul:${g.from}->${g.to}`)
     });
-    if (haul) options.push(...optionsAt(haul, gap.to));
-    const pair = linkPair(view, gap.from, gap.to);
-    const link = pair ? quoteLink({ gap, atFrom: pair.atFrom, atTo: pair.atTo }) : null;
-    if (link && link.steps[0].backedBy) options.push(...optionsAt(link, gap.to));
+    if (haul) options.push(...optionsAt(haul, g.to));
+    const pair = linkPair(view, g.from, g.to);
+    const link = pair ? quoteLink({ gap: g, atFrom: pair.atFrom, atTo: pair.atTo }) : null;
+    if (link && link.steps[0].backedBy) options.push(...optionsAt(link, g.to));
 
     const steadyUnit = (o: StageOption): number => {
-      const st: Step = o.offer.steps[o.step];
-      let bill = st.cost.upkeepEt + (st.cost.feeEt ?? 0);
-      // A backed BODY still owes its replacement, continuously; a backed
-      // STRUCTURE owes only its fee (links do not wear out). The body
-      // rides the step now — the creep re-join this closure used to do
-      // was one of the compensating lenses the roster fix deleted
-      // (Addendum 4, second landing).
-      if (st.backedBy && st.body) bill += upkeepEt(st.body, st.commute ?? 0);
+      const bill = stepBillEt(o.offer.steps[o.step]);
       return o.capacity > 1e-9 ? bill / o.capacity : Infinity;
     };
     options.sort((a, b) => {
@@ -181,61 +178,9 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
   };
 
   // Round 1 — anchored production, one gap per supplying place. Outpost
-  // consolidation (owner 2026-08-23: "consolidate multiple haul routes
-  // into one link outpost"): a source routes via a collection branch when
-  // the short collector leg plus the trunk's price undercuts its direct
-  // route. The trunk is ONE standing pair quoted as one wire-share step
-  // per source, so shared capacity funds once and the book audits the
-  // joint. The pair and its ration come from linkPair — the LEGAL
-  // closest pair. When the ration binds, the excess is a RATE, never a
-  // member (Addendum 5, owner 2026-08-24: "they could still bring all 30
-  // to the outpost and the link can hire a hauler for the excess"): a
-  // member takes what wire is left and the trunk's own overflow bodies
-  // walk the rest, so nobody sheds to a direct route while the blend
-  // still pays. Members still seat in displaced-saving order (Addendum
-  // 3), which decides who rides the cheap wire and who pays the walk.
-  // v0: standing trunks only, whole-supply routing per member,
-  // best-outpost-only per source.
-  interface TrunkPlan {
-    place: PlaceId;
-    pair: { atFrom: ViewLink; atTo: ViewLink };
-    slices: TrunkSlice[];
-    overflow: TrunkSlice[];
-    distToBank: number;
-    remaining: number;
-  }
-  const trunkFor = (place: PlaceId): TrunkPlan | null => {
-    const pair = linkPair(view, place, view.bank);
-    const op = view.outposts.find(o => o.place === place);
-    if (!pair || !op) return null;
-    const range = Math.max(chebyshev(pair.atFrom, pair.atTo), 1);
-    return { place, pair, slices: [], overflow: [], distToBank: op.distToBank, remaining: LINK_CAPACITY / range };
-  };
-  const trunks = new Map<string, TrunkPlan>();
-  interface ViaOption {
-    outpostPlace: PlaceId;
-    dSrc: number;
-    saving: number;
-  }
-  interface ViaCandidate {
-    srcId: string;
-    mineOptions: StageOption[];
-    supply: number;
-    directDist: number;
-    /** Every paying trunk, best saving first — a full best trunk spills
-     * to the next, never straight to bodies while a paying trunk stands
-     * idle (best-only admission was a regression the review caught). */
-    options: ViaOption[];
-  }
-  const viaCandidates: ViaCandidate[] = [];
-  interface PendingVia {
-    srcId: string;
-    mineOptions: StageOption[];
-    collector: StageOption[];
-    outpostPlace: PlaceId;
-  }
-  const pendingVia: PendingVia[] = [];
-
+  // consolidation lives in the link vertical (planTrunks — Addenda 3/5
+  // hold its admission and overflow rulings); the broker lends it books,
+  // pairs, and route facts.
   const chains: ChainCandidate[] = [];
   const directChain = (srcId: string, mineOptions: StageOption[], distToBank: number, supply: number): void => {
     // The fleet starts at the source (Addendum 6, corrected): the walk
@@ -282,82 +227,35 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     const mineOptions = mine ? optionsAt(mine, src.id) : null;
     const supply = mineOptions ? mineOptions.reduce((a, o) => a + o.capacity, 0) : 0;
     srcRecords.push({ srcId: src.id, mineOptions, supply, distToBank: src.distToBank, workman });
-    if (!mineOptions) continue;
-
-    const directUnit = haulUnit(src.distToBank);
-    // A source with a STANDING direct wire never rides a tree: its
-    // direct marginal is the same 3% tax with no collector leg, so via
-    // (leg + tax, possibly tax + tax) can only lose. The heuristic
-    // compared BODY units on both sides and pulled wired sources onto
-    // the trunks — a double-taxed relay that also stole slices from
-    // the genuinely-displacing members (caught in the forest re-run).
-    const directWire = linkPair(view, src.id, view.bank);
-    const options: ViaOption[] = [];
-    for (const op of directWire ? [] : view.outposts) {
-      const dSrc = op.distToSource[src.id];
-      if (dSrc === undefined) continue;
-      if (!trunks.has(op.place)) {
-        const t = trunkFor(op.place);
-        if (t) trunks.set(op.place, t);
-      }
-      if (!trunks.has(op.place)) continue;
-      const saving = directUnit - (haulUnit(dSrc) + LINK_LOSS);
-      if (saving > 1e-9) options.push({ outpostPlace: op.place, dSrc, saving });
-    }
-    if (options.length > 0) {
-      options.sort((a, b) => b.saving - a.saving || (a.outpostPlace < b.outpostPlace ? -1 : 1));
-      viaCandidates.push({ srcId: src.id, mineOptions, supply, directDist: src.distToBank, options });
-    }
   }
 
-  // Member admission, by MERIT: the biggest TOTAL displaced saving
-  // (per-unit saving × the source's actual supply — a spots-limited
-  // trickle must not outrank a full source) seats first, so the best
-  // displacers ride the cheap wire. A member takes the wire that is
-  // LEFT and spills the rest onto the trunk's own overflow bodies; its
-  // BLENDED gain (wire share at the tax, spill at the corridor walk)
-  // decides admission — a member whose blend loses to its direct route
-  // stays direct, naturally: a mostly-spilled member pays the collector
-  // leg plus the corridor, which the triangle makes a detour.
-  viaCandidates.sort(
-    (a, b) => b.options[0].saving * b.supply - a.options[0].saving * a.supply || (a.srcId < b.srcId ? -1 : 1)
+  const trunkMembers: TrunkMember[] = [];
+  for (const r of srcRecords) {
+    if (r.mineOptions) {
+      trunkMembers.push({ srcId: r.srcId, mineOptions: r.mineOptions, supply: r.supply, distToBank: r.distToBank });
+    }
+  }
+  const trunkPlanning = planTrunks(
+    {
+      bank: view.bank,
+      outposts: view.outposts,
+      bodyBudget: budget,
+      haulUnit,
+      book: transportBook,
+      pair: (from, to) => linkPair(view, from, to),
+      roaded: isRoaded,
+      creeps: id => assigned(view, id)
+    },
+    trunkMembers
   );
-  const viaSeated = new Set<string>();
-  for (const c of viaCandidates) {
-    const directUnit = haulUnit(c.directDist);
-    for (const o of c.options) {
-      const t = trunks.get(o.outpostPlace);
-      if (!t) continue;
-      const wireShare = Math.min(c.supply, Math.max(t.remaining, 0));
-      const spill = c.supply - wireShare;
-      const gain = wireShare * o.saving + spill * (directUnit - haulUnit(o.dSrc) - haulUnit(t.distToBank));
-      if (gain <= 1e-9) continue;
-      // A collector leg unloads into the port: its bodies cap at the
-      // landing quantum (Addendum 4's anatomy at the haul quote). The
-      // fleet starts at its SOURCE (Addendum 6, corrected) and pays
-      // that walk as its time-to-live penalty.
-      const collector = transportBook(
-        { from: c.srcId, to: o.outpostPlace, dist: o.dSrc, flow: c.supply, linkFed: true },
-        c.directDist
-      );
-      if (collector.length === 0) continue;
-      viaSeated.add(c.srcId);
-      pendingVia.push({ srcId: c.srcId, mineOptions: c.mineOptions, collector, outpostPlace: o.outpostPlace });
-      if (wireShare > 1e-9) t.slices.push({ sourceId: c.srcId, flow: wireShare });
-      if (spill > 1e-9) t.overflow.push({ sourceId: c.srcId, flow: spill });
-      t.remaining -= wireShare;
-      break;
-    }
-  }
 
   // The chains array assembles in the SOURCE ORDER the market clears
   // in: per source, specialist before workman (the cascade tests pin
   // that phase-1 priority), via chains after the trunks consolidate.
-  // Pushing rejected fallbacks at admission time slid them behind their
-  // own workman chains (review finding — a phase-1 priority flip on
-  // any source holding both fleets).
   for (const r of srcRecords) {
-    if (r.mineOptions && !viaSeated.has(r.srcId)) directChain(r.srcId, r.mineOptions, r.distToBank, r.supply);
+    if (r.mineOptions && !trunkPlanning.viaSeated.has(r.srcId)) {
+      directChain(r.srcId, r.mineOptions, r.distToBank, r.supply);
+    }
     if (r.workman) {
       chains.push({
         id: `chain:${r.srcId}:workman`,
@@ -366,111 +264,68 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
       });
     }
   }
-
-  // Consolidated chains: the trunk offers exist only after every share
-  // is known, so via-chains assemble here — mine → collector → the
-  // member's trunk options (throat at zero capacity, its wire share,
-  // its overflow bodies), indices straight from the quote's own layout:
-  // a broker-side re-derivation would be a second lens on the offer's
-  // shape. The throat funds with whichever member funds first and the
-  // market charges shared steps once (Addendum 4).
-  for (const t of trunks.values()) {
-    commuteByCorp.set(`link:${t.place}->${view.bank}`, t.distToBank);
-    const q = quoteTrunk({
-      from: t.place,
-      to: view.bank,
-      slices: t.slices,
-      overflow: t.overflow,
-      distToBank: t.distToBank,
-      roaded: view.roads.some(r => r.from === t.place && r.to === view.bank),
-      bodyBudget: budget,
-      atFrom: t.pair.atFrom,
-      atTo: t.pair.atTo,
-      container: view.outposts.find(o => o.place === t.place)?.hasContainer ?? false,
-      creeps: assigned(view, `link:${t.place}->${view.bank}`)
-    });
-    if (!q) continue;
-    for (const v of pendingVia) {
-      if (v.outpostPlace !== t.place) continue;
-      const member = q.memberSteps[v.srcId];
-      if (!member) continue;
-      chains.push({
-        id: `chain:${v.srcId}:via`,
-        sourceId: v.srcId,
-        stages: [
-          { options: v.mineOptions },
-          { options: v.collector },
-          { options: member.map(m => ({ offer: q.offer, step: m.step, capacity: m.capacity })) }
-        ]
-      });
-    }
-  }
+  chains.push(...trunkPlanning.chains);
+  trunkPlanning.commutes.forEach((walk, id) => commuteByCorp.set(id, walk));
 
   // Round 1 — anchored consumption; its feed place nets a bank→feed gap.
-  // Capital sinks first (the bank's draw policy): every open site is a
-  // build chain — transport covers the site's place like any gap, the
-  // build corp burns there, and the burn draws the stock the approval
-  // reserved.
+  // Capital sinks first (the bank's draw policy): the burn draws the
+  // stock the approval reserved. An adjacent controller self-loads AT
+  // the bank — its draw and the bank's supply meet at one place, so the
+  // book clears with no gap.
   const sinks: SinkChain[] = [];
-  for (const site of view.sites) {
-    commuteByCorp.set(`build:${site.id}`, site.dist);
-    const buildOffer = quoteBuild({
-      siteId: site.id,
-      at: site.at,
-      total: site.total,
-      remaining: site.remaining,
-      bodyBudget: budget,
-      commute: site.dist,
-      creeps: assigned(view, `build:${site.id}`)
-    });
-    if (!buildOffer) continue;
-    const burnOptions: StageOption[] = buildOffer.steps.map((s, i) => ({
-      offer: buildOffer,
+  const sinkFor = (offer: Offer | null, at: PlaceId, dist: number, capital: boolean): void => {
+    if (!offer) return;
+    const burnOptions: StageOption[] = offer.steps.map((s, i) => ({
+      offer,
       step: i,
-      capacity: s.requires.energyAt?.[site.at] ?? 0
+      capacity: s.requires.energyAt?.[at] ?? 0
     }));
     const demand = burnOptions.reduce((a, o) => a + o.capacity, 0);
     const stages: ChainStage[] = [];
-    if (site.at !== view.bank) {
-      const book = transportBook({ from: view.bank, to: site.at, dist: site.dist, flow: demand });
+    if (at !== view.bank) {
+      const book = transportBook({ from: view.bank, to: at, dist, flow: demand });
       if (book.length > 0) stages.push({ options: book });
     }
     stages.push({ options: burnOptions });
-    sinks.push({ stages, capital: true });
+    sinks.push(capital ? { stages, capital } : { stages });
+  };
+  for (const site of view.sites) {
+    commuteByCorp.set(`build:${site.id}`, site.dist);
+    sinkFor(
+      quoteBuild({
+        siteId: site.id,
+        at: site.at,
+        total: site.total,
+        remaining: site.remaining,
+        bodyBudget: budget,
+        commute: site.dist,
+        creeps: assigned(view, `build:${site.id}`)
+      }),
+      site.at,
+      site.dist,
+      true
+    );
   }
   if (view.controller) {
     const ctrl = view.controller;
-    // An adjacent controller self-loads AT the bank — its draw and the
-    // bank's supply meet at one place, so the book clears with no gap.
     const feed = ctrl.distFromBank > 1 ? ctrl.id : view.bank;
     commuteByCorp.set(`upgrade:${ctrl.id}`, ctrl.distFromBank);
-    const upgrade = quoteUpgrade({
-      controllerId: ctrl.id,
+    sinkFor(
+      quoteUpgrade({
+        controllerId: ctrl.id,
+        feed,
+        bodyBudget: budget,
+        maxBurn: view.sources.length * SOURCE_RATE,
+        commute: ctrl.distFromBank,
+        creeps: assigned(view, `upgrade:${ctrl.id}`)
+      }),
       feed,
-      bodyBudget: budget,
-      maxBurn: view.sources.length * SOURCE_RATE,
-      commute: ctrl.distFromBank,
-      creeps: assigned(view, `upgrade:${ctrl.id}`)
-    });
-    if (upgrade) {
-      const burnOptions: StageOption[] = upgrade.steps.map((s, i) => ({
-        offer: upgrade,
-        step: i,
-        capacity: s.requires.energyAt?.[feed] ?? 0
-      }));
-      const demand = burnOptions.reduce((a, o) => a + o.capacity, 0);
-      const stages: ChainStage[] = [];
-      if (feed !== view.bank) {
-        const book = transportBook({ from: view.bank, to: feed, dist: ctrl.distFromBank, flow: demand });
-        if (book.length > 0) stages.push({ options: book });
-      }
-      stages.push({ options: burnOptions });
-      sinks.push({ stages });
-    }
+      ctrl.distFromBank,
+      false
+    );
   }
 
-  const spawning = quoteSpawning({ spawnIds: view.spawnIds });
-  const spawnCapacity = spawning ? spawning.steps.reduce((sum, s) => sum + (s.provides.spawnTime ?? 0), 0) : 0;
+  const spawnCapacity = view.spawnIds.length * SPAWN_RATE;
 
   // The live fleet's perpetual replacement bill — steady state has no
   // expiry event, only this cash line. The market needs it too: the
@@ -507,14 +362,14 @@ function assembleAndClear(view: EconomyView, warchestTarget: number): { plan: En
     warchestTarget,
     tender: tenderOffer ? { offer: tenderOffer, capacities: tenderCapacities(tenderOffer, view.estateRadius) } : null
   });
-  return { plan, gaps: gapByOffer };
+  return { plan, gaps: gapByOffer, trunkBuffers: trunkPlanning.buffers };
 }
 
 export function replan(view: EconomyView): EnginePlan {
   // Open sites' remaining capex is already the bank's to hold: if hires
   // dipped the stock below it, the warchest tops it back up.
   const committed = view.sites.reduce((sum, s) => sum + s.remaining, 0);
-  const { plan: base, gaps: gapByOffer } = assembleAndClear(view, committed);
+  const { plan: base, gaps: gapByOffer, trunkBuffers } = assembleAndClear(view, committed);
 
   // Round 3 — investment evaluation on the funded plan's own traffic.
   // Piece 5's challenger rule as arithmetic: the candidate's FULL-cost
@@ -617,7 +472,7 @@ export function replan(view: EconomyView): EnginePlan {
     });
     const st = cand && !cand.steps[0].backedBy ? cand.steps[0] : null;
     const throughput = st?.provides.energyAt?.[gap.to] ?? 0;
-    const candUnit = st && throughput > 1e-9 ? (st.cost.upkeepEt + (st.cost.feeEt ?? 0)) / throughput : Infinity;
+    const candUnit = st && throughput > 1e-9 ? stepBillEt(st) / throughput : Infinity;
     if (cand && st && candUnit + 1e-9 < incumbentUnit) {
       const capex = st.cost.upfront;
       proposals.push({
@@ -686,14 +541,10 @@ export function replan(view: EconomyView): EnginePlan {
         haulFleetBillEt(gross, x.m.collectRange, false, memberWalk) -
         LINK_LOSS * gross;
     }
-    // The candidate prices its whole port anatomy (Addendum 4): the
-    // throat's bill, the hub-side service, and the buffer container it
-    // OBLIGATES — hold plus capex over H. The container itself approves
-    // as the standing trunk's obligation once the station stands, so the
-    // purse pays it then; the hurdle prices it now, as a known
-    // consequence, or a tree could clear on arithmetic its kit falsifies.
-    saving -=
-      upkeepEt(portTenderBody(flow)) + upkeepEt(hubServiceBody()) + CONTAINER_HOLD_ET + CONTAINER_COST / HORIZON;
+    // The hurdle prices the kit now, or a tree could clear on
+    // arithmetic its own kit falsifies (Addendum 4); the vertical owns
+    // the terms.
+    saving -= stationAnatomyEt(flow);
     if (LINK_CAPACITY / Math.max(st.range, 1) + 1e-9 < flow) continue;
     if (saving <= 0) continue;
     proposals.push({
@@ -781,10 +632,8 @@ export function replan(view: EconomyView): EnginePlan {
   // hub (storage-backed) trigger nothing: haul-fed only.
   for (const corp of base.corps) {
     if (corp.kind !== "link") continue;
-    const at = corp.id.slice("link:".length).split("->")[0];
-    if (at.indexOf("outpost:") !== 0) continue;
-    const op = view.outposts.find(o => o.place === at);
-    if (!op || op.hasContainer) continue;
+    const at = trunkBuffers.get(corp.id);
+    if (!at) continue;
     if (view.sites.some(k => k.structure === "container" && k.edge && k.edge.from === at)) continue;
     if (CONTAINER_COST <= spendable + 1e-9) {
       spendable -= CONTAINER_COST;

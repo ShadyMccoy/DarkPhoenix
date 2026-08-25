@@ -29,8 +29,19 @@
  * obligation; upfront is cash at purchase, checked by solvency and paid
  * by the believer's bank.
  */
-import { PROJECT_RATE_WINDOW, spawnTimeEt, upkeepEt } from "../primitives";
-import { CorpInstance, EnginePlan, Flows, FrontierLine, Offer, PlaceId, Step, addFlows } from "./vocabulary";
+import { PROJECT_RATE_WINDOW } from "../primitives";
+import {
+  CorpInstance,
+  EnginePlan,
+  Flows,
+  FrontierLine,
+  Offer,
+  PlaceId,
+  Step,
+  addFlows,
+  stepBillEt,
+  stepMachineEt
+} from "./vocabulary";
 
 /** How far ahead ramp solvency may count standing accumulation — one
  * project window: the same near-term the build corp plans in. */
@@ -298,11 +309,12 @@ export function clear(input: MarketInput): EnginePlan {
   // forest demo sat 100 chunks at zero build progress). The tender
   // (obligations) outranks the reserve; the dividend's own share still
   // awaits the owner's ruling.
+  const sinkIncs = input.sinks.map(s => chainIncrements(s.stages));
   let capitalReserve = 0;
-  for (const sink of input.sinks) {
-    if (!sink.capital) continue;
-    for (const inc of chainIncrements(sink.stages)) capitalReserve += inc.spawnTimeEt;
-  }
+  input.sinks.forEach((sink, i) => {
+    if (!sink.capital) return;
+    for (const inc of sinkIncs[i]) capitalReserve += inc.spawnTimeEt;
+  });
   capitalReserve = Math.min(capitalReserve, Math.max(input.spawnCapacity - spawnUsed, 0));
   let delivered = 0;
   let refill = 0;
@@ -518,12 +530,11 @@ export function clear(input: MarketInput): EnginePlan {
   let standingUpgradeEt = 0;
   let buildEt = 0;
   let standingBuildEt = 0;
-  const drawSink = (sink: SinkChain): void => {
+  const drawSink = (sink: SinkChain, incs: Inc[]): void => {
     if (sink.stages.length === 0) return;
     const lastStage = sink.stages[sink.stages.length - 1];
     const sinkOffer = lastStage.options.length > 0 ? lastStage.options[0].offer : null;
     if (!sinkOffer) return;
-    const incs = chainIncrements(sink.stages);
     const fundedPerStage = sink.stages.map(() => 0);
     let flow = 0;
     for (const inc of incs) {
@@ -532,7 +543,6 @@ export function clear(input: MarketInput): EnginePlan {
       // through the charge dedupe first — a step another chain already
       // funded is free here — and commit only on the path that funds.
       const c = chargeOf(sink.stages, inc.refs, false);
-      const draw = (sink.capital ? 0 : inc.delivered) + c.upkeepEt + c.feeEt;
       if (c.spawnTimeEt > EPS && spawnUsed + c.spawnTimeEt > input.spawnCapacity + EPS) {
         frontier.push({
           offerId: sinkOffer.id,
@@ -541,45 +551,21 @@ export function clear(input: MarketInput): EnginePlan {
         });
         break;
       }
-      if (draw > residual + EPS) {
-        // The last increment funds PARTIALLY: the burner scales to what
-        // is left (utilization < 1 — allocation machinery, first-class).
-        // Whole-step-only funding stranded the sub-quantum residual as
-        // stock forever, and quantization noise swallowed counterfactual
-        // deltas whole (session finding 2026-08-23).
-        const partial = residual - c.upkeepEt - c.feeEt;
-        if (!sink.capital && partial > EPS) {
-          chargeOf(sink.stages, inc.refs, true);
-          for (const ref of inc.refs) {
-            const o = sink.stages[ref.stage].options[ref.option];
-            fund(o.offer, null, o.step);
-            fundedPerStage[ref.stage] = Math.max(fundedPerStage[ref.stage], ref.option + 1);
-          }
-          flow += partial;
-          residual = 0;
-          refill += c.upkeepEt;
-          fees += c.feeEt;
-          spawnUsed += c.spawnTimeEt;
-          upgradeEt += partial;
-          if (inc.backed) {
-            standingUpgradeEt += partial;
-            // The fee is charged in full here too — dropping it from the
-            // standing split leaked phantom cash to every cash reader
-            // (review finding: the same bug the full-fund path had).
-            standingFees += c.feeEt;
-          }
-          frontier.push({
-            offerId: sinkOffer.id,
-            reason: "energy residual",
-            detail: `last step trims to ${partial.toFixed(2)} of ${inc.delivered.toFixed(2)} e/t — residual drained`
-          });
-        } else {
-          frontier.push({
-            offerId: sinkOffer.id,
-            reason: "energy residual",
-            detail: `step needs ${draw.toFixed(2)} e/t, residual ${residual.toFixed(2)} e/t`
-          });
-        }
+      // The last increment funds PARTIALLY: the burner scales to what is
+      // left (utilization < 1, first-class) — whole-step-only funding
+      // stranded the sub-quantum residual forever (session finding
+      // 2026-08-23). One funding path covers full, trimmed, and capital
+      // draws alike; the review once caught a fee dropped from exactly
+      // one of the old twin branches.
+      const bills = c.upkeepEt + c.feeEt;
+      const wanted = sink.capital ? 0 : inc.delivered;
+      const grant = Math.min(wanted, Math.max(residual - bills, 0));
+      if (bills > residual + EPS || (!sink.capital && grant <= EPS)) {
+        frontier.push({
+          offerId: sinkOffer.id,
+          reason: "energy residual",
+          detail: `step needs ${(wanted + bills).toFixed(2)} e/t, residual ${residual.toFixed(2)} e/t`
+        });
         break;
       }
       chargeOf(sink.stages, inc.refs, true);
@@ -588,18 +574,28 @@ export function clear(input: MarketInput): EnginePlan {
         fund(o.offer, null, o.step);
         fundedPerStage[ref.stage] = Math.max(fundedPerStage[ref.stage], ref.option + 1);
       }
-      flow += inc.delivered;
-      residual -= draw;
+      residual -= bills + grant;
       refill += c.upkeepEt;
       fees += c.feeEt;
       spawnUsed += c.spawnTimeEt;
       if (inc.backed) standingFees += c.feeEt;
+      const produced = sink.capital ? inc.delivered : grant;
+      flow += produced;
       if (sink.capital) {
-        buildEt += inc.delivered;
-        if (inc.backed) standingBuildEt += inc.delivered;
+        buildEt += produced;
+        if (inc.backed) standingBuildEt += produced;
       } else {
-        upgradeEt += inc.delivered;
-        if (inc.backed) standingUpgradeEt += inc.delivered;
+        upgradeEt += produced;
+        if (inc.backed) standingUpgradeEt += produced;
+      }
+      if (grant < wanted - EPS) {
+        residual = 0;
+        frontier.push({
+          offerId: sinkOffer.id,
+          reason: "energy residual",
+          detail: `last step trims to ${grant.toFixed(2)} of ${inc.delivered.toFixed(2)} e/t — residual drained`
+        });
+        break;
       }
     }
     if (flow > EPS) allocateChain(sink.stages, fundedPerStage, flow);
@@ -607,7 +603,9 @@ export function clear(input: MarketInput): EnginePlan {
 
   // Capital sinks now draw the machine share reserved for them.
   capitalReserve = 0;
-  for (const sink of input.sinks) if (sink.capital) drawSink(sink);
+  input.sinks.forEach((sink, i) => {
+    if (sink.capital) drawSink(sink, sinkIncs[i]);
+  });
 
   // The warchest diversion: while the bank sits below its reserve target
   // (open capex plus awaiting candidates), the residual BANKS instead of
@@ -621,7 +619,9 @@ export function clear(input: MarketInput): EnginePlan {
     residual = 0;
   }
 
-  for (const sink of input.sinks) if (!sink.capital) drawSink(sink);
+  input.sinks.forEach((sink, i) => {
+    if (!sink.capital) drawSink(sink, sinkIncs[i]);
+  });
 
   // An uncovered heartbeat is NEVER silent (the axiom, printed). Checked
   // HERE, after the sinks: their newly bought fleets' bills join the
@@ -654,33 +654,20 @@ export function clear(input: MarketInput): EnginePlan {
     const outputs: Flows = {};
     for (const i of f.steps) {
       const s = f.offer.steps[i];
-      const fee = s.cost.feeEt ?? 0;
+      // Ownership and operation are inputs too, at replacement scale
+      // (stepBillEt/stepMachineEt — the one arithmetic): machine time,
+      // the parts bill at the bank, fees the bank pays, and a backed
+      // body's continuing sustain (the 2026-08-24 second landing).
+      const bill = stepBillEt(s);
+      const machine = stepMachineEt(s);
       gross += flowMagnitude(s.provides) * u;
-      cost += s.cost.upkeepEt + fee;
+      cost += bill;
       addFlows(outputs, s.provides, u);
       addFlows(inputs, s.requires, u);
-      // Ownership and operation are inputs too: machine time, the parts
-      // bill at the bank, and fees the bank pays.
-      if (s.cost.spawnTimeEt > 0) addFlows(inputs, { spawnTime: s.cost.spawnTimeEt });
-      if (s.cost.upkeepEt + fee > 0) addFlows(inputs, { energyAt: { [input.bank]: s.cost.upkeepEt + fee } });
+      if (machine > 0) addFlows(inputs, { spawnTime: machine });
+      if (bill > 0) addFlows(inputs, { energyAt: { [input.bank]: bill } });
       if (s.backedBy) backed += 1;
-      if (s.body) {
-        staff.push({ body: s.body, live: s.backedBy ?? null });
-        // The books never forget a live body (piece 5's companion rule).
-        // Its cost fields are sunk-zeroed for FUNDING — correct — but the
-        // row's contract still owes the body's sustain: machine time and
-        // the amortized parts bill at the bank, priced at replacement
-        // scale exactly as the order books already price it. Without
-        // this, a settled row read "requires nothing" and netted its
-        // whole gross while the aggregates (standingBills) knew better —
-        // two lenses inside one plan (the 2026-08-24 second landing).
-        if (s.backedBy) {
-          const sustain = upkeepEt(s.body, s.commute ?? 0);
-          cost += sustain;
-          addFlows(inputs, { spawnTime: spawnTimeEt(s.body, s.commute ?? 0) });
-          addFlows(inputs, { energyAt: { [input.bank]: sustain } });
-        }
-      }
+      if (s.body) staff.push({ body: s.body, live: s.backedBy ?? null });
     }
     if (f.offer.kind === "mine" || f.offer.kind === "workman") minedEt += gross;
     corps.push({

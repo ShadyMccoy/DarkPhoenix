@@ -2033,6 +2033,25 @@ Tier 2); the binding constraint is ruling bandwidth, not code.
    — absent reads as false; and an OWNER RULING that lived only in
    src, restored to the record: **a source IS its place — no
    separate "mouth" concept (owner 2026-08-23).**
+   **RESOLVED (same session; owner: "resolve all the code debt issues
+   you found"):** all ten items landed green — 95 unit + 8
+   integration, lint clean. The trunk/via planning lives in
+   `corps/link.ts` (`planTrunks`: the broker lends books, pairs and
+   route facts; the vertical plans — replan.ts 836 → 685 lines); the
+   station hurdle prices through `stationAnatomyEt` in the same file,
+   so ruling A.4's serviceFee change now lands in ONE place; step
+   bills collapse to one arithmetic (`stepBillEt`/`stepMachineEt` in
+   the vocabulary — ordering, candidate pricing, and the row books
+   all call it, deleting the sync-by-comment); the seven verticals
+   share two step builders (`corps/steps.ts` — the purchase-cost
+   triple lives once); drawSink runs one funding path (full, trimmed,
+   and capital draws alike — the door that once dropped a fee);
+   the buffer obligation reads the trunk quote's own declaration (id
+   parsing deleted); transportBook stopped mutating its caller's gap;
+   quoteSpawning collapsed to spawns × SPAWN_RATE; and the overruled
+   cycle-credit prose is deleted at all three sites. The docblock
+   migration sweep (the ~1.4k comment mass) remains queued — this
+   batch was the CODE debt.
 
 **A+. Raised in-session and ruled — the fiscal calendar (2026-08-24,
 owner's definition; corrected same session: "1500 and 15,000"):** one

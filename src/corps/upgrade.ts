@@ -4,8 +4,9 @@
  * here (owner pin: production has no standalone worth). The body parks at
  * the bank branch and self-feeds — the founding kernel co-locates the two.
  */
-import { UPGRADE_POWER, bodyCost, spawnTimeEt, upkeepEt } from "../primitives";
+import { UPGRADE_POWER } from "../primitives";
 import { upgraderBody } from "../sizing";
+import { hireStep, liveStep } from "./steps";
 import { Offer, PlaceId, Step } from "../engine/vocabulary";
 import { ViewCreep } from "../engine/view";
 
@@ -30,15 +31,7 @@ export function quoteUpgrade(h: UpgradeHandoff): Offer | null {
     const burn = Math.min(c.body.work * UPGRADE_POWER, Math.max(h.maxBurn - cum, 0));
     if (burn <= 0) break;
     cum += burn;
-    steps.push({
-      backedBy: c.id,
-      body: c.body,
-      commute: h.commute,
-      provides: { controlPoints: burn },
-      requires: { energyAt: { [h.feed]: burn } },
-      cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
-      note: `alive ttl=${c.ttl}`
-    });
+    steps.push(liveStep(c, h.commute, { controlPoints: burn }, { energyAt: { [h.feed]: burn } }));
   }
 
   const body = upgraderBody(h.bodyBudget);
@@ -47,18 +40,15 @@ export function quoteUpgrade(h: UpgradeHandoff): Offer | null {
     while (cum < h.maxBurn) {
       const burn = Math.min(perBody, h.maxBurn - cum);
       cum += burn;
-      steps.push({
-        body,
-        commute: h.commute,
-        provides: { controlPoints: burn },
-        requires: { energyAt: { [h.feed]: burn } },
-        cost: {
-          upfront: bodyCost(body),
-          upkeepEt: upkeepEt(body, h.commute),
-          spawnTimeEt: spawnTimeEt(body, h.commute)
-        },
-        note: `${body.work}W at the controller`
-      });
+      steps.push(
+        hireStep(
+          body,
+          h.commute,
+          { controlPoints: burn },
+          { energyAt: { [h.feed]: burn } },
+          `${body.work}W at the controller`
+        )
+      );
     }
   }
 

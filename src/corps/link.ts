@@ -26,6 +26,7 @@
  * but never spawned, is what that conversion must close).
  */
 import {
+  CONTAINER_COST,
   CONTAINER_HOLD_ET,
   HORIZON,
   LINK_CAPACITY,
@@ -38,9 +39,11 @@ import {
   upkeepEt
 } from "../primitives";
 import { haulerBodyFor, hubServiceBody, portTenderBody } from "../sizing";
+import { hireStep, liveStep } from "./steps";
 import { HaulGap } from "./haul";
+import { ChainCandidate, StageOption } from "../engine/market";
 import { Offer, PlaceId, Step } from "../engine/vocabulary";
-import { ViewCreep, ViewLink, ViewWireOption } from "../engine/view";
+import { ViewCreep, ViewLink, ViewOutpost, ViewWireOption } from "../engine/view";
 
 export interface LinkHandoff {
   gap: HaulGap;
@@ -186,15 +189,15 @@ export function quoteTrunk(h: TrunkHandoff): TrunkQuote | null {
         if (liveRate <= 0) continue;
         cum += liveRate;
         memberOf(s.sourceId).push({ step: steps.length, capacity: liveRate });
-        steps.push({
-          backedBy: live.id,
-          body: live.body,
-          commute: h.distToBank,
-          provides: { energyAt: { [h.to]: liveRate } },
-          requires: { energyAt: { [h.from]: liveRate } },
-          cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
-          note: `overflow alive ttl=${live.ttl}`
-        });
+        steps.push(
+          liveStep(
+            live,
+            h.distToBank,
+            { energyAt: { [h.to]: liveRate } },
+            { energyAt: { [h.from]: liveRate } },
+            `overflow alive ttl=${live.ttl}`
+          )
+        );
         continue;
       }
       const body = haulerBodyFor(s.flow - cum, h.distToBank, h.bodyBudget, h.roaded);
@@ -203,18 +206,15 @@ export function quoteTrunk(h: TrunkHandoff): TrunkQuote | null {
       if (rate <= 0) break;
       cum += rate;
       memberOf(s.sourceId).push({ step: steps.length, capacity: rate });
-      steps.push({
-        body,
-        commute: h.distToBank,
-        provides: { energyAt: { [h.to]: rate } },
-        requires: { energyAt: { [h.from]: rate } },
-        cost: {
-          upfront: bodyCost(body),
-          upkeepEt: upkeepEt(body, h.distToBank),
-          spawnTimeEt: spawnTimeEt(body, h.distToBank)
-        },
-        note: `overflow ${body.carry}C over ${h.distToBank} tiles for ${s.sourceId}`
-      });
+      steps.push(
+        hireStep(
+          body,
+          h.distToBank,
+          { energyAt: { [h.to]: rate } },
+          { energyAt: { [h.from]: rate } },
+          `overflow ${body.carry}C over ${h.distToBank} tiles for ${s.sourceId}`
+        )
+      );
     }
   }
   return { offer: { id: `link:${h.from}->${h.to}`, kind: "link", steps }, memberSteps };
@@ -278,4 +278,193 @@ export function quoteLink(h: LinkHandoff): Offer | null {
       }
     ]
   };
+}
+
+/** The port anatomy a station CANDIDATE must clear in its hurdle: the
+ * throat's bill, the hub-side service, and the buffer it will obligate —
+ * hold plus capex over H (Addendum 4). The same terms the standing quotes
+ * charge, priced in ONE place so an amendment (ruling A.4's serviceFee
+ * change) lands here and nowhere else. */
+export function stationAnatomyEt(flow: number): number {
+  return upkeepEt(portTenderBody(flow)) + upkeepEt(hubServiceBody()) + CONTAINER_HOLD_ET + CONTAINER_COST / HORIZON;
+}
+
+export interface TrunkMember {
+  srcId: string;
+  mineOptions: StageOption[];
+  supply: number;
+  distToBank: number;
+}
+
+/** What the broker lends the vertical: books, pairs, and route facts.
+ * The vertical plans the trunks; the engine still combines. */
+export interface TrunkBroker {
+  bank: PlaceId;
+  outposts: ViewOutpost[];
+  bodyBudget: number;
+  haulUnit(dist: number): number;
+  book(gap: HaulGap, commute: number): StageOption[];
+  pair(from: PlaceId, to: PlaceId): { atFrom: ViewLink; atTo: ViewLink } | null;
+  roaded(from: PlaceId, to: PlaceId): boolean;
+  creeps(corpId: string): ViewCreep[];
+}
+
+export interface TrunkPlanResult {
+  viaSeated: Set<string>;
+  chains: ChainCandidate[];
+  commutes: Map<string, number>;
+  /** Funded-or-not, every quoted trunk lacking its buffer container,
+   * DECLARED (corp id -> outpost place) — the obligation loop reads
+   * this instead of parsing corp id strings. */
+  buffers: Map<string, PlaceId>;
+}
+
+interface TrunkPlan {
+  place: PlaceId;
+  pair: { atFrom: ViewLink; atTo: ViewLink };
+  slices: TrunkSlice[];
+  overflow: TrunkSlice[];
+  distToBank: number;
+  remaining: number;
+}
+
+/**
+ * Outpost consolidation (owner 2026-08-23: "consolidate multiple haul
+ * routes into one link outpost"; Addenda 3 and 5 hold the admission and
+ * overflow rulings). Members gather every paying trunk best-saving
+ * first; admission seats by TOTAL displaced saving, blending wire share
+ * at the tax with spill at the corridor walk; nobody sheds while the
+ * blend still pays. v0: standing trunks only, whole-supply routing per
+ * member, best-outpost-only per source.
+ */
+export function planTrunks(b: TrunkBroker, members: TrunkMember[]): TrunkPlanResult {
+  const trunks = new Map<PlaceId, TrunkPlan>();
+  const trunkFor = (place: PlaceId): TrunkPlan | null => {
+    const pair = b.pair(place, b.bank);
+    const op = b.outposts.find(o => o.place === place);
+    if (!pair || !op) return null;
+    const range = Math.max(chebyshev(pair.atFrom, pair.atTo), 1);
+    return { place, pair, slices: [], overflow: [], distToBank: op.distToBank, remaining: LINK_CAPACITY / range };
+  };
+
+  interface ViaOption {
+    outpostPlace: PlaceId;
+    dSrc: number;
+    saving: number;
+  }
+  interface ViaCandidate {
+    srcId: string;
+    mineOptions: StageOption[];
+    supply: number;
+    directDist: number;
+    options: ViaOption[];
+  }
+  const viaCandidates: ViaCandidate[] = [];
+  for (const m of members) {
+    const directUnit = b.haulUnit(m.distToBank);
+    // A source with a STANDING direct wire never rides a tree: its
+    // direct marginal is the same 3% tax with no collector leg, so via
+    // can only lose (Addendum 3's absolute guard).
+    const directWire = b.pair(m.srcId, b.bank);
+    const options: ViaOption[] = [];
+    for (const op of directWire ? [] : b.outposts) {
+      const dSrc = op.distToSource[m.srcId];
+      if (dSrc === undefined) continue;
+      if (!trunks.has(op.place)) {
+        const t = trunkFor(op.place);
+        if (t) trunks.set(op.place, t);
+      }
+      if (!trunks.has(op.place)) continue;
+      const saving = directUnit - (b.haulUnit(dSrc) + LINK_LOSS);
+      if (saving > 1e-9) options.push({ outpostPlace: op.place, dSrc, saving });
+    }
+    if (options.length > 0) {
+      options.sort((x, y) => y.saving - x.saving || (x.outpostPlace < y.outpostPlace ? -1 : 1));
+      viaCandidates.push({
+        srcId: m.srcId,
+        mineOptions: m.mineOptions,
+        supply: m.supply,
+        directDist: m.distToBank,
+        options
+      });
+    }
+  }
+
+  // Admission by MERIT: biggest TOTAL displaced saving seats first; a
+  // member takes the wire that is LEFT and spills the rest onto the
+  // trunk's own overflow bodies; its BLENDED gain decides admission.
+  viaCandidates.sort(
+    (a, c) => c.options[0].saving * c.supply - a.options[0].saving * a.supply || (a.srcId < c.srcId ? -1 : 1)
+  );
+  const viaSeated = new Set<string>();
+  interface PendingVia {
+    srcId: string;
+    mineOptions: StageOption[];
+    collector: StageOption[];
+    outpostPlace: PlaceId;
+  }
+  const pendingVia: PendingVia[] = [];
+  for (const c of viaCandidates) {
+    const directUnit = b.haulUnit(c.directDist);
+    for (const o of c.options) {
+      const t = trunks.get(o.outpostPlace);
+      if (!t) continue;
+      const wireShare = Math.min(c.supply, Math.max(t.remaining, 0));
+      const spill = c.supply - wireShare;
+      const gain = wireShare * o.saving + spill * (directUnit - b.haulUnit(o.dSrc) - b.haulUnit(t.distToBank));
+      if (gain <= 1e-9) continue;
+      // Collector legs cap at the landing quantum (linkFed) and start
+      // at their SOURCE (Addendum 6, corrected).
+      const collector = b.book(
+        { from: c.srcId, to: o.outpostPlace, dist: o.dSrc, flow: c.supply, linkFed: true },
+        c.directDist
+      );
+      if (collector.length === 0) continue;
+      viaSeated.add(c.srcId);
+      pendingVia.push({ srcId: c.srcId, mineOptions: c.mineOptions, collector, outpostPlace: o.outpostPlace });
+      if (wireShare > 1e-9) t.slices.push({ sourceId: c.srcId, flow: wireShare });
+      if (spill > 1e-9) t.overflow.push({ sourceId: c.srcId, flow: spill });
+      t.remaining -= wireShare;
+      break;
+    }
+  }
+
+  const chains: ChainCandidate[] = [];
+  const commutes = new Map<string, number>();
+  const buffers = new Map<string, PlaceId>();
+  for (const t of trunks.values()) {
+    const id = `link:${t.place}->${b.bank}`;
+    commutes.set(id, t.distToBank);
+    const hasContainer = b.outposts.find(o => o.place === t.place)?.hasContainer ?? false;
+    const q = quoteTrunk({
+      from: t.place,
+      to: b.bank,
+      slices: t.slices,
+      overflow: t.overflow,
+      distToBank: t.distToBank,
+      roaded: b.roaded(t.place, b.bank),
+      bodyBudget: b.bodyBudget,
+      atFrom: t.pair.atFrom,
+      atTo: t.pair.atTo,
+      container: hasContainer,
+      creeps: b.creeps(id)
+    });
+    if (!q) continue;
+    if (!hasContainer) buffers.set(id, t.place);
+    for (const v of pendingVia) {
+      if (v.outpostPlace !== t.place) continue;
+      const member = q.memberSteps[v.srcId];
+      if (!member) continue;
+      chains.push({
+        id: `chain:${v.srcId}:via`,
+        sourceId: v.srcId,
+        stages: [
+          { options: v.mineOptions },
+          { options: v.collector },
+          { options: member.map(m => ({ offer: q.offer, step: m.step, capacity: m.capacity })) }
+        ]
+      });
+    }
+  }
+  return { viaSeated, chains, commutes, buffers };
 }

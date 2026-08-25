@@ -5,8 +5,9 @@
  * price — per-tile bodies, spawnTime consumption (piece 1's boundary).
  * The link kind will compete on these same edges in phase 2.
  */
-import { bodyCost, haulRate, spawnTimeEt, upkeepEt } from "../primitives";
+import { haulRate } from "../primitives";
 import { haulerBodyFor } from "../sizing";
+import { hireStep, liveStep } from "./steps";
 import { Offer, PlaceId, Step } from "../engine/vocabulary";
 import { ViewCreep } from "../engine/view";
 
@@ -28,9 +29,8 @@ export interface HaulHandoff {
   gap: HaulGap;
   bank: PlaceId;
   bodyBudget: number;
-  /** Posting walk to the ROUTE — zero when an endpoint is the bank (the
-   * first empty leg is a cycle); a collector leg pays the walk out
-   * (Addendum 6). */
+  /** Posting walk to the fleet's PICKUP — the from-end of the route;
+   * zero only when the pickup is the bank (Addendum 6, corrected). */
   commute: number;
   creeps: ViewCreep[];
 }
@@ -44,15 +44,7 @@ export function quoteHaul(h: HaulHandoff): Offer | null {
     const rate = haulRate(c.body.carry, dist);
     if (rate <= 0) continue;
     cum += rate;
-    steps.push({
-      backedBy: c.id,
-      body: c.body,
-      commute: h.commute,
-      provides: { energyAt: { [to]: rate } },
-      requires: { energyAt: { [from]: rate } },
-      cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
-      note: `alive ttl=${c.ttl}`
-    });
+    steps.push(liveStep(c, h.commute, { energyAt: { [to]: rate } }, { energyAt: { [from]: rate } }));
   }
 
   // Each marginal body is sized to the flow still uncovered (#148's law
@@ -64,18 +56,15 @@ export function quoteHaul(h: HaulHandoff): Offer | null {
     const perBody = haulRate(body.carry, dist);
     if (perBody <= 0) break;
     cum += perBody;
-    steps.push({
-      body,
-      commute: h.commute,
-      provides: { energyAt: { [to]: perBody } },
-      requires: { energyAt: { [from]: perBody } },
-      cost: {
-        upfront: bodyCost(body),
-        upkeepEt: upkeepEt(body, h.commute),
-        spawnTimeEt: spawnTimeEt(body, h.commute)
-      },
-      note: `${body.carry}C over ${dist} tiles`
-    });
+    steps.push(
+      hireStep(
+        body,
+        h.commute,
+        { energyAt: { [to]: perBody } },
+        { energyAt: { [from]: perBody } },
+        `${body.carry}C over ${dist} tiles`
+      )
+    );
   }
 
   if (steps.length === 0) return null;

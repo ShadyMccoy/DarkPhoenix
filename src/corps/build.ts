@@ -14,8 +14,9 @@
  * clean fix is a labor pool (build borrowing the upgrade fleet) or
  * project-window amortization — an owner conversation, not a patch.
  */
-import { BUILD_POWER, PROJECT_RATE_WINDOW, bodyCost, spawnTimeEt, upkeepEt } from "../primitives";
+import { BUILD_POWER, PROJECT_RATE_WINDOW } from "../primitives";
 import { builderBody } from "../sizing";
+import { hireStep, liveStep } from "./steps";
 import { Offer, PlaceId, Step } from "../engine/vocabulary";
 import { ViewCreep } from "../engine/view";
 
@@ -48,15 +49,7 @@ export function quoteBuild(h: BuildHandoff): Offer | null {
     const burn = Math.min(c.body.work * BUILD_POWER, Math.max(cap - cum, 0));
     if (burn <= 0) break;
     cum += burn;
-    steps.push({
-      backedBy: c.id,
-      body: c.body,
-      commute: h.commute,
-      provides: { progress: burn },
-      requires: { energyAt: { [h.at]: burn } },
-      cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
-      note: `alive ttl=${c.ttl}`
-    });
+    steps.push(liveStep(c, h.commute, { progress: burn }, { energyAt: { [h.at]: burn } }));
   }
 
   const body = builderBody(h.bodyBudget);
@@ -65,18 +58,9 @@ export function quoteBuild(h: BuildHandoff): Offer | null {
     while (cum < cap - 1e-9) {
       const burn = Math.min(perBody, cap - cum);
       cum += burn;
-      steps.push({
-        body,
-        commute: h.commute,
-        provides: { progress: burn },
-        requires: { energyAt: { [h.at]: burn } },
-        cost: {
-          upfront: bodyCost(body),
-          upkeepEt: upkeepEt(body, h.commute),
-          spawnTimeEt: spawnTimeEt(body, h.commute)
-        },
-        note: `${body.work}W at the site`
-      });
+      steps.push(
+        hireStep(body, h.commute, { progress: burn }, { energyAt: { [h.at]: burn } }, `${body.work}W at the site`)
+      );
     }
   }
 

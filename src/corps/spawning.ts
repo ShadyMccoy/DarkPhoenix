@@ -1,40 +1,18 @@
 /**
- * corps/spawning.ts — the spawn estate prices TWO services (owner ruling
- * 2026-08-23: the tender is the spawn corp's own body, never a haul job):
- *
- * 1. Machine time — 1/3 part/tick per standing spawn, backed by the
- *    structure (a standing asset quotes free — piece 5).
- * 2. Refill intake — TENDER bodies that carry the funded obligation from
- *    the bank into the spawn and extensions. Hauling is inter-corp
- *    logistics; filling the estate is this corp's own operation.
- *
- * The ENERGY of bodies rides on each buyer's step as its parts bill, so
- * nothing double-counts; the tender moves those bills and its own cost is
- * one more line of the obligation paid first — the heartbeat, priced.
+ * corps/spawning.ts — the estate's own refill service (owner ruling
+ * 2026-08-23: the tender is the spawn corp's own body, never a haul job).
+ * Machine-time capacity is a scalar the broker derives (spawns ×
+ * SPAWN_RATE); this file prices the TENDER that carries the funded
+ * obligation from the bank into the spawn and extensions.
  */
-import { SPAWN_RATE, bodyCost, haulRate, spawnTimeEt, upkeepEt } from "../primitives";
+import { haulRate } from "../primitives";
 import { tenderBody } from "../sizing";
+import { hireStep, liveStep } from "./steps";
 import { Offer, PlaceId, Step } from "../engine/vocabulary";
 import { ViewCreep } from "../engine/view";
 
 /** The estate's own corp id — the tender fleet's employer. */
 export const ESTATE_CORP = "spawning:estate";
-
-export interface SpawningHandoff {
-  spawnIds: string[];
-}
-
-export function quoteSpawning(h: SpawningHandoff): Offer | null {
-  if (h.spawnIds.length === 0) return null;
-  const steps: Step[] = h.spawnIds.map(id => ({
-    backedBy: id,
-    provides: { spawnTime: SPAWN_RATE },
-    requires: {},
-    cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
-    note: "standing spawn"
-  }));
-  return { id: "spawning:capacity", kind: "spawning", steps };
-}
 
 export interface TenderHandoff {
   bank: PlaceId;
@@ -59,14 +37,7 @@ const TENDER_SCHEDULE_CAP = 12;
 export function quoteTender(h: TenderHandoff): Offer | null {
   const steps: Step[] = [];
   for (const c of h.creeps) {
-    steps.push({
-      backedBy: c.id,
-      body: c.body,
-      provides: {},
-      requires: {},
-      cost: { upfront: 0, upkeepEt: 0, spawnTimeEt: 0 },
-      note: `alive, ${haulRate(c.body.carry, h.estateRadius).toFixed(1)} e/t intake`
-    });
+    steps.push(liveStep(c, 0, {}, {}, `alive, ${haulRate(c.body.carry, h.estateRadius).toFixed(1)} e/t intake`));
   }
   const body = tenderBody(h.bodyBudget);
   if (body) {
@@ -76,13 +47,7 @@ export function quoteTender(h: TenderHandoff): Offer | null {
         ? Math.min(TENDER_SCHEDULE_CAP, Math.max(TENDER_SCHEDULE_FLOOR, Math.ceil(h.obligationEt / perBody)))
         : TENDER_SCHEDULE_FLOOR;
     for (let i = steps.length; i < wanted; i++) {
-      steps.push({
-        body,
-        provides: {},
-        requires: {},
-        cost: { upfront: bodyCost(body), upkeepEt: upkeepEt(body), spawnTimeEt: spawnTimeEt(body) },
-        note: `${body.carry}C over the estate`
-      });
+      steps.push(hireStep(body, 0, {}, {}, `${body.carry}C over the estate`));
     }
   }
   if (steps.length === 0) return null;
